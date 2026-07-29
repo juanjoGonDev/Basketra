@@ -53,7 +53,13 @@ test.afterEach(async ({ page }, testInfo) => {
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.waitForTimeout(100);
   await page.screenshot({ path: testInfo.outputPath('viewport.png') });
-  await page.addStyleTag({ content: '.app-header,.bottom-nav,#toast{display:none!important}.sticky-action{position:static!important}' });
+  await page.evaluate(() => {
+    for (const selector of ['.app-header', '.bottom-nav', '#toast']) {
+      const element = document.querySelector(selector);
+      if (element) element.hidden = true;
+    }
+    document.querySelector('.sticky-action')?.classList.remove('sticky-action');
+  });
   const activeView = page.locator('.view.active');
   if (await activeView.count()) {
     await activeView.screenshot({ path: testInfo.outputPath('final.png') });
