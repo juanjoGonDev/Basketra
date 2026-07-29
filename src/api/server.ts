@@ -14,6 +14,7 @@ import { ApiError, mapError } from './errors.ts';
 import { OpenAiCompatibleProvider } from '../ai/provider.ts';
 import { StructuredAiExecutor, type RuntimeSchema } from '../ai/structured-executor.ts';
 import { ReceiptExtractionService } from '../receipts/service.ts';
+import { parseReceiptConfirmation } from '../receipts/import.ts';
 
 const UNIT_VALUES = ['g', 'kg', 'ml', 'l', 'unit', 'pack', 'roll', 'sheet', 'capsule', 'dose', 'wash', 'm'] as const;
 const STOCK_VALUES = ['in-stock', 'out-of-stock', 'unknown'] as const;
@@ -310,19 +311,9 @@ export class BasketraServer {
   }
 
   private async confirmReceipt(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const body = asRecord(await this.readJson(request));
-    const lines = this.parseReceiptLines(body['items']);
-    const declaredTotalMinor = asSafeInteger(body['declaredTotalMinor'], '$.declaredTotalMinor', { min: 0 });
-    const originalText = asString(body['originalText'], '$.originalText', { min: 1, max: 500_000 });
-    const importKey = asString(body['importKey'], '$.importKey', { min: 8, max: 128 });
-    const total = validateReceiptTotal(lines, declaredTotalMinor);
+    const { input, total } = parseReceiptConfirmation(await this.readJson(request));
     if (!total.valid) throw new ApiError(409, 'RECEIPT_TOTAL_MISMATCH', 'Receipt total must be reviewed before confirmation');
-    const receiptId = this.#database.importReceipt({
-      importKey,
-      declaredTotalMinor,
-      originalText,
-      items: lines.map((line) => ({ ...line, status: validateReceiptLine(line).status, confidence: validateReceiptLine(line).status === 'confirmed' ? 1 : 0.5 })),
-    });
+    const receiptId = this.#database.importReceipt(input);
     this.json(response, 201, { receiptId });
   }
 
