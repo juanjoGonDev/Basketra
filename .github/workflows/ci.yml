@@ -25,7 +25,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22.16.0
+          node-version: 22.23.1
       - name: Pin pnpm and TypeScript
         run: |
           corepack enable
@@ -50,7 +50,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22.16.0
+          node-version: 22.23.1
       - name: Pin pnpm
         run: |
           corepack enable
@@ -74,7 +74,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22.16.0
+          node-version: 22.23.1
       - name: Install exact browser test tooling
         run: |
           npm install --global --ignore-scripts typescript@5.8.3
