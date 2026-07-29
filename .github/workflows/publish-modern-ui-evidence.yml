@@ -1,0 +1,102 @@
+name: Publish modern UI evidence
+
+on:
+  pull_request:
+    types: [synchronize]
+    branches:
+      - main
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: basketra-publish-modern-ui-evidence
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.repository == 'juanjoGonDev/Basketra' &&
+      github.event.pull_request.head.ref == 'agent/feat-basketra-foundation'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout trusted branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: agent/feat-basketra-foundation
+          fetch-depth: 0
+      - name: Download validated browser evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/basketra-modern-ui-evidence
+          mkdir -p /tmp/basketra-modern-ui-evidence
+          gh run download 30443104131 \
+            --repo juanjoGonDev/Basketra \
+            --name basketra-browser-evidence \
+            --dir /tmp/basketra-modern-ui-evidence
+      - name: Install evidence tooling
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+      - name: Publish permanent media
+        run: |
+          set -euo pipefail
+          destination=docs/evidence/playwright
+          rm -rf "$destination"
+          mkdir -p "$destination"
+
+          publish_case() {
+            slug="$1"
+            source="$2"
+            cp "/tmp/basketra-modern-ui-evidence/test-results/$source/viewport.png" "$destination/$slug-viewport.png"
+            cp "/tmp/basketra-modern-ui-evidence/test-results/$source/final.png" "$destination/$slug-content.png"
+            cp "/tmp/basketra-modern-ui-evidence/test-results/$source/video.webm" "$destination/$slug.webm"
+            ffmpeg -loglevel error -y \
+              -i "$destination/$slug.webm" \
+              -vf "fps=8,scale=392:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer" \
+              "$destination/$slug.gif"
+          }
+
+          publish_case mobile-shell basketra-mobile-PWA-loads--3d1c1--touch-safe-icon-navigation
+          publish_case design-system basketra-reusable-mobile-d-39673-ned-across-all-destinations
+          publish_case shopping-list basketra-shopping-list-pre-0d76e-erences-and-survives-reload
+          publish_case local-suggestions basketra-local-suggestions-62d03-ponses-and-never-require-AI
+          publish_case receipt-flow basketra-receipt-captures--fcba2-ct-and-import-with-evidence
+          publish_case comparison basketra-comparison-render-c82a2-and-Prime-evidence-behavior
+          publish_case ai-unavailable basketra-AI-unavailability-7062b-nd-does-not-overwrite-input
+          publish_case offline-shell basketra-offline-shell-rel-a6db6-board-focus-remains-visible
+
+          cat > "$destination/README.md" <<'EOF'
+          # Playwright mobile UI evidence
+
+          Source workflow run: https://github.com/juanjoGonDev/Basketra/actions/runs/30443104131
+
+          Source artifact: https://github.com/juanjoGonDev/Basketra/actions/runs/30443104131/artifacts/8720303759
+
+          Each flow includes:
+
+          - a Pixel 7 viewport PNG with the real application shell;
+          - a complete active-view PNG without fixed-element duplication;
+          - the original Playwright WebM recording;
+          - a GIF preview for inline pull-request rendering.
+
+          The source run passed all eight Chromium flows without retry.
+          EOF
+
+          node scripts/security-scan.mjs
+          node scripts/format-check.mjs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/evidence/playwright
+          if git diff --cached --quiet; then
+            echo "Modern UI evidence is already current"
+            exit 0
+          fi
+          git diff --cached --check
+          git commit -m "docs(evidence): publish modern mobile ui media"
+          git push origin "HEAD:agent/feat-basketra-foundation"
