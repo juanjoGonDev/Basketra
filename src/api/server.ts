@@ -18,7 +18,7 @@ import { parseReceiptConfirmation } from '../receipts/import.ts';
 
 const UNIT_VALUES = ['g', 'kg', 'ml', 'l', 'unit', 'pack', 'roll', 'sheet', 'capsule', 'dose', 'wash', 'm'] as const;
 const STOCK_VALUES = ['in-stock', 'out-of-stock', 'unknown'] as const;
-const PUBLIC_PATHS = new Set(['/health', '/readiness', '/', '/index.html', '/app.js', '/styles.css', '/manifest.webmanifest', '/sw.js', '/icon.svg']);
+const PUBLIC_PATHS = new Set(['/health', '/readiness', '/', '/index.html', '/app.js', '/ui.js', '/styles.css', '/manifest.webmanifest', '/sw.js', '/icon.svg']);
 
 export type AppDiagnostics = Readonly<{
   ready: boolean;
@@ -416,7 +416,7 @@ export class BasketraServer {
 
   private serveStatic(response: ServerResponse, pathname: string): void {
     const requested = pathname === '/' ? 'index.html' : pathname.slice(1);
-    if (!['index.html', 'app.js', 'styles.css', 'manifest.webmanifest', 'sw.js', 'icon.svg'].includes(requested)) throw new ApiError(404, 'NOT_FOUND', 'Resource was not found');
+    if (!['index.html', 'app.js', 'ui.js', 'styles.css', 'manifest.webmanifest', 'sw.js', 'icon.svg'].includes(requested)) throw new ApiError(404, 'NOT_FOUND', 'Resource was not found');
     const file = join(this.#publicDir, requested);
     if (!existsSync(file)) throw new ApiError(404, 'NOT_FOUND', 'Resource was not found');
     const mime = extname(file) === '.html' ? 'text/html; charset=utf-8' : extname(file) === '.js' ? 'text/javascript; charset=utf-8' : extname(file) === '.css' ? 'text/css; charset=utf-8' : extname(file) === '.svg' ? 'image/svg+xml' : extname(file) === '.webmanifest' ? 'application/manifest+json; charset=utf-8' : 'text/javascript; charset=utf-8';

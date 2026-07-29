@@ -90,6 +90,10 @@ test('HTTP API enforces auth, validates input and serves the PWA', async () => {
     assert.equal(html.status, 200);
     assert.match(html.headers.get('content-security-policy') ?? '', /default-src 'self'/);
     assert.match(await html.text(), /Basketra/);
+    const uiModule = await request(baseUrl, '/ui.js');
+    assert.equal(uiModule.status, 200);
+    assert.match(uiModule.headers.get('content-type') ?? '', /text\/javascript/);
+    assert.match(await uiModule.text(), /export function hydrateIcons/);
     assert.equal((await request(baseUrl, '/does-not-exist', { headers: authorized })).status, 404);
 
     await new Promise((resolve) => setTimeout(resolve, 25));
