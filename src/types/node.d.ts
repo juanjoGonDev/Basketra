@@ -64,6 +64,8 @@ declare module 'node:http' {
     method?: string;
     url?: string;
     headers: IncomingHttpHeaders;
+    once(event: 'aborted', listener: () => void): this;
+    off(event: 'aborted', listener: () => void): this;
   }
   export interface ServerResponse {
     headersSent: boolean;
