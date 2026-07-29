@@ -16,7 +16,11 @@ Basketra is intended for private VPN/LAN access. The default bind address is `12
 - no provider key returned to the browser;
 - no receipt text in default logs;
 - non-root read-only container, dropped capabilities, PID/memory/CPU/log limits;
-- bounded shutdown and temporary-file cleanup.
+- bounded shutdown and temporary-file cleanup;
+- exact Node.js and Alpine runtime base versions;
+- npm, Corepack, pnpm and Yarn removed from the final image after compilation;
+- pull-request image scanning fails on fixed HIGH or CRITICAL vulnerabilities;
+- AMD64 and ARM64 builds generate SBOM and provenance metadata.
 
 ## Reporting
 
