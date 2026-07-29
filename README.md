@@ -77,10 +77,22 @@ The local Compose file builds `basketra:local` and binds only to `127.0.0.1`. Ac
 
 ## Private Raspberry deployment
 
-Successful pushes to `main` publish a private multi-architecture image to GHCR after every quality, security, browser, smoke, AMD64, and ARM64 job has passed. The workflow publishes:
+Successful pushes to `main` publish a private multi-architecture image to GHCR only after every quality, security, browser, smoke, AMD64, and ARM64 job has passed. Publication is staged rather than assigning both tags during the build:
 
-- `ghcr.io/juanjogondev/basketra:<full-commit-sha>` as the immutable rollback reference;
-- `ghcr.io/juanjogondev/basketra:stable` as the automatic-update channel.
+1. Buildx publishes only `ghcr.io/juanjogondev/basketra:<full-commit-sha>`.
+2. CI inspects that SHA tag in GHCR and verifies its registry digest and AMD64/ARM64 manifest entries.
+3. CI pulls the SHA tag, runs the exact digest under production limits, requires `/readiness`, and verifies a clean shutdown.
+4. Only then does CI promote that same digest to `ghcr.io/juanjogondev/basketra:stable` without rebuilding.
+5. CI verifies that `stable` resolves to the validated digest.
+
+Manual registry verification after an approved merge:
+
+```bash
+COMMIT_SHA=<full-commit-sha>
+docker buildx imagetools inspect "ghcr.io/juanjogondev/basketra:${COMMIT_SHA}"
+docker pull "ghcr.io/juanjogondev/basketra:${COMMIT_SHA}"
+docker pull ghcr.io/juanjogondev/basketra:stable
+```
 
 The production variant is separate from local development:
 
@@ -92,7 +104,7 @@ docker compose -f compose.raspberry.yml up -d basketra
 curl --fail http://127.0.0.1:3000/readiness
 ```
 
-It keeps the named `basketra-data` volume, loopback bind, resource limits, read-only filesystem, dropped capabilities, and scoped Watchtower labels. See [RASPBERRY_DEPLOYMENT.md](RASPBERRY_DEPLOYMENT.md) for private GHCR login, secure token generation, startup migrations, backups, restore, SHA rollback, Watchtower compatibility, and verification procedures.
+It keeps the named `basketra-data` volume, loopback bind, resource limits, read-only filesystem, dropped capabilities, and scoped Watchtower labels. The Raspberry host must authenticate to private GHCR with a credential limited to `read:packages`. See [RASPBERRY_DEPLOYMENT.md](RASPBERRY_DEPLOYMENT.md) for secure login, token generation, startup migrations, backups, restore, SHA rollback, Watchtower compatibility, and verification procedures.
 
 ## Startup migration safety
 

@@ -237,26 +237,14 @@ jobs:
           provenance: mode=max
           cache-from: type=gha,scope=publish-multiarch
           cache-to: type=gha,mode=max,scope=publish-multiarch
-      - name: Verify published manifest platforms
+      - name: Verify published SHA tag and manifest
         env:
           DIGEST: ${{ steps.publish-sha.outputs.digest }}
         run: |
           set -euo pipefail
           test -n "$DIGEST"
-          docker buildx imagetools inspect --raw "$IMAGE@$DIGEST" > sha-manifest.json
-          node <<'NODE'
-          const fs = require('node:fs');
-          const manifest = JSON.parse(fs.readFileSync('sha-manifest.json', 'utf8'));
-          const runnable = (manifest.manifests ?? [])
-            .map((entry) => entry.platform)
-            .filter((platform) => platform?.os !== 'unknown' && platform?.architecture !== 'unknown')
-            .map((platform) => `${platform.os}/${platform.architecture}`)
-            .sort();
-          const expected = ['linux/amd64', 'linux/arm64'];
-          if (JSON.stringify([...new Set(runnable)]) !== JSON.stringify(expected)) {
-            throw new Error(`Unexpected runnable platforms: ${JSON.stringify(runnable)}`);
-          }
-          NODE
+          docker buildx imagetools inspect --format '{{json .Manifest}}' "$IMAGE:$GITHUB_SHA" > candidate-manifest.json
+          node scripts/ghcr-manifest-policy.mjs candidate candidate-manifest.json "$DIGEST"
       - name: Pull and smoke-test the exact published digest
         env:
           DIGEST: ${{ steps.publish-sha.outputs.digest }}
@@ -269,8 +257,8 @@ jobs:
             docker volume rm "$volume" 2>/dev/null || true
           }
           trap cleanup EXIT
-          docker pull --platform linux/amd64 "$IMAGE@$DIGEST"
-          revision=$(docker image inspect "$IMAGE@$DIGEST" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+          docker pull --platform linux/amd64 "$IMAGE:$GITHUB_SHA"
+          revision=$(docker image inspect "$IMAGE:$GITHUB_SHA" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
           test "$revision" = "$GITHUB_SHA"
           docker run --detach --name "$container" \
             --read-only \
@@ -293,22 +281,29 @@ jobs:
             fi
             sleep 1
           done
+          started=$(date +%s)
           docker stop --time 20 "$container"
+          elapsed=$(($(date +%s)-started))
+          test "$elapsed" -le 20
+          test "$(docker inspect "$container" --format '{{.State.ExitCode}}')" = "0"
       - name: Promote verified digest to stable
         id: promote
         env:
           DIGEST: ${{ steps.publish-sha.outputs.digest }}
-        run: docker buildx imagetools create --tag "$IMAGE:stable" "$IMAGE@$DIGEST"
+        run: docker buildx imagetools create --metadata-file stable-promotion.json --tag "$IMAGE:stable" "$IMAGE@$DIGEST"
       - name: Verify stable is the validated manifest
+        env:
+          DIGEST: ${{ steps.publish-sha.outputs.digest }}
         run: |
           set -euo pipefail
           for attempt in $(seq 1 10); do
-            if docker buildx imagetools inspect --raw "$IMAGE:stable" > stable-manifest.json && cmp --silent sha-manifest.json stable-manifest.json; then
+            if docker buildx imagetools inspect --format '{{json .Manifest}}' "$IMAGE:stable" > stable-manifest.json && \
+              node scripts/ghcr-manifest-policy.mjs stable candidate-manifest.json stable-manifest.json "$DIGEST"; then
               exit 0
             fi
             sleep 2
           done
-          echo "stable does not resolve to the validated SHA manifest" >&2
+          echo "stable does not resolve to the validated SHA digest" >&2
           exit 1
       - name: Enforce bounded GHCR release retention
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9

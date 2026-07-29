@@ -62,6 +62,17 @@ Compose sets memory+swap equal to the memory limit, caps PIDs and CPU, uses boun
 
 ## Verify the private image pull
 
+After an approved merge, inspect and pull the immutable candidate before relying on `stable`:
+
+```bash
+COMMIT_SHA=<full-commit-sha>
+docker buildx imagetools inspect "ghcr.io/juanjogondev/basketra:${COMMIT_SHA}"
+docker pull "ghcr.io/juanjogondev/basketra:${COMMIT_SHA}"
+docker pull ghcr.io/juanjogondev/basketra:stable
+```
+
+Then validate the production Compose reference:
+
 ```bash
 docker compose -f compose.raspberry.yml config --quiet
 docker compose -f compose.raspberry.yml pull basketra
@@ -157,14 +168,15 @@ If readiness fails, stop the service and restore the preserved database. Never c
 
 An approved merge does not immediately move `stable`. The main workflow:
 
-1. publishes a full-SHA multi-architecture candidate;
-2. verifies AMD64 and ARM64 manifest entries;
-3. pulls the exact digest from GHCR;
-4. checks the revision label and starts it under production limits;
-5. waits for `/readiness` and graceful shutdown;
-6. promotes that identical manifest to `stable`;
-7. compares the stable manifest with the validated candidate;
-8. retains only the newest ten immutable SHA releases.
+1. publishes only a full-SHA multi-architecture candidate;
+2. inspects the full-SHA tag in GHCR and requires its registry digest to match the Buildx output;
+3. verifies AMD64 and ARM64 runnable manifest entries while ignoring attestation descriptors;
+4. pulls the full-SHA tag from GHCR;
+5. checks the revision label and starts the exact digest under production limits;
+6. waits for `/readiness`, requires shutdown within 20 seconds, and requires exit code zero;
+7. promotes that identical digest to `stable` without rebuilding;
+8. verifies that `stable` resolves to the validated digest;
+9. retains only the newest ten immutable SHA releases.
 
 A candidate that fails before promotion is deleted. Set a previous retained SHA in `.env` for rollback:
 

@@ -61,14 +61,15 @@ requireText(ci, [
   'id: publish-sha',
   'ghcr.io/juanjogondev/basketra:${{ github.sha }}',
   'steps.publish-sha.outputs.digest',
-  'imagetools inspect --raw',
-  'Unexpected runnable platforms',
-  'docker pull --platform linux/amd64',
+  "imagetools inspect --format '{{json .Manifest}}' \"$IMAGE:$GITHUB_SHA\"",
+  'node scripts/ghcr-manifest-policy.mjs candidate',
+  'docker pull --platform linux/amd64 "$IMAGE:$GITHUB_SHA"',
   'org.opencontainers.image.revision',
   'http://127.0.0.1:3001/readiness',
+  'docker inspect "$container" --format \'{{.State.ExitCode}}\'',
   'id: promote',
-  'imagetools create --tag "$IMAGE:stable"',
-  'cmp --silent sha-manifest.json stable-manifest.json',
+  'imagetools create --metadata-file stable-promotion.json --tag "$IMAGE:stable"',
+  'node scripts/ghcr-manifest-policy.mjs stable',
   'selectGhcrVersionsForDeletion',
   'GHCR_RETAIN_SHA_VERSIONS',
   'Delete an unpromoted failed candidate',
@@ -79,15 +80,20 @@ if (!/publish-image:[\s\S]*?needs:[\s\S]*?- quality[\s\S]*?- security[\s\S]*?- b
   failures.push('GHCR publication must depend on every CI gate');
 }
 const publishIndex = ci.indexOf('- name: Publish immutable SHA candidate');
+const verifyCandidateIndex = ci.indexOf('- name: Verify published SHA tag and manifest');
 const smokeIndex = ci.indexOf('- name: Pull and smoke-test the exact published digest');
 const promoteIndex = ci.indexOf('- name: Promote verified digest to stable');
 const verifyStableIndex = ci.indexOf('- name: Verify stable is the validated manifest');
-if (!(publishIndex >= 0 && publishIndex < smokeIndex && smokeIndex < promoteIndex && promoteIndex < verifyStableIndex)) {
-  failures.push('GHCR candidate, smoke, promotion and stable verification are out of order');
+if (!(publishIndex >= 0 && publishIndex < verifyCandidateIndex && verifyCandidateIndex < smokeIndex && smokeIndex < promoteIndex && promoteIndex < verifyStableIndex)) {
+  failures.push('GHCR candidate, digest verification, smoke, promotion and stable verification are out of order');
 }
-if (publishIndex >= 0 && smokeIndex >= 0 && ci.slice(publishIndex, smokeIndex).includes('basketra:stable')) {
+if (publishIndex >= 0 && verifyCandidateIndex >= 0 && ci.slice(publishIndex, verifyCandidateIndex).includes('basketra:stable')) {
   failures.push('The build-push action must not publish stable before candidate verification');
 }
+if (/docker\/build-push-action@[\s\S]*?tags:\s*\|?[\s\S]*?basketra:stable/.test(ci.slice(publishIndex, verifyCandidateIndex))) {
+  failures.push('The initial Buildx publication must contain only the immutable SHA tag');
+}
+if (/CR_PAT|PERSONAL_ACCESS_TOKEN|GHCR_PAT/.test(ci)) failures.push('CI must use GITHUB_TOKEN rather than a personal access token');
 
 function validateCompose(path, requiredControls) {
   const compose = readFileSync(path, 'utf8');
@@ -196,8 +202,16 @@ for (const requiredTest of [
   'tests/unit/storage-limits.test.ts',
   'tests/unit/ai-response-limits.test.ts',
   'tests/unit/ghcr-retention.test.ts',
+  'tests/unit/ghcr-manifest-policy.test.ts',
 ]) {
-  if (!textFiles.includes(requiredTest)) failures.push(`Missing bounded-resource regression test: ${requiredTest}`);
+  if (!textFiles.includes(requiredTest)) failures.push(`Missing bounded-resource or publication regression test: ${requiredTest}`);
+}
+
+for (const requiredScript of [
+  'scripts/ghcr-retention-policy.mjs',
+  'scripts/ghcr-manifest-policy.mjs',
+]) {
+  if (!textFiles.includes(requiredScript)) failures.push(`Missing GHCR policy implementation: ${requiredScript}`);
 }
 
 for (const file of textFiles.filter((path) => path.endsWith('.md'))) {
