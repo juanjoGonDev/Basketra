@@ -13,6 +13,7 @@ import { validateReceiptLine, validateReceiptTotal, type ReceiptLineInput } from
 import { ApiError, mapError } from './errors.ts';
 import { OpenAiCompatibleProvider } from '../ai/provider.ts';
 import { StructuredAiExecutor, type RuntimeSchema } from '../ai/structured-executor.ts';
+import { ReceiptExtractionService } from '../receipts/service.ts';
 
 const UNIT_VALUES = ['g', 'kg', 'ml', 'l', 'unit', 'pack', 'roll', 'sheet', 'capsule', 'dose', 'wash', 'm'] as const;
 const STOCK_VALUES = ['in-stock', 'out-of-stock', 'unknown'] as const;
@@ -33,6 +34,7 @@ export class BasketraServer {
   readonly #server: Server;
   readonly #database: BasketraDatabase;
   readonly #fileStore: FileStore;
+  readonly #receiptExtractionService: ReceiptExtractionService;
   readonly #startedAt = new Date().toISOString();
   readonly #publicDir: string;
   #ready = false;
@@ -47,6 +49,7 @@ export class BasketraServer {
     this.config = config;
     this.#database = new BasketraDatabase(join(config.dataDir, 'basketra.db'));
     this.#fileStore = new FileStore(join(config.dataDir, 'files'), config.tempDir, config.maxBodyBytes);
+    this.#receiptExtractionService = new ReceiptExtractionService(this.#fileStore, () => this.getAiProvider(), config.aiMaxRetries);
     this.#publicDir = resolve(dirname(fileURLToPath(import.meta.url)), '../web');
     this.#server = createServer((request, response) => void this.handle(request, response));
   }
@@ -87,6 +90,7 @@ export class BasketraServer {
     if (this.#hibernateTimer) clearTimeout(this.#hibernateTimer);
     await new Promise<void>((resolvePromise, reject) => this.#server.close((error) => error ? reject(error) : resolvePromise()));
     this.#fileStore.cleanupTemporary();
+    this.#receiptExtractionService.dispose();
     this.#aiProvider?.dispose();
     this.#aiProvider = undefined;
     this.#database.close();
@@ -116,6 +120,7 @@ export class BasketraServer {
       if (request.method === 'POST' && itemMatch?.[1]) return await this.addShoppingListItem(request, response, itemMatch[1]);
       if (request.method === 'GET' && url.pathname === '/api/v1/products/suggestions') return this.suggestProducts(response, url.searchParams);
       if (request.method === 'POST' && url.pathname === '/api/v1/files') return await this.storeFile(request, response);
+      if (request.method === 'POST' && url.pathname === '/api/v1/receipts/extract') return await this.extractReceipt(request, response);
       if (request.method === 'POST' && url.pathname === '/api/v1/receipts/validate') return await this.validateReceipt(request, response);
       if (request.method === 'POST' && url.pathname === '/api/v1/receipts/confirm') return await this.confirmReceipt(request, response);
       if (request.method === 'POST' && url.pathname === '/api/v1/optimization-runs') return await this.runOptimization(request, response);
@@ -228,6 +233,10 @@ export class BasketraServer {
         ...(this.config.aiApiKey ? { apiKey: this.config.aiApiKey } : {}),
         model: this.config.aiModel,
         timeoutMs: this.config.aiTimeoutMs,
+        capabilities: {
+          image: this.config.aiImageCapability,
+          pdf: this.config.aiPdfCapability,
+        },
       });
     }
     return this.#aiProvider;
@@ -273,6 +282,21 @@ export class BasketraServer {
       ...(typeof body['originalName'] === 'string' ? { originalName: body['originalName'] } : {}),
     });
     this.json(response, 201, { file });
+  }
+
+  private async extractReceipt(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    this.#activeExpensiveOperations += 1;
+    const controller = new AbortController();
+    const onAborted = () => controller.abort(new Error('REQUEST_ABORTED'));
+    request.once('aborted', onAborted);
+    try {
+      const input = this.#receiptExtractionService.parseRequest(await this.readJson(request));
+      const extraction = await this.#receiptExtractionService.extract(input, controller.signal);
+      this.json(response, 200, { extraction });
+    } finally {
+      request.off('aborted', onAborted);
+      this.#activeExpensiveOperations -= 1;
+    }
   }
 
   private async validateReceipt(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -430,6 +454,7 @@ export class BasketraServer {
     const timer = setTimeout(() => {
       if (this.#activeRequests === 0 && this.#activeExpensiveOperations === 0) {
         this.#fileStore.cleanupTemporary();
+        this.#receiptExtractionService.dispose();
         this.#aiProvider?.dispose();
         this.#aiProvider = undefined;
         this.#hibernated = true;
