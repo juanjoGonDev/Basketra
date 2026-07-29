@@ -1,0 +1,88 @@
+name: Publish browser evidence
+
+on:
+  pull_request:
+    types: [synchronize]
+    branches:
+      - main
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: basketra-publish-browser-evidence
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.repository == 'juanjoGonDev/Basketra' &&
+      github.event.pull_request.head.ref == 'agent/feat-basketra-foundation'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout trusted branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: agent/feat-basketra-foundation
+          fetch-depth: 0
+      - name: Download validated Playwright artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/basketra-evidence
+          mkdir -p /tmp/basketra-evidence
+          gh run download 30434680791 \
+            --repo juanjoGonDev/Basketra \
+            --name basketra-browser-evidence \
+            --dir /tmp/basketra-evidence
+      - name: Publish screenshots and recordings
+        run: |
+          set -euo pipefail
+          destination=docs/evidence/playwright
+          rm -rf "$destination"
+          mkdir -p "$destination"
+
+          publish_case() {
+            slug="$1"
+            source="$2"
+            cp "/tmp/basketra-evidence/test-results/$source/final.png" "$destination/$slug.png"
+            cp "/tmp/basketra-evidence/test-results/$source/video.webm" "$destination/$slug.webm"
+            ffmpeg -loglevel error -y \
+              -i "$destination/$slug.webm" \
+              -vf "fps=8,scale=392:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer" \
+              "$destination/$slug.gif"
+          }
+
+          publish_case mobile-pwa basketra-mobile-PWA-loads--e4743-t-and-touch-safe-navigation
+          publish_case shopping-list basketra-shopping-list-pre-0d76e-erences-and-survives-reload
+          publish_case local-suggestions basketra-local-suggestions-62d03-ponses-and-never-require-AI
+          publish_case receipt-flow basketra-receipt-captures--fcba2-ct-and-import-with-evidence
+          publish_case comparison basketra-comparison-render-c82a2-and-Prime-evidence-behavior
+          publish_case ai-unavailable basketra-AI-unavailability-7062b-nd-does-not-overwrite-input
+          publish_case offline-shell basketra-offline-shell-rel-a6db6-board-focus-remains-visible
+
+          cat > "$destination/README.md" <<'EOF'
+          # Playwright browser evidence
+
+          Source workflow run: https://github.com/juanjoGonDev/Basketra/actions/runs/30434680791
+
+          Source artifact: https://github.com/juanjoGonDev/Basketra/actions/runs/30434680791/artifacts/8716935809
+
+          Each flow includes a complete final PNG, the original Playwright WebM recording and a GIF preview for inline pull-request rendering.
+          EOF
+
+          node scripts/security-scan.mjs
+          node scripts/format-check.mjs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/evidence/playwright
+          if git diff --cached --quiet; then
+            echo "Evidence is already current"
+            exit 0
+          fi
+          git diff --cached --check
+          git commit -m "docs(evidence): publish browser test media"
+          git push origin "HEAD:agent/feat-basketra-foundation"
