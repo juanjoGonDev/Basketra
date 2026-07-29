@@ -1,0 +1,49 @@
+name: Fix CSP-safe content evidence
+
+on:
+  pull_request:
+    types: [synchronize]
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: basketra-fix-content-evidence-csp
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    if: >-
+      github.repository == 'juanjoGonDev/Basketra' &&
+      github.event.pull_request.head.ref == 'agent/feat-basketra-foundation'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout trusted branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: agent/feat-basketra-foundation
+          fetch-depth: 0
+      - name: Replace inline evidence styling
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/browser/basketra.spec.mjs')
+          text = path.read_text()
+          old = "  await page.addStyleTag({ content: '.app-header,.bottom-nav,#toast{display:none!important}.sticky-action{position:static!important}' });"
+          new = "  await page.evaluate(() => {\n    for (const selector of ['.app-header', '.bottom-nav', '#toast']) {\n      const element = document.querySelector(selector);\n      if (element) element.hidden = true;\n    }\n    document.querySelector('.sticky-action')?.classList.remove('sticky-action');\n  });"
+          if old not in text:
+              raise SystemExit('Expected inline evidence style was not found')
+          path.write_text(text.replace(old, new))
+          PY
+          node scripts/format-check.mjs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/browser/basketra.spec.mjs
+          git diff --cached --check
+          git commit -m "fix(test): capture evidence without inline styles"
+          git push origin "HEAD:agent/feat-basketra-foundation"
