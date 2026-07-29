@@ -24,6 +24,12 @@ function walk(path) {
   }
 }
 
+function requireText(text, requiredValues, prefix) {
+  for (const required of requiredValues) {
+    if (!text.includes(required)) failures.push(`${prefix}: missing ${required}`);
+  }
+}
+
 walk('.');
 for (const file of textFiles) {
   const text = readFileSync(file, 'utf8');
@@ -45,27 +51,47 @@ for (const name of readdirSync(workflowDirectory)) {
 }
 
 const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
-for (const required of [
+requireText(ci, [
   'publish-image:',
   "github.event_name == 'push'",
   "github.ref == 'refs/heads/main'",
   'packages: write',
   'contents: read',
   'linux/amd64,linux/arm64',
+  'id: publish-sha',
   'ghcr.io/juanjogondev/basketra:${{ github.sha }}',
-  'ghcr.io/juanjogondev/basketra:stable',
-]) {
-  if (!ci.includes(required)) failures.push(`CI publication control missing: ${required}`);
-}
+  'steps.publish-sha.outputs.digest',
+  'imagetools inspect --raw',
+  'Unexpected runnable platforms',
+  'docker pull --platform linux/amd64',
+  'org.opencontainers.image.revision',
+  'http://127.0.0.1:3001/readiness',
+  'id: promote',
+  'imagetools create --tag "$IMAGE:stable"',
+  'cmp --silent sha-manifest.json stable-manifest.json',
+  'selectGhcrVersionsForDeletion',
+  'GHCR_RETAIN_SHA_VERSIONS',
+  'Delete an unpromoted failed candidate',
+  '--memory-swap 192m',
+  'NODE_OPTIONS=--max-old-space-size=128',
+], 'CI publication or runtime contract');
 if (!/publish-image:[\s\S]*?needs:[\s\S]*?- quality[\s\S]*?- security[\s\S]*?- browser-e2e[\s\S]*?- container[\s\S]*?- container-smoke/.test(ci)) {
   failures.push('GHCR publication must depend on every CI gate');
+}
+const publishIndex = ci.indexOf('- name: Publish immutable SHA candidate');
+const smokeIndex = ci.indexOf('- name: Pull and smoke-test the exact published digest');
+const promoteIndex = ci.indexOf('- name: Promote verified digest to stable');
+const verifyStableIndex = ci.indexOf('- name: Verify stable is the validated manifest');
+if (!(publishIndex >= 0 && publishIndex < smokeIndex && smokeIndex < promoteIndex && promoteIndex < verifyStableIndex)) {
+  failures.push('GHCR candidate, smoke, promotion and stable verification are out of order');
+}
+if (publishIndex >= 0 && smokeIndex >= 0 && ci.slice(publishIndex, smokeIndex).includes('basketra:stable')) {
+  failures.push('The build-push action must not publish stable before candidate verification');
 }
 
 function validateCompose(path, requiredControls) {
   const compose = readFileSync(path, 'utf8');
-  for (const required of requiredControls) {
-    if (!compose.includes(required)) failures.push(`${path}: security or deployment control missing: ${required}`);
-  }
+  requireText(compose, requiredControls, path);
 }
 
 validateCompose('compose.yml', [
@@ -74,7 +100,9 @@ validateCompose('compose.yml', [
   'cap_drop:',
   'pids_limit:',
   'mem_limit:',
+  'memswap_limit:',
   '127.0.0.1:',
+  'NODE_OPTIONS: --max-old-space-size=${BASKETRA_NODE_HEAP_MB:-128}',
   'BASKETRA_AI_IMAGE_CAPABILITY:',
   'BASKETRA_AI_PDF_CAPABILITY:',
   '/readiness',
@@ -90,6 +118,9 @@ validateCompose('compose.raspberry.yml', [
   'WATCHTOWER_SCOPE: basketra',
   'WATCHTOWER_LABEL_ENABLE: "true"',
   'WATCHTOWER_POLL_INTERVAL:',
+  'WATCHTOWER_CLEANUP: "true"',
+  'WATCHTOWER_REMOVE_VOLUMES: "false"',
+  'NODE_OPTIONS: --max-old-space-size=${BASKETRA_NODE_HEAP_MB:-128}',
   'BASKETRA_AI_IMAGE_CAPABILITY:',
   'BASKETRA_AI_PDF_CAPABILITY:',
   'read_only: true',
@@ -97,6 +128,7 @@ validateCompose('compose.raspberry.yml', [
   'cap_drop:',
   'pids_limit:',
   'mem_limit:',
+  'memswap_limit:',
   '/readiness',
 ]);
 
@@ -105,17 +137,67 @@ if (raspberryCompose.includes('WATCHTOWER_SCHEDULE')) failures.push('Raspberry C
 if (!/WATCHTOWER_POLL_INTERVAL:\s*\$\{WATCHTOWER_POLL_INTERVAL:-300\}/.test(raspberryCompose)) failures.push('Watchtower must default to a five-minute poll interval');
 
 const environmentExample = readFileSync('.env.example', 'utf8');
-for (const required of [
+requireText(environmentExample, [
   'BASKETRA_AUTH_TOKEN=',
   'BASKETRA_AI_IMAGE_CAPABILITY=true',
   'BASKETRA_AI_PDF_CAPABILITY=false',
+  'BASKETRA_NODE_HEAP_MB=128',
+  'BASKETRA_MEMORY_LIMIT=192m',
   'BASKETRA_DOCKER_CONFIG_DIR=',
   'WATCHTOWER_POLL_INTERVAL=300',
-]) {
-  if (!environmentExample.includes(required)) failures.push(`.env.example is incomplete: ${required}`);
-}
+], '.env.example');
 for (const match of environmentExample.matchAll(/^(BASKETRA_AUTH_TOKEN|BASKETRA_AI_API_KEY)=(.+)$/gm)) {
   if (match[2]?.trim()) failures.push(`.env.example must not contain a value for ${match[1]}`);
+}
+
+const database = readFileSync('src/infrastructure/database.ts', 'utf8');
+requireText(database, [
+  'maxDatabaseBytes: 512 * 1024 * 1024',
+  'maxSqliteCacheBytes: 8 * 1024 * 1024',
+  'maxWalBytes: 16 * 1024 * 1024',
+  'migrationBackupRetention: Object.freeze({ maxCount: 3, maxBytes: 768 * 1024 * 1024 })',
+  'manualBackupRetention: Object.freeze({ maxCount: 5, maxBytes: 768 * 1024 * 1024 })',
+  'PRAGMA max_page_count',
+  'PRAGMA cache_size',
+  'PRAGMA journal_size_limit',
+  'pruneBackupDirectory',
+  '.tmp',
+], 'database storage contract');
+
+const files = readFileSync('src/infrastructure/files.ts', 'utf8');
+requireText(files, [
+  'DEFAULT_FILE_STORAGE_MAX_BYTES = 512 * 1024 * 1024',
+  'Persistent file storage limit would be exceeded',
+  'cleanupTemporary()',
+  'finally',
+], 'file storage contract');
+
+const aiProvider = readFileSync('src/ai/provider.ts', 'utf8');
+requireText(aiProvider, [
+  'DEFAULT_AI_MAX_RESPONSE_BYTES = 1024 * 1024',
+  'AI_RESPONSE_TOO_LARGE',
+  'response.body.getReader()',
+  'reader.cancel',
+], 'AI response contract');
+
+const resourceScript = readFileSync('scripts/resource-measure.mjs', 'utf8');
+requireText(resourceScript, [
+  'MAX_STEADY_STATE_RSS_GROWTH_BYTES',
+  'MAX_STEADY_STATE_HEAP_GROWTH_BYTES',
+  'MAX_IDEMPOTENT_STORAGE_GROWTH_BYTES',
+  "if (!hibernated) throw new Error",
+  'assertAtMost',
+], 'resource growth contract');
+const packageJson = readFileSync('package.json', 'utf8');
+if (!packageJson.includes('node --expose-gc scripts/resource-measure.mjs')) failures.push('Resource measurement must expose deterministic garbage collection');
+
+for (const requiredTest of [
+  'tests/integration/storage-limits.test.ts',
+  'tests/unit/storage-limits.test.ts',
+  'tests/unit/ai-response-limits.test.ts',
+  'tests/unit/ghcr-retention.test.ts',
+]) {
+  if (!textFiles.includes(requiredTest)) failures.push(`Missing bounded-resource regression test: ${requiredTest}`);
 }
 
 for (const file of textFiles.filter((path) => path.endsWith('.md'))) {
@@ -128,4 +210,4 @@ if (failures.length) {
   console.error(failures.join('\n'));
   process.exit(1);
 }
-console.log('Security, workflow, Compose, documentation and secret scans passed.');
+console.log('Security, workflow, bounded-resource, Compose, documentation and secret scans passed.');

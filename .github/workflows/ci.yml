@@ -35,7 +35,7 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Run quality gate
         run: pnpm quality
-      - name: Measure process resources
+      - name: Enforce resource and growth budgets
         run: pnpm resource:measure
 
   security:
@@ -159,7 +159,9 @@ jobs:
             --security-opt no-new-privileges \
             --pids-limit 128 \
             --memory 192m \
+            --memory-swap 192m \
             --cpus 0.75 \
+            --env NODE_OPTIONS=--max-old-space-size=128 \
             --publish 127.0.0.1:3000:3000 \
             --volume basketra-ci-data:/data \
             basketra:ci
@@ -169,8 +171,12 @@ jobs:
           done
           docker logs basketra-ci
           exit 1
-      - name: Verify graceful shutdown
+      - name: Verify runtime limits and graceful shutdown
         run: |
+          test "$(docker inspect basketra-ci --format '{{.HostConfig.Memory}}')" = "201326592"
+          test "$(docker inspect basketra-ci --format '{{.HostConfig.MemorySwap}}')" = "201326592"
+          test "$(docker inspect basketra-ci --format '{{.HostConfig.PidsLimit}}')" = "128"
+          test "$(docker inspect basketra-ci --format '{{.HostConfig.ReadonlyRootfs}}')" = "true"
           started=$(date +%s)
           docker stop --time 20 basketra-ci
           elapsed=$(($(date +%s)-started))
@@ -184,7 +190,7 @@ jobs:
           docker volume rm basketra-ci-data 2>/dev/null || true
 
   publish-image:
-    name: "🚀 Publish private GHCR image"
+    name: "🚀 Publish verified private GHCR image"
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs:
       - quality
@@ -193,10 +199,13 @@ jobs:
       - container
       - container-smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     permissions:
       contents: read
       packages: write
+    env:
+      IMAGE: ghcr.io/juanjogondev/basketra
+      GHCR_RETAIN_SHA_VERSIONS: '10'
     steps:
       - name: Checkout validated commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -212,15 +221,14 @@ jobs:
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
       - name: Set up Buildx
         uses: docker/setup-buildx-action@5b9cf3909b54a280b6df6eee035755eb1f2fd611 # pinned 2026-07-03
-      - name: Build and publish immutable and stable tags
+      - name: Publish immutable SHA candidate
+        id: publish-sha
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ghcr.io/juanjogondev/basketra:${{ github.sha }}
-            ghcr.io/juanjogondev/basketra:stable
+          tags: ghcr.io/juanjogondev/basketra:${{ github.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -229,3 +237,144 @@ jobs:
           provenance: mode=max
           cache-from: type=gha,scope=publish-multiarch
           cache-to: type=gha,mode=max,scope=publish-multiarch
+      - name: Verify published manifest platforms
+        env:
+          DIGEST: ${{ steps.publish-sha.outputs.digest }}
+        run: |
+          set -euo pipefail
+          test -n "$DIGEST"
+          docker buildx imagetools inspect --raw "$IMAGE@$DIGEST" > sha-manifest.json
+          node <<'NODE'
+          const fs = require('node:fs');
+          const manifest = JSON.parse(fs.readFileSync('sha-manifest.json', 'utf8'));
+          const runnable = (manifest.manifests ?? [])
+            .map((entry) => entry.platform)
+            .filter((platform) => platform?.os !== 'unknown' && platform?.architecture !== 'unknown')
+            .map((platform) => `${platform.os}/${platform.architecture}`)
+            .sort();
+          const expected = ['linux/amd64', 'linux/arm64'];
+          if (JSON.stringify([...new Set(runnable)]) !== JSON.stringify(expected)) {
+            throw new Error(`Unexpected runnable platforms: ${JSON.stringify(runnable)}`);
+          }
+          NODE
+      - name: Pull and smoke-test the exact published digest
+        env:
+          DIGEST: ${{ steps.publish-sha.outputs.digest }}
+        run: |
+          set -euo pipefail
+          container=basketra-published-${GITHUB_RUN_ID}
+          volume=basketra-published-data-${GITHUB_RUN_ID}
+          cleanup() {
+            docker rm --force "$container" 2>/dev/null || true
+            docker volume rm "$volume" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          docker pull --platform linux/amd64 "$IMAGE@$DIGEST"
+          revision=$(docker image inspect "$IMAGE@$DIGEST" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+          test "$revision" = "$GITHUB_SHA"
+          docker run --detach --name "$container" \
+            --read-only \
+            --tmpfs /tmp/basketra:rw,noexec,nosuid,size=32m \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --pids-limit 128 \
+            --memory 192m \
+            --memory-swap 192m \
+            --cpus 0.75 \
+            --env NODE_OPTIONS=--max-old-space-size=128 \
+            --publish 127.0.0.1:3001:3000 \
+            --volume "$volume:/data" \
+            "$IMAGE@$DIGEST"
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3001/readiness; then break; fi
+            if [ "$attempt" -eq 30 ]; then
+              docker logs "$container"
+              exit 1
+            fi
+            sleep 1
+          done
+          docker stop --time 20 "$container"
+      - name: Promote verified digest to stable
+        id: promote
+        env:
+          DIGEST: ${{ steps.publish-sha.outputs.digest }}
+        run: docker buildx imagetools create --tag "$IMAGE:stable" "$IMAGE@$DIGEST"
+      - name: Verify stable is the validated manifest
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 10); do
+            if docker buildx imagetools inspect --raw "$IMAGE:stable" > stable-manifest.json && cmp --silent sha-manifest.json stable-manifest.json; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "stable does not resolve to the validated SHA manifest" >&2
+          exit 1
+      - name: Enforce bounded GHCR release retention
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          CURRENT_SHA: ${{ github.sha }}
+          RETAIN_COUNT: ${{ env.GHCR_RETAIN_SHA_VERSIONS }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { selectGhcrVersionsForDeletion } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ghcr-retention-policy.mjs`);
+            const { owner } = context.repo;
+            let versions = [];
+            for (let attempt = 1; attempt <= 6; attempt += 1) {
+              versions = await github.paginate(
+                'GET /users/{username}/packages/{package_type}/{package_name}/versions',
+                { username: owner, package_type: 'container', package_name: 'basketra', per_page: 100 },
+              );
+              if (versions.some((version) => version.metadata?.container?.tags?.includes(process.env.CURRENT_SHA))) break;
+              if (attempt === 6) throw new Error('Published SHA package version did not become visible for retention');
+              await new Promise((resolve) => setTimeout(resolve, 2_000));
+            }
+            const ids = selectGhcrVersionsForDeletion(
+              versions,
+              process.env.CURRENT_SHA,
+              Number(process.env.RETAIN_COUNT),
+            );
+            for (const packageVersionId of ids) {
+              await github.request(
+                'DELETE /users/{username}/packages/{package_type}/{package_name}/versions/{package_version_id}',
+                {
+                  username: owner,
+                  package_type: 'container',
+                  package_name: 'basketra',
+                  package_version_id: packageVersionId,
+                },
+              );
+            }
+            core.info(`Deleted ${ids.length} superseded SHA-tagged package versions.`);
+      - name: Delete an unpromoted failed candidate
+        if: ${{ failure() && steps.publish-sha.outcome == 'success' && steps.promote.outcome != 'success' }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          CURRENT_SHA: ${{ github.sha }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { owner } = context.repo;
+            let versions = [];
+            for (let attempt = 1; attempt <= 6; attempt += 1) {
+              versions = await github.paginate(
+                'GET /users/{username}/packages/{package_type}/{package_name}/versions',
+                { username: owner, package_type: 'container', package_name: 'basketra', per_page: 100 },
+              );
+              if (versions.some((version) => version.metadata?.container?.tags?.includes(process.env.CURRENT_SHA))) break;
+              await new Promise((resolve) => setTimeout(resolve, 2_000));
+            }
+            const candidate = versions.find((version) =>
+              version.metadata?.container?.tags?.includes(process.env.CURRENT_SHA),
+            );
+            if (!candidate) return;
+            await github.request(
+              'DELETE /users/{username}/packages/{package_type}/{package_name}/versions/{package_version_id}',
+              {
+                username: owner,
+                package_type: 'container',
+                package_name: 'basketra',
+                package_version_id: candidate.id,
+              },
+            );

@@ -37,27 +37,67 @@ const DEFAULT_CAPABILITIES: AiCapabilities = {
   internetSearch: false,
 };
 
+export const DEFAULT_AI_MAX_RESPONSE_BYTES = 1024 * 1024;
+
+function assertPositiveInteger(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`${name} must be a positive safe integer`);
+  return value;
+}
+
+async function readResponseText(response: Response, maxBytes: number): Promise<string> {
+  const declaredLength = response.headers.get('content-length');
+  if (declaredLength !== null) {
+    const parsedLength = Number(declaredLength);
+    if (Number.isFinite(parsedLength) && parsedLength > maxBytes) throw new Error('AI_RESPONSE_TOO_LARGE');
+  }
+
+  if (!response.body) return '';
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      bytes += result.value.byteLength;
+      if (bytes > maxBytes) {
+        await reader.cancel('AI_RESPONSE_TOO_LARGE');
+        throw new Error('AI_RESPONSE_TOO_LARGE');
+      }
+      chunks.push(result.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 export class OpenAiCompatibleProvider implements AiProvider {
   readonly config: Readonly<{
     baseUrl: URL;
     apiKey?: string;
     model: string;
     timeoutMs: number;
+    maxResponseBytes?: number;
     capabilities?: Partial<AiCapabilities>;
   }>;
   readonly fetchImplementation: typeof fetch;
+  readonly #maxResponseBytes: number;
+
   constructor(
     config: Readonly<{
       baseUrl: URL;
       apiKey?: string;
       model: string;
       timeoutMs: number;
+      maxResponseBytes?: number;
       capabilities?: Partial<AiCapabilities>;
     }>,
     fetchImplementation: typeof fetch = fetch,
   ) {
     this.config = config;
     this.fetchImplementation = fetchImplementation;
+    this.#maxResponseBytes = assertPositiveInteger(config.maxResponseBytes ?? DEFAULT_AI_MAX_RESPONSE_BYTES, 'maxResponseBytes');
   }
 
   async getCapabilities(): Promise<AiCapabilities> {
@@ -95,7 +135,9 @@ export class OpenAiCompatibleProvider implements AiProvider {
         signal,
       });
       if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? 'AI_AUTHENTICATION_FAILED' : `AI_HTTP_${response.status}`);
-      const body = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+      const responseText = await readResponseText(response, this.#maxResponseBytes);
+      if (!responseText) throw new Error('AI_EMPTY_RESPONSE');
+      const body = JSON.parse(responseText) as { choices?: Array<{ message?: { content?: string } }> };
       const content = body.choices?.[0]?.message?.content;
       if (!content) throw new Error('AI_EMPTY_RESPONSE');
       return JSON.parse(content) as unknown;

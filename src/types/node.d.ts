@@ -28,18 +28,26 @@ declare module 'node:crypto' {
 declare module 'node:path' {
   export function resolve(...paths: string[]): string;
   export function dirname(path: string): string;
+  export function basename(path: string): string;
   export function extname(path: string): string;
   export function join(...paths: string[]): string;
   export const sep: string;
 }
 
 declare module 'node:fs' {
+  export interface Dirent {
+    name: string;
+    isFile(): boolean;
+    isDirectory(): boolean;
+  }
   export function mkdirSync(path: string, options?: { recursive?: boolean }): string | undefined;
   export function copyFileSync(source: string, destination: string): void;
-  export function statSync(path: string): { size: number };
+  export function statSync(path: string): { size: number; mtimeMs: number };
   export function readFileSync(path: string): Uint8Array;
   export function writeFileSync(path: string, data: Uint8Array | string, options?: { flag?: string }): void;
   export function existsSync(path: string): boolean;
+  export function readdirSync(path: string, options: { withFileTypes: true }): Dirent[];
+  export function readdirSync(path: string): string[];
   export function renameSync(oldPath: string, newPath: string): void;
   export function rmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void;
 }

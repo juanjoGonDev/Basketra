@@ -1,64 +1,64 @@
 # Resource budget
 
-## Targets
+## Enforced limits
 
-- idle RSS: <= 80 MiB;
-- representative API RSS: <= 128 MiB;
-- container memory hard limit: 192 MiB;
-- effectively zero idle CPU;
-- bounded process count and graceful shutdown within 20 seconds.
+| Resource | Limit |
+| --- | ---: |
+| Idle RSS in CI | 96 MiB |
+| Representative request RSS in CI | 144 MiB |
+| V8 heap used in CI | 64 MiB |
+| RSS growth between repeated steady-state rounds | 24 MiB |
+| Heap growth between repeated steady-state rounds | 8 MiB |
+| Persistent growth after replaying idempotent operations | 64 KiB |
+| Idle CPU over the measurement window | 1% |
+| Application container memory and memory+swap | 192 MiB |
+| V8 old-space ceiling | 128 MiB |
+| Application PIDs | 128 |
+| Application temporary filesystem | 32 MiB |
+| Watchtower memory and memory+swap | 128 MiB |
+| Watchtower PIDs | 64 |
+| Watchtower temporary filesystem | 16 MiB |
+| Container log retention | 3 files × 5 MiB per service |
+| Startup | 5 seconds |
+| Graceful shutdown | 20 seconds |
 
-## Reproducible measurement
+The V8 heap limit is intentionally below the container memory limit so native SQLite, buffers, runtime metadata, and the process supervisor retain headroom. Setting `memswap_limit` equal to `mem_limit` prevents the container from escaping the memory budget through swap.
+
+## Persistent storage limits
+
+- SQLite database: 512 MiB maximum through `PRAGMA max_page_count`.
+- SQLite page cache: 8 MiB maximum.
+- SQLite WAL journal target: 16 MiB through `journal_size_limit`, with bounded auto-checkpointing.
+- Receipt evidence: 512 MiB deduplicated store.
+- Migration backups: newest 3 and 768 MiB combined.
+- Manual backups: newest 5 and 768 MiB combined.
+- Watchtower removes superseded local images but is explicitly forbidden from removing application volumes.
+- GHCR keeps the newest 10 immutable SHA-tagged releases; failed candidates are deleted unless they were promoted.
+
+These are hard ceilings. Exceeding a data budget produces an explicit operation failure rather than unbounded disk growth.
+
+## CI measurement
 
 ```bash
 pnpm resource:measure
-/usr/bin/time -v pnpm start
-
-docker image inspect basketra:local --format '{{.Size}}'
-docker stats --no-stream basketra
 ```
 
-The script builds production JavaScript, starts the same `dist/main.js` entrypoint used by Docker, exercises representative API requests, waits for hibernation, and reports startup, shutdown, RSS, heap, CPU, process and thread counts.
+The command builds production JavaScript and runs the same server entrypoint used by Docker with `--expose-gc`. It performs three rounds of representative API reads and identical receipt confirmations, then asserts:
 
-## Pull-request runner evidence
+- absolute RSS and heap ceilings;
+- bounded steady-state RSS and heap growth;
+- bounded persistent growth for replayed idempotent operations;
+- idle resource release;
+- idle CPU, startup, and shutdown limits.
 
-Measured on July 29, 2026 with Node.js 22.23.1 on the GitHub-hosted Ubuntu runner:
+The command exits non-zero when any budget is exceeded. CI therefore enforces these values instead of merely printing measurements.
 
-| Metric | Result | Target | Status |
-| --- | ---: | ---: | --- |
-| Startup | 109.76 ms | bounded | pass |
-| Idle RSS | 61.56 MiB | <= 80 MiB | pass |
-| Representative API RSS | 80.29 MiB | <= 128 MiB | pass |
-| Returned-to-idle RSS | 80.29 MiB | <= 128 MiB | pass |
-| Heap used | 10.18 MiB | informational | measured |
-| Idle CPU, measurement window | 0.039% | effectively zero | pass |
-| Graceful shutdown | 71.61 ms | <= 20 s | pass |
-| Primary process count | 1 | 1 | pass |
-| Node thread count | 7 | bounded | measured |
-| SQLite database size | 4,096 bytes | informational | measured |
-| Hibernated state | true | required | pass |
+## Container and publication validation
 
-The initial development-only TypeScript runtime measured approximately 112 MiB idle RSS and failed the target. Production therefore runs compiled JavaScript instead of Node's TypeScript stripping mode.
+Pull-request CI builds AMD64 and ARM64 images with SBOM and provenance, scans the image with Trivy, starts it under the production resource restrictions, checks `/readiness`, inspects cgroup limits, and verifies graceful shutdown.
 
-## Container evidence
+After an approved merge, the main workflow publishes only the immutable SHA candidate first. It then checks the multi-architecture manifest, pulls the exact digest from GHCR, starts that digest under the same hard limits, checks its revision label and readiness, and only then promotes the identical manifest to `stable`.
 
-Pull-request CI validated the production image on July 29, 2026:
+## Raspberry Pi boundary
 
-- image size: 162,815,322 bytes (155.27 MiB);
-- successful `linux/amd64` build with SBOM and provenance;
-- successful `linux/arm64` build with SBOM and provenance;
-- Compose configuration validation;
-- Trivy scan passing with exit-on-finding for fixed HIGH and CRITICAL vulnerabilities;
-- read-only root filesystem, dropped capabilities, `no-new-privileges`, PID limit, 192 MiB memory limit and 0.75 CPU limit during smoke execution;
-- health endpoint reached successfully;
-- graceful container stop completed inside the 20-second bound.
-
-The runtime stage removes npm, Corepack, pnpm and Yarn because Basketra does not need package-management tooling after compilation. This avoids shipping vulnerable, unused package-manager libraries in the executable filesystem.
-
-## Raspberry Pi validation boundary
-
-The ARM64 image build and emulated execution path are validated by CI. Physical Raspberry Pi measurements for thermal behavior, storage latency, cgroup accounting and interaction with the user's other containers remain hardware-specific deployment validation. They must not be inferred from the hosted-runner figures above.
-
-## Hibernation
-
-`BASKETRA_IDLE_HIBERNATE_AFTER_MS` defaults to five minutes. Hibernation removes temporary files and releases optional provider state. `IDLE_EXIT_AFTER_MS` is disabled by default; when enabled, an external supervisor is required because Docker cannot wake a stopped container from an HTTP request.
+CI validates build contracts, emulated ARM64 construction, resource configuration, retention algorithms, and the published AMD64 runtime. Physical Raspberry Pi thermal behavior, storage latency, cgroup accounting, private-registry authentication, and interaction with other host containers remain deployment checks and must not be inferred from hosted-runner measurements.

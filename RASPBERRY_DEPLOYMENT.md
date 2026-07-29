@@ -1,6 +1,6 @@
 # Private Raspberry Pi deployment
 
-This runbook deploys Basketra from the private multi-architecture image `ghcr.io/juanjogondev/basketra`. The repository owner is written in lowercase because Docker image references require lowercase repository names.
+This runbook deploys Basketra from the private multi-architecture image `ghcr.io/juanjogondev/basketra`. Docker repository references are lowercase even though the account display name is `juanjoGonDev`.
 
 Basketra remains private by default: the published port binds to loopback, persistent data stays in the named `basketra-data` volume, and the production Compose file requires an authentication token.
 
@@ -11,13 +11,13 @@ Basketra remains private by default: the published port binds to loopback, persi
 - Access to the private GHCR package.
 - OpenSSL for token generation.
 - A private access path such as WireGuard, an SSH tunnel, or an authenticated private reverse proxy.
-- Enough free disk space for the database, receipt evidence, migration backups, manual backups, and at least two container image revisions.
+- Free disk capacity for the bounded application data plus at least two image revisions.
 
-Do not expose Basketra directly on `0.0.0.0`. Keep `BASKETRA_BIND_ADDRESS=127.0.0.1` unless a reviewed LAN-only bind and matching firewall policy are intentionally configured.
+Do not expose Basketra directly on `0.0.0.0`. Keep `BASKETRA_BIND_ADDRESS=127.0.0.1` unless a reviewed LAN-only bind and firewall policy are intentionally configured.
 
 ## Authenticate to private GHCR
 
-Use a classic GitHub personal access token with only `read:packages` for the deployment host. Do not place the token in `.env`, Compose, shell history, or this repository.
+Use a classic GitHub personal access token with only `read:packages` on the deployment host. Do not place the token in `.env`, Compose, shell history, or this repository.
 
 ```bash
 read -rsp 'GHCR read token: ' CR_PAT
@@ -26,7 +26,7 @@ printf '%s' "$CR_PAT" | docker login ghcr.io -u juanjoGonDev --password-stdin
 unset CR_PAT
 ```
 
-Docker stores the registry authentication in its client configuration. Protect that directory with owner-only permissions. The optional scoped Watchtower service must receive the same Docker configuration directory through `BASKETRA_DOCKER_CONFIG_DIR`.
+Protect Docker's client configuration with owner-only permissions. The optional Watchtower service receives that same directory through `BASKETRA_DOCKER_CONFIG_DIR`.
 
 ## Create the deployment environment
 
@@ -47,17 +47,18 @@ unset token
 chmod 600 .env
 ```
 
-Review `.env` before deployment. Keep the defaults below unless there is an explicit operational reason to change them:
+Keep these defaults unless measurements on the target justify a reviewed change:
 
 - `BASKETRA_IMAGE=ghcr.io/juanjogondev/basketra:stable`
 - `BASKETRA_BIND_ADDRESS=127.0.0.1`
-- `BASKETRA_PORT=3000`
-- `BASKETRA_AI_IMAGE_CAPABILITY=true`
-- `BASKETRA_AI_PDF_CAPABILITY=false`
+- `BASKETRA_NODE_HEAP_MB=128`
+- `BASKETRA_MEMORY_LIMIT=192m`
+- `BASKETRA_CPU_LIMIT=0.75`
 - `WATCHTOWER_POLL_INTERVAL=300`
+- `WATCHTOWER_MEMORY_LIMIT=128m`
 - `TZ=Europe/Madrid`
 
-Provider credentials remain optional. Never add a real `.env` or registry token to Git.
+Compose sets memory+swap equal to the memory limit, caps PIDs and CPU, uses bounded tmpfs mounts, and rotates each service log at three 5 MiB files. Provider credentials remain optional. Never commit a real `.env` or registry token.
 
 ## Verify the private image pull
 
@@ -69,7 +70,7 @@ docker image inspect ghcr.io/juanjogondev/basketra:stable \
 docker compose -f compose.raspberry.yml images
 ```
 
-A successful authenticated pull and a non-empty repository digest confirm that the host can retrieve the private image. In GitHub package settings, verify that the package visibility remains **Private** and that repository access is linked to `juanjoGonDev/Basketra`.
+A successful authenticated pull and non-empty repository digest confirm access. In package settings, keep visibility **Private** and repository access linked to `juanjoGonDev/Basketra`.
 
 ## Start Basketra
 
@@ -80,32 +81,34 @@ curl --fail --silent http://127.0.0.1:3000/health
 curl --fail --silent http://127.0.0.1:3000/readiness
 ```
 
-`/health` confirms that the HTTP process responds. `/readiness` confirms that startup initialization completed. The container healthcheck uses `/readiness`; migration or pre-migration backup failure prevents the service from becoming healthy.
+`/health` confirms HTTP liveness. `/readiness` confirms database initialization and migrations completed. Migration, backup-retention, database-size, or existing-file-budget failure prevents the service from becoming healthy.
 
 Inspect startup without printing the environment:
 
 ```bash
 docker compose -f compose.raspberry.yml logs --tail 100 basketra
 docker inspect --format '{{json .State.Health}}' basketra-basketra-1
+docker stats --no-stream basketra-basketra-1
 ```
 
-Do not use `docker inspect` formats that dump the full container environment.
+Do not use inspection formats that dump the full environment.
 
-## Automatic migrations
+## Automatic migrations and storage retention
 
-Basketra opens `/data/basketra.db` and applies pending migrations before the HTTP listener becomes ready. When migrations are pending it:
+Before listening, Basketra checkpoints WAL, reserves room under both count and byte retention budgets, creates and validates an atomic standalone pre-migration backup, applies the complete batch transactionally, and validates the target database before commit.
 
-1. checkpoints SQLite WAL state;
-2. creates a standalone pre-migration backup under `/data/backups/migrations`;
-3. validates backup integrity and source schema version;
-4. applies the complete pending migration batch in one transaction;
-5. validates integrity and target version before commit.
+Defaults:
 
-A failed migration rolls back the complete pending batch and startup fails. Destructive migrations are rejected unless a future code change marks and explicitly authorizes them; no deployment environment variable can silently bypass that guard.
+- primary SQLite database: 512 MiB maximum;
+- SQLite cache: 8 MiB;
+- WAL target: 16 MiB;
+- migration backups: newest 3, maximum 768 MiB combined;
+- manual backups: newest 5, maximum 768 MiB combined;
+- deduplicated receipt files: 512 MiB maximum.
+
+Repeated failed migrations cannot create unlimited backups. Failed temporary copies are removed. A destructive migration requires explicit code-level authorization; no deployment environment variable bypasses that guard.
 
 ## Manual backup and validation
-
-Use a unique file name and keep the token only in the shell environment:
 
 ```bash
 export BASKETRA_AUTH_TOKEN
@@ -121,11 +124,11 @@ curl --fail --request POST http://127.0.0.1:3000/api/v1/restore/validate \
 unset BASKETRA_AUTH_TOKEN
 ```
 
-The backup is stored in the persistent volume at `/data/backups/basketra-manual.db`. Copy important backups to separate storage according to the host backup policy; a named volume alone is not a disaster-recovery copy.
+Copy important backups out of the named volume before retention removes older local copies.
 
 ## Restore a validated backup
 
-Restoration is deliberately offline. Validate first, stop Basketra, preserve the current database, replace it from the validated backup, and remove stale WAL sidecars:
+Restoration is deliberately offline:
 
 ```bash
 export BASKETRA_AUTH_TOKEN
@@ -148,11 +151,22 @@ docker compose -f compose.raspberry.yml up -d basketra
 curl --fail --silent http://127.0.0.1:3000/readiness
 ```
 
-If readiness fails, stop the service and repeat the offline copy using the generated `pre-restore-<timestamp>.db` file. Never copy over an active SQLite database.
+If readiness fails, stop the service and restore the preserved database. Never copy over an active SQLite database. The emergency `pre-restore` copy is operational and not automatically managed by the API retention policy; move or remove it after recovery.
 
-## Roll back the application image
+## Verified publication and image rollback
 
-Every successful main-branch publication creates an immutable full commit-SHA tag in addition to `stable`. Set the previous known-good SHA tag in `.env`, pull it, and recreate Basketra:
+An approved merge does not immediately move `stable`. The main workflow:
+
+1. publishes a full-SHA multi-architecture candidate;
+2. verifies AMD64 and ARM64 manifest entries;
+3. pulls the exact digest from GHCR;
+4. checks the revision label and starts it under production limits;
+5. waits for `/readiness` and graceful shutdown;
+6. promotes that identical manifest to `stable`;
+7. compares the stable manifest with the validated candidate;
+8. retains only the newest ten immutable SHA releases.
+
+A candidate that fails before promotion is deleted. Set a previous retained SHA in `.env` for rollback:
 
 ```dotenv
 BASKETRA_IMAGE=ghcr.io/juanjogondev/basketra:<previous-full-commit-sha>
@@ -164,36 +178,31 @@ docker compose -f compose.raspberry.yml up -d --no-deps basketra
 curl --fail --silent http://127.0.0.1:3000/readiness
 ```
 
-An immutable SHA tag does not move, so Watchtower cannot advance that tag. Restore `BASKETRA_IMAGE=ghcr.io/juanjogondev/basketra:stable` only after the stable release is known good.
+An immutable SHA tag does not move. Return to `stable` only after the release is known good. A schema-incompatible application rollback may also require restoring its pre-migration backup.
 
 ## Scoped Watchtower every five minutes
 
-`compose.raspberry.yml` includes an optional `autoupdate` profile using Watchtower `1.7.1`, `WATCHTOWER_SCOPE=basketra`, enable-label filtering, cleanup, and a 300-second poll interval. Basketra carries both required labels:
+The optional `autoupdate` profile uses Watchtower `1.7.1`, `WATCHTOWER_SCOPE=basketra`, enable-label filtering, and a 300-second interval. It removes superseded local image data after a successful update but explicitly sets `WATCHTOWER_REMOVE_VOLUMES=false`; application data volumes must never be deleted by cleanup.
 
-- `com.centurylinklabs.watchtower.enable=true`
-- `com.centurylinklabs.watchtower.scope=basketra`
-
-Before starting it, inspect every Watchtower instance already attached to the same Docker daemon:
+Before starting it, inspect every Watchtower attached to the daemon:
 
 ```bash
 docker ps --filter name=watchtower --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
 docker inspect --format '{{json .Config.Cmd}} {{json .Config.Env}} {{json .Config.Labels}}' watchtower
 ```
 
-An unscoped Watchtower can still select scoped containers and can conflict with another instance. The current `raspberry5` convention includes a global Watchtower, so **do not start the Basketra instance until the global configuration has been reviewed and made compatible without affecting other containers**. This repository does not alter the global instance or the Raspberry host.
+An unscoped Watchtower can select scoped containers and conflict with another instance. The existing `raspberry5` convention includes a global Watchtower, so **do not start Basketra's instance until the global configuration has been reviewed and reconciled without affecting other containers**. This repository does not alter the global instance or the Raspberry host.
 
-After that separate operational review, start only the scoped profile:
+After that separate review:
 
 ```bash
 docker compose -f compose.raspberry.yml --profile autoupdate up -d watchtower
 docker compose -f compose.raspberry.yml logs --tail 100 watchtower
 ```
 
-Never configure both `WATCHTOWER_SCHEDULE` and `WATCHTOWER_POLL_INTERVAL`; Watchtower treats schedule and polling interval as mutually exclusive. This Compose file defines only `WATCHTOWER_POLL_INTERVAL=300`.
+Never combine `WATCHTOWER_SCHEDULE` and `WATCHTOWER_POLL_INTERVAL`. Watchtower upstream is archived; `1.7.1` remains pinned only because the existing host standardizes on it. Evaluate a maintained replacement before expanding its responsibility.
 
-Watchtower upstream is archived and its latest release is pinned. Continue using it here only because the existing Raspberry stack already standardizes on it; review a maintained replacement before expanding its responsibility.
-
-## Routine update and diagnostics
+## Routine diagnostics
 
 ```bash
 docker compose -f compose.raspberry.yml pull basketra

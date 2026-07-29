@@ -1,9 +1,11 @@
-import { createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync, existsSync, renameSync, rmSync, readFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
 
 export type StoredFile = Readonly<{ storageKey: string; hash: string; mimeType: string; bytes: number }>;
 export type StoredFileContent = Readonly<{ storageKey: string; mimeType: string; bytes: Uint8Array }>;
+
+export const DEFAULT_FILE_STORAGE_MAX_BYTES = 512 * 1024 * 1024;
 
 const MAGIC: Readonly<Record<string, readonly number[]>> = {
   'image/jpeg': [0xff, 0xd8, 0xff],
@@ -23,16 +25,33 @@ function mimeTypeForStorageKey(storageKey: string): keyof typeof MAGIC {
   throw new RangeError('Unsupported stored file extension');
 }
 
+function assertPositiveInteger(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`${name} must be a positive safe integer`);
+  return value;
+}
+
 export class FileStore {
   readonly #permanentDir: string;
   readonly #tempDir: string;
+  readonly #maxStoredBytes: number;
   readonly maxBytes: number;
-  constructor(permanentDir: string, tempDir: string, maxBytes: number) {
-    this.maxBytes = maxBytes;
+
+  constructor(permanentDir: string, tempDir: string, maxBytes: number, maxStoredBytes = DEFAULT_FILE_STORAGE_MAX_BYTES) {
+    this.maxBytes = assertPositiveInteger(maxBytes, 'maxBytes');
+    this.#maxStoredBytes = assertPositiveInteger(maxStoredBytes, 'maxStoredBytes');
     this.#permanentDir = resolve(permanentDir);
     this.#tempDir = resolve(tempDir);
     mkdirSync(this.#permanentDir, { recursive: true });
-    mkdirSync(this.#tempDir, { recursive: true });
+    this.cleanupTemporary();
+    if (this.storedBytes() > this.#maxStoredBytes) {
+      throw new RangeError('Persistent file storage already exceeds the configured limit');
+    }
+  }
+
+  private storedBytes(): number {
+    return readdirSync(this.#permanentDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .reduce((total, entry) => total + statSync(join(this.#permanentDir, entry.name)).size, 0);
   }
 
   storeBase64(input: Readonly<{ base64: string; mimeType: string; originalName?: string }>): StoredFile {
@@ -46,9 +65,16 @@ export class FileStore {
     const storageKey = `${hash}${extension}`;
     const target = this.resolveKey(storageKey);
     if (!existsSync(target)) {
-      const temporary = join(this.#tempDir, `${hash}.upload`);
-      writeFileSync(temporary, buffer, { flag: 'wx' });
-      renameSync(temporary, target);
+      if (this.storedBytes() + buffer.byteLength > this.#maxStoredBytes) {
+        throw new RangeError('Persistent file storage limit would be exceeded');
+      }
+      const temporary = join(this.#tempDir, `${hash}-${randomUUID()}.upload`);
+      try {
+        writeFileSync(temporary, buffer, { flag: 'wx' });
+        renameSync(temporary, target);
+      } finally {
+        rmSync(temporary, { force: true });
+      }
     }
     return { storageKey, hash, mimeType: input.mimeType, bytes: buffer.byteLength };
   }

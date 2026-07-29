@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
-import { copyFileSync, mkdirSync, statSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { copyFileSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import { createId } from './ids.ts';
 
 export type ShoppingListRecord = Readonly<{ id: string; name: string; createdAt: string; updatedAt: string }>;
@@ -43,12 +43,30 @@ export type MigrationDefinition = Readonly<{
   sql: string;
 }>;
 
+export type BackupRetentionPolicy = Readonly<{
+  maxCount: number;
+  maxBytes: number;
+}>;
+
 export type BasketraDatabaseOptions = Readonly<{
   additionalMigrations?: readonly MigrationDefinition[];
   allowDestructiveMigrations?: boolean;
   migrationBackupDir?: string;
   clock?: () => Date;
+  maxDatabaseBytes?: number;
+  maxSqliteCacheBytes?: number;
+  maxWalBytes?: number;
+  migrationBackupRetention?: BackupRetentionPolicy;
+  manualBackupRetention?: BackupRetentionPolicy;
 }>;
+
+export const DEFAULT_DATABASE_STORAGE_LIMITS = Object.freeze({
+  maxDatabaseBytes: 512 * 1024 * 1024,
+  maxSqliteCacheBytes: 8 * 1024 * 1024,
+  maxWalBytes: 16 * 1024 * 1024,
+  migrationBackupRetention: Object.freeze({ maxCount: 3, maxBytes: 768 * 1024 * 1024 }),
+  manualBackupRetention: Object.freeze({ maxCount: 5, maxBytes: 768 * 1024 * 1024 }),
+});
 
 const MIGRATIONS: readonly MigrationDefinition[] = [
   {
@@ -105,6 +123,18 @@ function now(): string {
   return new Date().toISOString();
 }
 
+function assertPositiveInteger(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`${name} must be a positive safe integer`);
+  return value;
+}
+
+function assertRetentionPolicy(policy: BackupRetentionPolicy, name: string): BackupRetentionPolicy {
+  return {
+    maxCount: assertPositiveInteger(policy.maxCount, `${name}.maxCount`),
+    maxBytes: assertPositiveInteger(policy.maxBytes, `${name}.maxBytes`),
+  };
+}
+
 function schemaVersion(database: DatabaseSync): number {
   const hasMigrations = database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations'").get();
   if (!hasMigrations) return 0;
@@ -118,14 +148,73 @@ function integrityIsValid(database: DatabaseSync): boolean {
 }
 
 function createPortableBackup(source: string, destination: string): number {
-  copyFileSync(source, destination);
-  const backup = new DatabaseSync(destination);
+  const temporary = `${destination}.${createId('partial')}.tmp`;
   try {
-    backup.exec('PRAGMA journal_mode = DELETE;');
+    copyFileSync(source, temporary);
+    const backup = new DatabaseSync(temporary);
+    try {
+      backup.exec('PRAGMA journal_mode = DELETE;');
+    } finally {
+      backup.close();
+    }
+    const bytes = statSync(temporary).size;
+    renameSync(temporary, destination);
+    return bytes;
   } finally {
-    backup.close();
+    rmSync(temporary, { force: true });
   }
-  return statSync(destination).size;
+}
+
+type BackupEntry = Readonly<{ name: string; path: string; bytes: number; mtimeMs: number }>;
+
+function listBackupFiles(directory: string, ignoredNames: ReadonlySet<string> = new Set()): BackupEntry[] {
+  mkdirSync(directory, { recursive: true });
+  return readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.db') && !ignoredNames.has(entry.name))
+    .map((entry) => {
+      const path = join(directory, entry.name);
+      const stat = statSync(path);
+      return { name: entry.name, path, bytes: stat.size, mtimeMs: stat.mtimeMs };
+    })
+    .sort((left, right) => right.mtimeMs - left.mtimeMs || right.name.localeCompare(left.name));
+}
+
+function pruneBackupDirectory(
+  directory: string,
+  policy: BackupRetentionPolicy,
+  options: Readonly<{
+    protectedNames?: ReadonlySet<string>;
+    ignoredNames?: ReadonlySet<string>;
+    reserveCount?: number;
+    reserveBytes?: number;
+  }> = {},
+): string[] {
+  const protectedNames = options.protectedNames ?? new Set<string>();
+  let usedCount = options.reserveCount ?? 0;
+  let usedBytes = options.reserveBytes ?? 0;
+  if (usedCount > policy.maxCount || usedBytes > policy.maxBytes) {
+    throw new Error('Backup retention budget cannot fit the required backup');
+  }
+
+  const entries = listBackupFiles(directory, options.ignoredNames).sort((left, right) => {
+    const protectedOrder = Number(protectedNames.has(right.name)) - Number(protectedNames.has(left.name));
+    return protectedOrder || right.mtimeMs - left.mtimeMs || right.name.localeCompare(left.name);
+  });
+  const removed: string[] = [];
+  for (const entry of entries) {
+    const fits = usedCount + 1 <= policy.maxCount && usedBytes + entry.bytes <= policy.maxBytes;
+    if (protectedNames.has(entry.name) && !fits) {
+      throw new Error(`Protected backup ${entry.name} exceeds the configured retention budget`);
+    }
+    if (fits) {
+      usedCount += 1;
+      usedBytes += entry.bytes;
+      continue;
+    }
+    rmSync(entry.path, { force: true });
+    removed.push(entry.name);
+  }
+  return removed;
 }
 
 function prepareMigrations(additionalMigrations: readonly MigrationDefinition[]): readonly MigrationDefinition[] {
@@ -158,6 +247,11 @@ export class BasketraDatabase {
   readonly #allowDestructiveMigrations: boolean;
   readonly #migrationBackupDir: string;
   readonly #clock: () => Date;
+  readonly #maxDatabaseBytes: number;
+  readonly #maxSqliteCacheBytes: number;
+  readonly #maxWalBytes: number;
+  readonly #migrationBackupRetention: BackupRetentionPolicy;
+  readonly #manualBackupRetention: BackupRetentionPolicy;
   readonly path: string;
 
   constructor(path: string, options: BasketraDatabaseOptions = {}) {
@@ -166,10 +260,16 @@ export class BasketraDatabase {
     this.#allowDestructiveMigrations = options.allowDestructiveMigrations ?? false;
     this.#migrationBackupDir = resolve(options.migrationBackupDir ?? join(dirname(this.path), 'backups', 'migrations'));
     this.#clock = options.clock ?? (() => new Date());
+    this.#maxDatabaseBytes = assertPositiveInteger(options.maxDatabaseBytes ?? DEFAULT_DATABASE_STORAGE_LIMITS.maxDatabaseBytes, 'maxDatabaseBytes');
+    this.#maxSqliteCacheBytes = assertPositiveInteger(options.maxSqliteCacheBytes ?? DEFAULT_DATABASE_STORAGE_LIMITS.maxSqliteCacheBytes, 'maxSqliteCacheBytes');
+    this.#maxWalBytes = assertPositiveInteger(options.maxWalBytes ?? DEFAULT_DATABASE_STORAGE_LIMITS.maxWalBytes, 'maxWalBytes');
+    this.#migrationBackupRetention = assertRetentionPolicy(options.migrationBackupRetention ?? DEFAULT_DATABASE_STORAGE_LIMITS.migrationBackupRetention, 'migrationBackupRetention');
+    this.#manualBackupRetention = assertRetentionPolicy(options.manualBackupRetention ?? DEFAULT_DATABASE_STORAGE_LIMITS.manualBackupRetention, 'manualBackupRetention');
     mkdirSync(dirname(this.path), { recursive: true });
     this.#database = new DatabaseSync(this.path);
     try {
-      this.#database.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
+      this.#database.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA wal_autocheckpoint = 256;');
+      this.configureStorageLimits();
       this.migrate();
     } catch (error) {
       this.#database.close();
@@ -177,10 +277,39 @@ export class BasketraDatabase {
     }
   }
 
+  private configureStorageLimits(): void {
+    const pageSize = Number((this.#database.prepare('PRAGMA page_size').get() as { page_size: number }).page_size);
+    const maxPageCount = Math.floor(this.#maxDatabaseBytes / pageSize);
+    if (maxPageCount < 1) throw new RangeError('maxDatabaseBytes must fit at least one SQLite page');
+    const cacheKibibytes = Math.max(1, Math.floor(this.#maxSqliteCacheBytes / 1024));
+    this.#database.exec(`PRAGMA max_page_count = ${maxPageCount}; PRAGMA cache_size = -${cacheKibibytes}; PRAGMA journal_size_limit = ${this.#maxWalBytes};`);
+    const effectiveMaxPageCount = Number((this.#database.prepare('PRAGMA max_page_count').get() as { max_page_count: number }).max_page_count);
+    if (effectiveMaxPageCount > maxPageCount) {
+      throw new Error('Existing database exceeds the configured maximum database size');
+    }
+  }
+
+  storageLimits(): Readonly<{ pageSize: number; maxPageCount: number; maxDatabaseBytes: number; cacheBytes: number; walBytes: number }> {
+    const pageSize = Number((this.#database.prepare('PRAGMA page_size').get() as { page_size: number }).page_size);
+    const maxPageCount = Number((this.#database.prepare('PRAGMA max_page_count').get() as { max_page_count: number }).max_page_count);
+    const cacheSize = Number((this.#database.prepare('PRAGMA cache_size').get() as { cache_size: number }).cache_size);
+    const journalSizeLimit = Number((this.#database.prepare('PRAGMA journal_size_limit').get() as { journal_size_limit: number }).journal_size_limit);
+    return {
+      pageSize,
+      maxPageCount,
+      maxDatabaseBytes: pageSize * maxPageCount,
+      cacheBytes: Math.abs(cacheSize) * 1024,
+      walBytes: journalSizeLimit,
+    };
+  }
+
   migrate(): void {
     const currentVersion = schemaVersion(this.#database);
     const pendingMigrations = this.#migrations.filter((migration) => migration.version > currentVersion);
-    if (pendingMigrations.length === 0) return;
+    if (pendingMigrations.length === 0) {
+      this.pruneMigrationBackups();
+      return;
+    }
 
     assertMigrationSafety(pendingMigrations, this.#allowDestructiveMigrations);
     const targetVersion = pendingMigrations.at(-1)?.version;
@@ -205,24 +334,56 @@ export class BasketraDatabase {
       if (!integrityIsValid(this.#database)) throw new Error('Database integrity check failed after migrations');
       if (schemaVersion(this.#database) !== targetVersion) throw new Error('Database schema version did not reach migration target');
       this.#database.exec('COMMIT');
+      this.pruneMigrationBackups(new Set([migrationBackup.name]));
     } catch (error) {
       this.#database.exec('ROLLBACK');
+      try {
+        this.pruneMigrationBackups(new Set([migrationBackup.name]));
+      } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], 'Migration failed and backup retention cleanup also failed');
+      }
       throw error;
     }
+  }
+
+  private pruneMigrationBackups(
+    protectedNames: ReadonlySet<string> = new Set(),
+    reserveCount = 0,
+    reserveBytes = 0,
+  ): void {
+    const removed = pruneBackupDirectory(this.#migrationBackupDir, this.#migrationBackupRetention, {
+      protectedNames,
+      reserveCount,
+      reserveBytes,
+    });
+    if (removed.length === 0) return;
+    const hasAuditTable = this.#database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migration_backups'").get();
+    if (!hasAuditTable) return;
+    const statement = this.#database.prepare('DELETE FROM schema_migration_backups WHERE backup_name = ?');
+    for (const name of removed) statement.run(name);
   }
 
   private createPreMigrationBackup(fromVersion: number, toVersion: number): Readonly<{ name: string; bytes: number; createdAt: string }> {
     this.#database.exec('PRAGMA wal_checkpoint(TRUNCATE)');
     mkdirSync(this.#migrationBackupDir, { recursive: true });
+    const sourceBytes = statSync(this.path).size;
+    this.pruneMigrationBackups(new Set(), 1, sourceBytes);
     const createdAt = this.#clock().toISOString();
     const backupName = `basketra-pre-migration-v${fromVersion}-to-v${toVersion}-${createId('backup')}.db`;
     const backupPath = join(this.#migrationBackupDir, backupName);
-    const bytes = createPortableBackup(this.path, backupPath);
-    const validation = validateBackup(backupPath);
-    if (!validation.valid || validation.version !== fromVersion) {
-      throw new Error('Pre-migration backup validation failed');
+    try {
+      const bytes = createPortableBackup(this.path, backupPath);
+      if (bytes > this.#migrationBackupRetention.maxBytes) throw new Error('Pre-migration backup exceeds the configured retention byte budget');
+      const validation = validateBackup(backupPath);
+      if (!validation.valid || validation.version !== fromVersion) {
+        throw new Error('Pre-migration backup validation failed');
+      }
+      this.pruneMigrationBackups(new Set([backupName]));
+      return { name: backupName, bytes, createdAt };
+    } catch (error) {
+      rmSync(backupPath, { force: true });
+      throw error;
     }
-    return { name: backupName, bytes, createdAt };
   }
 
   createShoppingList(name: string): ShoppingListRecord {
@@ -315,8 +476,21 @@ export class BasketraDatabase {
   backup(destination: string): Readonly<{ path: string; bytes: number }> {
     this.#database.exec('PRAGMA wal_checkpoint(TRUNCATE)');
     const target = resolve(destination);
-    mkdirSync(dirname(target), { recursive: true });
+    const directory = dirname(target);
+    const targetName = basename(target);
+    mkdirSync(directory, { recursive: true });
+    const sourceBytes = statSync(this.path).size;
+    pruneBackupDirectory(directory, this.#manualBackupRetention, {
+      ignoredNames: new Set([targetName]),
+      reserveCount: 1,
+      reserveBytes: sourceBytes,
+    });
     const bytes = createPortableBackup(this.path, target);
+    if (bytes > this.#manualBackupRetention.maxBytes) {
+      rmSync(target, { force: true });
+      throw new Error('Manual backup exceeds the configured retention byte budget');
+    }
+    pruneBackupDirectory(directory, this.#manualBackupRetention, { protectedNames: new Set([targetName]) });
     return { path: target, bytes };
   }
 

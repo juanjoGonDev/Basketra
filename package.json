@@ -22,7 +22,7 @@
     "build": "node scripts/build.mjs",
     "docker:build": "docker build -t basketra:local .",
     "docker:smoke": "node scripts/docker-smoke.mjs",
-    "resource:measure": "node scripts/build.mjs && node scripts/resource-measure.mjs",
+    "resource:measure": "node scripts/build.mjs && node --expose-gc scripts/resource-measure.mjs",
     "quality": "node scripts/run-quality.mjs",
     "hook:pre-push": "node scripts/run-quality.mjs",
     "test:browser": "playwright test"
