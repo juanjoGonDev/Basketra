@@ -1,7 +1,20 @@
+import {
+  captureItem,
+  connectionStatus,
+  emptyListState,
+  escapeHtml,
+  hydrateIcons,
+  optimizationPlan,
+  proposalPanel,
+  receiptReview,
+  shoppingListItem,
+  suggestionOption,
+} from './ui.js';
+
 const state = {
   lists: [],
   activeListId: localStorage.getItem('basketra.activeListId') || '',
-  captures: JSON.parse(localStorage.getItem('basketra.captures') || '[]'),
+  captures: parseStoredCaptures(),
   suggestionController: null,
   aiController: null,
   aiTimer: null,
@@ -12,6 +25,18 @@ const state = {
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
+
+hydrateIcons();
+
+function parseStoredCaptures() {
+  try {
+    const captures = JSON.parse(localStorage.getItem('basketra.captures') || '[]');
+    return Array.isArray(captures) ? captures : [];
+  } catch {
+    localStorage.removeItem('basketra.captures');
+    return [];
+  }
+}
 
 function toast(message) {
   const element = $('#toast');
@@ -40,22 +65,32 @@ async function api(path, options = {}) {
   return body;
 }
 
-function navigate(view) {
+function navigate(requestedView) {
+  const view = $(`.view[data-view="${CSS.escape(requestedView)}"]`) ? requestedView : 'home';
   $$('.view').forEach(element => element.classList.toggle('active', element.dataset.view === view));
-  $$('[data-nav]').forEach(element => element.setAttribute('aria-current', element.dataset.nav === view ? 'page' : 'false'));
+  $$('.bottom-nav [data-nav]').forEach(element => {
+    if (element.dataset.nav === view) element.setAttribute('aria-current', 'page');
+    else element.removeAttribute('aria-current');
+  });
   history.replaceState(null, '', `#${view}`);
-  $('#main').focus();
+  window.scrollTo(0, 0);
+  $('#main').focus({ preventScroll: true });
 }
 
-$$('[data-nav]').forEach(button => button.addEventListener('click', () => navigate(button.dataset.nav)));
+$$('[data-nav]').forEach(element => element.addEventListener('click', event => {
+  event.preventDefault();
+  navigate(element.dataset.nav);
+}));
 
 async function checkConnection() {
+  const element = $('#connection-state');
   try {
     await api('/health');
-    $('#connection-state').textContent = 'Conectado';
-    $('#connection-state').dataset.ok = 'true';
+    element.innerHTML = connectionStatus(true);
+    element.dataset.ok = 'true';
   } catch {
-    $('#connection-state').textContent = 'Sin conexión';
+    element.innerHTML = connectionStatus(false);
+    delete element.dataset.ok;
   }
 }
 
@@ -65,6 +100,7 @@ async function loadLists() {
   if (!state.activeListId && lists[0]) state.activeListId = lists[0].id;
   renderLists();
   if (state.activeListId) await loadActiveList();
+  else $('#items').innerHTML = emptyListState();
 }
 
 function renderLists() {
@@ -75,7 +111,10 @@ function renderLists() {
 async function createList() {
   const name = prompt('Nombre de la lista', 'Compra semanal');
   if (!name) return;
-  const { list } = await api('/api/v1/shopping-lists', { method: 'POST', body: JSON.stringify({ name }) });
+  const { list } = await api('/api/v1/shopping-lists', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
   state.activeListId = list.id;
   localStorage.setItem('basketra.activeListId', list.id);
   await loadLists();
@@ -84,13 +123,11 @@ async function createList() {
 
 async function loadActiveList() {
   if (!state.activeListId) {
-    $('#items').innerHTML = '';
+    $('#items').innerHTML = emptyListState();
     return;
   }
   const { items } = await api(`/api/v1/shopping-lists/${encodeURIComponent(state.activeListId)}`);
-  $('#items').innerHTML = items.length
-    ? items.map(item => `<li><div><strong>${escapeHtml(item.text)}</strong><small>${item.quantityMinor} ${escapeHtml(item.unit)} · ${item.exactRequired ? 'exacto' : 'sustituible'}</small></div><span>${item.substitutionAllowed ? 'Alternativas' : 'Sin alternativas'}</span></li>`).join('')
-    : '<li>Añade el primer producto.</li>';
+  $('#items').innerHTML = items.length ? items.map(shoppingListItem).join('') : emptyListState();
 }
 
 $('#new-list').addEventListener('click', () => void createList());
@@ -119,6 +156,7 @@ $('#item-form').addEventListener('submit', async event => {
   $('#item-quantity').value = '1';
   $('#substitution-allowed').checked = true;
   localStorage.removeItem('basketra.itemDraft');
+  $('#suggestions').innerHTML = '';
   await loadActiveList();
   toast('Producto añadido');
 });
@@ -141,7 +179,7 @@ itemText.addEventListener('input', () => {
     try {
       const { suggestions } = await api(`/api/v1/products/suggestions?q=${encodeURIComponent(query)}`, { signal: controller.signal });
       if (controller.signal.aborted || itemText.value.trim() !== query) return;
-      $('#suggestions').innerHTML = suggestions.map(suggestion => `<button type="button" role="option" data-suggestion="${escapeHtml(suggestion.name)}">${escapeHtml(suggestion.name)}</button>`).join('');
+      $('#suggestions').innerHTML = suggestions.map(suggestionOption).join('');
     } catch (error) {
       if (error.name !== 'AbortError') $('#suggestions').innerHTML = '';
     }
@@ -182,11 +220,15 @@ async function analyzeWithAi() {
   $('#ai-state').textContent = 'Analizando…';
   $('#ai-proposals').hidden = true;
   try {
-    const { proposal } = await api('/api/v1/ai/shopping-list-analysis', { method: 'POST', body: JSON.stringify({ text }), signal: controller.signal });
+    const { proposal } = await api('/api/v1/ai/shopping-list-analysis', {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+      signal: controller.signal,
+    });
     if (controller.signal.aborted || itemText.value.trim() !== text) return;
     $('#ai-state').textContent = 'Propuesta lista para revisar';
     $('#ai-proposals').hidden = false;
-    $('#ai-proposals').innerHTML = `<h2>Propuestas IA</h2><ul>${proposal.items.map(item => `<li><strong>${escapeHtml(item.text)}</strong> · ${item.quantityMinor} ${escapeHtml(item.unit)}${item.ambiguity ? `<br><small>${escapeHtml(item.ambiguity)}</small>` : ''}</li>`).join('')}</ul>`;
+    $('#ai-proposals').innerHTML = proposalPanel(proposal);
   } catch (error) {
     if (error.name === 'AbortError') return;
     $('#ai-state').textContent = `Proveedor IA no disponible: ${error.message}`;
@@ -195,7 +237,7 @@ async function analyzeWithAi() {
 
 function renderCaptures() {
   localStorage.setItem('basketra.captures', JSON.stringify(state.captures));
-  $('#capture-list').innerHTML = state.captures.map((capture, index) => `<li><strong>${escapeHtml(capture.name)}</strong><span>${escapeHtml(capture.mimeType)} · ${capture.bytes} bytes</span><div><button type="button" class="secondary" data-up="${index}" ${index === 0 ? 'disabled' : ''}>Subir</button><button type="button" class="secondary" data-down="${index}" ${index === state.captures.length - 1 ? 'disabled' : ''}>Bajar</button><button type="button" class="secondary" data-delete="${index}">Eliminar</button></div></li>`).join('');
+  $('#capture-list').innerHTML = state.captures.map((capture, index) => captureItem(capture, index, state.captures.length)).join('');
 }
 
 $('#receipt-files').addEventListener('change', async event => {
@@ -224,9 +266,10 @@ $('#receipt-files').addEventListener('change', async event => {
 });
 
 $('#capture-list').addEventListener('click', event => {
-  const action = ['up', 'down', 'delete'].find(name => event.target.dataset[name] !== undefined);
-  if (!action) return;
-  const index = Number(event.target.dataset[action]);
+  const actionButton = event.target.closest('[data-up],[data-down],[data-delete]');
+  if (!actionButton) return;
+  const action = ['up', 'down', 'delete'].find(name => actionButton.dataset[name] !== undefined);
+  const index = Number(actionButton.dataset[action]);
   if (action === 'delete') state.captures.splice(index, 1);
   else {
     const target = action === 'up' ? index - 1 : index + 1;
@@ -289,6 +332,7 @@ function applyReceiptExtraction(extraction) {
   state.originalReceiptItems = extraction.final.items.map(item => ({ ...item }));
   $('#receipt-text').value = extraction.originalText;
   $('#receipt-total').value = extraction.final.declaredTotalMinor ?? 0;
+  $('#receipt-text').closest('details').open = true;
   renderReceiptReview(extraction.final.items, extraction.final.review.lines, extraction.final.review.total);
 }
 
@@ -303,10 +347,19 @@ function reviewManualReceipt() {
   const lines = items.map(item => {
     const expectedMinor = item.quantity * item.unitPriceMinor - (item.discountMinor || 0);
     const differenceMinor = item.lineTotalMinor - expectedMinor;
-    return { ...item, status: differenceMinor === 0 ? 'confirmed' : 'arithmetic-mismatch', expectedMinor, differenceMinor };
+    return {
+      ...item,
+      status: differenceMinor === 0 ? 'confirmed' : 'arithmetic-mismatch',
+      expectedMinor,
+      differenceMinor,
+    };
   });
   const expectedMinor = items.reduce((sum, item) => sum + item.lineTotalMinor, 0);
-  const total = { expectedMinor, differenceMinor: declaredTotalMinor - expectedMinor, valid: declaredTotalMinor === expectedMinor };
+  const total = {
+    expectedMinor,
+    differenceMinor: declaredTotalMinor - expectedMinor,
+    valid: declaredTotalMinor === expectedMinor,
+  };
   state.receiptExtraction = {
     pages: [],
     originalText: text,
@@ -319,10 +372,8 @@ function reviewManualReceipt() {
 
 function renderReceiptReview(items, lines, total) {
   const review = $('#receipt-review');
-  const prioritized = items.map((item, index) => ({ item, index, validation: lines[index] || { status: 'needs-review' } }))
-    .sort((left, right) => Number(left.validation.status === 'confirmed') - Number(right.validation.status === 'confirmed') || left.index - right.index);
   review.hidden = false;
-  review.innerHTML = `<h2>Revisión</h2><p>Total calculado: ${total?.expectedMinor ?? items.reduce((sum, item) => sum + item.lineTotalMinor, 0)} céntimos · ${total?.valid === false ? 'revisar diferencia' : 'correcto'}</p><div class="receipt-items">${prioritized.map(({ item, index, validation }) => `<fieldset class="receipt-item" data-item-index="${index}"><legend>Línea ${index + 1} · ${escapeHtml(validation.status)}</legend><label>Descripción<input data-field="description" maxlength="240" value="${escapeHtml(item.description)}"></label><label>Cantidad<input data-field="quantity" type="number" min="0" value="${item.quantity}"></label><label>Precio unitario (céntimos)<input data-field="unitPriceMinor" type="number" min="0" value="${item.unitPriceMinor}"></label><label>Total línea (céntimos)<input data-field="lineTotalMinor" type="number" min="0" value="${item.lineTotalMinor}"></label><small>Confianza ${Math.round((item.confidence ?? 1) * 100)}% · ${escapeHtml(validation.status)}</small></fieldset>`).join('')}</div>`;
+  review.innerHTML = receiptReview(items, lines, total);
   $('#confirm-receipt').hidden = items.length === 0;
 }
 
@@ -376,6 +427,7 @@ async function confirmReceipt() {
     state.receiptExtraction = null;
     state.originalReceiptItems = [];
     renderCaptures();
+    $('#receipt-review').hidden = true;
     $('#confirm-receipt').hidden = true;
   } catch (error) {
     $('#receipt-state').textContent = `Revisa el ticket: ${error.message}`;
@@ -390,7 +442,9 @@ function collectReceiptCorrections(items) {
     const original = state.originalReceiptItems[itemIndex];
     if (!original) return;
     for (const field of ['description', 'quantity', 'unitPriceMinor', 'lineTotalMinor']) {
-      if (item[field] !== original[field]) corrections.push({ itemIndex, field, original: original[field], corrected: item[field] });
+      if (item[field] !== original[field]) {
+        corrections.push({ itemIndex, field, original: original[field], corrected: item[field] });
+      }
     }
   });
   return corrections;
@@ -417,19 +471,25 @@ $('#run-demo-comparison').addEventListener('click', async () => {
     ],
     retailerPenaltyMinor: 100,
     offers: [
-      { id: 'a-milk', itemId: 'milk', retailerId: 'market-a', title: 'Leche entera 1 L', priceMinor: 105, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'l' }, stock: 'in-stock', observedAt: now, confidence: .95, evidence: 'manual fixture', exact: true, substitutionQuality: 1 },
-      { id: 'a-rice', itemId: 'rice', retailerId: 'market-a', title: 'Arroz 1 kg', priceMinor: 210, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'kg' }, stock: 'in-stock', observedAt: now, confidence: .9, evidence: 'manual fixture', exact: true, substitutionQuality: 1 },
-      { id: 'b-milk', itemId: 'milk', retailerId: 'market-b', title: 'Leche marca alternativa 1 L', priceMinor: 90, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'l' }, stock: 'in-stock', observedAt: now, confidence: .88, evidence: 'manual fixture', exact: false, substitutionQuality: .85 },
-      { id: 'b-rice', itemId: 'rice', retailerId: 'market-b', title: 'Arroz 1 kg', priceMinor: 180, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'kg' }, stock: 'in-stock', observedAt: now, confidence: .92, evidence: 'manual fixture', exact: true, substitutionQuality: 1 },
+      { id: 'a-milk', itemId: 'milk', retailerId: 'market-a', title: 'Leche entera 1 L', priceMinor: 105, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'l' }, stock: 'in-stock', observedAt: now, confidence: 0.95, evidence: 'manual fixture', exact: true, substitutionQuality: 1 },
+      { id: 'a-rice', itemId: 'rice', retailerId: 'market-a', title: 'Arroz 1 kg', priceMinor: 210, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'kg' }, stock: 'in-stock', observedAt: now, confidence: 0.9, evidence: 'manual fixture', exact: true, substitutionQuality: 1 },
+      { id: 'b-milk', itemId: 'milk', retailerId: 'market-b', title: 'Leche marca alternativa 1 L', priceMinor: 90, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'l' }, stock: 'in-stock', observedAt: now, confidence: 0.88, evidence: 'manual fixture', exact: false, substitutionQuality: 0.85 },
+      { id: 'b-rice', itemId: 'rice', retailerId: 'market-b', title: 'Arroz 1 kg', priceMinor: 180, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'kg' }, stock: 'in-stock', observedAt: now, confidence: 0.92, evidence: 'manual fixture', exact: true, substitutionQuality: 1 },
     ],
   };
-  const { plans } = await api('/api/v1/optimization-runs', { method: 'POST', body: JSON.stringify(payload) });
-  $('#plans').innerHTML = plans.map(plan => `<article><h2>${labelPlan(plan.kind)}</h2><dl><dt>Total efectivo</dt><dd>${plan.effectiveTotalMinor} cént.</dd><dt>Comercios</dt><dd>${plan.retailerIds.length}</dd><dt>Faltantes</dt><dd>${plan.missingItemIds.length}</dd><dt>Confianza</dt><dd>${Math.round(plan.confidence * 100)}%</dd></dl><p>${escapeHtml(plan.explanation)}</p>${plan.substitutions.length ? `<p>Sustituciones: ${plan.substitutions.map(escapeHtml).join(', ')}</p>` : ''}</article>`).join('');
+  const { plans } = await api('/api/v1/optimization-runs', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  $('#plans').innerHTML = plans.map(optimizationPlan).join('');
 });
 
 $('#download-backup').addEventListener('click', async () => {
   const name = `basketra-${Date.now()}.db`;
-  const { backup } = await api('/api/v1/backup', { method: 'POST', body: JSON.stringify({ name }) });
+  const { backup } = await api('/api/v1/backup', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
   toast(`Backup creado: ${backup.name}`);
 });
 
@@ -457,14 +517,6 @@ function fileToBase64(file) {
     reader.onload = () => resolve(String(reader.result).split(',')[1]);
     reader.readAsDataURL(file);
   });
-}
-
-function labelPlan(kind) {
-  return kind === 'single-retailer' ? 'Un solo comercio' : kind === 'balanced' ? 'Equilibrio recomendado' : 'Máximo ahorro';
-}
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]);
 }
 
 window.addEventListener('online', checkConnection);
