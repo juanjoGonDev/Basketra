@@ -98,7 +98,7 @@ test('local suggestions ignore stale responses and never require AI', async ({ p
   expect(failures).toEqual([]);
 });
 
-test('receipt captures upload, reorder, delete and show arithmetic review', async ({ page }) => {
+test('receipt captures extract, reorder, correct and import with evidence', async ({ page }) => {
   const failures = await gotoApp(page);
   await navigate(page, 'Escanear');
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00]);
@@ -111,11 +111,17 @@ test('receipt captures upload, reorder, delete and show arithmetic review', asyn
   await expect(page.locator('#capture-list li').first()).toContainText('page-2.png');
   await page.locator('#capture-list li').last().getByRole('button', { name: 'Eliminar', exact: true }).click();
   await expect(page.locator('#capture-list li')).toHaveCount(1);
-  await page.getByLabel('Texto extraído o transcripción', { exact: true }).fill('Milk;1;120;120');
+  await page.getByLabel('Texto extraído o transcripción', { exact: true }).fill('Milk;1;120;120\nTOTAL 1,20');
   await page.getByLabel('Total declarado (céntimos)', { exact: true }).fill('120');
-  await page.getByRole('button', { name: 'Revisar ticket', exact: true }).click();
+  await page.getByLabel('Verificar y normalizar con IA', { exact: true }).uncheck();
+  await page.getByRole('button', { name: 'Procesar capturas', exact: true }).click();
+  await expect(page.locator('#receipt-state')).toContainText('Extracción lista');
   await expect(page.locator('#receipt-review')).toContainText('correcto');
   await expect(page.locator('#receipt-review')).toContainText('confirmed');
+  await page.locator('.receipt-item [data-field="description"]').fill('Whole milk');
+  await page.getByRole('button', { name: 'Confirmar e importar', exact: true }).click();
+  await expect(page.locator('#receipt-state')).toContainText('Ticket importado');
+  await expect(page.locator('#capture-list li')).toHaveCount(0);
   expect(failures).toEqual([]);
 });
 
