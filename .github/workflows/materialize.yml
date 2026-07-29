@@ -15,7 +15,6 @@ concurrency:
 jobs:
   materialize:
     if: >-
-      github.actor == 'juanjoGonDev' &&
       github.repository == 'juanjoGonDev/Basketra' &&
       github.ref == 'refs/heads/agent/feat-basketra-foundation'
     runs-on: ubuntu-latest
