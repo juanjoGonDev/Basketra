@@ -62,7 +62,7 @@ test('shopping list preserves exact/substitution preferences and survives reload
   await createList(page, 'Compra E2E');
   await productInput(page).fill('Leche entera 1 L');
   await page.getByLabel('Cantidad', { exact: true }).fill('2');
-  await page.getByLabel('Unidad', { exact: true }).selectOption('l');
+  await page.locator('#item-unit').selectOption('l');
   await page.getByLabel('Producto exacto', { exact: true }).check();
   await page.getByLabel('Permitir sustituciones', { exact: true }).uncheck();
   await page.getByRole('button', { name: 'Añadir', exact: true }).click();
@@ -133,7 +133,7 @@ test('AI unavailability is recoverable and does not overwrite input', async ({ p
   const failures = await gotoApp(page);
   await navigate(page, 'Lista');
   await productInput(page).fill('pan integral');
-  await page.getByLabel('Asistencia IA', { exact: true }).selectOption('manual');
+  await page.locator('#ai-mode').selectOption('manual');
   await page.getByRole('button', { name: 'Analizar con IA', exact: true }).click();
   await expect(page.locator('#ai-state')).toContainText('Proveedor IA no disponible');
   await expect(productInput(page)).toHaveValue('pan integral');
