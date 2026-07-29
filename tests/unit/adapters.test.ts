@@ -1,0 +1,111 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { loadConfig, validateProviderBaseUrl } from '../../src/infrastructure/config.ts';
+import { FileStore } from '../../src/infrastructure/files.ts';
+import { EmbeddedTextOcrProvider } from '../../src/ocr/provider.ts';
+import { ManualOfferProvider } from '../../src/offers/provider.ts';
+import { OpenAiCompatibleProvider, type AiProvider, type AiStructuredInput } from '../../src/ai/provider.ts';
+import { StructuredAiExecutor } from '../../src/ai/structured-executor.ts';
+import { rational } from '../../src/domain/units.ts';
+
+const pngBase64=Buffer.from(Uint8Array.from([0x89,0x50,0x4e,0x47,0x00])).toString('base64');
+
+test('configuration uses private defaults and validates provider URLs',()=>{
+  const config=loadConfig({});
+  assert.equal(config.host,'127.0.0.1');
+  assert.equal(config.port,3000);
+  assert.equal(config.authToken,undefined);
+  assert.equal(validateProviderBaseUrl('http://10.0.0.2:8080/v1/').hostname,'10.0.0.2');
+  assert.throws(()=>validateProviderBaseUrl('ftp://example.com'),/HTTP/);
+  assert.throws(()=>validateProviderBaseUrl('https://user:pass@example.com'),/credentials/);
+  assert.throws(()=>validateProviderBaseUrl('https://example.com/path?q=1'),/query/);
+  assert.throws(()=>loadConfig({BASKETRA_PORT:'0'}),/>= 1/);
+  assert.throws(()=>loadConfig({BASKETRA_PORT:'abc'}),/>= 1/);
+  const configured=loadConfig({BASKETRA_HOST:' 0.0.0.0 ',BASKETRA_PORT:'4000',BASKETRA_AUTH_TOKEN:' token ',BASKETRA_AI_BASE_URL:'http://localhost:8080/v1',BASKETRA_AI_API_KEY:' key ',BASKETRA_AI_MODEL:' model ',BASKETRA_AI_TIMEOUT_MS:'5000',BASKETRA_AI_MAX_RETRIES:'2',BASKETRA_IDLE_HIBERNATE_AFTER_MS:'0',IDLE_EXIT_AFTER_MS:'1000',BASKETRA_DATA_DIR:'./x',BASKETRA_TEMP_DIR:'./y'});
+  assert.equal(configured.host,'0.0.0.0');
+  assert.equal(configured.port,4000);
+  assert.equal(configured.authToken,'token');
+  assert.equal(configured.aiApiKey,'key');
+  assert.equal(configured.aiModel,'model');
+});
+
+test('file storage validates signatures, deduplicates and prevents traversal',()=>{
+  const root=mkdtempSync(join(tmpdir(),'basketra-files-'));
+  const store=new FileStore(join(root,'files'),join(root,'tmp'),16);
+  try{
+    const first=store.storeBase64({base64:pngBase64,mimeType:'image/png',originalName:'receipt.png'});
+    const second=store.storeBase64({base64:pngBase64,mimeType:'image/png'});
+    assert.equal(first.storageKey,second.storageKey);
+    assert.equal(readFileSync(store.resolveKey(first.storageKey)).byteLength,5);
+    assert.throws(()=>store.resolveKey('../secret.png'),/Invalid storage key/);
+    assert.throws(()=>store.resolveKey('missingextension'),/Invalid storage key/);
+    assert.throws(()=>store.storeBase64({base64:pngBase64,mimeType:'text/plain'}),/Unsupported/);
+    assert.throws(()=>store.storeBase64({base64:Buffer.from('bad').toString('base64'),mimeType:'image/png'}),/signature/);
+    assert.throws(()=>store.storeBase64({base64:'',mimeType:'image/png'}),/size/);
+    assert.throws(()=>store.storeBase64({base64:Buffer.from(Uint8Array.from([0x89,0x50,0x4e,0x47,...Array(20).fill(0)])).toString('base64'),mimeType:'image/png'}),/size/);
+    store.cleanupTemporary();
+  }finally{rmSync(root,{recursive:true,force:true})}
+});
+
+test('OCR and manual offer providers are cancellable and disposable',async()=>{
+  const ocr=new EmbeddedTextOcrProvider();
+  assert.deepEqual(await ocr.recognize({mimeType:'application/pdf',bytes:new Uint8Array(),embeddedText:'  Milk  '}),{text:'Milk',confidence:1,source:'embedded-text'});
+  await assert.rejects(()=>ocr.recognize({mimeType:'image/png',bytes:new Uint8Array()}),/OCR_REQUIRED/);
+  const controller=new AbortController();controller.abort();
+  await assert.rejects(()=>ocr.recognize({mimeType:'text/plain',bytes:new Uint8Array(),embeddedText:'x'},controller.signal));
+  ocr.dispose();
+  const offer={id:'1',itemId:'milk',retailerId:'a',title:'Milk',priceMinor:100,shippingMinor:0,quantity:{amount:rational(1),unit:'l'},stock:'in-stock',observedAt:new Date().toISOString(),confidence:1,evidence:'manual',exact:true,substitutionQuality:1} as const;
+  const provider=new ManualOfferProvider([offer]);
+  assert.deepEqual(await provider.search({itemId:'milk',query:'milk'}),[offer]);
+  assert.deepEqual(await provider.search({itemId:'rice',query:'rice'}),[]);
+  await assert.rejects(()=>provider.search({itemId:'milk',query:'milk',signal:controller.signal}));
+  provider.dispose();
+});
+
+test('structured AI execution validates locally and bounds retries',async()=>{
+  let calls=0;
+  const provider:AiProvider={
+    async getCapabilities(){return {structuredOutput:true,jsonObject:true,image:false,pdf:false,internetSearch:false}},
+    async testConnection(){return {ok:true}},
+    async executeStructured(){calls+=1;return calls===1?{value:'bad'}:{value:2}},
+    dispose(){},
+  };
+  const executor=new StructuredAiExecutor(provider,1);
+  const result=await executor.execute({operation:'test',schemaName:'test',systemPrompt:'Return JSON',content:'x',schema:{jsonSchema:{type:'object'},parse(value){if(typeof value!=='object'||value===null||typeof value.value!=='number')throw new Error('INVALID_SCHEMA');return value.value}}});
+  assert.deepEqual(result,{value:2,attempts:2});
+  assert.throws(()=>new StructuredAiExecutor(provider,-1),RangeError);
+  assert.throws(()=>new StructuredAiExecutor(provider,4),RangeError);
+  let authCalls=0;
+  const authProvider={...provider,async executeStructured(){authCalls+=1;throw new Error('AI_AUTHENTICATION_FAILED')}};
+  await assert.rejects(()=>new StructuredAiExecutor(authProvider,3).execute({operation:'test',schemaName:'test',systemPrompt:'x',content:'x',schema:{jsonSchema:{},parse(){return 1}}}),/AUTHENTICATION/);
+  assert.equal(authCalls,1);
+  const unknownProvider={...provider,async executeStructured(){throw 'unknown'}};
+  await assert.rejects(()=>new StructuredAiExecutor(unknownProvider,1).execute({operation:'test',schemaName:'test',systemPrompt:'x',content:'x',schema:{jsonSchema:{},parse(){return 1}}}));
+});
+
+test('OpenAI-compatible provider sends strict schema and handles failures',async()=>{
+  const requests:Request[]=[];
+  const mockFetch:typeof fetch=async(input,init)=>{requests.push(new Request(input,init));return new Response(JSON.stringify({choices:[{message:{content:'{"ok":true}'}}]}),{status:200,headers:{'content-type':'application/json'}})};
+  const provider=new OpenAiCompatibleProvider({baseUrl:new URL('http://localhost:8080/v1'),apiKey:'secret',model:'test-model',timeoutMs:1000},mockFetch);
+  assert.equal((await provider.getCapabilities()).structuredOutput,true);
+  assert.deepEqual(await provider.testConnection(),{ok:true,model:'test-model'});
+  const value=await provider.executeStructured({operation:'test',schemaName:'result',systemPrompt:'x',content:'y',jsonSchema:{type:'object'}});
+  assert.deepEqual(value,{ok:true});
+  assert.equal(requests[0]?.url,'http://localhost:8080/v1/models');
+  assert.equal(requests[1]?.url,'http://localhost:8080/v1/chat/completions');
+  assert.equal(requests[1]?.headers.get('authorization'),'Bearer secret');
+  const posted=JSON.parse(await requests[1]!.clone().text());
+  assert.equal(posted.response_format.json_schema.strict,true);
+  provider.dispose();
+
+  const failed=new OpenAiCompatibleProvider({baseUrl:new URL('http://localhost/v1/'),model:'x',timeoutMs:100},async()=>new Response('',{status:503}));
+  assert.deepEqual(await failed.testConnection(),{ok:false});
+  await assert.rejects(()=>failed.executeStructured({operation:'x',schemaName:'x',systemPrompt:'x',content:'x',jsonSchema:{}}),/AI_HTTP_503/);
+  const auth=new OpenAiCompatibleProvider({baseUrl:new URL('http://localhost/v1/'),model:'x',timeoutMs:100},async()=>new Response('',{status:401}));
+  await assert.rejects(()=>auth.executeStructured({operation:'x',schemaName:'x',systemPrompt:'x',content:'x',jsonSchema:{}}),/AUTHENTICATION/);
+  const empty=new OpenAiCompatibleProvider({baseUrl:new URL('http://localhost/v1/'),model:'x',timeoutMs:100},async()=>new Response('{}',{status:200,headers:{'content-type':'application/json'}}));
+  await assert.rejects(()=>empty.executeStructured({operation:'x',schemaName:'x',systemPrompt:'x',content:'x',jsonSchema:{}}),/EMPTY/);
+});

@@ -1,0 +1,10 @@
+import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+rmSync('dist',{recursive:true,force:true});
+mkdirSync('dist',{recursive:true});
+execFileSync('tsc',['--noEmit'],{stdio:'inherit'});
+execFileSync('tsc',['-p','tsconfig.build.json'],{stdio:'inherit'});
+cpSync('src/web','dist/web',{recursive:true});
+cpSync('package.json','dist/package.json');
+writeFileSync('dist/BUILD_INFO.json',JSON.stringify({node:process.version,builtAt:new Date().toISOString(),runtime:'compiled-javascript'},null,2)+'\n');
+console.log('Production artifact created in dist/.');

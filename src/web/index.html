@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0f766e">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Inteligencia privada de precios de compra">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+  <title>Basketra</title>
+</head>
+<body>
+  <a class="skip-link" href="#main">Saltar al contenido</a>
+  <header class="app-header">
+    <a class="brand" href="#home" data-nav="home" aria-label="Ir al inicio">
+      <span class="brand__mark" data-icon="cart" aria-hidden="true"></span>
+      <span class="brand__copy"><strong>Basketra</strong><small>Compra con evidencia</small></span>
+    </a>
+    <span id="connection-state" class="connection-chip" role="status">Conectando…</span>
+  </header>
+
+  <main id="main" tabindex="-1">
+    <section id="home-view" class="view active" data-view="home">
+      <div class="hero surface-accent">
+        <span class="hero__icon" data-icon="shield" aria-hidden="true"></span>
+        <p class="eyebrow">Privada · local · verificable</p>
+        <h1>Tu cesta, con evidencia</h1>
+        <p class="lead">Convierte tickets en decisiones claras y compara precios sin entregar tus datos a una plataforma pública.</p>
+        <div class="hero__actions">
+          <button class="button primary" data-nav="lists"><span data-icon="plus"></span><span>Crear lista</span></button>
+          <button class="button secondary" data-nav="scan"><span data-icon="scan"></span><span>Escanear ticket</span></button>
+        </div>
+      </div>
+
+      <section class="content-section" aria-labelledby="quick-actions-title">
+        <div class="section-header">
+          <div><p class="eyebrow">Acciones rápidas</p><h2 id="quick-actions-title">¿Qué necesitas hacer?</h2></div>
+        </div>
+        <div class="action-grid">
+          <button class="action-card" data-nav="lists"><span class="action-card__icon" data-icon="list"></span><span><strong>Lista de compra</strong><small>Añade productos y conserva el borrador.</small></span><span class="action-card__arrow">→</span></button>
+          <button class="action-card" data-nav="scan"><span class="action-card__icon" data-icon="receipt"></span><span><strong>Escanear ticket</strong><small>Importa imágenes o PDF y revisa cada línea.</small></span><span class="action-card__arrow">→</span></button>
+          <button class="action-card" data-nav="prices"><span class="action-card__icon" data-icon="prices"></span><span><strong>Comparar cesta</strong><small>Elige simplicidad, equilibrio o máximo ahorro.</small></span><span class="action-card__arrow">→</span></button>
+        </div>
+      </section>
+
+      <div class="privacy-note surface">
+        <span data-icon="lock"></span>
+        <div><strong>Tus datos permanecen contigo</strong><p>Basketra se ejecuta en tu infraestructura privada y conserva la evidencia original.</p></div>
+      </div>
+    </section>
+
+    <section id="lists-view" class="view" data-view="lists">
+      <div class="page-header">
+        <div><p class="eyebrow">Planifica en segundos</p><h1>Lista de compra</h1><p>Sugerencias locales primero; IA sólo cuando tú lo decidas.</p></div>
+        <button id="new-list" class="button secondary compact"><span data-icon="plus"></span><span>Nueva</span></button>
+      </div>
+
+      <div class="surface selector-panel">
+        <label class="field"><span>Lista activa</span><select id="list-select"></select></label>
+      </div>
+
+      <form id="item-form" class="surface composer">
+        <div class="panel-heading">
+          <span class="section-icon" data-icon="cart"></span>
+          <div><p class="eyebrow">Añadir producto</p><h2>¿Qué necesitas?</h2></div>
+        </div>
+        <label class="field field-wide"><span>Producto</span><input id="item-text" name="text" autocomplete="off" maxlength="240" placeholder="Ej. leche entera 1 L" required></label>
+        <div id="suggestions" class="suggestions" role="listbox" aria-label="Sugerencias de producto"></div>
+        <div class="field-grid">
+          <label class="field"><span>Cantidad</span><input id="item-quantity" name="quantity" type="number" min="1" max="100000" value="1" inputmode="numeric" required></label>
+          <label class="field"><span>Unidad</span><select id="item-unit" name="unit"><option value="unit">ud</option><option value="kg">kg</option><option value="g">g</option><option value="l">L</option><option value="ml">ml</option><option value="pack">pack</option><option value="roll">rollo</option></select></label>
+        </div>
+        <div class="preference-list" aria-label="Preferencias de sustitución">
+          <label class="switch-row"><span><strong>Producto exacto</strong><small>No aceptar otra marca o formato.</small></span><input id="exact-required" type="checkbox" aria-label="Producto exacto"><span class="switch" aria-hidden="true"></span></label>
+          <label class="switch-row"><span><strong>Permitir sustituciones</strong><small>Mostrar alternativas equivalentes si ahorran.</small></span><input id="substitution-allowed" type="checkbox" aria-label="Permitir sustituciones" checked><span class="switch" aria-hidden="true"></span></label>
+        </div>
+        <button type="submit" class="button primary full"><span data-icon="plus"></span><span>Añadir</span></button>
+      </form>
+
+      <section class="surface ai-card" aria-labelledby="ai-title">
+        <div class="panel-heading">
+          <span class="section-icon" data-icon="sparkles"></span>
+          <div><p class="eyebrow">Opcional</p><h2 id="ai-title">Asistencia IA</h2></div>
+        </div>
+        <label class="field"><span>Modo de análisis</span><select id="ai-mode"><option value="disabled">Desactivada</option><option value="manual">Manual</option><option value="automatic">Automática tras pausa</option></select></label>
+        <button id="analyze-ai" class="button secondary full" type="button"><span data-icon="sparkles"></span><span>Analizar con IA</span></button>
+        <span id="ai-state" class="inline-status" role="status"></span>
+      </section>
+      <div id="ai-proposals" class="surface panel" hidden></div>
+
+      <section class="content-section" aria-labelledby="items-title">
+        <div class="section-header"><div><p class="eyebrow">Lista actual</p><h2 id="items-title">Productos</h2></div></div>
+        <ul id="items" class="item-list" aria-live="polite"></ul>
+      </section>
+    </section>
+
+    <section id="scan-view" class="view" data-view="scan">
+      <div class="page-header">
+        <div><p class="eyebrow">Importación segura</p><h1>Capturar ticket</h1><p>Sube las páginas, ordénalas y revisa el resultado antes de guardar.</p></div>
+      </div>
+
+      <section class="surface upload-panel" aria-labelledby="upload-title">
+        <div class="panel-heading"><span class="section-icon" data-icon="upload"></span><div><p class="eyebrow">Paso 1</p><h2 id="upload-title">Añade capturas</h2></div></div>
+        <label class="upload"><span class="upload__icon" data-icon="scan"></span><span><strong>Añadir imágenes o PDF</strong><small>Puedes seleccionar varias páginas y reordenarlas después.</small></span><input id="receipt-files" type="file" accept="image/jpeg,image/png,application/pdf" multiple></label>
+        <ol id="capture-list" class="capture-list"></ol>
+      </section>
+
+      <section class="surface receipt-workflow" aria-labelledby="extract-title">
+        <div class="panel-heading"><span class="section-icon" data-icon="sparkles"></span><div><p class="eyebrow">Paso 2</p><h2 id="extract-title">Extrae y revisa</h2></div></div>
+        <label class="switch-row"><span><strong>Verificar y normalizar con IA</strong><small>La validación local sigue siendo la autoridad.</small></span><input id="verify-receipt-ai" type="checkbox" aria-label="Verificar y normalizar con IA" checked><span class="switch" aria-hidden="true"></span></label>
+        <button id="extract-receipt" class="button primary full" type="button"><span data-icon="scan"></span><span>Procesar capturas</span></button>
+        <span id="receipt-state" class="inline-status" role="status"></span>
+        <details class="disclosure">
+          <summary><span data-icon="more"></span><span>Introducción manual y opciones avanzadas</span></summary>
+          <div class="disclosure__content">
+            <label class="field"><span>Texto extraído o transcripción</span><textarea id="receipt-text" rows="7" placeholder="El texto OCR aparecerá aquí; puedes corregirlo antes de confirmar"></textarea></label>
+            <label class="field"><span>Total declarado (céntimos)</span><input id="receipt-total" type="number" min="0" value="0" inputmode="numeric"></label>
+            <button id="review-receipt" class="button secondary full" type="button"><span data-icon="check"></span><span>Revisar ticket</span></button>
+          </div>
+        </details>
+      </section>
+
+      <div id="receipt-review" class="surface panel" hidden></div>
+      <button id="confirm-receipt" class="button primary full sticky-action" type="button" hidden><span data-icon="check"></span><span>Confirmar e importar</span></button>
+    </section>
+
+    <section id="prices-view" class="view" data-view="prices">
+      <div class="page-header"><div><p class="eyebrow">Decisión explicable</p><h1>Comparación</h1><p>Compara coste, stock, envío, confianza y número de comercios.</p></div></div>
+      <div class="surface comparison-intro">
+        <span class="comparison-intro__icon" data-icon="prices"></span>
+        <div><strong>Tres estrategias, una misma evidencia</strong><p>Prime sólo elimina el envío cuando la oferta actual lo confirma.</p></div>
+        <button id="run-demo-comparison" class="button primary full" type="button"><span data-icon="prices"></span><span>Generar ejemplo verificable</span></button>
+      </div>
+      <div id="plans" class="plans" aria-live="polite"></div>
+    </section>
+
+    <section id="settings-view" class="view" data-view="settings">
+      <div class="page-header"><div><p class="eyebrow">Control local</p><h1>Ajustes</h1><p>Privacidad, proveedores y mantenimiento de tu instalación.</p></div></div>
+      <div class="settings-list">
+        <details class="surface settings-card" open>
+          <summary><span class="settings-card__icon" data-icon="shield"></span><span><strong>Privacidad y acceso</strong><small>Loopback, VPN y token local.</small></span><span class="settings-card__chevron" data-icon="chevronDown"></span></summary>
+          <p>La API se vincula a localhost por defecto. Usa VPN o proxy privado y configura un token para endpoints sensibles.</p>
+        </details>
+        <details class="surface settings-card">
+          <summary><span class="settings-card__icon" data-icon="sparkles"></span><span><strong>Proveedores IA</strong><small>Configuración segura del backend.</small></span><span class="settings-card__chevron" data-icon="chevronDown"></span></summary>
+          <p>Se configuran mediante variables de entorno. El navegador nunca recibe la clave ni puede cambiar la URL del proveedor.</p>
+        </details>
+        <details class="surface settings-card">
+          <summary><span class="settings-card__icon" data-icon="database"></span><span><strong>Diagnóstico</strong><small>Estado técnico de la instalación.</small></span><span class="settings-card__chevron" data-icon="chevronDown"></span></summary>
+          <pre id="diagnostics" aria-live="polite"></pre>
+        </details>
+      </div>
+      <button id="download-backup" class="button primary full"><span data-icon="backup"></span><span>Crear copia de seguridad</span></button>
+    </section>
+  </main>
+
+  <nav class="bottom-nav" aria-label="Navegación principal">
+    <button data-nav="home" aria-current="page"><span class="nav-icon" data-icon="home"></span><span>Inicio</span></button>
+    <button data-nav="lists"><span class="nav-icon" data-icon="list"></span><span>Lista</span></button>
+    <button data-nav="scan"><span class="nav-icon" data-icon="scan"></span><span>Escanear</span></button>
+    <button data-nav="prices"><span class="nav-icon" data-icon="prices"></span><span>Precios</span></button>
+    <button data-nav="settings"><span class="nav-icon" data-icon="settings"></span><span>Ajustes</span></button>
+  </nav>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
