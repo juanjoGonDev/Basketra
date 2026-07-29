@@ -54,10 +54,16 @@
       <p>Los originales permanecen en tu almacenamiento privado y nunca entran en la cache offline.</p>
       <label class="upload">Añadir imágenes o PDF<input id="receipt-files" type="file" accept="image/jpeg,image/png,application/pdf" multiple></label>
       <ol id="capture-list" class="capture-list"></ol>
-      <label>Texto extraído o transcripción<textarea id="receipt-text" rows="8" placeholder="Pega el texto embebido del PDF o corrige el OCR aquí"></textarea></label>
+      <div class="receipt-actions">
+        <label class="check"><input id="verify-receipt-ai" type="checkbox" checked> Verificar y normalizar con IA</label>
+        <button id="extract-receipt" type="button">Procesar capturas</button>
+        <span id="receipt-state" role="status"></span>
+      </div>
+      <label>Texto extraído o transcripción<textarea id="receipt-text" rows="8" placeholder="El texto OCR aparecerá aquí; puedes corregirlo antes de confirmar"></textarea></label>
       <label>Total declarado (céntimos)<input id="receipt-total" type="number" min="0" value="0"></label>
-      <button id="review-receipt" type="button">Revisar ticket</button>
+      <button id="review-receipt" class="secondary" type="button">Revisar ticket</button>
       <div id="receipt-review" class="panel" hidden></div>
+      <button id="confirm-receipt" type="button" hidden>Confirmar e importar</button>
     </section>
 
     <section id="prices-view" class="view" data-view="prices">
