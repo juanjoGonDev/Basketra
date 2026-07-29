@@ -57,9 +57,11 @@ export class FileStore {
     const target = this.resolveKey(storageKey);
     if (!existsSync(target)) throw new RangeError('Stored file does not exist');
     const mimeType = mimeTypeForStorageKey(storageKey);
+    const expected = MAGIC[mimeType];
+    if (!expected) throw new RangeError('Unsupported stored file type');
     const bytes = readFileSync(target);
     if (bytes.byteLength === 0 || bytes.byteLength > this.maxBytes) throw new RangeError('Stored file size is outside allowed limits');
-    if (!hasMagic(bytes, MAGIC[mimeType])) throw new RangeError('Stored file signature does not match its extension');
+    if (!hasMagic(bytes, expected)) throw new RangeError('Stored file signature does not match its extension');
     return { storageKey, mimeType, bytes };
   }
 
