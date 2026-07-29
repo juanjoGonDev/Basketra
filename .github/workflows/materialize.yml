@@ -1,0 +1,47 @@
+name: Materialize trusted source
+
+on:
+  push:
+    branches:
+      - agent/feat-basketra-foundation
+
+permissions:
+  contents: write
+
+concurrency:
+  group: basketra-materialize
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    if: >-
+      github.actor == 'juanjoGonDev' &&
+      github.repository == 'juanjoGonDev/Basketra' &&
+      github.ref == 'refs/heads/agent/feat-basketra-foundation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout trusted branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Verify and materialize source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .bootstrap/source.part.* | base64 --decode > /tmp/basketra-source.tgz
+          echo "805b8518ec56460b09931318e4e54512fce3904761e292d71910f0d6de840478  /tmp/basketra-source.tgz" | sha256sum --check -
+          if tar -tzf /tmp/basketra-source.tgz | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+            echo "Unsafe archive path" >&2
+            exit 1
+          fi
+          tar -xzf /tmp/basketra-source.tgz
+          rm -rf .bootstrap .github/workflows/materialize.yml
+          node scripts/security-scan.mjs
+          node scripts/format-check.mjs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat(app): build Basketra foundation"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
