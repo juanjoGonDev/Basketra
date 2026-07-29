@@ -21,6 +21,7 @@ test('mobile PWA shell exposes critical workflows and safe offline caching', () 
   assert.equal(manifest.display, 'standalone');
   assert.ok(manifest.icons.length > 0);
   assert.match(serviceWorker, /url\.pathname\.startsWith\('\/api\/'\)/);
+  assert.match(serviceWorker, /'\/ui\.js'/);
   assert.match(serviceWorker, /url\.pathname\.startsWith\('\/files\/'\)/);
   assert.match(app, /localStorage\.setItem\('basketra\.itemDraft'/);
   assert.match(app, /suggestionController\?\.abort/);

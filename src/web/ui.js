@@ -87,7 +87,7 @@ export function optimizationPlan(plan) {
   const presentation = {
     'single-retailer': { iconName: 'store', label: 'Un solo comercio', detail: 'La compra más simple' },
     balanced: { iconName: 'balance', label: 'Equilibrio recomendado', detail: 'Ahorro sin complicarte' },
-    'maximum-savings': { iconName: 'savings', label: 'Máximo ahorro', detail: 'Prioriza el menor coste' },
+    'maximum-saving': { iconName: 'savings', label: 'Máximo ahorro', detail: 'Prioriza el menor coste' },
   }[plan.kind] || { iconName: 'prices', label: plan.kind, detail: 'Plan calculado' };
   return `<article class="plan-card"><header><span class="plan-card__icon">${icon(presentation.iconName)}</span><div><p class="eyebrow">${presentation.detail}</p><h2>${presentation.label}</h2></div></header><div class="plan-total"><span>Total efectivo</span><strong>${plan.effectiveTotalMinor} cént.</strong></div><dl class="metric-grid"><div><dt>Comercios</dt><dd>${plan.retailerIds.length}</dd></div><div><dt>Faltantes</dt><dd>${plan.missingItemIds.length}</dd></div><div><dt>Confianza</dt><dd>${Math.round(plan.confidence * 100)}%</dd></div></dl><p>${escapeHtml(plan.explanation)}</p>${plan.substitutions.length ? `<div class="inline-note">${icon('info')}<span>Sustituciones: ${plan.substitutions.map(escapeHtml).join(', ')}</span></div>` : ''}</article>`;
 }

@@ -82,7 +82,7 @@ test('reusable mobile design system stays aligned across all destinations', asyn
     const visibleTargets = await page.locator('button:visible, summary:visible').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().height));
     expect(visibleTargets.every(height => height >= 44)).toBeTruthy();
   }
-  await expect(page.locator('.surface').first()).toBeVisible();
+  await expect(page.locator('.view.active .surface').first()).toBeVisible();
   expect(failures).toEqual([]);
 });
 
