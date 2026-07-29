@@ -6,7 +6,7 @@ Incluye captura o importación de imágenes/PDF, preservación de evidencias, ex
 
 No es un SaaS multi-tenant, marketplace, red social, servicio de entrega, comprador automático ni plataforma de scraping masivo. No expone el servicio públicamente por defecto. No asume que Prime implica envío gratuito ni presenta precios generados por IA sin evidencia.
 
-Suposiciones explícitas: una única instalación personal; EUR y formato `es-ES` inicialmente; acceso VPN/LAN privado; Node.js 22.16 o superior; almacenamiento persistente montado; credenciales por entorno. Decisiones reversibles: proveedor OCR, proveedor IA, penalizaciones del optimizador y política de retención. No objetivos iniciales: autenticación federada, multiusuario, pagos, ejecución distribuida y procesos residentes pesados.
+Suposiciones explícitas: una única instalación personal; EUR y formato `es-ES` inicialmente; acceso VPN/LAN privado; Node.js 22.23.1; almacenamiento persistente montado; credenciales por entorno. Decisiones reversibles: proveedor OCR, proveedor IA, penalizaciones del optimizador y política de retención. No objetivos iniciales: autenticación federada, multiusuario, pagos, ejecución distribuida y procesos residentes pesados.
 
 # Requisitos Técnicos (RDD)
 
@@ -47,6 +47,7 @@ La migración inicial crea retailers, stores, canonical_products, product_varian
 - El ejecutor IA centraliza timeout, cancelación, selección de capacidad, validación, reintentos finitos, redacción y errores.
 - La URL del proveedor procede exclusivamente de configuración administrativa; no se acepta por petición.
 - El OCR pesado se carga sólo durante el flujo y se libera al terminar.
+- La base no incorpora un motor OCR productivo ni proveedores vivos de ofertas; esas integraciones deben aportar evidencia y respetar los contratos existentes.
 
 ## Seguridad
 
@@ -55,10 +56,13 @@ La migración inicial crea retailers, stores, canonical_products, product_varian
 - Límites de cuerpo, capturas, dimensiones, concurrencia, timeout y tamaño de respuesta.
 - Redacción de secretos y ausencia de contenido de tickets en logs por defecto.
 - Diagnóstico protegido, prevención de traversal y SSRF en configuración de proveedores.
+- El contenedor final elimina gestores de paquetes no necesarios y falla CI ante vulnerabilidades HIGH o CRITICAL corregibles.
 
 ## Presupuesto de recursos
 
 Objetivos sujetos a medición: RSS en reposo <= 80 MiB, uso API típico <= 128 MiB, límite Docker 192 MiB, CPU en reposo efectivamente cero, concurrencia baja y sin polling continuo. La hibernación libera caches y clientes tras inactividad. `IDLE_EXIT_AFTER_MS` está desactivado por defecto y sólo se usa con supervisor externo.
+
+La evidencia del runner de CI con Node.js 22.23.1 registra 61,56 MiB RSS en reposo, 80,29 MiB bajo carga representativa, 0,039% CPU en la ventana medida, un proceso principal y estado hibernado. La medición física en la Raspberry Pi objetivo sigue siendo una validación de despliegue separada.
 
 ## Errores
 
@@ -68,10 +72,19 @@ Todos los errores HTTP tienen código estable, mensaje accionable y `requestId`.
 
 - Tests unitarios cubren dinero, unidades, matching, validación de tickets y optimización.
 - Integración usa SQLite temporal real, migraciones, rollback, idempotencia, backup y restauración validada.
-- E2E verifica API, shell PWA, ausencia de capturas en cache, autosave y flujos principales mediante HTTP/DOM estático; Playwright queda como puerta requerida cuando el runner disponga del navegador.
+- E2E verifica API y shell PWA; Playwright ejecuta siete flujos móviles reales, incluidos autosave, sugerencias sin carreras, tickets, comparación, error IA recuperable, offline y foco visible.
 - Código de dominio testable: 100% statements/branches/functions/lines con cobertura nativa de Node.
 - Formato, lint, typecheck estricto, dead code, dependencias, build y smoke deben pasar.
-- Docker valida amd64/arm64, usuario no root, señales, healthcheck y límites de compose.
+- Docker valida amd64/arm64, usuario no root, señales, healthcheck, límites de compose, SBOM, provenance y escaneo HIGH/CRITICAL.
+
+## Evidencia verificada del alcance base
+
+- 18 tests unitarios, 2 de integración, 1 aceptación PWA estática y 7 Playwright pasan sin skip, todo ni retries.
+- Cobertura del dominio: 100% líneas, ramas y funciones.
+- Builds `linux/amd64` y `linux/arm64` pasan.
+- El smoke endurecido, Trivy y apagado gradual pasan.
+- Imagen medida: 162.815.322 bytes.
+- Un motor OCR productivo, proveedores vivos de supermercado/Amazon y mediciones sobre hardware Raspberry Pi real no están implementados ni se consideran verificados por esta evidencia.
 
 # Restricciones de Agente
 
@@ -93,15 +106,15 @@ Todos los errores HTTP tienen código estable, mensaje accionable y `requestId`.
 5. **Persistencia** — salida: migraciones SQLite y repositorios transaccionales; aceptación: WAL/FTS/FK/idempotencia; tests: integración real; dependencia: 4.
 6. **Backend** — salida: API versionada, errores, auth, límites y sondas; aceptación: contratos estables; tests: integración HTTP; dependencia: 5.
 7. **Frontend** — salida: PWA mobile-first accesible; aceptación: navegación, autosave, estados y sin overflow; tests: E2E móvil; dependencia: 6.
-8. **OCR** — salida: contrato, proveedor de texto embebido y worker sustituible; aceptación: cancelación y liberación; tests: fixtures sintéticos; dependencia: 7.
+8. **OCR** — salida: contrato, proveedor de texto embebido y worker sustituible; aceptación: cancelación y liberación; tests: fixtures sintéticos; dependencia: 7. Motor productivo pendiente de integración externa.
 9. **IA** — salida: proveedor compatible OpenAI y ejecutor estructurado; aceptación: validación local y retries finitos; tests: mock; dependencia: 6.
 10. **Matching** — salida: ranking explicable; aceptación: prioridad y ambigüedad; tests: casos requeridos; dependencia: 4 y 9.
-11. **Comparación** — salida: normalización supermercado/Amazon; aceptación: evidencia, stock y Prime; tests: fixtures; dependencia: 4 y 10.
+11. **Comparación** — salida: normalización supermercado/Amazon; aceptación: evidencia, stock y Prime; tests: fixtures; dependencia: 4 y 10. Proveedores vivos pendientes de integración externa.
 12. **Optimización** — salida: tres planes; aceptación: coste efectivo y desempate; tests: casos requeridos; dependencia: 11.
 13. **Testing** — salida: unit/integration/e2e/security; aceptación: sin skip/only y cobertura acordada; dependencia: 4-12.
 14. **Seguridad** — salida: controles y threat model; aceptación: regresiones verificadas; tests: traversal, auth, SSRF y límites; dependencia: 6-9.
 15. **Docker** — salida: Dockerfile y compose; aceptación: no root, señales, límites y healthcheck; tests: smoke; dependencia: 6-14.
-16. **Raspberry Pi** — salida: medición reproducible; aceptación: resultados reales o desviaciones; tests: script de recursos; dependencia: 15.
+16. **Raspberry Pi** — salida: medición reproducible; aceptación: resultados reales o desviaciones; tests: script de recursos; dependencia: 15. Build ARM64 verificado; medición física pendiente del hardware objetivo.
 17. **CI** — salida: workflows endurecidos; aceptación: acciones por SHA, permisos mínimos y gates; tests: ejecución remota; dependencia: 13-16.
 18. **Documentación** — salida: guías operativas y limitaciones; aceptación: comandos ejecutables; tests: comprobación de referencias; dependencia: 1-17.
 19. **Verificación final** — salida: diff, PR normal y estado CI; aceptación: checks verdes o bloqueo exacto; tests: `pnpm quality` y CI; dependencia: todas.
