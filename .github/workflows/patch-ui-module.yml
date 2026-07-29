@@ -1,0 +1,68 @@
+name: Patch UI module route
+
+on:
+  pull_request:
+    types: [synchronize]
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: basketra-patch-ui-module
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    if: >-
+      github.repository == 'juanjoGonDev/Basketra' &&
+      github.event.pull_request.head.ref == 'agent/feat-basketra-foundation'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout trusted branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: agent/feat-basketra-foundation
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.23.1
+      - name: Patch static module boundary and regression
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          server = Path('src/api/server.ts')
+          server_text = server.read_text()
+          public_old = "const PUBLIC_PATHS = new Set(['/health', '/readiness', '/', '/index.html', '/app.js', '/styles.css', '/manifest.webmanifest', '/sw.js', '/icon.svg']);"
+          public_new = "const PUBLIC_PATHS = new Set(['/health', '/readiness', '/', '/index.html', '/app.js', '/ui.js', '/styles.css', '/manifest.webmanifest', '/sw.js', '/icon.svg']);"
+          static_old = "if (!['index.html', 'app.js', 'styles.css', 'manifest.webmanifest', 'sw.js', 'icon.svg'].includes(requested))"
+          static_new = "if (!['index.html', 'app.js', 'ui.js', 'styles.css', 'manifest.webmanifest', 'sw.js', 'icon.svg'].includes(requested))"
+          if public_old not in server_text or static_old not in server_text:
+              raise SystemExit('Expected server static allowlist was not found')
+          server.write_text(server_text.replace(public_old, public_new).replace(static_old, static_new))
+
+          test = Path('tests/integration/server.test.ts')
+          test_text = test.read_text()
+          anchor = "    assert.match(await html.text(), /Basketra/);\n"
+          replacement = anchor + "    const uiModule = await request(baseUrl, '/ui.js');\n    assert.equal(uiModule.status, 200);\n    assert.match(uiModule.headers.get('content-type') ?? '', /text\\/javascript/);\n    assert.match(await uiModule.text(), /export function hydrateIcons/);\n"
+          if anchor not in test_text:
+              raise SystemExit('Expected PWA assertion anchor was not found')
+          test.write_text(test_text.replace(anchor, replacement))
+          PY
+          node scripts/format-check.mjs
+          node --experimental-strip-types --test tests/integration/server.test.ts
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/api/server.ts tests/integration/server.test.ts
+          if git diff --cached --quiet; then
+            echo "UI module route is already current"
+            exit 0
+          fi
+          git diff --cached --check
+          git commit -m "fix(web): serve reusable ui module"
+          git push origin "HEAD:agent/feat-basketra-foundation"
