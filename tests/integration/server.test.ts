@@ -10,6 +10,8 @@ async function request(baseUrl: string, path: string, options: RequestInit = {})
   return fetch(`${baseUrl}${path}`, options);
 }
 
+const pngBase64=Buffer.from(Uint8Array.from([0x89,0x50,0x4e,0x47,0x00])).toString('base64');
+
 test('HTTP API enforces auth, validates input and serves the PWA', async () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-api-'));
   const config: AppConfig = {
@@ -21,6 +23,8 @@ test('HTTP API enforces auth, validates input and serves the PWA', async () => {
     maxBodyBytes: 16_384,
     aiTimeoutMs: 1_000,
     aiMaxRetries: 1,
+    aiImageCapability: true,
+    aiPdfCapability: false,
     idleHibernateAfterMs: 10,
     idleExitAfterMs: 0,
   };
@@ -54,6 +58,16 @@ test('HTTP API enforces auth, validates input and serves the PWA', async () => {
     assert.equal(invalidJson.status, 400);
     const oversized = await request(baseUrl, '/api/v1/shopping-lists', { method: 'POST', headers: authorized, body: JSON.stringify({ name: 'x'.repeat(20_000) }) });
     assert.equal(oversized.status, 413);
+
+    const uploaded = await request(baseUrl, '/api/v1/files', { method: 'POST', headers: authorized, body: JSON.stringify({ base64: pngBase64, mimeType: 'image/png', originalName: 'receipt.png' }) });
+    assert.equal(uploaded.status, 201);
+    const storageKey = (await uploaded.json() as { file: { storageKey: string } }).file.storageKey;
+    const extracted = await request(baseUrl, '/api/v1/receipts/extract', { method: 'POST', headers: authorized, body: JSON.stringify({ captures: [{ storageKey, originalName: 'receipt.png', embeddedText: 'Leche;1;120;120\nTOTAL 1,20' }], verifyWithAi: false }) });
+    assert.equal(extracted.status, 200);
+    const extraction = (await extracted.json() as { extraction: { pages: Array<{ source: string }>; final: { declaredTotalMinor: number; review: { lines: Array<{ status: string }> } } } }).extraction;
+    assert.equal(extraction.pages[0]?.source, 'embedded-text');
+    assert.equal(extraction.final.declaredTotalMinor, 120);
+    assert.equal(extraction.final.review.lines[0]?.status, 'confirmed');
 
     const receipt = await request(baseUrl, '/api/v1/receipts/validate', { method: 'POST', headers: authorized, body: JSON.stringify({ declaredTotalMinor: 120, items: [{ description: 'Leche', quantity: 1, unitPriceMinor: 120, lineTotalMinor: 120 }] }) });
     assert.equal((await receipt.json() as { total: { valid: boolean } }).total.valid, true);
