@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test';
 
-function monitorRuntime(page, { allowOfflineErrors = false } = {}) {
+function monitorRuntime(page, { allowOfflineErrors = false, allowServiceUnavailable = false } = {}) {
   const failures = [];
   page.on('pageerror', error => failures.push(`pageerror: ${error.message}`));
   page.on('console', message => {
     const text = message.text();
     if (allowOfflineErrors && text.includes('net::ERR_INTERNET_DISCONNECTED')) return;
+    if (allowServiceUnavailable && text.includes('503 (Service Unavailable)')) return;
     if (message.type() === 'error') failures.push(`console: ${text}`);
   });
   page.on('requestfailed', request => {
@@ -130,7 +131,9 @@ test('comparison renders all deterministic plans and Prime evidence behavior', a
 });
 
 test('AI unavailability is recoverable and does not overwrite input', async ({ page }) => {
-  const failures = await gotoApp(page);
+  const failures = monitorRuntime(page, { allowServiceUnavailable: true });
+  await page.goto('/');
+  await expect(page.getByText('Tu cesta, con evidencia')).toBeVisible();
   await navigate(page, 'Lista');
   await productInput(page).fill('pan integral');
   await page.locator('#ai-mode').selectOption('manual');
