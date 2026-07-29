@@ -6,7 +6,12 @@ export type AiCapabilities = Readonly<{
   internetSearch: boolean;
 }>;
 
-export type AiMessageContent = string | readonly Readonly<{ type: 'text'; text: string }>[];
+export type AiMessageContentPart =
+  | Readonly<{ type: 'text'; text: string }>
+  | Readonly<{ type: 'image_url'; image_url: Readonly<{ url: string; detail?: 'auto' | 'low' | 'high' }> }>
+  | Readonly<{ type: 'file'; file: Readonly<{ filename: string; file_data: string }> }>;
+
+export type AiMessageContent = string | readonly AiMessageContentPart[];
 
 export type AiStructuredInput = Readonly<{
   operation: string;
@@ -24,11 +29,31 @@ export interface AiProvider {
   dispose(): void;
 }
 
+const DEFAULT_CAPABILITIES: AiCapabilities = {
+  structuredOutput: true,
+  jsonObject: true,
+  image: true,
+  pdf: false,
+  internetSearch: false,
+};
+
 export class OpenAiCompatibleProvider implements AiProvider {
-  readonly config: Readonly<{ baseUrl: URL; apiKey?: string; model: string; timeoutMs: number }>;
+  readonly config: Readonly<{
+    baseUrl: URL;
+    apiKey?: string;
+    model: string;
+    timeoutMs: number;
+    capabilities?: Partial<AiCapabilities>;
+  }>;
   readonly fetchImplementation: typeof fetch;
   constructor(
-    config: Readonly<{ baseUrl: URL; apiKey?: string; model: string; timeoutMs: number }>,
+    config: Readonly<{
+      baseUrl: URL;
+      apiKey?: string;
+      model: string;
+      timeoutMs: number;
+      capabilities?: Partial<AiCapabilities>;
+    }>,
     fetchImplementation: typeof fetch = fetch,
   ) {
     this.config = config;
@@ -36,7 +61,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
   }
 
   async getCapabilities(): Promise<AiCapabilities> {
-    return { structuredOutput: true, jsonObject: true, image: true, pdf: false, internetSearch: false };
+    return { ...DEFAULT_CAPABILITIES, ...this.config.capabilities };
   }
 
   async testConnection(signal?: AbortSignal): Promise<Readonly<{ ok: boolean; model?: string }>> {
