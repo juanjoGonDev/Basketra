@@ -40,7 +40,7 @@ See root `spec.md`; every claim must have executed evidence.
 Revert the feature branch or its commits; `main` only contains the bootstrap README until merge.
 
 ## Validation
-Remote workflow `Pull Request Quality` run `30429561415` validated commit `d40b858fe4604186797a398d825b5ffd4e3192cc` before this final documentation update. The documentation commit must receive the same green matrix before delivery.
+Remote workflow `Pull Request Quality` run `30434680791` validated commit `7b7a9caaa29aa2a4bc3df2748b3f6f9846d9bf93` with the full green matrix before visual evidence publication.
 
 Measured hosted-runner process evidence:
 - startup: 109.76 ms;
@@ -58,12 +58,14 @@ Container evidence:
 - `linux/amd64` and `linux/arm64`: pass.
 
 Browser evidence:
-- artifact: `basketra-browser-evidence`;
-- digest: `sha256:57cd0a58e10905f07f8263729b97e94ac13b7d523a12506928945bb09b4f985e`;
-- contents: HTML report, screenshots, videos, traces and test results.
+- workflow run: https://github.com/juanjoGonDev/Basketra/actions/runs/30434680791;
+- artifact: https://github.com/juanjoGonDev/Basketra/actions/runs/30434680791/artifacts/8716935809;
+- artifact digest: `sha256:8fd643b88c3e5435061d1de591f28d175af8599dc70344a0b315e0785db5b5a1`;
+- permanent repository media: `docs/evidence/playwright/`;
+- each flow includes a complete PNG, original Playwright WebM and GIF preview for inline PR rendering.
 
 ## Delivery
 Normal pull request #1 to `main`; no merge without user authorization.
 
 ## Status
-Implementation, automated tests, documentation and remote CI are complete for the defined foundation scope. Live supermarket/Amazon evidence providers and physical Raspberry Pi measurements remain explicit external integration/deployment work, not hidden incomplete work.
+Implementation, automated tests, documentation, visible browser evidence and remote CI are complete for the defined foundation scope. Live supermarket/Amazon evidence providers and physical Raspberry Pi measurements remain explicit external integration/deployment work, not hidden incomplete work.
