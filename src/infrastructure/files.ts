@@ -99,7 +99,9 @@ export class FileStore {
   }
 
   cleanupTemporary(): void {
-    rmSync(this.#tempDir, { recursive: true, force: true });
     mkdirSync(this.#tempDir, { recursive: true });
+    for (const entry of readdirSync(this.#tempDir, { withFileTypes: true })) {
+      rmSync(join(this.#tempDir, entry.name), { recursive: true, force: true });
+    }
   }
 }
