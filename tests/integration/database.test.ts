@@ -1,10 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { BasketraDatabase, validateBackup } from '../../src/infrastructure/database.ts';
+import { BasketraDatabase, CURRENT_SCHEMA_VERSION, validateBackup } from '../../src/infrastructure/database.ts';
+
+const fixturePath = join(dirname(fileURLToPath(import.meta.url)), '../fixtures/schema-v1.sql');
+
+function createVersionOneFixture(path: string): void {
+  const database = new DatabaseSync(path);
+  try {
+    database.exec(Buffer.from(readFileSync(fixturePath)).toString('utf8'));
+  } finally {
+    database.close();
+  }
+}
+
+function readSchemaVersion(path: string): number {
+  const database = new DatabaseSync(path, { readOnly: true });
+  try {
+    const row = database.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations').get() as { version: number };
+    return Number(row.version);
+  } finally {
+    database.close();
+  }
+}
 
 test('SQLite migrations, lists, FTS, receipt evidence and backup work together', () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-db-'));
@@ -44,7 +66,7 @@ test('SQLite migrations, lists, FTS, receipt evidence and backup work together',
     const backupPath = join(root, 'backups', 'test.db');
     const backup = database.backup(backupPath);
     assert.ok(backup.bytes > 0);
-    assert.deepEqual(validateBackup(backupPath), { valid: true, version: 1 });
+    assert.deepEqual(validateBackup(backupPath), { valid: true, version: CURRENT_SCHEMA_VERSION });
     const backupDatabase = new DatabaseSync(backupPath, { readOnly: true });
     try {
       assert.equal((backupDatabase.prepare('SELECT COUNT(*) AS count FROM receipt_captures').get() as { count: number }).count, 3);
@@ -59,4 +81,99 @@ test('SQLite migrations, lists, FTS, receipt evidence and backup work together',
     database.close();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('startup upgrades a representative version-one database after validating a pre-migration backup', () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-upgrade-'));
+  const databasePath = join(root, 'basketra.db');
+  const migrationBackupDir = join(root, 'migration-backups');
+  createVersionOneFixture(databasePath);
+
+  const database = new BasketraDatabase(databasePath, {
+    migrationBackupDir,
+    clock: () => new Date('2026-07-29T12:00:00.000Z'),
+  });
+  try {
+    assert.equal(database.listShoppingLists()[0]?.name, 'Legacy list');
+  } finally {
+    database.close();
+  }
+
+  assert.equal(readSchemaVersion(databasePath), CURRENT_SCHEMA_VERSION);
+  const backupNames = readdirSync(migrationBackupDir);
+  assert.equal(backupNames.length, 1);
+  assert.deepEqual(validateBackup(join(migrationBackupDir, backupNames[0]!)), { valid: true, version: 1 });
+
+  const upgradedDatabase = new DatabaseSync(databasePath, { readOnly: true });
+  try {
+    const audit = upgradedDatabase.prepare('SELECT from_version AS fromVersion, to_version AS toVersion, bytes FROM schema_migration_backups').get() as { fromVersion: number; toVersion: number; bytes: number };
+    assert.deepEqual({ fromVersion: audit.fromVersion, toVersion: audit.toVersion }, { fromVersion: 1, toVersion: CURRENT_SCHEMA_VERSION });
+    assert.ok(audit.bytes > 0);
+  } finally {
+    upgradedDatabase.close();
+  }
+
+  const reopened = new BasketraDatabase(databasePath, { migrationBackupDir });
+  reopened.close();
+  assert.equal(readdirSync(migrationBackupDir).length, 1);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test('a failing migration rolls back the complete pending batch and preserves its validated backup', () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-migration-rollback-'));
+  const databasePath = join(root, 'basketra.db');
+  const migrationBackupDir = join(root, 'migration-backups');
+  createVersionOneFixture(databasePath);
+
+  assert.throws(() => new BasketraDatabase(databasePath, {
+    migrationBackupDir,
+    additionalMigrations: [{
+      version: CURRENT_SCHEMA_VERSION + 1,
+      kind: 'safe',
+      sql: 'CREATE TABLE migration_partial(id INTEGER PRIMARY KEY); INSERT INTO missing_table(id) VALUES (1);',
+    }],
+  }), /missing_table/);
+
+  assert.equal(readSchemaVersion(databasePath), 1);
+  const database = new DatabaseSync(databasePath, { readOnly: true });
+  try {
+    assert.equal((database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='schema_migration_backups'").get() as { count: number }).count, 0);
+    assert.equal((database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='migration_partial'").get() as { count: number }).count, 0);
+    assert.equal((database.prepare('SELECT COUNT(*) AS count FROM shopping_lists WHERE id = ?').get('list_fixture') as { count: number }).count, 1);
+  } finally {
+    database.close();
+  }
+
+  const backupNames = readdirSync(migrationBackupDir);
+  assert.equal(backupNames.length, 1);
+  assert.deepEqual(validateBackup(join(migrationBackupDir, backupNames[0]!)), { valid: true, version: 1 });
+
+  const recovered = new BasketraDatabase(databasePath, { migrationBackupDir });
+  recovered.close();
+  assert.equal(readSchemaVersion(databasePath), CURRENT_SCHEMA_VERSION);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test('destructive migrations require an explicit code-level authorization', () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-destructive-migration-'));
+  const databasePath = join(root, 'basketra.db');
+  const database = new BasketraDatabase(databasePath);
+  database.close();
+
+  assert.throws(() => new BasketraDatabase(databasePath, {
+    additionalMigrations: [{
+      version: CURRENT_SCHEMA_VERSION + 1,
+      kind: 'destructive',
+      sql: 'DROP TABLE shopping_lists;',
+    }],
+  }), /requires explicit authorization/);
+
+  assert.equal(readSchemaVersion(databasePath), CURRENT_SCHEMA_VERSION);
+  const preserved = new DatabaseSync(databasePath, { readOnly: true });
+  try {
+    assert.equal((preserved.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='shopping_lists'").get() as { count: number }).count, 1);
+  } finally {
+    preserved.close();
+  }
+  rmSync(root, { recursive: true, force: true });
 });
