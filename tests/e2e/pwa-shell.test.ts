@@ -7,10 +7,12 @@ test('mobile PWA shell exposes critical workflows and safe offline caching', () 
   const manifest = JSON.parse(readFileSync('src/web/manifest.webmanifest', 'utf8')) as { name: string; short_name: string; display: string; icons: unknown[] };
   const serviceWorker = readFileSync('src/web/sw.js', 'utf8');
   const app = readFileSync('src/web/app.js', 'utf8');
+  const ui = readFileSync('src/web/ui.js', 'utf8');
   const css = readFileSync('src/web/styles.css', 'utf8');
 
   assert.match(html, /viewport-fit=cover/);
   assert.match(html, /data-nav="lists"/);
+  assert.match(html, /data-icon="home"/);
   assert.match(html, /id="receipt-files"/);
   assert.match(html, /id="run-demo-comparison"/);
   assert.match(html, /id="ai-mode"/);
@@ -23,7 +25,11 @@ test('mobile PWA shell exposes critical workflows and safe offline caching', () 
   assert.match(app, /localStorage\.setItem\('basketra\.itemDraft'/);
   assert.match(app, /suggestionController\?\.abort/);
   assert.match(app, /aiController\?\.abort/);
-  assert.match(css, /min-height:44px/);
+  assert.match(app, /hydrateIcons\(\)/);
+  assert.match(ui, /export function shoppingListItem/);
+  assert.match(ui, /export function receiptReview/);
+  assert.match(css, /--touch:\s*3rem/);
+  assert.match(css, /min-height:\s*var\(--touch\)/);
   assert.match(css, /safe-area-inset-bottom/);
   assert.match(css, /prefers-reduced-motion/);
 });
