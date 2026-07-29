@@ -26,19 +26,18 @@ jobs:
         with:
           ref: agent/feat-basketra-foundation
           fetch-depth: 0
-      - name: Apply staged patches
+      - name: Apply staged transforms
         shell: bash
         run: |
           set -euo pipefail
           shopt -s nullglob
-          patches=(.patches/*.patch)
-          if [ "${#patches[@]}" -eq 0 ]; then
-            echo "No staged patches"
+          transforms=(.patches/*.py)
+          if [ "${#transforms[@]}" -eq 0 ]; then
+            echo "No staged transforms"
             exit 0
           fi
-          for patch in "${patches[@]}"; do
-            git apply --check "$patch"
-            git apply "$patch"
+          for transform in "${transforms[@]}"; do
+            python3 "$transform"
           done
           rm -rf .patches
           node scripts/security-scan.mjs
