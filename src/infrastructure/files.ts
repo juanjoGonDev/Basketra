@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync, existsSync, renameSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, renameSync, rmSync, readFileSync } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
 
 export type StoredFile = Readonly<{ storageKey: string; hash: string; mimeType: string; bytes: number }>;
+export type StoredFileContent = Readonly<{ storageKey: string; mimeType: string; bytes: Uint8Array }>;
 
 const MAGIC: Readonly<Record<string, readonly number[]>> = {
   'image/jpeg': [0xff, 0xd8, 0xff],
@@ -12,6 +13,14 @@ const MAGIC: Readonly<Record<string, readonly number[]>> = {
 
 function hasMagic(buffer: Uint8Array, expected: readonly number[]): boolean {
   return expected.every((value, index) => buffer[index] === value);
+}
+
+function mimeTypeForStorageKey(storageKey: string): keyof typeof MAGIC {
+  const extension = extname(storageKey).toLowerCase();
+  if (extension === '.jpg' || extension === '.jpeg') return 'image/jpeg';
+  if (extension === '.png') return 'image/png';
+  if (extension === '.pdf') return 'application/pdf';
+  throw new RangeError('Unsupported stored file extension');
 }
 
 export class FileStore {
@@ -42,6 +51,16 @@ export class FileStore {
       renameSync(temporary, target);
     }
     return { storageKey, hash, mimeType: input.mimeType, bytes: buffer.byteLength };
+  }
+
+  read(storageKey: string): StoredFileContent {
+    const target = this.resolveKey(storageKey);
+    if (!existsSync(target)) throw new RangeError('Stored file does not exist');
+    const mimeType = mimeTypeForStorageKey(storageKey);
+    const bytes = readFileSync(target);
+    if (bytes.byteLength === 0 || bytes.byteLength > this.maxBytes) throw new RangeError('Stored file size is outside allowed limits');
+    if (!hasMagic(bytes, MAGIC[mimeType])) throw new RangeError('Stored file signature does not match its extension');
+    return { storageKey, mimeType, bytes };
   }
 
   resolveKey(storageKey: string): string {
