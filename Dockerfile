@@ -16,7 +16,10 @@ ENV NODE_ENV=production \
     BASKETRA_TEMP_DIR=/tmp/basketra
 WORKDIR /app
 COPY --from=build --chown=node:node /app/dist ./dist
-RUN mkdir -p /data /tmp/basketra \
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+        /usr/local/bin/pnpm /usr/local/bin/yarn /usr/local/bin/yarnpkg \
+    && mkdir -p /data /tmp/basketra \
     && chown -R node:node /data /tmp/basketra /app
 USER node
 EXPOSE 3000
