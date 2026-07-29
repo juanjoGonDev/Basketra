@@ -14,11 +14,11 @@ The repository contains a working dependency-free foundation built on Node.js 22
 - OpenAI-compatible structured-output adapter with local runtime validation hooks;
 - exact money/unit normalization;
 - deterministic single-retailer, balanced, and maximum-saving plans;
-- SQLite backup and restore validation;
+- SQLite backup, restore validation, and guarded startup migrations;
 - authentication, security headers, body limits, hibernation, and graceful shutdown;
-- Docker deployment with Raspberry Pi resource limits.
+- local Docker development plus private AMD64/ARM64 GHCR delivery for Raspberry Pi.
 
-A production OCR engine and live supermarket/Amazon evidence providers remain external integration work. The current receipt flow supports embedded text or manual transcription and preserves original captures. Pull-request CI verifies the mobile Chromium suite with screenshots, video and traces, hardened container smoke tests, vulnerability scanning, and AMD64/ARM64 builds.
+A production OCR engine and live supermarket/Amazon evidence providers remain external integration work. The current receipt flow supports embedded text or manual transcription and preserves original captures. Pull-request CI verifies the mobile Chromium suite with screenshots, video and traces, hardened container smoke tests, vulnerability scanning, Compose variants, and AMD64/ARM64 builds.
 
 ## Requirements
 
@@ -61,7 +61,7 @@ pnpm quality
 
 `pnpm test:coverage` enforces 100% lines, branches, and functions for the project-owned domain layer.
 
-## Docker
+## Local Docker
 
 ```bash
 cp .env.example .env
@@ -69,28 +69,54 @@ cp .env.example .env
 docker compose build
 docker compose up -d
 docker compose ps
-curl http://127.0.0.1:3000/health
+curl --fail http://127.0.0.1:3000/health
+curl --fail http://127.0.0.1:3000/readiness
 ```
 
-The compose file binds only to `127.0.0.1` by default. Access it through a private VPN, SSH tunnel, or an authenticated private reverse proxy. Do not publish the port directly to the internet.
+The local Compose file builds `basketra:local` and binds only to `127.0.0.1`. Access it through a private VPN, SSH tunnel, or an authenticated private reverse proxy. Do not publish the port directly to the internet.
 
-## Data and backup
+## Private Raspberry deployment
+
+Successful pushes to `main` publish a private multi-architecture image to GHCR after every quality, security, browser, smoke, AMD64, and ARM64 job has passed. The workflow publishes:
+
+- `ghcr.io/juanjogondev/basketra:<full-commit-sha>` as the immutable rollback reference;
+- `ghcr.io/juanjogondev/basketra:stable` as the automatic-update channel.
+
+The production variant is separate from local development:
+
+```bash
+cp .env.example .env
+# Generate and set BASKETRA_AUTH_TOKEN before continuing.
+docker compose -f compose.raspberry.yml pull basketra
+docker compose -f compose.raspberry.yml up -d basketra
+curl --fail http://127.0.0.1:3000/readiness
+```
+
+It keeps the named `basketra-data` volume, loopback bind, resource limits, read-only filesystem, dropped capabilities, and scoped Watchtower labels. See [RASPBERRY_DEPLOYMENT.md](RASPBERRY_DEPLOYMENT.md) for private GHCR login, secure token generation, startup migrations, backups, restore, SHA rollback, Watchtower compatibility, and verification procedures.
+
+## Startup migration safety
+
+The database is opened and migrated before the HTTP listener becomes ready. If migrations are pending, Basketra creates and validates a pre-migration backup, applies the complete pending batch transactionally, validates database integrity and target version, and only then proceeds to readiness. A failed migration rolls back the batch and prevents the container healthcheck from succeeding.
+
+Destructive migrations are code-level opt-in and are rejected by default. There is no environment flag that silently enables them.
+
+## Data and manual backup
 
 Persistent data lives in the `basketra-data` volume. Create and validate a backup through the authenticated API:
 
 ```bash
-curl -X POST http://127.0.0.1:3000/api/v1/backup \
-  -H "Authorization: Bearer $BASKETRA_AUTH_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"basketra-manual.db"}'
+curl --request POST http://127.0.0.1:3000/api/v1/backup \
+  --header "Authorization: Bearer $BASKETRA_AUTH_TOKEN" \
+  --header 'Content-Type: application/json' \
+  --data '{"name":"basketra-manual.db"}'
 
-curl -X POST http://127.0.0.1:3000/api/v1/restore/validate \
-  -H "Authorization: Bearer $BASKETRA_AUTH_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"basketra-manual.db"}'
+curl --request POST http://127.0.0.1:3000/api/v1/restore/validate \
+  --header "Authorization: Bearer $BASKETRA_AUTH_TOKEN" \
+  --header 'Content-Type: application/json' \
+  --data '{"name":"basketra-manual.db"}'
 ```
 
-See [BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md).
+See [BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md) and [RASPBERRY_DEPLOYMENT.md](RASPBERRY_DEPLOYMENT.md).
 
 ## AI provider configuration
 
@@ -102,6 +128,8 @@ BASKETRA_AI_API_KEY=replace-me
 BASKETRA_AI_MODEL=your-model
 BASKETRA_AI_TIMEOUT_MS=30000
 BASKETRA_AI_MAX_RETRIES=1
+BASKETRA_AI_IMAGE_CAPABILITY=true
+BASKETRA_AI_PDF_CAPABILITY=false
 ```
 
 The browser never receives the API key. Provider URLs are administrative configuration, never request input. Structured results are validated locally before use.
@@ -114,6 +142,8 @@ The browser never receives the API key. Provider URLs are administrative configu
 - [PRIVACY.md](PRIVACY.md)
 - [THREAT_MODEL.md](THREAT_MODEL.md)
 - [RESOURCE_BUDGET.md](RESOURCE_BUDGET.md)
+- [BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md)
+- [RASPBERRY_DEPLOYMENT.md](RASPBERRY_DEPLOYMENT.md)
 - [OCR_LIMITATIONS.md](OCR_LIMITATIONS.md)
 - [PRICE_CONFIDENCE.md](PRICE_CONFIDENCE.md)
 - [AMAZON_LIMITATIONS.md](AMAZON_LIMITATIONS.md)
