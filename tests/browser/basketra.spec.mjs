@@ -40,21 +40,49 @@ async function createList(page, name) {
   await expect(page.locator('#list-select')).toContainText(name);
 }
 
+async function expectNoHorizontalOverflow(page) {
+  const dimensions = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    page: document.documentElement.scrollWidth,
+  }));
+  expect(dimensions.page).toBeLessThanOrEqual(dimensions.viewport);
+}
+
 test.afterEach(async ({ page }, testInfo) => {
   await page.screenshot({ path: testInfo.outputPath('final.png'), fullPage: true });
 });
 
-test('mobile PWA loads with valid manifest and touch-safe navigation', async ({ page, request }) => {
+test('mobile PWA loads with valid manifest and touch-safe icon navigation', async ({ page, request }) => {
   const failures = await gotoApp(page);
   const manifestResponse = await request.get('/manifest.webmanifest');
   expect(manifestResponse.ok()).toBeTruthy();
   const manifest = await manifestResponse.json();
   expect(manifest).toMatchObject({ name: 'Basketra', short_name: 'Basketra', display: 'standalone' });
   expect(manifest.icons.length).toBeGreaterThan(0);
+  await expect(page.locator('.bottom-nav .nav-icon svg')).toHaveCount(5);
   const heights = await page.locator('button:visible').evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().height));
   expect(heights.every(height => height >= 44)).toBeTruthy();
+  await expectNoHorizontalOverflow(page);
   await navigate(page, 'Escanear');
   await expect(page.getByRole('heading', { name: 'Capturar ticket' })).toBeVisible();
+  await expect(page.locator('.bottom-nav').getByRole('button', { name: 'Escanear', exact: true })).toHaveAttribute('aria-current', 'page');
+  expect(failures).toEqual([]);
+});
+
+test('reusable mobile design system stays aligned across all destinations', async ({ page }) => {
+  const failures = await gotoApp(page);
+  const tokens = await page.evaluate(() => {
+    const styles = getComputedStyle(document.documentElement);
+    return ['--space-4', '--radius-lg', '--touch', '--primary'].map(token => styles.getPropertyValue(token).trim());
+  });
+  expect(tokens.every(Boolean)).toBeTruthy();
+  for (const destination of ['Inicio', 'Lista', 'Escanear', 'Precios', 'Ajustes']) {
+    await navigate(page, destination);
+    await expectNoHorizontalOverflow(page);
+    const visibleTargets = await page.locator('button:visible, summary:visible').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().height));
+    expect(visibleTargets.every(height => height >= 44)).toBeTruthy();
+  }
+  await expect(page.locator('.surface').first()).toBeVisible();
   expect(failures).toEqual([]);
 });
 
@@ -68,11 +96,12 @@ test('shopping list preserves exact/substitution preferences and survives reload
   await page.getByLabel('Permitir sustituciones', { exact: true }).uncheck();
   await page.getByRole('button', { name: 'Añadir', exact: true }).click();
   await expect(page.locator('#items')).toContainText('Leche entera 1 L');
-  await expect(page.locator('#items')).toContainText('exacto');
+  await expect(page.locator('#items')).toContainText('Producto exacto');
   await expect(page.locator('#items')).toContainText('Sin alternativas');
   await page.reload();
   await navigate(page, 'Lista');
   await expect(page.locator('#items')).toContainText('Leche entera 1 L');
+  await expectNoHorizontalOverflow(page);
   expect(failures).toEqual([]);
 });
 
@@ -111,12 +140,13 @@ test('receipt captures extract, reorder, correct and import with evidence', asyn
   await expect(page.locator('#capture-list li').first()).toContainText('page-2.png');
   await page.locator('#capture-list li').last().getByRole('button', { name: 'Eliminar', exact: true }).click();
   await expect(page.locator('#capture-list li')).toHaveCount(1);
+  await page.getByText('Introducción manual y opciones avanzadas', { exact: true }).click();
   await page.getByLabel('Texto extraído o transcripción', { exact: true }).fill('Milk;1;120;120\nTOTAL 1,20');
   await page.getByLabel('Total declarado (céntimos)', { exact: true }).fill('120');
   await page.getByLabel('Verificar y normalizar con IA', { exact: true }).uncheck();
   await page.getByRole('button', { name: 'Procesar capturas', exact: true }).click();
   await expect(page.locator('#receipt-state')).toContainText('Extracción lista');
-  await expect(page.locator('#receipt-review')).toContainText('correcto');
+  await expect(page.locator('#receipt-review')).toContainText('Total validado');
   await expect(page.locator('#receipt-review')).toContainText('confirmed');
   await page.locator('.receipt-item [data-field="description"]').fill('Whole milk');
   await page.getByRole('button', { name: 'Confirmar e importar', exact: true }).click();
@@ -133,6 +163,7 @@ test('comparison renders all deterministic plans and Prime evidence behavior', a
   await expect(page.getByRole('heading', { name: 'Un solo comercio' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Equilibrio recomendado' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Máximo ahorro' })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
   expect(failures).toEqual([]);
 });
 
@@ -159,7 +190,10 @@ test('offline shell reloads and keyboard focus remains visible', async ({ page, 
   await page.reload();
   await expect(page.getByText('Tu cesta, con evidencia')).toBeVisible();
   await page.keyboard.press('Tab');
-  const focus = await page.evaluate(() => ({ tag: document.activeElement?.tagName, outline: getComputedStyle(document.activeElement).outlineStyle }));
+  const focus = await page.evaluate(() => ({
+    tag: document.activeElement?.tagName,
+    outline: getComputedStyle(document.activeElement).outlineStyle,
+  }));
   expect(focus.tag).not.toBe('BODY');
   expect(focus.outline).not.toBe('none');
   await context.setOffline(false);
