@@ -37,7 +37,8 @@ jobs:
             exit 1
           fi
           tar -xzf /tmp/basketra-source.tgz
-          rm -rf .bootstrap .github/workflows/materialize.yml
+          rm -rf .bootstrap
+          rm -f .github/workflows/ci.yml
           node scripts/security-scan.mjs
           node scripts/format-check.mjs
           git config user.name "github-actions[bot]"
