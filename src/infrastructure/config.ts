@@ -12,6 +12,8 @@ export type AppConfig = Readonly<{
   aiModel?: string;
   aiTimeoutMs: number;
   aiMaxRetries: number;
+  aiImageCapability: boolean;
+  aiPdfCapability: boolean;
   idleHibernateAfterMs: number;
   idleExitAfterMs: number;
 }>;
@@ -22,6 +24,14 @@ function readInteger(environment: NodeJS.ProcessEnv, key: string, fallback: numb
   const parsed = Number(raw);
   if (!Number.isSafeInteger(parsed) || parsed < minimum) throw new Error(`${key} must be an integer >= ${minimum}`);
   return parsed;
+}
+
+function readBoolean(environment: NodeJS.ProcessEnv, key: string, fallback: boolean): boolean {
+  const raw = environment[key]?.trim().toLowerCase();
+  if (raw === undefined || raw === '') return fallback;
+  if (raw === 'true' || raw === '1') return true;
+  if (raw === 'false' || raw === '0') return false;
+  throw new Error(`${key} must be true, false, 1 or 0`);
 }
 
 export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -41,6 +51,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     ...(environment['BASKETRA_AI_MODEL']?.trim() ? { aiModel: environment['BASKETRA_AI_MODEL']!.trim() } : {}),
     aiTimeoutMs: readInteger(environment, 'BASKETRA_AI_TIMEOUT_MS', 30_000, 1000),
     aiMaxRetries: readInteger(environment, 'BASKETRA_AI_MAX_RETRIES', 1, 0),
+    aiImageCapability: readBoolean(environment, 'BASKETRA_AI_IMAGE_CAPABILITY', true),
+    aiPdfCapability: readBoolean(environment, 'BASKETRA_AI_PDF_CAPABILITY', false),
     idleHibernateAfterMs: readInteger(environment, 'BASKETRA_IDLE_HIBERNATE_AFTER_MS', 300_000, 0),
     idleExitAfterMs: readInteger(environment, 'IDLE_EXIT_AFTER_MS', 0, 0),
   };
