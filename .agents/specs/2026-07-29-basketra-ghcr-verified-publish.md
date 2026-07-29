@@ -2,7 +2,7 @@
 
 ## Status
 
-Implementation prepared on pull request #1. Pull-request validation is required after the final commit; live GHCR publication remains intentionally pending an approved merge to `main`.
+Implemented and validated in pull-request CI. Live GHCR publication remains intentionally pending an approved merge to `main`.
 
 ## Request
 
@@ -11,7 +11,7 @@ Use the existing Basketra pull request and branch. Synchronize with `main`, keep
 ## Evidence
 
 - The branch is synchronized with current `main` (`behind_by: 0`) and the existing PR remains open and unmerged.
-- The existing workflow already separates the initial SHA publication from `stable` promotion and captures the Buildx digest.
+- The existing workflow already separated the initial SHA publication from `stable` promotion and captured the Buildx digest.
 - The registry manifest check previously inspected a digest-qualified reference but did not independently compare the digest returned by the registry to the Buildx output.
 - The published-image smoke test waited for readiness and invoked `docker stop`, but did not assert a clean container exit code.
 - Stable verification compared raw manifest bytes. Digest equality is a clearer registry contract and is less sensitive to representation details.
@@ -51,6 +51,18 @@ Use the existing Basketra pull request and branch. Synchronize with `main`, keep
 - Let pull-request CI execute browser, Trivy, hardened container smoke, AMD64, and ARM64 builds.
 - Confirm the publication job is skipped on the PR event.
 - The live GHCR pull, smoke, promotion, and retention path can execute only after an approved merge to `main`; report this boundary explicitly.
+
+## Validation evidence
+
+Pull Request Quality run `30486194631` passed on implementation head `abc715affe9dc27a18262f552421a49759ea683a`:
+
+- 33 unit tests, including three manifest-policy tests, passed with no skips;
+- 9 SQLite/HTTP integration tests and 1 end-to-end acceptance test passed;
+- deterministic domain coverage remained at 100% lines, functions, and branches;
+- all 8 real mobile Chromium flows passed with evidence upload;
+- security and workflow policy scanning passed;
+- the hardened local container, Trivy scan, resource assertions, AMD64 build, and ARM64 build passed;
+- the main-only publication job was skipped as designed on the pull-request event.
 
 ## Risks
 
