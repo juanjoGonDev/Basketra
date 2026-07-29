@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, copyFileSync, statSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { copyFileSync, mkdirSync, statSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { createId } from './ids.ts';
 
 export type ShoppingListRecord = Readonly<{ id: string; name: string; createdAt: string; updatedAt: string }>;
@@ -37,9 +37,23 @@ export type ReceiptImportInput = Readonly<{
   corrections?: readonly Readonly<{ itemIndex: number; field: string; original: unknown; corrected: unknown }>[];
 }>;
 
-const MIGRATIONS = [
+export type MigrationDefinition = Readonly<{
+  version: number;
+  kind: 'safe' | 'destructive';
+  sql: string;
+}>;
+
+export type BasketraDatabaseOptions = Readonly<{
+  additionalMigrations?: readonly MigrationDefinition[];
+  allowDestructiveMigrations?: boolean;
+  migrationBackupDir?: string;
+  clock?: () => Date;
+}>;
+
+const MIGRATIONS: readonly MigrationDefinition[] = [
   {
     version: 1,
+    kind: 'safe',
     sql: `
       CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
       CREATE TABLE retailers(id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
@@ -68,39 +82,147 @@ const MIGRATIONS = [
       CREATE TABLE ocr_executions(id TEXT PRIMARY KEY, provider TEXT NOT NULL, status TEXT NOT NULL, duration_ms INTEGER NOT NULL, error_code TEXT, metadata_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL);
     `,
   },
+  {
+    version: 2,
+    kind: 'safe',
+    sql: `
+      CREATE TABLE schema_migration_backups(
+        backup_name TEXT PRIMARY KEY,
+        from_version INTEGER NOT NULL CHECK(from_version >= 0),
+        to_version INTEGER NOT NULL CHECK(to_version > from_version),
+        bytes INTEGER NOT NULL CHECK(bytes > 0),
+        created_at TEXT NOT NULL
+      );
+    `,
+  },
 ] as const;
+
+export const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
+
+const DESTRUCTIVE_SQL = /\b(?:DROP\s+(?:TABLE|INDEX|VIEW|TRIGGER)|ALTER\s+TABLE\s+\S+\s+DROP\s+COLUMN|DELETE\s+FROM|TRUNCATE)\b/i;
 
 function now(): string {
   return new Date().toISOString();
 }
 
+function schemaVersion(database: DatabaseSync): number {
+  const hasMigrations = database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations'").get();
+  if (!hasMigrations) return 0;
+  const row = database.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations').get() as { version: number };
+  return Number(row.version);
+}
+
+function integrityIsValid(database: DatabaseSync): boolean {
+  const integrity = database.prepare('PRAGMA integrity_check').get() as { integrity_check: string };
+  return integrity.integrity_check === 'ok';
+}
+
+function createPortableBackup(source: string, destination: string): number {
+  copyFileSync(source, destination);
+  const backup = new DatabaseSync(destination);
+  try {
+    backup.exec('PRAGMA journal_mode = DELETE;');
+  } finally {
+    backup.close();
+  }
+  return statSync(destination).size;
+}
+
+function prepareMigrations(additionalMigrations: readonly MigrationDefinition[]): readonly MigrationDefinition[] {
+  const migrations = [...MIGRATIONS, ...additionalMigrations].sort((left, right) => left.version - right.version);
+  for (const [index, migration] of migrations.entries()) {
+    const expectedVersion = index + 1;
+    if (!Number.isSafeInteger(migration.version) || migration.version !== expectedVersion) {
+      throw new Error(`Migration versions must be contiguous from 1; expected ${expectedVersion}`);
+    }
+    if (!migration.sql.trim()) throw new Error(`Migration ${migration.version} must contain SQL`);
+  }
+  return migrations;
+}
+
+function assertMigrationSafety(migrations: readonly MigrationDefinition[], allowDestructiveMigrations: boolean): void {
+  for (const migration of migrations) {
+    const containsDestructiveSql = DESTRUCTIVE_SQL.test(migration.sql);
+    if (migration.kind === 'safe' && containsDestructiveSql) {
+      throw new Error(`Migration ${migration.version} contains destructive SQL but is marked safe`);
+    }
+    if (migration.kind === 'destructive' && !allowDestructiveMigrations) {
+      throw new Error(`Migration ${migration.version} is destructive and requires explicit authorization`);
+    }
+  }
+}
+
 export class BasketraDatabase {
   readonly #database: DatabaseSync;
+  readonly #migrations: readonly MigrationDefinition[];
+  readonly #allowDestructiveMigrations: boolean;
+  readonly #migrationBackupDir: string;
+  readonly #clock: () => Date;
   readonly path: string;
 
-  constructor(path: string) {
+  constructor(path: string, options: BasketraDatabaseOptions = {}) {
     this.path = resolve(path);
+    this.#migrations = prepareMigrations(options.additionalMigrations ?? []);
+    this.#allowDestructiveMigrations = options.allowDestructiveMigrations ?? false;
+    this.#migrationBackupDir = resolve(options.migrationBackupDir ?? join(dirname(this.path), 'backups', 'migrations'));
+    this.#clock = options.clock ?? (() => new Date());
     mkdirSync(dirname(this.path), { recursive: true });
     this.#database = new DatabaseSync(this.path);
-    this.#database.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
-    this.migrate();
+    try {
+      this.#database.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
+      this.migrate();
+    } catch (error) {
+      this.#database.close();
+      throw error;
+    }
   }
 
   migrate(): void {
-    const hasMigrations = this.#database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations'").get();
-    const current = hasMigrations ? Number((this.#database.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations').get() as { version: number }).version) : 0;
-    for (const migration of MIGRATIONS) {
-      if (migration.version <= current) continue;
-      this.#database.exec('BEGIN IMMEDIATE');
-      try {
+    const currentVersion = schemaVersion(this.#database);
+    const pendingMigrations = this.#migrations.filter((migration) => migration.version > currentVersion);
+    if (pendingMigrations.length === 0) return;
+
+    assertMigrationSafety(pendingMigrations, this.#allowDestructiveMigrations);
+    const targetVersion = pendingMigrations.at(-1)?.version;
+    if (targetVersion === undefined) return;
+
+    const migrationBackup = this.createPreMigrationBackup(currentVersion, targetVersion);
+    this.#database.exec('BEGIN IMMEDIATE');
+    try {
+      for (const migration of pendingMigrations) {
         this.#database.exec(migration.sql);
-        this.#database.prepare('INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)').run(migration.version, now());
-        this.#database.exec('COMMIT');
-      } catch (error) {
-        this.#database.exec('ROLLBACK');
-        throw error;
+        this.#database.prepare('INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)').run(migration.version, this.#clock().toISOString());
       }
+      if (targetVersion >= 2) {
+        this.#database.prepare('INSERT INTO schema_migration_backups(backup_name, from_version, to_version, bytes, created_at) VALUES (?, ?, ?, ?, ?)').run(
+          migrationBackup.name,
+          currentVersion,
+          targetVersion,
+          migrationBackup.bytes,
+          migrationBackup.createdAt,
+        );
+      }
+      if (!integrityIsValid(this.#database)) throw new Error('Database integrity check failed after migrations');
+      if (schemaVersion(this.#database) !== targetVersion) throw new Error('Database schema version did not reach migration target');
+      this.#database.exec('COMMIT');
+    } catch (error) {
+      this.#database.exec('ROLLBACK');
+      throw error;
     }
+  }
+
+  private createPreMigrationBackup(fromVersion: number, toVersion: number): Readonly<{ name: string; bytes: number; createdAt: string }> {
+    this.#database.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    mkdirSync(this.#migrationBackupDir, { recursive: true });
+    const createdAt = this.#clock().toISOString();
+    const backupName = `basketra-pre-migration-v${fromVersion}-to-v${toVersion}-${createId('backup')}.db`;
+    const backupPath = join(this.#migrationBackupDir, backupName);
+    const bytes = createPortableBackup(this.path, backupPath);
+    const validation = validateBackup(backupPath);
+    if (!validation.valid || validation.version !== fromVersion) {
+      throw new Error('Pre-migration backup validation failed');
+    }
+    return { name: backupName, bytes, createdAt };
   }
 
   createShoppingList(name: string): ShoppingListRecord {
@@ -111,7 +233,7 @@ export class BasketraDatabase {
   }
 
   listShoppingLists(): ShoppingListRecord[] {
-    return (this.#database.prepare('SELECT id, name, created_at AS createdAt, updated_at AS updatedAt FROM shopping_lists ORDER BY updated_at DESC, id').all() as ShoppingListRecord[]);
+    return this.#database.prepare('SELECT id, name, created_at AS createdAt, updated_at AS updatedAt FROM shopping_lists ORDER BY updated_at DESC, id').all() as ShoppingListRecord[];
   }
 
   getShoppingList(id: string): Readonly<{ list: ShoppingListRecord; items: ShoppingListItemRecord[] }> | undefined {
@@ -194,8 +316,8 @@ export class BasketraDatabase {
     this.#database.exec('PRAGMA wal_checkpoint(TRUNCATE)');
     const target = resolve(destination);
     mkdirSync(dirname(target), { recursive: true });
-    copyFileSync(this.path, target);
-    return { path: target, bytes: statSync(target).size };
+    const bytes = createPortableBackup(this.path, target);
+    return { path: target, bytes };
   }
 
   close(): void {
@@ -206,9 +328,7 @@ export class BasketraDatabase {
 export function validateBackup(path: string): Readonly<{ valid: boolean; version: number }> {
   const database = new DatabaseSync(resolve(path), { readOnly: true });
   try {
-    const integrity = database.prepare('PRAGMA integrity_check').get() as { integrity_check: string };
-    const versionRow = database.prepare("SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations").get() as { version: number };
-    return { valid: integrity.integrity_check === 'ok', version: Number(versionRow.version) };
+    return { valid: integrityIsValid(database), version: schemaVersion(database) };
   } finally {
     database.close();
   }
