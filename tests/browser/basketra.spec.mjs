@@ -53,6 +53,7 @@ test.afterEach(async ({ page }, testInfo) => {
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.waitForTimeout(100);
   await page.screenshot({ path: testInfo.outputPath('viewport.png') });
+  await page.addStyleTag({ content: '.app-header,.bottom-nav,#toast{display:none!important}.sticky-action{position:static!important}' });
   const activeView = page.locator('.view.active');
   if (await activeView.count()) {
     await activeView.screenshot({ path: testInfo.outputPath('final.png') });
