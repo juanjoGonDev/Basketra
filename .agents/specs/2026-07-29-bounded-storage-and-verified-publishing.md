@@ -2,7 +2,7 @@
 
 ## Status
 
-Implementation complete locally; pull-request CI pending.
+Implemented and validated in pull-request CI.
 
 ## Request
 
@@ -78,6 +78,16 @@ Audit Basketra for residues and unbounded RAM, database, backup, temporary-file,
 - AMD64 and ARM64 Buildx builds with SBOM and provenance.
 - Hardened local container readiness, cgroup inspection, and graceful stop.
 - Main-only registry validation remains intentionally unexercised on the pull-request event; its pure retention logic and workflow contract are tested in PR CI.
+
+## Validation evidence
+
+Pull Request Quality run `30480811516` passed every pull-request gate on implementation head `ffe5d9794f2ef813e27b93ebc53b75cd6b1ff752`:
+
+- 30 unit tests, 9 integration tests and 1 end-to-end test passed with no skips; deterministic domain coverage remained at 100%.
+- The executable resource budget measured 72,650,752 bytes idle RSS, 86,315,008 bytes peak RSS, 4,325,376 bytes steady-state RSS growth, 125,664 bytes heap growth, zero idempotent storage growth and 0.107% idle CPU.
+- Security/policy scanning, Trivy, Compose validation, hardened container startup, cgroup assertions, graceful shutdown, Browser E2E, AMD64 and ARM64 builds all passed.
+- Registry publication was skipped as designed on the pull-request event. Its ordering, immutable promotion contract and retention selector are covered by policy and unit tests; the live GHCR path runs only after an approved merge to `main`.
+- The branch integrates `main` as a second parent and reports `behind_by: 0`.
 
 ## Risks
 
