@@ -13,6 +13,7 @@ Prepare Basketra for private automatic Raspberry Pi deployment without modifying
 - Local Compose was hardened and loopback-only but omitted the already supported image/PDF capability variables and probed `/health` rather than `/readiness`.
 - The `raspberry5` repository requires explicit bind addresses and memory limits. It also has an existing global, label-enabled Watchtower, so a second instance must remain optional until scopes are reconciled operationally.
 - Docker image repository references require lowercase; the valid target is `ghcr.io/juanjogondev/basketra` even though the GitHub account is displayed as `juanjoGonDev`.
+- `main` advanced with repository automation while implementation was in progress. Commit `c7e0b653b301f8ed23bc90ca709f820ad60de763` was merged into the existing task branch, and its Dependabot policy was reconciled with Basketra's Docker update requirements.
 
 ## Decision
 
@@ -66,7 +67,18 @@ Local executed validation before delivery:
 - syntax checks for changed TypeScript and JavaScript
 - repository format policy checks over the changed files
 
-Docker Compose, image build, Trivy, browser flows, complete quality, AMD64, ARM64, and publication gating are authoritative in GitHub Actions because the local execution environment does not provide a Docker daemon or Raspberry hardware.
+GitHub Actions run `30454536535` passed on merge commit `b13587ea390fd73546ba4771b2a0e9050a02f1cc`:
+
+- `✅ Quality`
+- `🔒 Security`
+- `🌐 Browser E2E`
+- `🧪 Container smoke`
+- `📦 Container (linux/amd64)`
+- `📦 Container (linux/arm64)`
+
+The run validated both Compose variants, Trivy scanning, a hardened readiness-based container startup and shutdown, 24 unit tests, 5 integration tests including migration upgrade and rollback, 1 static PWA acceptance test, 8 real Chromium flows, strict type and dependency policies, 100% deterministic-domain line/function/branch coverage, and multi-architecture Buildx builds with SBOM and provenance.
+
+`🚀 Publish private GHCR image` was skipped as designed because pull requests may not publish. It can execute only after an explicitly approved merge produces a successful `push` workflow on `main` and all prerequisite jobs pass.
 
 ## Rollback
 
@@ -81,4 +93,4 @@ Continue on `agent/feat-basketra-foundation` and update pull request #1. Do not 
 
 ## Status
 
-Implementation and local validation complete. Remote CI, PR evidence, and final status remain pending until the branch commits are pushed and all checks finish.
+Implementation, branch reconciliation, local validation, remote pull-request CI, operational documentation, and pull-request evidence are complete. The image has not been published because merge and deployment were not authorized.
