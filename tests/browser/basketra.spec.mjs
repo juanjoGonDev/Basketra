@@ -49,7 +49,14 @@ async function expectNoHorizontalOverflow(page) {
 }
 
 test.afterEach(async ({ page }, testInfo) => {
-  await page.screenshot({ path: testInfo.outputPath('final.png'), fullPage: true });
+  if (page.isClosed()) return;
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(100);
+  await page.screenshot({ path: testInfo.outputPath('viewport.png') });
+  const activeView = page.locator('.view.active');
+  if (await activeView.count()) {
+    await activeView.screenshot({ path: testInfo.outputPath('final.png') });
+  }
 });
 
 test('mobile PWA loads with valid manifest and touch-safe icon navigation', async ({ page, request }) => {
