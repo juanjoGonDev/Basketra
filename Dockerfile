@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM node:22.23.1-alpine3.24 AS build
+FROM node:26.5.0-alpine3.24 AS build
 WORKDIR /app
 RUN npm install --global --ignore-scripts typescript@5.8.3
 COPY package.json tsconfig.json tsconfig.build.json ./
@@ -8,7 +8,7 @@ RUN tsc --noEmit && tsc -p tsconfig.build.json \
     && cp -R src/web dist/web \
     && cp package.json dist/package.json
 
-FROM node:22.23.1-alpine3.24 AS runtime
+FROM node:26.5.0-alpine3.24 AS runtime
 ENV NODE_ENV=production \
     BASKETRA_HOST=0.0.0.0 \
     BASKETRA_PORT=3000 \
