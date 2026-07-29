@@ -18,16 +18,16 @@ The repository contains a working dependency-free foundation built on Node.js 22
 - authentication, security headers, body limits, hibernation, and graceful shutdown;
 - Docker deployment with Raspberry Pi resource limits.
 
-A production OCR engine and live supermarket/Amazon evidence providers remain external integration work. The current receipt flow supports embedded text or manual transcription and preserves original captures. A mobile Chromium Playwright suite is included and runs in pull-request CI with screenshots, video and traces; local browser execution remains unverified in this environment because browser binaries are unavailable.
+A production OCR engine and live supermarket/Amazon evidence providers remain external integration work. The current receipt flow supports embedded text or manual transcription and preserves original captures. Pull-request CI verifies the mobile Chromium suite with screenshots, video and traces, hardened container smoke tests, vulnerability scanning, and AMD64/ARM64 builds.
 
 ## Requirements
 
-- Node.js 22.16.x
+- Node.js 22.23.1
 - pnpm 10.15.0
 - TypeScript 5.8.3 for static checking
 - Docker with Buildx for container validation
 
-The runtime has no third-party npm dependencies.
+The application runtime has no third-party npm dependencies. The production container also removes npm, Corepack, pnpm and Yarn after the build stage because package managers are not required to execute Basketra.
 
 ## Local development
 
