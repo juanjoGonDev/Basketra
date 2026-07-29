@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111827">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Inteligencia privada de precios de compra">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+  <title>Basketra</title>
+</head>
+<body>
+  <a class="skip-link" href="#main">Saltar al contenido</a>
+  <header class="app-header">
+    <div><strong>Basketra</strong><small>Precios privados, decisiones claras</small></div>
+    <span id="connection-state" role="status">Conectando…</span>
+  </header>
+  <main id="main" tabindex="-1">
+    <section id="home-view" class="view active" data-view="home">
+      <h1>Tu cesta, con evidencia</h1>
+      <p class="lead">Guarda tickets, compara precios normalizados y decide sin entregar tus datos a una plataforma pública.</p>
+      <div class="cards">
+        <button class="card" data-nav="lists"><strong>Lista de compra</strong><span>Añade productos y conserva el borrador.</span></button>
+        <button class="card" data-nav="scan"><strong>Escanear ticket</strong><span>Imagen, captura o PDF con revisión manual.</span></button>
+        <button class="card" data-nav="prices"><strong>Comparar cesta</strong><span>Un comercio, equilibrio o máximo ahorro.</span></button>
+      </div>
+    </section>
+
+    <section id="lists-view" class="view" data-view="lists">
+      <div class="section-heading"><div><h1>Lista de compra</h1><p>Sugerencias locales primero; IA sólo cuando tú lo decidas.</p></div><button id="new-list" class="secondary">Nueva</button></div>
+      <label>Lista activa<select id="list-select"></select></label>
+      <form id="item-form" class="composer">
+        <label class="grow">Producto<input id="item-text" name="text" autocomplete="off" maxlength="240" placeholder="Ej. leche entera 1 L" required></label>
+        <label>Cantidad<input id="item-quantity" name="quantity" type="number" min="1" max="100000" value="1" required></label>
+        <label>Unidad<select id="item-unit" name="unit"><option value="unit">ud</option><option value="kg">kg</option><option value="g">g</option><option value="l">L</option><option value="ml">ml</option><option value="pack">pack</option><option value="roll">rollo</option></select></label>
+        <div id="suggestions" class="suggestions" role="listbox" aria-label="Sugerencias de producto"></div>
+        <label class="check"><input id="exact-required" type="checkbox"> Producto exacto</label>
+        <label class="check"><input id="substitution-allowed" type="checkbox" checked> Permitir sustituciones</label>
+        <button type="submit">Añadir</button>
+      </form>
+      <div class="ai-controls">
+        <label>Asistencia IA<select id="ai-mode"><option value="disabled">Desactivada</option><option value="manual">Manual</option><option value="automatic">Automática tras pausa</option></select></label>
+        <button id="analyze-ai" class="secondary" type="button">Analizar con IA</button>
+        <span id="ai-state" role="status"></span>
+      </div>
+      <div id="ai-proposals" class="panel" hidden></div>
+      <ul id="items" class="item-list" aria-live="polite"></ul>
+    </section>
+
+    <section id="scan-view" class="view" data-view="scan">
+      <h1>Capturar ticket</h1>
+      <p>Los originales permanecen en tu almacenamiento privado y nunca entran en la cache offline.</p>
+      <label class="upload">Añadir imágenes o PDF<input id="receipt-files" type="file" accept="image/jpeg,image/png,application/pdf" multiple></label>
+      <ol id="capture-list" class="capture-list"></ol>
+      <label>Texto extraído o transcripción<textarea id="receipt-text" rows="8" placeholder="Pega el texto embebido del PDF o corrige el OCR aquí"></textarea></label>
+      <label>Total declarado (céntimos)<input id="receipt-total" type="number" min="0" value="0"></label>
+      <button id="review-receipt" type="button">Revisar ticket</button>
+      <div id="receipt-review" class="panel" hidden></div>
+    </section>
+
+    <section id="prices-view" class="view" data-view="prices">
+      <h1>Comparación</h1>
+      <p>Las ofertas deben incluir evidencia, stock, fecha, transporte y condiciones. Prime no elimina el envío sin confirmación explícita.</p>
+      <button id="run-demo-comparison" type="button">Generar ejemplo verificable</button>
+      <div id="plans" class="plans" aria-live="polite"></div>
+    </section>
+
+    <section id="settings-view" class="view" data-view="settings">
+      <h1>Ajustes</h1>
+      <div class="panel"><h2>Privacidad</h2><p>La API se vincula a localhost por defecto. Usa VPN o proxy privado y configura un token para endpoints sensibles.</p></div>
+      <div class="panel"><h2>Proveedores IA</h2><p>Se configuran en el backend mediante variables de entorno. El navegador nunca recibe la clave.</p></div>
+      <button id="download-backup" type="button">Crear copia de seguridad</button>
+      <pre id="diagnostics" aria-live="polite"></pre>
+    </section>
+  </main>
+
+  <nav class="bottom-nav" aria-label="Navegación principal">
+    <button data-nav="home" aria-current="page">Inicio</button>
+    <button data-nav="lists">Lista</button>
+    <button data-nav="scan">Escanear</button>
+    <button data-nav="prices">Precios</button>
+    <button data-nav="settings">Ajustes</button>
+  </nav>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

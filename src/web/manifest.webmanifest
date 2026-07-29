@@ -1,0 +1,11 @@
+{
+  "name": "Basketra",
+  "short_name": "Basketra",
+  "description": "Private grocery price intelligence",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f1512",
+  "theme_color": "#111827",
+  "icons": [{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}
