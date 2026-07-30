@@ -1,0 +1,219 @@
+name: Publish PR visual evidence
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions: read-all
+
+concurrency:
+  group: pr-visual-evidence-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: "🖼️ Publish direct PR evidence"
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: write
+      issues: write
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      EVIDENCE_TAG: pr-${{ github.event.pull_request.number }}-visual-evidence
+    steps:
+      - name: Wait for the authoritative browser run
+        id: quality-run
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 80); do
+            response=$(gh api --method GET \
+              "repos/$REPOSITORY/actions/workflows/ci.yml/runs" \
+              -f event=pull_request \
+              -f head_sha="$HEAD_SHA" \
+              -f per_page=20)
+            run_id=$(jq -r '[.workflow_runs[] | select(.name == "Pull Request Quality")] | sort_by(.run_number) | last | .id // empty' <<<"$response")
+            status=$(jq -r '[.workflow_runs[] | select(.name == "Pull Request Quality")] | sort_by(.run_number) | last | .status // empty' <<<"$response")
+            conclusion=$(jq -r '[.workflow_runs[] | select(.name == "Pull Request Quality")] | sort_by(.run_number) | last | .conclusion // empty' <<<"$response")
+
+            if [ -z "$run_id" ]; then
+              sleep 15
+              continue
+            fi
+            if [ "$status" != "completed" ]; then
+              sleep 15
+              continue
+            fi
+            if [ "$conclusion" != "success" ]; then
+              echo "Pull Request Quality run $run_id concluded with $conclusion" >&2
+              exit 1
+            fi
+
+            echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+            exit 0
+          done
+          echo "Timed out waiting for a successful Pull Request Quality run for $HEAD_SHA" >&2
+          exit 1
+
+      - name: Download browser output for the validated head
+        shell: bash
+        env:
+          RUN_ID: ${{ steps.quality-run.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          gh run download "$RUN_ID" \
+            --repo "$REPOSITORY" \
+            --name basketra-browser-evidence \
+            --dir downloaded
+          test -d downloaded/test-results
+          if find downloaded -type l -print -quit | grep -q .; then
+            echo "Browser evidence must not contain symbolic links" >&2
+            exit 1
+          fi
+
+      - name: Prepare directly viewable media
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v ffmpeg >/dev/null
+          mkdir -p evidence-assets
+
+          prepare_flow() {
+            needle=$1
+            slug=$2
+            directory=$(find downloaded/test-results -mindepth 1 -maxdepth 1 -type d -name "*$needle*" -print -quit)
+            test -n "$directory"
+            test -f "$directory/final.png"
+            test -f "$directory/video.webm"
+
+            cp "$directory/final.png" "evidence-assets/$slug.png"
+            cp "$directory/video.webm" "evidence-assets/$slug.webm"
+            ffmpeg -hide_banner -loglevel error -y -t 12 \
+              -i "$directory/video.webm" \
+              -vf "fps=6,scale=360:-2:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=96[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5" \
+              "evidence-assets/$slug.gif"
+          }
+
+          prepare_flow mobile-PWA-loads 01-mobile-navigation
+          prepare_flow shopping-lists-su 02-shopping-list-lifecycle
+          prepare_flow local-suggestions 03-stale-suggestions
+          prepare_flow camera-gallery 04-camera-gallery-receipt
+          prepare_flow manual-receipt-re 05-manual-receipt-recovery
+          prepare_flow comparison-renders 06-comparison-plans
+          prepare_flow AI-unavailability 07-ai-unavailable-recovery
+          prepare_flow offline-shell 08-offline-keyboard
+
+          test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 8
+          test "$(find evidence-assets -maxdepth 1 -type f -name '*.gif' | wc -l)" -eq 8
+          test "$(find evidence-assets -maxdepth 1 -type f -name '*.webm' | wc -l)" -eq 8
+
+          while IFS= read -r file; do
+            test "$(stat -c %s "$file")" -le 25000000
+          done < <(find evidence-assets -maxdepth 1 -type f -print)
+
+      - name: Replace the temporary visual-evidence release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release delete "$EVIDENCE_TAG" \
+            --repo "$REPOSITORY" \
+            --cleanup-tag \
+            --yes >/dev/null 2>&1 || true
+
+          gh release create "$EVIDENCE_TAG" evidence-assets/* \
+            --repo "$REPOSITORY" \
+            --target "$HEAD_SHA" \
+            --prerelease \
+            --title "PR #$PR_NUMBER visual evidence" \
+            --notes "Temporary directly viewable screenshots, GIFs and videos generated from $HEAD_SHA. Removed automatically when the pull request closes."
+
+      - name: Publish or update the visual-evidence comment
+        shell: bash
+        env:
+          RUN_ID: ${{ steps.quality-run.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          base="https://github.com/$REPOSITORY/releases/download/$EVIDENCE_TAG"
+          run_url="https://github.com/$REPOSITORY/actions/runs/$RUN_ID"
+
+          cat > comment.md <<EOF
+          <!-- basketra-visual-evidence -->
+          ## Visual evidence
+
+          Generated from final head \`$HEAD_SHA\` after the [successful browser workflow]($run_url). The media is temporary, directly viewable and is not committed to the repository.
+
+          <table>
+          <tr>
+          <td><strong>Mobile navigation</strong><br><img src="$base/01-mobile-navigation.png" width="280" alt="Basketra mobile navigation"></td>
+          <td><strong>Shopping-list lifecycle</strong><br><img src="$base/02-shopping-list-lifecycle.png" width="280" alt="Basketra shopping-list lifecycle"></td>
+          </tr>
+          <tr>
+          <td><strong>Stale suggestions</strong><br><img src="$base/03-stale-suggestions.png" width="280" alt="Basketra stale suggestion handling"></td>
+          <td><strong>Camera and receipt</strong><br><img src="$base/04-camera-gallery-receipt.png" width="280" alt="Basketra camera and receipt flow"></td>
+          </tr>
+          <tr>
+          <td><strong>Manual receipt recovery</strong><br><img src="$base/05-manual-receipt-recovery.png" width="280" alt="Basketra manual receipt recovery"></td>
+          <td><strong>Comparison plans</strong><br><img src="$base/06-comparison-plans.png" width="280" alt="Basketra comparison plans"></td>
+          </tr>
+          <tr>
+          <td><strong>AI unavailable</strong><br><img src="$base/07-ai-unavailable-recovery.png" width="280" alt="Basketra AI unavailable recovery"></td>
+          <td><strong>Offline and keyboard</strong><br><img src="$base/08-offline-keyboard.png" width="280" alt="Basketra offline and keyboard behavior"></td>
+          </tr>
+          </table>
+
+          ### Critical flows
+
+          **Shopping-list lifecycle**
+
+          ![Shopping-list lifecycle]($base/02-shopping-list-lifecycle.gif)
+
+          [Open the full shopping-list video]($base/02-shopping-list-lifecycle.webm)
+
+          **Camera, gallery and receipt correction**
+
+          ![Camera, gallery and receipt correction]($base/04-camera-gallery-receipt.gif)
+
+          [Open the full receipt video]($base/04-camera-gallery-receipt.webm)
+
+          **Manual recovery without OCR or AI**
+
+          ![Manual receipt recovery]($base/05-manual-receipt-recovery.gif)
+
+          [Open the full recovery video]($base/05-manual-receipt-recovery.webm)
+
+          **Offline and keyboard behavior**
+
+          ![Offline and keyboard behavior]($base/08-offline-keyboard.gif)
+
+          [Open the full offline video]($base/08-offline-keyboard.webm)
+
+          _The temporary prerelease and its media are replaced on every PR update and deleted when the PR closes._
+          EOF
+
+          marker='<!-- basketra-visual-evidence -->'
+          comment_id=$(gh api --paginate "repos/$REPOSITORY/issues/$PR_NUMBER/comments" \
+            --jq ".[] | select(.body | contains(\"$marker\")) | .id" | head -n 1)
+          jq -n --rawfile body comment.md '{body: $body}' > payload.json
+
+          if [ -n "$comment_id" ]; then
+            gh api --method PATCH \
+              "repos/$REPOSITORY/issues/comments/$comment_id" \
+              --input payload.json >/dev/null
+          else
+            gh api --method POST \
+              "repos/$REPOSITORY/issues/$PR_NUMBER/comments" \
+              --input payload.json >/dev/null
+          fi
