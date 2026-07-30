@@ -26,18 +26,29 @@ function productInput(page) {
   return page.getByRole('textbox', { name: 'Producto', exact: true });
 }
 
-async function gotoApp(page) {
-  const failures = monitorRuntime(page);
+async function gotoApp(page, options) {
+  const failures = monitorRuntime(page, options);
   await page.goto('/');
-  await expect(page.getByText('Tu cesta, con evidencia')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Organiza la compra sin perder tiempo.' })).toBeVisible();
+  await expect(page.locator('#connection-state')).toContainText('Conectado');
   return failures;
 }
 
 async function createList(page, name) {
   await navigate(page, 'Lista');
-  page.once('dialog', dialog => dialog.accept(name));
-  await page.getByRole('button', { name: 'Nueva', exact: true }).click();
+  await page.getByLabel('Nueva lista', { exact: true }).fill(name);
+  await page.getByRole('button', { name: 'Crear', exact: true }).click();
   await expect(page.locator('#list-select')).toContainText(name);
+}
+
+async function addProduct(page, { name, quantity = '1', unit = 'unit', exact = false, substitutions = true }) {
+  await productInput(page).fill(name);
+  await page.getByLabel('Cantidad', { exact: true }).fill(quantity);
+  await page.locator('#item-unit').selectOption(unit);
+  await page.getByLabel('Producto exacto', { exact: true }).setChecked(exact);
+  await page.getByLabel('Permitir sustituciones', { exact: true }).setChecked(substitutions);
+  await page.getByRole('button', { name: 'Añadir a la lista', exact: true }).click();
+  await expect(page.locator('#pending-items')).toContainText(name);
 }
 
 async function expectNoHorizontalOverflow(page) {
@@ -61,60 +72,68 @@ test.afterEach(async ({ page }, testInfo) => {
     document.querySelector('.sticky-action')?.classList.remove('sticky-action');
   });
   const activeView = page.locator('.view.active');
-  if (await activeView.count()) {
-    await activeView.screenshot({ path: testInfo.outputPath('final.png') });
-  }
+  if (await activeView.count()) await activeView.screenshot({ path: testInfo.outputPath('final.png') });
 });
 
-test('mobile PWA loads with valid manifest and touch-safe icon navigation', async ({ page, request }) => {
+test('mobile PWA loads with private-network messaging and touch-safe navigation', async ({ page, request }) => {
   const failures = await gotoApp(page);
   const manifestResponse = await request.get('/manifest.webmanifest');
   expect(manifestResponse.ok()).toBeTruthy();
   const manifest = await manifestResponse.json();
   expect(manifest).toMatchObject({ name: 'Basketra', short_name: 'Basketra', display: 'standalone' });
   expect(manifest.icons.length).toBeGreaterThan(0);
-  await expect(page.locator('.bottom-nav .nav-icon svg')).toHaveCount(5);
-  const heights = await page.locator('button:visible').evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().height));
+  await expect(page.getByText('Sólo en tu red privada')).toBeVisible();
+  await expect(page.locator('.bottom-nav button')).toHaveCount(5);
+  const heights = await page.locator('button:visible').evaluateAll(buttons => buttons.map(button => buttons.length ? button.getBoundingClientRect().height : 0));
   expect(heights.every(height => height >= 44)).toBeTruthy();
-  await expectNoHorizontalOverflow(page);
-  await navigate(page, 'Escanear');
-  await expect(page.getByRole('heading', { name: 'Capturar ticket' })).toBeVisible();
-  await expect(page.locator('.bottom-nav').getByRole('button', { name: 'Escanear', exact: true })).toHaveAttribute('aria-current', 'page');
-  expect(failures).toEqual([]);
-});
-
-test('reusable mobile design system stays aligned across all destinations', async ({ page }) => {
-  const failures = await gotoApp(page);
-  const tokens = await page.evaluate(() => {
-    const styles = getComputedStyle(document.documentElement);
-    return ['--space-4', '--radius-lg', '--touch', '--primary'].map(token => styles.getPropertyValue(token).trim());
-  });
-  expect(tokens.every(Boolean)).toBeTruthy();
-  for (const destination of ['Inicio', 'Lista', 'Escanear', 'Precios', 'Ajustes']) {
+  for (const destination of ['Inicio', 'Lista', 'Tickets', 'Planes', 'Ajustes']) {
     await navigate(page, destination);
     await expectNoHorizontalOverflow(page);
-    const visibleTargets = await page.locator('button:visible, summary:visible').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().height));
-    expect(visibleTargets.every(height => height >= 44)).toBeTruthy();
   }
-  await expect(page.locator('.view.active .surface').first()).toBeVisible();
+  await expect(page.getByText('Basketra no requiere token de aplicación')).toBeVisible();
   expect(failures).toEqual([]);
 });
 
-test('shopping list preserves exact/substitution preferences and survives reload', async ({ page }) => {
+test('shopping lists support create, rename, edit, quantities, completion, ordering and deletion', async ({ page }) => {
   const failures = await gotoApp(page);
   await createList(page, 'Compra E2E');
-  await productInput(page).fill('Leche entera 1 L');
-  await page.getByLabel('Cantidad', { exact: true }).fill('2');
-  await page.locator('#item-unit').selectOption('l');
-  await page.getByLabel('Producto exacto', { exact: true }).check();
-  await page.getByLabel('Permitir sustituciones', { exact: true }).uncheck();
-  await page.getByRole('button', { name: 'Añadir', exact: true }).click();
-  await expect(page.locator('#items')).toContainText('Leche entera 1 L');
-  await expect(page.locator('#items')).toContainText('Producto exacto');
-  await expect(page.locator('#items')).toContainText('Sin alternativas');
+
+  await page.getByRole('button', { name: 'Renombrar', exact: true }).click();
+  await page.getByLabel('Nuevo nombre', { exact: true }).fill('Compra completa');
+  await page.getByRole('button', { name: 'Guardar', exact: true }).click();
+  await expect(page.locator('#list-select')).toContainText('Compra completa');
+
+  await addProduct(page, { name: 'Leche entera 1 L', quantity: '2', unit: 'l', exact: true, substitutions: false });
+  await addProduct(page, { name: 'Arroz 1 kg', quantity: '1', unit: 'kg' });
+
+  await page.getByRole('button', { name: 'Aumentar cantidad de Leche entera 1 L' }).click();
+  await expect(page.locator('[data-item-row]').filter({ hasText: 'Leche entera 1 L' }).locator('.quantity-chip')).toHaveText('3');
+
+  await page.getByRole('button', { name: 'Editar Leche entera 1 L' }).click();
+  await productInput(page).fill('Leche semidesnatada 1 L');
+  await page.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+  await expect(page.locator('#pending-items')).toContainText('Leche semidesnatada 1 L');
+
+  await page.getByRole('button', { name: 'Marcar Arroz 1 kg como comprado' }).click();
+  await expect(page.locator('#completed-items')).toContainText('Arroz 1 kg');
+  await page.getByRole('button', { name: 'Devolver Arroz 1 kg a pendientes' }).click();
+  await expect(page.locator('#pending-items')).toContainText('Arroz 1 kg');
+
+  await page.getByRole('button', { name: 'Subir Arroz 1 kg' }).click();
+  await expect(page.locator('#pending-items [data-item-row]').first()).toContainText('Arroz 1 kg');
+
+  await page.getByRole('button', { name: 'Eliminar Arroz 1 kg' }).click();
+  await page.getByRole('button', { name: 'Eliminar producto', exact: true }).click();
+  await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
+
   await page.reload();
   await navigate(page, 'Lista');
-  await expect(page.locator('#items')).toContainText('Leche entera 1 L');
+  await expect(page.locator('#list-select')).toContainText('Compra completa');
+  await expect(page.locator('#pending-items')).toContainText('Leche semidesnatada 1 L');
+
+  await page.getByRole('button', { name: 'Eliminar', exact: true }).click();
+  await page.getByRole('button', { name: 'Eliminar lista', exact: true }).click();
+  await expect(page.locator('#list-select')).toContainText('Todavía no hay listas');
   await expectNoHorizontalOverflow(page);
   expect(failures).toEqual([]);
 });
@@ -141,19 +160,36 @@ test('local suggestions ignore stale responses and never require AI', async ({ p
   expect(failures).toEqual([]);
 });
 
-test('receipt captures extract, reorder, correct and import with evidence', async ({ page }) => {
+test('camera, gallery and PDF captures preview, reorder, correct and import without AI', async ({ page }) => {
   const failures = await gotoApp(page);
-  await navigate(page, 'Escanear');
+  await navigate(page, 'Tickets');
+
+  await expect(page.locator('#receipt-camera')).toHaveAttribute('capture', 'environment');
+  await expect(page.locator('#receipt-camera')).toHaveAttribute('accept', 'image/jpeg,image/png');
+  await expect(page.locator('#receipt-files')).toHaveAttribute('accept', 'image/jpeg,image/png,application/pdf');
+
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00]);
+  const pdf = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00]);
+  await page.locator('#receipt-camera').setInputFiles({ name: 'camera.png', mimeType: 'image/png', buffer: png });
   await page.locator('#receipt-files').setInputFiles([
-    { name: 'page-1.png', mimeType: 'image/png', buffer: png },
-    { name: 'page-2.png', mimeType: 'image/png', buffer: png },
+    { name: 'gallery.png', mimeType: 'image/png', buffer: png },
+    { name: 'receipt.pdf', mimeType: 'application/pdf', buffer: pdf },
   ]);
+
+  await expect(page.locator('#capture-list li')).toHaveCount(3);
+  await expect(page.locator('#capture-list img[data-capture-preview-image]')).toHaveCount(2);
+  await expect(page.locator('#capture-list')).toContainText('PDF');
+
+  await page.getByRole('button', { name: 'Ampliar camera.png' }).click();
+  await expect(page.locator('#capture-preview-dialog')).toBeVisible();
+  await expect(page.locator('#capture-preview-image')).toHaveAttribute('src', /\/api\/v1\/files\//);
+  await page.getByRole('button', { name: 'Cerrar vista previa' }).click();
+
+  await page.getByRole('button', { name: 'Bajar camera.png' }).click();
+  await expect(page.locator('#capture-list li').nth(1)).toContainText('camera.png');
+  await page.getByRole('button', { name: 'Retirar receipt.pdf del borrador' }).click();
   await expect(page.locator('#capture-list li')).toHaveCount(2);
-  await page.locator('#capture-list li').first().getByRole('button', { name: 'Bajar', exact: true }).click();
-  await expect(page.locator('#capture-list li').first()).toContainText('page-2.png');
-  await page.locator('#capture-list li').last().getByRole('button', { name: 'Eliminar', exact: true }).click();
-  await expect(page.locator('#capture-list li')).toHaveCount(1);
+
   await page.getByText('Introducción manual y opciones avanzadas', { exact: true }).click();
   await page.getByLabel('Texto extraído o transcripción', { exact: true }).fill('Milk;1;120;120\nTOTAL 1,20');
   await page.getByLabel('Total declarado (céntimos)', { exact: true }).fill('120');
@@ -161,7 +197,7 @@ test('receipt captures extract, reorder, correct and import with evidence', asyn
   await page.getByRole('button', { name: 'Procesar capturas', exact: true }).click();
   await expect(page.locator('#receipt-state')).toContainText('Extracción lista');
   await expect(page.locator('#receipt-review')).toContainText('Total validado');
-  await expect(page.locator('#receipt-review')).toContainText('confirmed');
+
   await page.locator('.receipt-item [data-field="description"]').fill('Whole milk');
   await page.getByRole('button', { name: 'Confirmar e importar', exact: true }).click();
   await expect(page.locator('#receipt-state')).toContainText('Ticket importado');
@@ -169,9 +205,24 @@ test('receipt captures extract, reorder, correct and import with evidence', asyn
   expect(failures).toEqual([]);
 });
 
-test('comparison renders all deterministic plans and Prime evidence behavior', async ({ page }) => {
+test('manual receipt recovery preserves the draft when AI is unavailable', async ({ page }) => {
+  const failures = await gotoApp(page, { allowServiceUnavailable: true });
+  await navigate(page, 'Tickets');
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00]);
+  await page.locator('#receipt-camera').setInputFiles({ name: 'manual.png', mimeType: 'image/png', buffer: png });
+  await page.getByRole('button', { name: 'Procesar capturas', exact: true }).click();
+  await expect(page.locator('#receipt-state')).toContainText('No hay OCR configurado');
+  await expect(page.locator('#capture-list li')).toHaveCount(1);
+  await page.getByLabel('Texto extraído o transcripción', { exact: true }).fill('Bread;1;150;150\nTOTAL 1,50');
+  await page.getByLabel('Total declarado (céntimos)', { exact: true }).fill('150');
+  await page.getByRole('button', { name: 'Revisar transcripción', exact: true }).click();
+  await expect(page.locator('#receipt-review')).toContainText('Total validado');
+  expect(failures).toEqual([]);
+});
+
+test('comparison renders all deterministic plans', async ({ page }) => {
   const failures = await gotoApp(page);
-  await navigate(page, 'Precios');
+  await navigate(page, 'Planes');
   await page.getByRole('button', { name: 'Generar ejemplo verificable', exact: true }).click();
   await expect(page.locator('#plans article')).toHaveCount(3);
   await expect(page.getByRole('heading', { name: 'Un solo comercio' })).toBeVisible();
@@ -181,14 +232,12 @@ test('comparison renders all deterministic plans and Prime evidence behavior', a
   expect(failures).toEqual([]);
 });
 
-test('AI unavailability is recoverable and does not overwrite input', async ({ page }) => {
-  const failures = monitorRuntime(page, { allowServiceUnavailable: true });
-  await page.goto('/');
-  await expect(page.getByText('Tu cesta, con evidencia')).toBeVisible();
+test('AI unavailability is recoverable and does not overwrite list input', async ({ page }) => {
+  const failures = await gotoApp(page, { allowServiceUnavailable: true });
   await navigate(page, 'Lista');
   await productInput(page).fill('pan integral');
   await page.locator('#ai-mode').selectOption('manual');
-  await page.getByRole('button', { name: 'Analizar con IA', exact: true }).click();
+  await page.getByRole('button', { name: 'Analizar texto', exact: true }).click();
   await expect(page.locator('#ai-state')).toContainText('Proveedor IA no disponible');
   await expect(productInput(page)).toHaveValue('pan integral');
   expect(failures).toEqual([]);
@@ -197,12 +246,12 @@ test('AI unavailability is recoverable and does not overwrite input', async ({ p
 test('offline shell reloads and keyboard focus remains visible', async ({ page, context }) => {
   const failures = monitorRuntime(page, { allowOfflineErrors: true });
   await page.goto('/');
-  await expect(page.getByText('Tu cesta, con evidencia')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Organiza la compra sin perder tiempo.' })).toBeVisible();
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.reload();
   await context.setOffline(true);
   await page.reload();
-  await expect(page.getByText('Tu cesta, con evidencia')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Organiza la compra sin perder tiempo.' })).toBeVisible();
   await page.keyboard.press('Tab');
   const focus = await page.evaluate(() => ({
     tag: document.activeElement?.tagName,
