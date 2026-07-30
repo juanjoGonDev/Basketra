@@ -139,7 +139,8 @@ function handleCaptureAction(event) {
 }
 
 function captureRequests(manualText) {
-  return state.captures.map((capture, index) => ({
+  const captures = manualText ? state.captures.slice(0, 1) : state.captures;
+  return captures.map((capture, index) => ({
     storageKey: capture.storageKey,
     originalName: capture.name,
     ...(manualText && index === 0 ? { embeddedText: manualText } : {}),
