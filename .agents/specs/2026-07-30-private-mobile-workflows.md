@@ -23,6 +23,7 @@ Complete Basketra as a private, mobile-first application by removing the interna
 7. Preserve original uploaded evidence when removing a capture from a browser draft.
 8. Keep AI optional; manual extraction, correction, validation, and confirmation remain usable when AI is absent or fails.
 9. Expose units, MIME types, and file limit from backend metadata so the browser does not duplicate authoritative configuration.
+10. Treat a supplied manual transcription as the combined receipt text: extraction reads one representative stored capture while confirmation preserves every capture as evidence.
 
 ## Scope delivered
 
@@ -55,6 +56,7 @@ Complete Basketra as a private, mobile-first application by removing the interna
 - Added capture preview dialog, reorder, and draft removal.
 - Kept manual receipt review available after OCR or AI failure.
 - Revalidated receipt arithmetic in backend immediately before confirmation.
+- Allowed one combined manual transcription to cover multiple preserved receipt captures without invoking OCR for remaining pages.
 
 ### Configuration and documentation
 
@@ -62,13 +64,14 @@ Complete Basketra as a private, mobile-first application by removing the interna
 - Updated product, README, Raspberry, backup, privacy, security, and threat-model documentation.
 - Documented network reachability as full authorization and direct public exposure as unsupported.
 - Updated the service worker to cache only shell modules and exclude all `/api/` requests.
+- Pinned the CodeQL workflow actions to immutable verified commit SHAs.
 
 ### Tests
 
 - Unit coverage validates configuration without token and shared unit/MIME sources.
 - Integration covers unauthenticated API access, list/item lifecycle, quantity limits, completion, reorder, cascade deletion, migration v1 to v3, image/PDF upload, secure previews, traversal rejection, receipt validation, and backups.
 - Static PWA acceptance verifies modular assets, camera attributes, private cache policy, and absence of browser token logic.
-- Playwright covers mobile navigation, full list lifecycle, stale suggestions, camera/gallery/PDF, previews, capture ordering, manual correction, AI/OCR recovery, comparison, offline shell, focus, touch targets, and overflow.
+- Playwright covers mobile navigation, full list lifecycle, stale suggestions, camera/gallery/PDF, previews, capture ordering, combined manual transcription, AI/OCR recovery, comparison, offline shell, focus, touch targets, and overflow.
 
 ## Acceptance criteria
 
@@ -81,6 +84,7 @@ Complete Basketra as a private, mobile-first application by removing the interna
 - Stored JPEG and PNG captures retain safe thumbnails after reload; PDFs use an accessible non-image representation.
 - Invalid or traversal storage keys cannot read arbitrary files.
 - Receipt extraction remains correctable and confirmable without AI.
+- Multiple captures remain attached to a receipt when one combined manual transcription is used.
 - Relevant automated checks pass without skips or weakened assertions.
 - The pull request includes reproducible browser artifacts and remains unmerged.
 
@@ -92,6 +96,7 @@ Complete Basketra as a private, mobile-first application by removing the interna
 - Schema changes can fail on constrained storage. Mitigation: existing validated pre-migration backup and additive migration.
 - Browser drafts can reference removed files. Mitigation: fail previews safely and preserve evidence rather than deleting files during this task.
 - A trusted-network actor has full API access. Mitigation: explicit operator contract and loopback default; public/multi-user authentication remains out of scope.
+- A combined manual transcription could appear to discard additional pages. Mitigation: use one capture only for extraction input while retaining all captures in the confirmation payload and persisted evidence.
 
 ## Rollback
 
@@ -103,20 +108,30 @@ Complete Basketra as a private, mobile-first application by removing the interna
 
 - Local repository checkout was unavailable because the execution environment could not resolve or connect to GitHub.
 - TypeScript edge behavior was reproduced locally with TypeScript 5.8.3 and corrected without weakening `exactOptionalPropertyTypes`.
-- Authoritative validation will run through the repository pull-request workflow.
-- Required gates: quality, security, Browser E2E, container smoke, AMD64, and ARM64.
+- Pull Request Quality run `30588509015` passed:
+  - `✅ Quality`, including format, lint, strict typecheck, dead code, dependency checks, unit, integration, static E2E, 100% domain coverage, build, and resource budgets;
+  - `🔒 Security`;
+  - `🌐 Browser E2E`, all eight mobile Chromium flows without retries;
+  - `🧪 Container smoke`;
+  - `📦 Container (linux/amd64)`;
+  - `📦 Container (linux/arm64)`.
+- CodeQL Advanced run `30588509017` passed for Actions and JavaScript/TypeScript.
+- GHCR publication was skipped as designed for a pull-request event.
+- Browser evidence artifact `basketra-browser-evidence` was uploaded as artifact `8777468094`, size 74,693,314 bytes, digest `sha256:e323061600c4d2f837ba23674773bd633926ca0e3bef06cad1d9704a7d597674`, expiring 2026-08-06.
+- The final documentation-only trace commit must repeat the same repository gates before delivery is considered complete.
 
 ## Delivery
 
 - Branch: `agent/fix-private-mobile-workflows`.
-- Pull request: pending creation after final diff review.
+- Pull request: normal, non-draft PR #7 to `main`.
+- Pull request remains open and mergeable.
 - Merge, deployment, release, GHCR publication, and Raspberry changes are explicitly excluded.
 
 ## Status
 
 - Reconnaissance: complete.
-- Specification: updated.
-- Implementation: complete pending CI feedback.
-- Documentation: complete pending CI feedback.
-- Automated validation: pending pull-request workflow.
-- Delivery: pending normal pull request.
+- Specification: complete.
+- Implementation: complete.
+- Documentation: complete.
+- Automated validation: passed on implementation head; final documentation trace round pending.
+- Delivery: PR #7 open, non-draft, unmerged.
