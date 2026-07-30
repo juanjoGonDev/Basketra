@@ -38,14 +38,17 @@ Make browser evidence directly discoverable from the pull request and prevent fu
 
 ### Validation
 
-- Verify `.github/pull_request_template.md` exists on the PR branch.
-- Verify the final PR body contains links rather than only numeric identifiers.
-- Verify the final workflow run and artifact reference the final head SHA.
-- Verify all required CI and CodeQL checks pass.
+- `.github/pull_request_template.md` exists on the PR branch.
+- Pull Request Quality run `30590013994` passed for head `01a0f1f0c9343aeb9edd8706dc6d374ac2fb3b5a`.
+- CodeQL Advanced run `30590014007` passed.
+- Browser artifact `8778001843` was generated from the same head with digest `sha256:b7b481ea5bdb79ffe65bc6405ea96f74b414537690388fcb7034fe50c72cb581`.
+- The PR body contains clickable workflow, artifact, and template links rather than only identifiers.
+- The final status-only documentation commit must pass the same workflows; its current artifact link is maintained in the PR body without changing repository content again.
 
 ## Status
 
 - Original implementation and documentation: complete.
-- Pull-request evidence template: implemented.
-- PR #7 evidence links: pending final-head CI artifact.
+- Pull-request evidence template: complete.
+- PR #7 accessible evidence links: complete.
+- Final status-only CI: pending.
 - Merge, release, deployment, publication, and Raspberry changes: not performed.
