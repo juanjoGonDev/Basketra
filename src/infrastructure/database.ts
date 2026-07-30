@@ -499,18 +499,10 @@ export class BasketraDatabase {
         input.listId,
       );
       this.touchShoppingList(input.listId, timestamp);
+      const updated = this.getShoppingListItem(input.listId, input.itemId);
+      if (!updated) throw new Error('SHOPPING_LIST_ITEM_NOT_FOUND');
       this.#database.exec('COMMIT');
-      return {
-        ...existing,
-        text: input.text ?? existing.text,
-        quantityMinor,
-        unit: input.unit ?? existing.unit,
-        exactRequired: input.exactRequired ?? existing.exactRequired,
-        substitutionAllowed: input.substitutionAllowed ?? existing.substitutionAllowed,
-        completed,
-        ...(completedAt ? { completedAt } : {}),
-        updatedAt: timestamp,
-      };
+      return updated;
     } catch (error) {
       this.#database.exec('ROLLBACK');
       throw error;
