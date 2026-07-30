@@ -5,7 +5,6 @@ export type AppConfig = Readonly<{
   port: number;
   dataDir: string;
   tempDir: string;
-  authToken?: string;
   maxBodyBytes: number;
   aiBaseUrl?: string;
   aiApiKey?: string;
@@ -36,7 +35,6 @@ function readBoolean(environment: NodeJS.ProcessEnv, key: string, fallback: bool
 
 export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
   const host = environment['BASKETRA_HOST']?.trim() || '127.0.0.1';
-  const authToken = environment['BASKETRA_AUTH_TOKEN']?.trim() || undefined;
   const aiBaseUrl = environment['BASKETRA_AI_BASE_URL']?.trim() || undefined;
   if (aiBaseUrl) validateProviderBaseUrl(aiBaseUrl);
   return {
@@ -44,7 +42,6 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     port: readInteger(environment, 'BASKETRA_PORT', 3000, 1),
     dataDir: resolve(environment['BASKETRA_DATA_DIR']?.trim() || './data'),
     tempDir: resolve(environment['BASKETRA_TEMP_DIR']?.trim() || './tmp'),
-    ...(authToken ? { authToken } : {}),
     maxBodyBytes: readInteger(environment, 'BASKETRA_MAX_BODY_BYTES', 8 * 1024 * 1024, 1024),
     ...(aiBaseUrl ? { aiBaseUrl } : {}),
     ...(environment['BASKETRA_AI_API_KEY']?.trim() ? { aiApiKey: environment['BASKETRA_AI_API_KEY']!.trim() } : {}),
