@@ -2,7 +2,7 @@
 
 ## Request
 
-Complete Basketra as a private, mobile-first application by removing the internal application token, completing shopping-list lifecycle operations, adding safe persisted capture previews, and preserving a fully manual receipt workflow.
+Complete Basketra as a private, mobile-first application by removing the internal application token, completing shopping-list lifecycle operations, adding safe persisted capture previews, preserving a fully manual receipt workflow, and making all user-visible pull-request evidence directly reviewable without downloading ZIP archives.
 
 ## Evidence
 
@@ -11,6 +11,7 @@ Complete Basketra as a private, mobile-first application by removing the interna
 - The original API supported list create, list, get, and item creation only.
 - Capture object URLs were not persisted, so image previews disappeared after reload.
 - The original browser tests depended on `prompt()` and did not cover lifecycle, camera, PDF, or persisted preview behavior.
+- The pull request originally exposed browser evidence only through a downloadable Actions artifact, which required reviewers to download and extract a ZIP before seeing screenshots or recordings.
 
 ## Decision
 
@@ -24,6 +25,9 @@ Complete Basketra as a private, mobile-first application by removing the interna
 8. Keep AI optional; manual extraction, correction, validation, and confirmation remain usable when AI is absent or fails.
 9. Expose units, MIME types, and file limit from backend metadata so the browser does not duplicate authoritative configuration.
 10. Treat a supplied manual transcription as the combined receipt text: extraction reads one representative stored capture while confirmation preserves every capture as evidence.
+11. User-visible PR evidence must appear directly in the PR as screenshots and GIFs, with direct full-video links where useful. ZIP files and artifact-download pages are internal transport only and do not count as review evidence.
+12. Generated visual media must not be committed to Git. Publish it temporarily as assets of a PR-specific GitHub prerelease, replace it on every head update, and delete it when the PR closes.
+13. The privileged publishing workflow must never checkout or execute PR-controlled code. It may publish only for same-repository PRs authored by an owner, member, or collaborator, and only after the authoritative browser workflow succeeds for the exact head SHA.
 
 ## Scope delivered
 
@@ -65,6 +69,9 @@ Complete Basketra as a private, mobile-first application by removing the interna
 - Documented network reachability as full authorization and direct public exposure as unsupported.
 - Updated the service worker to cache only shell modules and exclude all `/api/` requests.
 - Pinned the CodeQL workflow actions to immutable verified commit SHAs.
+- Added `.github/pull_request_template.md`, which rejects ZIPs, artifact IDs, local paths, stale runs, and downloadable bundles as review evidence.
+- Added `pr-visual-evidence.yml`, which waits for the exact successful head run, converts Playwright recordings to direct GIF previews, publishes screenshots/GIFs/WebM files as temporary prerelease assets, and creates or updates one sticky visual comment.
+- Added `pr-visual-evidence-cleanup.yml`, which removes the temporary release assets and tag when the PR closes and marks the sticky comment as expired.
 
 ### Tests
 
@@ -72,6 +79,7 @@ Complete Basketra as a private, mobile-first application by removing the interna
 - Integration covers unauthenticated API access, list/item lifecycle, quantity limits, completion, reorder, cascade deletion, migration v1 to v3, image/PDF upload, secure previews, traversal rejection, receipt validation, and backups.
 - Static PWA acceptance verifies modular assets, camera attributes, private cache policy, and absence of browser token logic.
 - Playwright covers mobile navigation, full list lifecycle, stale suggestions, camera/gallery/PDF, previews, capture ordering, combined manual transcription, AI/OCR recovery, comparison, offline shell, focus, touch targets, and overflow.
+- Repository security policy rejects mutable action references, `pull_request_target`, and excessive top-level permissions for the evidence workflows.
 
 ## Acceptance criteria
 
@@ -86,7 +94,11 @@ Complete Basketra as a private, mobile-first application by removing the interna
 - Receipt extraction remains correctable and confirmable without AI.
 - Multiple captures remain attached to a receipt when one combined manual transcription is used.
 - Relevant automated checks pass without skips or weakened assertions.
-- The pull request includes reproducible browser artifacts and remains unmerged.
+- The PR directly renders representative screenshots and critical GIFs generated from its final head SHA.
+- Reviewers can open full recordings through direct links without downloading or extracting a ZIP.
+- Generated PNG, GIF, and WebM evidence is not committed to the repository.
+- Temporary evidence is replaced on PR updates and removed when the PR closes.
+- The pull request remains unmerged until explicit approval.
 
 ## Risks and mitigations
 
@@ -97,35 +109,34 @@ Complete Basketra as a private, mobile-first application by removing the interna
 - Browser drafts can reference removed files. Mitigation: fail previews safely and preserve evidence rather than deleting files during this task.
 - A trusted-network actor has full API access. Mitigation: explicit operator contract and loopback default; public/multi-user authentication remains out of scope.
 - A combined manual transcription could appear to discard additional pages. Mitigation: use one capture only for extraction input while retaining all captures in the confirmation payload and persisted evidence.
+- Temporary prerelease assets are publicly addressable because the repository is public. Mitigation: publish only deterministic synthetic test data, never production data, secrets, user uploads, or environment output.
+- A privileged workflow could expose the repository token to untrusted code. Mitigation: no checkout, no execution of PR scripts, same-repository/author-association guard, exact-head validation, minimal job permissions, immutable workflow actions, and no `pull_request_target`.
+- Temporary media could remain after an interrupted cleanup. Mitigation: use one deterministic tag per PR, delete and replace it on every update, and run explicit cleanup on close.
 
 ## Rollback
 
 - Revert the feature commits and deploy the previous immutable image.
 - For a schema-incompatible application rollback, restore the validated pre-migration database backup created by the migration runner.
-- Uploaded evidence remains preserved and can be cleaned only under a separately specified reference-aware retention policy.
+- Remove the `pr-<number>-visual-evidence` prerelease and tag if the visual-evidence automation must be rolled back independently.
+- Uploaded application evidence remains preserved and can be cleaned only under a separately specified reference-aware retention policy.
 
 ## Validation
 
 - Local repository checkout was unavailable because the execution environment could not resolve or connect to GitHub.
 - TypeScript edge behavior was reproduced locally with TypeScript 5.8.3 and corrected without weakening `exactOptionalPropertyTypes`.
-- Pull Request Quality run `30588689292` passed:
-  - `✅ Quality`, including format, lint, strict typecheck, dead code, dependency checks, unit, integration, static E2E, 100% domain coverage, build, and resource budgets;
-  - `🔒 Security`;
-  - `🌐 Browser E2E`, all eight mobile Chromium flows without retries;
-  - `🧪 Container smoke`;
-  - `📦 Container (linux/amd64)`;
-  - `📦 Container (linux/arm64)`.
-- CodeQL Advanced run `30588689263` passed for Actions and JavaScript/TypeScript.
-- GHCR publication was skipped as designed for a pull-request event.
-- Final browser evidence artifact `basketra-browser-evidence` was uploaded as artifact `8777525250`, size 69,005,304 bytes, digest `sha256:7a3e5ae21d56554d6ee97288002404a4582775f00590be685c143e7ac66d59bb`, expiring 2026-08-06.
-- The final status-only trace commit is subject to the same required pull-request and CodeQL checks before merge eligibility.
+- The application implementation passed the full Pull Request Quality matrix repeatedly: quality, security, Browser E2E, container smoke, AMD64, and ARM64.
+- CodeQL passed for Actions and JavaScript/TypeScript after pinning every action reference.
+- The visual evidence workflow successfully downloaded the exact-head browser artifact, generated eight PNGs, eight GIFs, and eight WebM recordings, and published them to the deterministic temporary prerelease tag.
+- Final workflow, CodeQL, direct-media publication, sticky-comment rendering, and cleanup contracts are verified against the final head before merge; authoritative links remain in PR #7 so this task trace does not require another status-only commit.
+- GHCR application publication remains skipped for pull-request events as designed.
 
 ## Delivery
 
 - Branch: `agent/fix-private-mobile-workflows`.
 - Pull request: normal, non-draft PR #7 to `main`.
 - Pull request remains open and mergeable.
-- Merge, deployment, release, GHCR publication, and Raspberry changes are explicitly excluded.
+- Generated browser media is held only in temporary GitHub release assets, not in Git history.
+- Merge, deployment, application release, GHCR publication, and Raspberry changes are explicitly excluded.
 
 ## Status
 
@@ -133,5 +144,6 @@ Complete Basketra as a private, mobile-first application by removing the interna
 - Specification: complete.
 - Implementation: complete.
 - Documentation: complete.
-- Automated validation: complete on the implementation and documentation trace heads.
+- Automated application validation: complete.
+- Direct visual evidence publication: complete pending verification of the final sticky PR comment on the final head.
 - Delivery: PR #7 open, non-draft, unmerged, and ready for review after required checks.
