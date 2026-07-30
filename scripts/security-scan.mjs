@@ -171,7 +171,7 @@ requireText(server, [
   "url.pathname === '/api/v1/meta'",
   'private, no-store, max-age=0',
   'INVALID_STORAGE_KEY',
-  'items/order',
+  'itemOrderMatch',
 ], 'HTTP private workflow contract');
 
 const database = readFileSync('src/infrastructure/database.ts', 'utf8');
