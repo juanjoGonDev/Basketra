@@ -26,6 +26,14 @@ function productInput(page) {
   return page.getByRole('textbox', { name: 'Producto', exact: true });
 }
 
+async function setSwitch(page, label, checked) {
+  const input = page.getByLabel(label, { exact: true });
+  if (await input.isChecked() === checked) return;
+  await page.locator('label.switch-row').filter({ has: input }).click();
+  if (checked) await expect(input).toBeChecked();
+  else await expect(input).not.toBeChecked();
+}
+
 async function gotoApp(page, options) {
   const failures = monitorRuntime(page, options);
   await page.goto('/');
@@ -45,8 +53,8 @@ async function addProduct(page, { name, quantity = '1', unit = 'unit', exact = f
   await productInput(page).fill(name);
   await page.getByLabel('Cantidad', { exact: true }).fill(quantity);
   await page.locator('#item-unit').selectOption(unit);
-  await page.getByLabel('Producto exacto', { exact: true }).setChecked(exact);
-  await page.getByLabel('Permitir sustituciones', { exact: true }).setChecked(substitutions);
+  await setSwitch(page, 'Producto exacto', exact);
+  await setSwitch(page, 'Permitir sustituciones', substitutions);
   await page.getByRole('button', { name: 'Añadir a la lista', exact: true }).click();
   await expect(page.locator('#pending-items')).toContainText(name);
 }
@@ -193,7 +201,7 @@ test('camera, gallery and PDF captures preview, reorder, correct and import with
   await page.getByText('Introducción manual y opciones avanzadas', { exact: true }).click();
   await page.getByLabel('Texto extraído o transcripción', { exact: true }).fill('Milk;1;120;120\nTOTAL 1,20');
   await page.getByLabel('Total declarado (céntimos)', { exact: true }).fill('120');
-  await page.getByLabel('Verificar y normalizar con IA', { exact: true }).uncheck();
+  await setSwitch(page, 'Verificar y normalizar con IA', false);
   await page.getByRole('button', { name: 'Procesar capturas', exact: true }).click();
   await expect(page.locator('#receipt-state')).toContainText('Extracción lista');
   await expect(page.locator('#receipt-review')).toContainText('Total validado');
@@ -236,6 +244,8 @@ test('AI unavailability is recoverable and does not overwrite list input', async
   const failures = await gotoApp(page, { allowServiceUnavailable: true });
   await navigate(page, 'Lista');
   await productInput(page).fill('pan integral');
+  await page.locator('.ai-card summary').click();
+  await expect(page.locator('#ai-mode')).toBeVisible();
   await page.locator('#ai-mode').selectOption('manual');
   await page.getByRole('button', { name: 'Analizar texto', exact: true }).click();
   await expect(page.locator('#ai-state')).toContainText('Proveedor IA no disponible');
