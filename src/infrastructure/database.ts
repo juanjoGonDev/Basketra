@@ -136,6 +136,8 @@ type ShoppingListItemRow = Omit<ShoppingListItemRecord, 'exactRequired' | 'subst
   completedAt: string | null;
 };
 
+type BackupEntry = Readonly<{ name: string; path: string; bytes: number; mtimeMs: number }>;
+
 function now(): string {
   return new Date().toISOString();
 }
@@ -198,8 +200,6 @@ function createPortableBackup(source: string, destination: string): number {
     rmSync(temporary, { force: true });
   }
 }
-
-type BackupEntry = Readonly<{ name: string; path: string; bytes: number; mtimeMs: number }>;
 
 function listBackupFiles(directory: string, ignoredNames: ReadonlySet<string> = new Set()): BackupEntry[] {
   mkdirSync(directory, { recursive: true });
@@ -318,9 +318,7 @@ export class BasketraDatabase {
     const cacheKibibytes = Math.max(1, Math.floor(this.#maxSqliteCacheBytes / 1024));
     this.#database.exec(`PRAGMA max_page_count = ${maxPageCount}; PRAGMA cache_size = -${cacheKibibytes}; PRAGMA journal_size_limit = ${this.#maxWalBytes};`);
     const effectiveMaxPageCount = Number((this.#database.prepare('PRAGMA max_page_count').get() as { max_page_count: number }).max_page_count);
-    if (effectiveMaxPageCount > maxPageCount) {
-      throw new Error('Existing database exceeds the configured maximum database size');
-    }
+    if (effectiveMaxPageCount > maxPageCount) throw new Error('Existing database exceeds the configured maximum database size');
   }
 
   storageLimits(): Readonly<{ pageSize: number; maxPageCount: number; maxDatabaseBytes: number; cacheBytes: number; walBytes: number }> {
@@ -409,9 +407,7 @@ export class BasketraDatabase {
       const bytes = createPortableBackup(this.path, backupPath);
       if (bytes > this.#migrationBackupRetention.maxBytes) throw new Error('Pre-migration backup exceeds the configured retention byte budget');
       const validation = validateBackup(backupPath);
-      if (!validation.valid || validation.version !== fromVersion) {
-        throw new Error('Pre-migration backup validation failed');
-      }
+      if (!validation.valid || validation.version !== fromVersion) throw new Error('Pre-migration backup validation failed');
       this.pruneMigrationBackups(new Set([backupName]));
       return { name: backupName, bytes, createdAt };
     } catch (error) {
@@ -512,7 +508,7 @@ export class BasketraDatabase {
         exactRequired: input.exactRequired ?? existing.exactRequired,
         substitutionAllowed: input.substitutionAllowed ?? existing.substitutionAllowed,
         completed,
-        ...(completedAt ? { completedAt } : { completedAt: undefined }),
+        ...(completedAt ? { completedAt } : {}),
         updatedAt: timestamp,
       };
     } catch (error) {
