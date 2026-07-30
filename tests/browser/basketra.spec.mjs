@@ -157,8 +157,8 @@ test('local suggestions ignore stale responses and never require AI', async ({ p
       body: JSON.stringify({ suggestions: [{ id: query, name: query === 'le' ? 'Old stale result' : 'Leche nueva 1 L', source: 'catalog' }] }),
     });
   });
-  await page.goto('/#lists');
-  await navigate(page, 'Lista');
+  await page.goto('/');
+  await createList(page, 'Suggestions E2E');
   await productInput(page).fill('le');
   await page.waitForTimeout(220);
   await productInput(page).fill('lech');
@@ -242,7 +242,7 @@ test('comparison renders all deterministic plans', async ({ page }) => {
 
 test('AI unavailability is recoverable and does not overwrite list input', async ({ page }) => {
   const failures = await gotoApp(page, { allowServiceUnavailable: true });
-  await navigate(page, 'Lista');
+  await createList(page, 'AI E2E');
   await productInput(page).fill('pan integral');
   await page.locator('.ai-card summary').click();
   await expect(page.locator('#ai-mode')).toBeVisible();
