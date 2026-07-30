@@ -30,28 +30,32 @@ hydrateIcons();
 
 function parseStoredCaptures() {
   try {
-    const captures = JSON.parse(localStorage.getItem('basketra.captures') || '[]');
-    return Array.isArray(captures) ? captures : [];
+    const value = JSON.parse(localStorage.getItem('basketra.captures') || '[]');
+    return Array.isArray(value) ? value.map(capture => ({ ...capture, previewUrl: '' })) : [];
   } catch {
     localStorage.removeItem('basketra.captures');
     return [];
   }
 }
 
+function persistCaptures() {
+  const serializable = state.captures.map(({ previewUrl, ...capture }) => capture);
+  localStorage.setItem('basketra.captures', JSON.stringify(serializable));
+}
+
 function toast(message) {
   const element = $('#toast');
   element.textContent = message;
   element.classList.add('show');
-  setTimeout(() => element.classList.remove('show'), 2200);
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => element.classList.remove('show'), 2600);
 }
 
 async function api(path, options = {}) {
-  const token = localStorage.getItem('basketra.authToken');
   const response = await fetch(path, {
     ...options,
     headers: {
-      'content-type': 'application/json',
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...(options.body ? { 'content-type': 'application/json' } : {}),
       ...(options.headers || {}),
     },
   });
@@ -63,6 +67,12 @@ async function api(path, options = {}) {
     throw error;
   }
   return body;
+}
+
+function setBusy(button, busy, label) {
+  button.disabled = busy;
+  button.setAttribute('aria-busy', String(busy));
+  if (label) button.querySelector('span:last-child')?.replaceChildren(label);
 }
 
 function navigate(requestedView) {
@@ -97,20 +107,23 @@ async function checkConnection() {
 async function loadLists() {
   const { lists } = await api('/api/v1/shopping-lists');
   state.lists = lists;
-  if (!state.activeListId && lists[0]) state.activeListId = lists[0].id;
+  if (!lists.some(list => list.id === state.activeListId)) state.activeListId = lists[0]?.id || '';
+  if (state.activeListId) localStorage.setItem('basketra.activeListId', state.activeListId);
+  else localStorage.removeItem('basketra.activeListId');
   renderLists();
-  if (state.activeListId) await loadActiveList();
-  else $('#items').innerHTML = emptyListState();
+  await loadActiveList();
 }
 
 function renderLists() {
   const select = $('#list-select');
-  select.innerHTML = state.lists.map(list => `<option value="${escapeHtml(list.id)}"${list.id === state.activeListId ? ' selected' : ''}>${escapeHtml(list.name)}</option>`).join('') || '<option value="">Sin listas</option>';
+  select.innerHTML = state.lists.length
+    ? state.lists.map(list => `<option value="${escapeHtml(list.id)}"${list.id === state.activeListId ? ' selected' : ''}>${escapeHtml(list.name)}</option>`).join('')
+    : '<option value="">Todavía no hay listas</option>';
+  select.disabled = state.lists.length === 0;
+  $('#item-form').classList.toggle('is-disabled', !state.activeListId);
 }
 
-async function createList() {
-  const name = prompt('Nombre de la lista', 'Compra semanal');
-  if (!name) return;
+async function createList(name) {
   const { list } = await api('/api/v1/shopping-lists', {
     method: 'POST',
     body: JSON.stringify({ name }),
@@ -118,53 +131,91 @@ async function createList() {
   state.activeListId = list.id;
   localStorage.setItem('basketra.activeListId', list.id);
   await loadLists();
-  toast('Lista creada');
+  return list;
 }
+
+$('#new-list-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const input = $('#new-list-name');
+  const button = event.submitter;
+  const name = input.value.trim();
+  if (!name) return;
+  $('#list-state').textContent = 'Creando lista…';
+  setBusy(button, true);
+  try {
+    await createList(name);
+    input.value = '';
+    $('#list-state').textContent = 'Lista lista para usar';
+    toast('Lista creada');
+    $('#item-text').focus();
+  } catch (error) {
+    $('#list-state').textContent = error.message;
+  } finally {
+    setBusy(button, false);
+  }
+});
+
+$('#list-select').addEventListener('change', async event => {
+  state.activeListId = event.target.value;
+  localStorage.setItem('basketra.activeListId', state.activeListId);
+  try { await loadActiveList(); } catch (error) { toast(error.message); }
+});
 
 async function loadActiveList() {
   if (!state.activeListId) {
-    $('#items').innerHTML = emptyListState();
+    $('#items').innerHTML = emptyListState('Crea una lista para empezar.');
+    $('#item-count').textContent = '0';
     return;
   }
   const { items } = await api(`/api/v1/shopping-lists/${encodeURIComponent(state.activeListId)}`);
   $('#items').innerHTML = items.length ? items.map(shoppingListItem).join('') : emptyListState();
+  $('#item-count').textContent = String(items.length);
 }
-
-$('#new-list').addEventListener('click', () => void createList());
-$('#list-select').addEventListener('change', event => {
-  state.activeListId = event.target.value;
-  localStorage.setItem('basketra.activeListId', state.activeListId);
-  void loadActiveList();
-});
 
 $('#item-form').addEventListener('submit', async event => {
   event.preventDefault();
-  if (!state.activeListId) await createList();
-  if (!state.activeListId) return;
+  const button = $('#add-item');
+  if (!state.activeListId) {
+    $('#item-state').textContent = 'Crea una lista antes de añadir productos.';
+    $('#new-list-name').focus();
+    return;
+  }
   const text = $('#item-text').value.trim();
-  await api(`/api/v1/shopping-lists/${encodeURIComponent(state.activeListId)}/items`, {
-    method: 'POST',
-    body: JSON.stringify({
-      text,
-      quantityMinor: Number($('#item-quantity').value),
-      unit: $('#item-unit').value,
-      exactRequired: $('#exact-required').checked,
-      substitutionAllowed: $('#substitution-allowed').checked,
-    }),
-  });
-  event.target.reset();
-  $('#item-quantity').value = '1';
-  $('#substitution-allowed').checked = true;
-  localStorage.removeItem('basketra.itemDraft');
-  $('#suggestions').innerHTML = '';
-  await loadActiveList();
-  toast('Producto añadido');
+  if (!text) return;
+  $('#item-state').textContent = 'Añadiendo…';
+  setBusy(button, true);
+  try {
+    await api(`/api/v1/shopping-lists/${encodeURIComponent(state.activeListId)}/items`, {
+      method: 'POST',
+      body: JSON.stringify({
+        text,
+        quantityMinor: Number($('#item-quantity').value),
+        unit: $('#item-unit').value,
+        exactRequired: $('#exact-required').checked,
+        substitutionAllowed: $('#substitution-allowed').checked,
+      }),
+    });
+    event.target.reset();
+    $('#item-quantity').value = '1';
+    $('#substitution-allowed').checked = true;
+    localStorage.removeItem('basketra.itemDraft');
+    $('#suggestions').innerHTML = '';
+    await loadActiveList();
+    $('#item-state').textContent = 'Producto añadido';
+    toast('Producto añadido');
+    $('#item-text').focus();
+  } catch (error) {
+    $('#item-state').textContent = error.message;
+  } finally {
+    setBusy(button, false);
+  }
 });
 
 const itemText = $('#item-text');
 itemText.value = localStorage.getItem('basketra.itemDraft') || '';
 itemText.addEventListener('input', () => {
   localStorage.setItem('basketra.itemDraft', itemText.value);
+  $('#item-state').textContent = '';
   scheduleAutomaticAi();
   state.suggestionController?.abort();
   const query = itemText.value.trim();
@@ -190,6 +241,7 @@ $('#suggestions').addEventListener('click', event => {
   const button = event.target.closest('[data-suggestion]');
   if (!button) return;
   itemText.value = button.dataset.suggestion;
+  localStorage.setItem('basketra.itemDraft', itemText.value);
   $('#suggestions').innerHTML = '';
   itemText.focus();
 });
@@ -211,7 +263,7 @@ function scheduleAutomaticAi() {
 async function analyzeWithAi() {
   const text = itemText.value.trim();
   if (!text) {
-    $('#ai-state').textContent = 'Escribe un producto o una frase';
+    $('#ai-state').textContent = 'Escribe primero un producto o una frase.';
     return;
   }
   state.aiController?.abort();
@@ -230,49 +282,62 @@ async function analyzeWithAi() {
     $('#ai-proposals').hidden = false;
     $('#ai-proposals').innerHTML = proposalPanel(proposal);
   } catch (error) {
-    if (error.name === 'AbortError') return;
-    $('#ai-state').textContent = `Proveedor IA no disponible: ${error.message}`;
+    if (error.name !== 'AbortError') $('#ai-state').textContent = `Proveedor IA no disponible: ${error.message}`;
   }
 }
 
 function renderCaptures() {
-  localStorage.setItem('basketra.captures', JSON.stringify(state.captures));
+  persistCaptures();
   $('#capture-list').innerHTML = state.captures.map((capture, index) => captureItem(capture, index, state.captures.length)).join('');
 }
 
-$('#receipt-files').addEventListener('change', async event => {
+async function uploadFiles(fileList) {
+  const files = [...fileList];
+  if (files.length === 0) return;
+  $('#upload-state').textContent = `Subiendo ${files.length} archivo${files.length === 1 ? '' : 's'}…`;
   try {
-    for (const file of event.target.files) {
+    for (const file of files) {
       const base64 = await fileToBase64(file);
       const { file: stored } = await api('/api/v1/files', {
         method: 'POST',
         body: JSON.stringify({ base64, mimeType: file.type, originalName: file.name }),
       });
       state.captures.push({
-        name: file.name,
+        name: file.name || `foto-${Date.now()}.jpg`,
         mimeType: file.type,
         bytes: stored.bytes,
         storageKey: stored.storageKey,
         contentHash: stored.hash,
+        previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : '',
       });
+      renderCaptures();
     }
-    renderCaptures();
+    $('#upload-state').textContent = 'Capturas listas para procesar';
     toast('Capturas guardadas');
   } catch (error) {
+    $('#upload-state').textContent = error.message;
     toast(error.message);
-  } finally {
-    event.target.value = '';
   }
-});
+}
+
+for (const input of [$('#receipt-files'), $('#receipt-camera')]) {
+  input.addEventListener('change', async event => {
+    await uploadFiles(event.target.files);
+    event.target.value = '';
+  });
+}
 
 $('#capture-list').addEventListener('click', event => {
-  const actionButton = event.target.closest('[data-up],[data-down],[data-delete]');
-  if (!actionButton) return;
-  const action = ['up', 'down', 'delete'].find(name => actionButton.dataset[name] !== undefined);
-  const index = Number(actionButton.dataset[action]);
-  if (action === 'delete') state.captures.splice(index, 1);
-  else {
+  const button = event.target.closest('[data-up],[data-down],[data-delete]');
+  if (!button) return;
+  const action = ['up', 'down', 'delete'].find(name => button.dataset[name] !== undefined);
+  const index = Number(button.dataset[action]);
+  if (action === 'delete') {
+    const [removed] = state.captures.splice(index, 1);
+    if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+  } else {
     const target = action === 'up' ? index - 1 : index + 1;
+    if (!state.captures[target]) return;
     [state.captures[index], state.captures[target]] = [state.captures[target], state.captures[index]];
   }
   state.receiptExtraction = null;
@@ -287,13 +352,15 @@ $('#confirm-receipt').addEventListener('click', () => void confirmReceipt());
 async function extractReceipt() {
   if (state.captures.length === 0) {
     toast('Añade al menos una captura');
+    $('#receipt-camera').focus();
     return;
   }
   state.receiptController?.abort();
   const controller = new AbortController();
   state.receiptController = controller;
+  const button = $('#extract-receipt');
   $('#receipt-state').textContent = 'Procesando capturas…';
-  $('#extract-receipt').disabled = true;
+  setBusy(button, true);
   const manualText = $('#receipt-text').value.trim();
   const captures = state.captures.map((capture, index) => ({
     storageKey: capture.storageKey,
@@ -315,15 +382,14 @@ async function extractReceipt() {
         body: JSON.stringify({ captures, verifyWithAi: false }),
         signal: controller.signal,
       });
-      $('#receipt-state').textContent = 'IA no configurada; extracción determinista lista';
     }
     if (controller.signal.aborted) return;
     applyReceiptExtraction(result.extraction);
-    if (!$('#receipt-state').textContent.includes('IA no configurada')) $('#receipt-state').textContent = 'Extracción lista para revisar';
+    $('#receipt-state').textContent = 'Extracción lista para revisar';
   } catch (error) {
     if (error.name !== 'AbortError') $('#receipt-state').textContent = `No se pudo procesar: ${error.message}`;
   } finally {
-    $('#extract-receipt').disabled = false;
+    setBusy(button, false);
   }
 }
 
@@ -332,7 +398,7 @@ function applyReceiptExtraction(extraction) {
   state.originalReceiptItems = extraction.final.items.map(item => ({ ...item }));
   $('#receipt-text').value = extraction.originalText;
   $('#receipt-total').value = extraction.final.declaredTotalMinor ?? 0;
-  $('#receipt-text').closest('details').open = true;
+  $('.manual-entry').open = true;
   renderReceiptReview(extraction.final.items, extraction.final.review.lines, extraction.final.review.total);
 }
 
@@ -347,33 +413,18 @@ function reviewManualReceipt() {
   const lines = items.map(item => {
     const expectedMinor = item.quantity * item.unitPriceMinor - (item.discountMinor || 0);
     const differenceMinor = item.lineTotalMinor - expectedMinor;
-    return {
-      ...item,
-      status: differenceMinor === 0 ? 'confirmed' : 'arithmetic-mismatch',
-      expectedMinor,
-      differenceMinor,
-    };
+    return { ...item, status: differenceMinor === 0 ? 'confirmed' : 'arithmetic-mismatch', expectedMinor, differenceMinor };
   });
   const expectedMinor = items.reduce((sum, item) => sum + item.lineTotalMinor, 0);
-  const total = {
-    expectedMinor,
-    differenceMinor: declaredTotalMinor - expectedMinor,
-    valid: declaredTotalMinor === expectedMinor,
-  };
-  state.receiptExtraction = {
-    pages: [],
-    originalText: text,
-    deterministic: { items, declaredTotalMinor },
-    final: { items, declaredTotalMinor, review: { lines, total } },
-  };
+  const total = { expectedMinor, differenceMinor: declaredTotalMinor - expectedMinor, valid: declaredTotalMinor === expectedMinor };
+  state.receiptExtraction = { pages: [], originalText: text, deterministic: { items, declaredTotalMinor }, final: { items, declaredTotalMinor, review: { lines, total } } };
   state.originalReceiptItems = items.map(item => ({ ...item }));
   renderReceiptReview(items, lines, total);
 }
 
 function renderReceiptReview(items, lines, total) {
-  const review = $('#receipt-review');
-  review.hidden = false;
-  review.innerHTML = receiptReview(items, lines, total);
+  $('#receipt-review').hidden = false;
+  $('#receipt-review').innerHTML = receiptReview(items, lines, total);
   $('#confirm-receipt').hidden = items.length === 0;
 }
 
@@ -391,48 +442,40 @@ function readReceiptItems() {
 
 async function confirmReceipt() {
   const items = readReceiptItems();
-  if (items.length === 0) {
-    toast('No hay líneas para importar');
-    return;
-  }
+  if (items.length === 0) return toast('No hay líneas para importar');
   const originalText = $('#receipt-text').value.trim();
   const declaredTotalMinor = Number($('#receipt-total').value);
-  const corrections = collectReceiptCorrections(items);
-  const importKey = await createReceiptImportKey(originalText);
-  $('#confirm-receipt').disabled = true;
+  const button = $('#confirm-receipt');
+  setBusy(button, true);
   $('#receipt-state').textContent = 'Importando ticket…';
   try {
     const { receiptId } = await api('/api/v1/receipts/confirm', {
       method: 'POST',
       body: JSON.stringify({
-        importKey,
+        importKey: await createReceiptImportKey(originalText),
         originalText,
         declaredTotalMinor,
         provider: receiptProviderLabel(),
         deterministic: state.receiptExtraction?.deterministic || { items },
         ...(state.receiptExtraction?.ai ? { ai: state.receiptExtraction.ai.interpretation } : {}),
-        captures: state.captures.map(capture => ({
-          storageKey: capture.storageKey,
-          contentHash: capture.contentHash,
-          mimeType: capture.mimeType,
-          originalName: capture.name,
-        })),
+        captures: state.captures.map(capture => ({ storageKey: capture.storageKey, contentHash: capture.contentHash, mimeType: capture.mimeType, originalName: capture.name })),
         items,
-        corrections,
+        corrections: collectReceiptCorrections(items),
       }),
     });
     $('#receipt-state').textContent = `Ticket importado: ${receiptId}`;
     toast('Ticket confirmado');
+    state.captures.forEach(capture => capture.previewUrl && URL.revokeObjectURL(capture.previewUrl));
     state.captures = [];
     state.receiptExtraction = null;
     state.originalReceiptItems = [];
     renderCaptures();
     $('#receipt-review').hidden = true;
-    $('#confirm-receipt').hidden = true;
+    button.hidden = true;
   } catch (error) {
     $('#receipt-state').textContent = `Revisa el ticket: ${error.message}`;
   } finally {
-    $('#confirm-receipt').disabled = false;
+    setBusy(button, false);
   }
 }
 
@@ -442,9 +485,7 @@ function collectReceiptCorrections(items) {
     const original = state.originalReceiptItems[itemIndex];
     if (!original) return;
     for (const field of ['description', 'quantity', 'unitPriceMinor', 'lineTotalMinor']) {
-      if (item[field] !== original[field]) {
-        corrections.push({ itemIndex, field, original: original[field], corrected: item[field] });
-      }
+      if (item[field] !== original[field]) corrections.push({ itemIndex, field, original: original[field], corrected: item[field] });
     }
   });
   return corrections;
@@ -462,51 +503,57 @@ async function createReceiptImportKey(originalText) {
   return `receipt-${[...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('')}`;
 }
 
-$('#run-demo-comparison').addEventListener('click', async () => {
-  const now = new Date().toISOString();
-  const payload = {
-    requirements: [
-      { itemId: 'milk', label: 'Leche entera 1 L', exactRequired: false, substitutionAllowed: true },
-      { itemId: 'rice', label: 'Arroz 1 kg', exactRequired: true, substitutionAllowed: false },
-    ],
-    retailerPenaltyMinor: 100,
-    offers: [
-      { id: 'a-milk', itemId: 'milk', retailerId: 'market-a', title: 'Leche entera 1 L', priceMinor: 105, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'l' }, stock: 'in-stock', observedAt: now, confidence: 0.95, evidence: 'manual fixture', exact: true, substitutionQuality: 1 },
-      { id: 'a-rice', itemId: 'rice', retailerId: 'market-a', title: 'Arroz 1 kg', priceMinor: 210, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'kg' }, stock: 'in-stock', observedAt: now, confidence: 0.9, evidence: 'manual fixture', exact: true, substitutionQuality: 1 },
-      { id: 'b-milk', itemId: 'milk', retailerId: 'market-b', title: 'Leche marca alternativa 1 L', priceMinor: 90, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'l' }, stock: 'in-stock', observedAt: now, confidence: 0.88, evidence: 'manual fixture', exact: false, substitutionQuality: 0.85 },
-      { id: 'b-rice', itemId: 'rice', retailerId: 'market-b', title: 'Arroz 1 kg', priceMinor: 180, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'kg' }, stock: 'in-stock', observedAt: now, confidence: 0.92, evidence: 'manual fixture', exact: true, substitutionQuality: 1 },
-    ],
-  };
-  const { plans } = await api('/api/v1/optimization-runs', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
-  $('#plans').innerHTML = plans.map(optimizationPlan).join('');
+$('#run-demo-comparison').addEventListener('click', async event => {
+  const button = event.currentTarget;
+  setBusy(button, true);
+  try {
+    const now = new Date().toISOString();
+    const { plans } = await api('/api/v1/optimization-runs', {
+      method: 'POST',
+      body: JSON.stringify({
+        requirements: [
+          { itemId: 'milk', label: 'Leche entera 1 L', exactRequired: false, substitutionAllowed: true },
+          { itemId: 'rice', label: 'Arroz 1 kg', exactRequired: true, substitutionAllowed: false },
+        ],
+        retailerPenaltyMinor: 100,
+        offers: [
+          { id: 'a-milk', itemId: 'milk', retailerId: 'market-a', title: 'Leche entera 1 L', priceMinor: 105, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'l' }, stock: 'in-stock', observedAt: now, confidence: 0.95, evidence: 'manual fixture', exact: true, substitutionQuality: 1 },
+          { id: 'a-rice', itemId: 'rice', retailerId: 'market-a', title: 'Arroz 1 kg', priceMinor: 210, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'kg' }, stock: 'in-stock', observedAt: now, confidence: 0.9, evidence: 'manual fixture', exact: true, substitutionQuality: 1 },
+          { id: 'b-milk', itemId: 'milk', retailerId: 'market-b', title: 'Leche alternativa 1 L', priceMinor: 90, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'l' }, stock: 'in-stock', observedAt: now, confidence: 0.88, evidence: 'manual fixture', exact: false, substitutionQuality: 0.85 },
+          { id: 'b-rice', itemId: 'rice', retailerId: 'market-b', title: 'Arroz 1 kg', priceMinor: 180, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'kg' }, stock: 'in-stock', observedAt: now, confidence: 0.92, evidence: 'manual fixture', exact: true, substitutionQuality: 1 },
+        ],
+      }),
+    });
+    $('#plans').innerHTML = plans.map(optimizationPlan).join('');
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    setBusy(button, false);
+  }
 });
 
-$('#download-backup').addEventListener('click', async () => {
-  const name = `basketra-${Date.now()}.db`;
-  const { backup } = await api('/api/v1/backup', {
-    method: 'POST',
-    body: JSON.stringify({ name }),
-  });
-  toast(`Backup creado: ${backup.name}`);
+$('#download-backup').addEventListener('click', async event => {
+  const button = event.currentTarget;
+  setBusy(button, true);
+  try {
+    const { backup } = await api('/api/v1/backup', { method: 'POST', body: JSON.stringify({ name: `basketra-${Date.now()}.db` }) });
+    toast(`Backup creado: ${backup.name}`);
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    setBusy(button, false);
+  }
 });
 
 async function loadDiagnostics() {
-  try {
-    $('#diagnostics').textContent = JSON.stringify(await api('/api/v1/diagnostics'), null, 2);
-  } catch (error) {
-    $('#diagnostics').textContent = error.message;
-  }
+  try { $('#diagnostics').textContent = JSON.stringify(await api('/api/v1/diagnostics'), null, 2); }
+  catch (error) { $('#diagnostics').textContent = error.message; }
 }
 
 function parseReceiptText(text) {
   return text.split('\n').map(line => line.trim()).filter(Boolean).map(line => {
     const match = /^(.*?)[;|]\s*(\d+)\s*[;|]\s*(\d+)\s*[;|]\s*(\d+)$/.exec(line);
-    return match
-      ? { description: match[1].trim(), quantity: Number(match[2]), unitPriceMinor: Number(match[3]), lineTotalMinor: Number(match[4]) }
-      : { description: line, quantity: 1, unitPriceMinor: 0, lineTotalMinor: 0 };
+    return match ? { description: match[1].trim(), quantity: Number(match[2]), unitPriceMinor: Number(match[3]), lineTotalMinor: Number(match[4]) } : { description: line, quantity: 1, unitPriceMinor: 0, lineTotalMinor: 0 };
   });
 }
 
@@ -525,5 +572,8 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').cat
 navigate(location.hash.slice(1) || 'home');
 renderCaptures();
 checkConnection();
-loadLists().catch(error => toast(error.message));
+loadLists().catch(error => {
+  $('#list-state').textContent = error.message;
+  toast(error.message);
+});
 loadDiagnostics();
