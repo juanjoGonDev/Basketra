@@ -1,0 +1,57 @@
+name: Clean PR visual evidence
+
+on:
+  pull_request:
+    types:
+      - closed
+
+permissions: read-all
+
+jobs:
+  cleanup:
+    name: "🧹 Remove temporary PR evidence"
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      EVIDENCE_TAG: pr-${{ github.event.pull_request.number }}-visual-evidence
+    steps:
+      - name: Delete temporary release assets and tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release delete "$EVIDENCE_TAG" \
+            --repo "$REPOSITORY" \
+            --cleanup-tag \
+            --yes >/dev/null 2>&1 || true
+
+      - name: Mark the visual-evidence comment as expired
+        shell: bash
+        run: |
+          set -euo pipefail
+          marker='<!-- basketra-visual-evidence -->'
+          comment_id=$(gh api --paginate "repos/$REPOSITORY/issues/$PR_NUMBER/comments" \
+            --jq ".[] | select(.body | contains(\"$marker\")) | .id" | head -n 1)
+          if [ -z "$comment_id" ]; then
+            exit 0
+          fi
+
+          cat > comment.md <<EOF
+          $marker
+          ## Visual evidence expired
+
+          The temporary screenshots, GIFs and videos generated from \`$HEAD_SHA\` were removed automatically when this pull request closed. No generated media was committed to the repository.
+          EOF
+          jq -n --rawfile body comment.md '{body: $body}' > payload.json
+          gh api --method PATCH \
+            "repos/$REPOSITORY/issues/comments/$comment_id" \
+            --input payload.json >/dev/null
