@@ -13,6 +13,29 @@ function createVersionOneFixture(path: string): void {
   const database = new DatabaseSync(path);
   try {
     database.exec(Buffer.from(readFileSync(fixturePath)).toString('utf8'));
+    database.prepare(`INSERT INTO shopping_list_items(
+      id,
+      list_id,
+      text,
+      quantity_minor,
+      unit,
+      exact_required,
+      substitution_allowed,
+      position,
+      created_at,
+      updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      'legacy_item',
+      'list_fixture',
+      'Legacy milk',
+      1,
+      'unit',
+      0,
+      1,
+      0,
+      '2026-07-01T00:00:00.000Z',
+      '2026-07-01T00:00:00.000Z',
+    );
   } finally {
     database.close();
   }
