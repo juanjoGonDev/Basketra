@@ -2,12 +2,15 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
 
-export type StoredFile = Readonly<{ storageKey: string; hash: string; mimeType: string; bytes: number }>;
-export type StoredFileContent = Readonly<{ storageKey: string; mimeType: string; bytes: Uint8Array }>;
+export const SUPPORTED_FILE_MIME_TYPES = ['image/jpeg', 'image/png', 'application/pdf'] as const;
+export type SupportedFileMimeType = typeof SUPPORTED_FILE_MIME_TYPES[number];
+
+export type StoredFile = Readonly<{ storageKey: string; hash: string; mimeType: SupportedFileMimeType; bytes: number }>;
+export type StoredFileContent = Readonly<{ storageKey: string; mimeType: SupportedFileMimeType; bytes: Uint8Array }>;
 
 export const DEFAULT_FILE_STORAGE_MAX_BYTES = 512 * 1024 * 1024;
 
-const MAGIC: Readonly<Record<string, readonly number[]>> = {
+const MAGIC: Readonly<Record<SupportedFileMimeType, readonly number[]>> = {
   'image/jpeg': [0xff, 0xd8, 0xff],
   'image/png': [0x89, 0x50, 0x4e, 0x47],
   'application/pdf': [0x25, 0x50, 0x44, 0x46],
@@ -17,7 +20,11 @@ function hasMagic(buffer: Uint8Array, expected: readonly number[]): boolean {
   return expected.every((value, index) => buffer[index] === value);
 }
 
-function mimeTypeForStorageKey(storageKey: string): keyof typeof MAGIC {
+function isSupportedMimeType(value: string): value is SupportedFileMimeType {
+  return SUPPORTED_FILE_MIME_TYPES.includes(value as SupportedFileMimeType);
+}
+
+function mimeTypeForStorageKey(storageKey: string): SupportedFileMimeType {
   const extension = extname(storageKey).toLowerCase();
   if (extension === '.jpg' || extension === '.jpeg') return 'image/jpeg';
   if (extension === '.png') return 'image/png';
@@ -55,8 +62,8 @@ export class FileStore {
   }
 
   storeBase64(input: Readonly<{ base64: string; mimeType: string; originalName?: string }>): StoredFile {
+    if (!isSupportedMimeType(input.mimeType)) throw new RangeError('Unsupported file type');
     const magic = MAGIC[input.mimeType];
-    if (!magic) throw new RangeError('Unsupported file type');
     const buffer = Buffer.from(input.base64, 'base64');
     if (buffer.byteLength === 0 || buffer.byteLength > this.maxBytes) throw new RangeError('File size is outside allowed limits');
     if (!hasMagic(buffer, magic)) throw new RangeError('File signature does not match MIME type');
@@ -84,7 +91,6 @@ export class FileStore {
     if (!existsSync(target)) throw new RangeError('Stored file does not exist');
     const mimeType = mimeTypeForStorageKey(storageKey);
     const expected = MAGIC[mimeType];
-    if (!expected) throw new RangeError('Unsupported stored file type');
     const bytes = readFileSync(target);
     if (bytes.byteLength === 0 || bytes.byteLength > this.maxBytes) throw new RangeError('Stored file size is outside allowed limits');
     if (!hasMagic(bytes, expected)) throw new RangeError('Stored file signature does not match its extension');
