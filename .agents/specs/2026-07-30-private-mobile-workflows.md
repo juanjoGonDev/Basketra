@@ -6,92 +6,117 @@ Complete Basketra as a private, mobile-first application by removing the interna
 
 ## Evidence
 
-- The browser shell and `/health` are public, but `BasketraServer.handle()` authorizes every other route when `BASKETRA_AUTH_TOKEN` is configured.
-- The browser client has no supported token acquisition flow.
-- Raspberry deployment configuration can therefore make the shell usable while functional API calls return `401`.
-- Shopping lists currently support create, list, get, and item creation only.
-- The branch already contains visible list creation and separate camera/file inputs, but list editing, deletion, completion, quantity changes, reordering, and persisted image previews are not implemented end to end.
-- Capture object URLs are intentionally not persisted, so image previews disappear after reload.
+- The original browser shell and `/health` were reachable while functional routes returned `401` when `BASKETRA_AUTH_TOKEN` was configured.
+- The browser had no supported token acquisition flow.
+- The original API supported list create, list, get, and item creation only.
+- Capture object URLs were not persisted, so image previews disappeared after reload.
+- The original browser tests depended on `prompt()` and did not cover lifecycle, camera, PDF, or persisted preview behavior.
 
 ## Decision
 
 1. Remove Basketra's internal bearer-token gate. Access control belongs to the deployment perimeter: loopback/private bind, LAN firewall, VPN, authenticated reverse proxy, or private tunnel.
 2. Keep health/readiness minimal, same-origin API access, strict response headers, path validation, body limits, file-signature validation, and no sensitive service-worker caching.
-3. Extend the existing REST API and SQLite repository rather than introducing a framework, ORM, runtime dependency, or service.
-4. Add an incremental safe migration for item completion state.
-5. Serve persisted capture previews through a same-origin endpoint backed by `FileStore.read()`, with strict storage-key validation and `no-store` caching.
-6. Preserve original uploaded evidence when removing a capture from a browser draft.
-7. Keep AI optional; manual extraction, correction, validation, and confirmation remain usable when AI is absent or fails.
+3. Extend the existing REST API and SQLite repository without a framework, ORM, runtime dependency, or additional service.
+4. Add incremental safe migration 3 for item completion state.
+5. Serve persisted JPEG/PNG previews through a same-origin endpoint backed by `FileStore.read()`, strict storage-key validation, and `private, no-store` caching.
+6. Do not serve PDF through the image-preview route.
+7. Preserve original uploaded evidence when removing a capture from a browser draft.
+8. Keep AI optional; manual extraction, correction, validation, and confirmation remain usable when AI is absent or fails.
+9. Expose units, MIME types, and file limit from backend metadata so the browser does not duplicate authoritative configuration.
 
-## Scope
+## Scope delivered
 
 ### Backend
 
-- Remove token configuration and authorization middleware.
-- Add shopping-list rename and delete operations.
-- Add item update, completion, delete, and deterministic reorder operations.
-- Add persisted file preview responses for supported image types and safe PDF metadata handling.
-- Keep stable API error codes and transactional ordering updates.
+- Removed token configuration and authorization middleware.
+- Added `/api/v1/meta` for shared units and file constraints.
+- Added shopping-list rename and delete operations.
+- Added item edit, quantity delta, completion, restoration, deletion, and deterministic reorder operations.
+- Added image-preview responses with generated-key grammar, `FileStore.read()`, content signature validation, `nosniff`, and no-store caching.
+- Added stable list/item/storage API error codes.
 
 ### Persistence
 
-- Add migration version 3 with `completed` and `completed_at` columns.
-- Keep existing migrations immutable.
-- Preserve contiguous item positions after delete and reorder.
+- Added migration 3 with `completed` and `completed_at` columns.
+- Kept existing migrations immutable.
+- Added transactional quantity, completion, delete, and reorder behavior.
+- Required exhaustive unique reorder payloads.
+- Normalized positions after deletion.
+- Preserved cascade deletion from lists to products.
 
 ### Frontend
 
-- Complete list management without `prompt()`.
-- Separate pending and completed items.
-- Add inline edit, quantity controls, completion, deletion, and keyboard-accessible ordering.
-- Reuse one upload path for camera, gallery, and PDF.
-- Restore persisted image thumbnails after reload through the preview endpoint.
-- Keep manual receipt review available after AI or extraction failure.
+- Split browser responsibilities into `api.js`, `state.js`, `lists.js`, `receipts.js`, `ui.js`, and composition in `app.js`.
+- Completed list management without `prompt()`.
+- Separated pending and completed items.
+- Added inline edit, quantity controls, completion, deletion confirmations, and accessible ordering.
+- Added dedicated camera and gallery/PDF controls using one upload path.
+- Restored persisted image thumbnails through the preview endpoint and displayed accessible PDF placeholders.
+- Added capture preview dialog, reorder, and draft removal.
+- Kept manual receipt review available after OCR or AI failure.
+- Revalidated receipt arithmetic in backend immediately before confirmation.
 
-### Delivery
+### Configuration and documentation
 
-- Update deployment and security documentation.
-- Add unit, integration, static PWA, and Playwright regression coverage.
-- Run the repository quality workflow and Docker checks where the available runner supports them.
-- Open a normal pull request and do not merge, deploy, or release.
+- Removed application-token configuration from `.env.example` and both Compose variants.
+- Updated product, README, Raspberry, backup, privacy, security, and threat-model documentation.
+- Documented network reachability as full authorization and direct public exposure as unsupported.
+- Updated the service worker to cache only shell modules and exclude all `/api/` requests.
+
+### Tests
+
+- Unit coverage validates configuration without token and shared unit/MIME sources.
+- Integration covers unauthenticated API access, list/item lifecycle, quantity limits, completion, reorder, cascade deletion, migration v1 to v3, image/PDF upload, secure previews, traversal rejection, receipt validation, and backups.
+- Static PWA acceptance verifies modular assets, camera attributes, private cache policy, and absence of browser token logic.
+- Playwright covers mobile navigation, full list lifecycle, stale suggestions, camera/gallery/PDF, previews, capture ordering, manual correction, AI/OCR recovery, comparison, offline shell, focus, touch targets, and overflow.
 
 ## Acceptance criteria
 
-- No runtime, browser, compose, test, script, or documentation reference to `BASKETRA_AUTH_TOKEN` remains.
+- No active runtime, browser, Compose, script, or operational documentation use of `BASKETRA_AUTH_TOKEN` remains. A regression test may pass the removed variable to prove it is ignored.
 - Functional API requests work without `Authorization`.
 - Lists can be created, selected, renamed, and deleted.
 - Items can be added, edited, completed, restored, deleted, quantity-adjusted, and reordered.
-- Migration from schema version 2 preserves existing list data and initializes completion state safely.
+- Migration from schema version 1 or 2 preserves existing list data and initializes completion state safely.
 - Camera and file inputs use one validated upload flow.
 - Stored JPEG and PNG captures retain safe thumbnails after reload; PDFs use an accessible non-image representation.
 - Invalid or traversal storage keys cannot read arbitrary files.
 - Receipt extraction remains correctable and confirmable without AI.
 - Relevant automated checks pass without skips or weakened assertions.
-- The pull request includes reproducible mobile evidence and remains unmerged.
+- The pull request includes reproducible browser artifacts and remains unmerged.
 
-## Risks
+## Risks and mitigations
 
-- Removing the token makes accidental public exposure critical. Mitigation: default loopback bind, explicit private-network documentation, same-origin policy, and no supported direct Internet exposure.
-- Reordering can corrupt positions under partial updates. Mitigation: validate an exhaustive unique item-id order and update it inside one immediate transaction.
-- Preview delivery can expose filesystem content. Mitigation: delegate key parsing and signature validation to `FileStore.read()` and never accept filesystem paths.
-- Schema changes can fail on constrained storage. Mitigation: use the existing pre-migration validated backup mechanism and a safe additive migration.
-- Browser drafts can reference removed files. Mitigation: fail previews safely and preserve evidence rather than deleting unreferenced files during this task.
-
-## Tests
-
-- Unit: configuration without token, validation boundaries, completion/reorder invariants, file validation and stable errors where logic is isolated.
-- Integration: unauthenticated API lifecycle, schema upgrade, list/item CRUD, reorder, persistence, file upload/preview and traversal rejection.
-- Browser: no-prompt list lifecycle, quantity/completion/reorder controls, camera and gallery selection, persisted thumbnails, PDF fallback, manual receipt correction and AI failure recovery.
-- Existing quality, security, resource, Docker, multi-architecture and service-worker policies remain authoritative.
+- Removing the token makes accidental public exposure critical. Mitigation: default loopback bind, explicit private-network documentation, same-origin policy, and no supported direct internet exposure.
+- Reordering can corrupt positions under partial updates. Mitigation: validate an exhaustive unique item-ID order and update inside one immediate transaction.
+- Preview delivery can expose filesystem content. Mitigation: generated-key grammar, `FileStore.read()`, image-only response, magic-byte validation, and no filesystem path input.
+- Schema changes can fail on constrained storage. Mitigation: existing validated pre-migration backup and additive migration.
+- Browser drafts can reference removed files. Mitigation: fail previews safely and preserve evidence rather than deleting files during this task.
+- A trusted-network actor has full API access. Mitigation: explicit operator contract and loopback default; public/multi-user authentication remains out of scope.
 
 ## Rollback
 
 - Revert the feature commits and deploy the previous immutable image.
 - For a schema-incompatible application rollback, restore the validated pre-migration database backup created by the migration runner.
-- Uploaded evidence remains preserved and can be cleaned only under a separately specified retention policy.
+- Uploaded evidence remains preserved and can be cleaned only under a separately specified reference-aware retention policy.
+
+## Validation
+
+- Local repository checkout was unavailable because the execution environment could not resolve or connect to GitHub.
+- TypeScript edge behavior was reproduced locally with TypeScript 5.8.3 and corrected without weakening `exactOptionalPropertyTypes`.
+- Authoritative validation will run through the repository pull-request workflow.
+- Required gates: quality, security, Browser E2E, container smoke, AMD64, and ARM64.
+
+## Delivery
+
+- Branch: `agent/fix-private-mobile-workflows`.
+- Pull request: pending creation after final diff review.
+- Merge, deployment, release, GHCR publication, and Raspberry changes are explicitly excluded.
 
 ## Status
 
-- Reconnaissance complete.
-- Specification accepted from the supplied task prompt.
-- Implementation in progress on `agent/fix-private-mobile-workflows`.
+- Reconnaissance: complete.
+- Specification: updated.
+- Implementation: complete pending CI feedback.
+- Documentation: complete pending CI feedback.
+- Automated validation: pending pull-request workflow.
+- Delivery: pending normal pull request.
