@@ -1,5 +1,9 @@
 # Backup and restore
 
+## Access boundary
+
+Basketra has no internal application token. Backup and restore-validation endpoints must be called only through the trusted private network path: host loopback, VPN, SSH tunnel, reviewed LAN-only access, or an authenticated private reverse proxy. Anyone who can reach the service can invoke these administrative endpoints.
+
 ## Storage budgets
 
 Basketra bounds every persistent SQLite copy so repeated operations cannot consume the volume indefinitely:
@@ -13,7 +17,7 @@ Basketra bounds every persistent SQLite copy so repeated operations cannot consu
 | Manual API backups | newest 5, at most 768 MiB combined |
 | Deduplicated receipt files | 512 MiB maximum |
 
-The limits are enforced in application code, not only documented. A write or backup that cannot fit fails explicitly instead of silently expanding the volume. Retention considers both file count and total bytes, so increasing database size does not multiply disk use without a ceiling.
+The limits are enforced in application code. A write or backup that cannot fit fails explicitly. Retention considers both file count and total bytes.
 
 ## Manual backup
 
@@ -21,9 +25,8 @@ The API checkpoints WAL, creates the backup through a uniquely named temporary f
 
 ```bash
 curl --request POST http://127.0.0.1:3000/api/v1/backup \
-  --header "Authorization: Bearer $BASKETRA_AUTH_TOKEN" \
   --header 'Content-Type: application/json' \
-  --data '{"name":"basketra-2026-07-29.db"}'
+  --data '{"name":"basketra-2026-07-31.db"}'
 ```
 
 A named Docker volume is not an independent disaster-recovery copy. Export important backup files to separately managed storage before local retention removes older copies.
@@ -32,9 +35,8 @@ A named Docker volume is not an independent disaster-recovery copy. Export impor
 
 ```bash
 curl --request POST http://127.0.0.1:3000/api/v1/restore/validate \
-  --header "Authorization: Bearer $BASKETRA_AUTH_TOKEN" \
   --header 'Content-Type: application/json' \
-  --data '{"name":"basketra-2026-07-29.db"}'
+  --data '{"name":"basketra-2026-07-31.db"}'
 ```
 
 Validation runs SQLite integrity checking and confirms the migration version.
@@ -51,11 +53,13 @@ When startup finds pending migrations, Basketra:
 6. validates database integrity and the target version before commit;
 7. prunes superseded backup files and matching audit rows.
 
+Schema migration 3 adds shopping-list completion state and completion timestamps. Existing list items remain pending.
+
 On migration failure, the transaction rolls back, the source version remains unchanged, and the validated backup is retained. Repeated failed starts still retain only the configured newest copies.
 
 ## Restore procedure
 
-1. Validate the candidate backup through the API.
+1. Validate the candidate backup through the private API path.
 2. Stop Basketra.
 3. Copy the current database and `files/` directory to separately managed storage.
 4. Replace `/data/basketra.db` while the process is stopped.
