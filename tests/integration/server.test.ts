@@ -6,20 +6,27 @@ import { tmpdir } from 'node:os';
 import { BasketraServer } from '../../src/api/server.ts';
 import type { AppConfig } from '../../src/infrastructure/config.ts';
 
+const pngBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x00]);
+const pngBase64 = Buffer.from(pngBytes).toString('base64');
+const pdfBase64 = Buffer.from(Uint8Array.from([0x25, 0x50, 0x44, 0x46, 0x00])).toString('base64');
+
 async function request(baseUrl: string, path: string, options: RequestInit = {}): Promise<Response> {
-  return fetch(`${baseUrl}${path}`, options);
+  const headers = new Headers(options.headers);
+  if (options.body && !headers.has('content-type')) headers.set('content-type', 'application/json');
+  return fetch(`${baseUrl}${path}`, { ...options, headers });
 }
 
-const pngBase64=Buffer.from(Uint8Array.from([0x89,0x50,0x4e,0x47,0x00])).toString('base64');
+async function json<T>(response: Response): Promise<T> {
+  return await response.json() as T;
+}
 
-test('HTTP API enforces auth, validates input and serves the PWA', async () => {
+test('HTTP API works without an application token and completes list and receipt workflows', async () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-api-'));
   const config: AppConfig = {
     host: '127.0.0.1',
     port: 0,
     dataDir: join(root, 'data'),
     tempDir: join(root, 'tmp'),
-    authToken: 'local-secret',
     maxBodyBytes: 16_384,
     aiTimeoutMs: 1_000,
     aiMaxRetries: 1,
@@ -32,69 +39,125 @@ test('HTTP API enforces auth, validates input and serves the PWA', async () => {
   await server.listen();
   const { port } = server.address();
   const baseUrl = `http://127.0.0.1:${port}`;
-  const authorized = { authorization: 'Bearer local-secret', 'content-type': 'application/json' };
+
   try {
     const health = await request(baseUrl, '/health');
     assert.equal(health.status, 200);
-    assert.equal((await health.json() as { status: string }).status, 'ok');
+    assert.deepEqual(await json(health), { status: 'ok' });
     assert.equal((await request(baseUrl, '/readiness')).status, 200);
-    assert.equal((await request(baseUrl, '/api/v1/diagnostics')).status, 401);
-    assert.equal((await request(baseUrl, '/api/v1/diagnostics', { headers: { authorization: 'Bearer wrong' } })).status, 401);
-    const aiSettings = await request(baseUrl, '/api/v1/settings/ai-provider', { headers: authorized });
-    assert.deepEqual(await aiSettings.json(), { configured: false });
-    const aiUnavailable = await request(baseUrl, '/api/v1/ai/shopping-list-analysis', { method: 'POST', headers: authorized, body: JSON.stringify({ text: 'milk and rice' }) });
+    assert.equal((await request(baseUrl, '/api/v1/diagnostics')).status, 200);
+    assert.equal((await request(baseUrl, '/api/v1/diagnostics', { headers: { authorization: 'Bearer wrong' } })).status, 200);
+
+    const metadata = await json<{ units: string[]; files: { mimeTypes: string[]; maxBytes: number } }>(await request(baseUrl, '/api/v1/meta'));
+    assert.ok(metadata.units.includes('unit'));
+    assert.deepEqual(metadata.files.mimeTypes, ['image/jpeg', 'image/png', 'application/pdf']);
+    assert.equal(metadata.files.maxBytes, config.maxBodyBytes);
+
+    const aiSettings = await request(baseUrl, '/api/v1/settings/ai-provider');
+    assert.deepEqual(await json(aiSettings), { configured: false });
+    const aiUnavailable = await request(baseUrl, '/api/v1/ai/shopping-list-analysis', { method: 'POST', body: JSON.stringify({ text: 'milk and rice' }) });
     assert.equal(aiUnavailable.status, 503);
 
-    const created = await request(baseUrl, '/api/v1/shopping-lists', { method: 'POST', headers: authorized, body: JSON.stringify({ name: 'Semanal' }) });
+    const created = await request(baseUrl, '/api/v1/shopping-lists', { method: 'POST', body: JSON.stringify({ name: 'Semanal' }) });
     assert.equal(created.status, 201);
-    const listId = (await created.json() as { list: { id: string } }).list.id;
-    const added = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items`, { method: 'POST', headers: authorized, body: JSON.stringify({ text: 'Leche', quantityMinor: 2, unit: 'l', exactRequired: true, substitutionAllowed: false }) });
-    assert.equal(added.status, 201);
-    const loaded = await request(baseUrl, `/api/v1/shopping-lists/${listId}`, { headers: authorized });
-    assert.equal((await loaded.json() as { items: unknown[] }).items.length, 1);
-    assert.equal((await request(baseUrl, '/api/v1/shopping-lists/missing', { headers: authorized })).status, 404);
+    const listId = (await json<{ list: { id: string } }>(created)).list.id;
 
-    const invalidJson = await request(baseUrl, '/api/v1/shopping-lists', { method: 'POST', headers: authorized, body: '{' });
+    const renamed = await request(baseUrl, `/api/v1/shopping-lists/${listId}`, { method: 'PATCH', body: JSON.stringify({ name: 'Compra semanal' }) });
+    assert.equal(renamed.status, 200);
+    assert.equal((await json<{ list: { name: string } }>(renamed)).list.name, 'Compra semanal');
+
+    const firstAdded = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items`, { method: 'POST', body: JSON.stringify({ text: 'Leche', quantityMinor: 2, unit: 'l', exactRequired: true, substitutionAllowed: false }) });
+    const firstItem = (await json<{ item: { id: string } }>(firstAdded)).item;
+    const secondAdded = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items`, { method: 'POST', body: JSON.stringify({ text: 'Arroz', quantityMinor: 1, unit: 'kg' }) });
+    const secondItem = (await json<{ item: { id: string } }>(secondAdded)).item;
+    assert.equal(firstAdded.status, 201);
+    assert.equal(secondAdded.status, 201);
+
+    const incremented = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items/${firstItem.id}`, { method: 'PATCH', body: JSON.stringify({ quantityDelta: 1 }) });
+    assert.equal((await json<{ item: { quantityMinor: number } }>(incremented)).item.quantityMinor, 3);
+
+    const completed = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items/${secondItem.id}`, { method: 'PATCH', body: JSON.stringify({ completed: true }) });
+    const completedItem = (await json<{ item: { completed: boolean; completedAt?: string } }>(completed)).item;
+    assert.equal(completedItem.completed, true);
+    assert.match(completedItem.completedAt ?? '', /^\d{4}-/);
+
+    const restored = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items/${secondItem.id}`, { method: 'PATCH', body: JSON.stringify({ completed: false }) });
+    const restoredItem = (await json<{ item: { completed: boolean; completedAt?: string } }>(restored)).item;
+    assert.equal(restoredItem.completed, false);
+    assert.equal('completedAt' in restoredItem, false);
+
+    const reordered = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items/order`, { method: 'PUT', body: JSON.stringify({ itemIds: [secondItem.id, firstItem.id] }) });
+    assert.deepEqual((await json<{ items: Array<{ id: string; position: number }> }>(reordered)).items.map((item) => [item.id, item.position]), [[secondItem.id, 0], [firstItem.id, 1]]);
+
+    const invalidOrder = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items/order`, { method: 'PUT', body: JSON.stringify({ itemIds: [firstItem.id] }) });
+    assert.equal(invalidOrder.status, 400);
+
+    const deletedItem = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items/${secondItem.id}`, { method: 'DELETE' });
+    assert.equal(deletedItem.status, 204);
+    const loaded = await request(baseUrl, `/api/v1/shopping-lists/${listId}`);
+    const loadedItems = (await json<{ items: Array<{ id: string; position: number }> }>(loaded)).items;
+    assert.deepEqual(loadedItems.map((item) => [item.id, item.position]), [[firstItem.id, 0]]);
+    assert.equal((await request(baseUrl, '/api/v1/shopping-lists/missing')).status, 404);
+
+    const invalidJson = await request(baseUrl, '/api/v1/shopping-lists', { method: 'POST', body: '{' });
     assert.equal(invalidJson.status, 400);
-    const oversized = await request(baseUrl, '/api/v1/shopping-lists', { method: 'POST', headers: authorized, body: JSON.stringify({ name: 'x'.repeat(20_000) }) });
+    const oversized = await request(baseUrl, '/api/v1/shopping-lists', { method: 'POST', body: JSON.stringify({ name: 'x'.repeat(20_000) }) });
     assert.equal(oversized.status, 413);
 
-    const uploaded = await request(baseUrl, '/api/v1/files', { method: 'POST', headers: authorized, body: JSON.stringify({ base64: pngBase64, mimeType: 'image/png', originalName: 'receipt.png' }) });
+    const uploaded = await request(baseUrl, '/api/v1/files', { method: 'POST', body: JSON.stringify({ base64: pngBase64, mimeType: 'image/png', originalName: 'receipt.png' }) });
     assert.equal(uploaded.status, 201);
-    const storageKey = (await uploaded.json() as { file: { storageKey: string } }).file.storageKey;
-    const extracted = await request(baseUrl, '/api/v1/receipts/extract', { method: 'POST', headers: authorized, body: JSON.stringify({ captures: [{ storageKey, originalName: 'receipt.png', embeddedText: 'Leche;1;120;120\nTOTAL 1,20' }], verifyWithAi: false }) });
+    const storageKey = (await json<{ file: { storageKey: string } }>(uploaded)).file.storageKey;
+    const preview = await request(baseUrl, `/api/v1/files/${storageKey}`);
+    assert.equal(preview.status, 200);
+    assert.equal(preview.headers.get('content-type'), 'image/png');
+    assert.match(preview.headers.get('cache-control') ?? '', /no-store/);
+    assert.deepEqual(new Uint8Array(await preview.arrayBuffer()), pngBytes);
+    assert.equal((await request(baseUrl, '/api/v1/files/%2e%2e%2fsecret.png')).status, 400);
+    assert.equal((await request(baseUrl, `/api/v1/files/${'a'.repeat(64)}.png`)).status, 404);
+
+    const uploadedPdf = await request(baseUrl, '/api/v1/files', { method: 'POST', body: JSON.stringify({ base64: pdfBase64, mimeType: 'application/pdf', originalName: 'receipt.pdf' }) });
+    assert.equal(uploadedPdf.status, 201);
+    const pdfKey = (await json<{ file: { storageKey: string } }>(uploadedPdf)).file.storageKey;
+    assert.equal((await request(baseUrl, `/api/v1/files/${pdfKey}`)).status, 400);
+
+    const extracted = await request(baseUrl, '/api/v1/receipts/extract', { method: 'POST', body: JSON.stringify({ captures: [{ storageKey, originalName: 'receipt.png', embeddedText: 'Leche;1;120;120\nTOTAL 1,20' }], verifyWithAi: false }) });
     assert.equal(extracted.status, 200);
-    const extraction = (await extracted.json() as { extraction: { pages: Array<{ source: string }>; final: { declaredTotalMinor: number; review: { lines: Array<{ status: string }> } } } }).extraction;
+    const extraction = (await json<{ extraction: { pages: Array<{ source: string }>; final: { declaredTotalMinor: number; review: { lines: Array<{ status: string }> } } } }>(extracted)).extraction;
     assert.equal(extraction.pages[0]?.source, 'embedded-text');
     assert.equal(extraction.final.declaredTotalMinor, 120);
     assert.equal(extraction.final.review.lines[0]?.status, 'confirmed');
 
-    const receipt = await request(baseUrl, '/api/v1/receipts/validate', { method: 'POST', headers: authorized, body: JSON.stringify({ declaredTotalMinor: 120, items: [{ description: 'Leche', quantity: 1, unitPriceMinor: 120, lineTotalMinor: 120 }] }) });
-    assert.equal((await receipt.json() as { total: { valid: boolean } }).total.valid, true);
-    const mismatch = await request(baseUrl, '/api/v1/receipts/confirm', { method: 'POST', headers: authorized, body: JSON.stringify({ importKey: 'receipt-0001', originalText: 'Leche', declaredTotalMinor: 100, items: [{ description: 'Leche', quantity: 1, unitPriceMinor: 120, lineTotalMinor: 120 }] }) });
+    const receipt = await request(baseUrl, '/api/v1/receipts/validate', { method: 'POST', body: JSON.stringify({ declaredTotalMinor: 120, items: [{ description: 'Leche', quantity: 1, unitPriceMinor: 120, lineTotalMinor: 120 }] }) });
+    assert.equal((await json<{ total: { valid: boolean } }>(receipt)).total.valid, true);
+    const mismatch = await request(baseUrl, '/api/v1/receipts/confirm', { method: 'POST', body: JSON.stringify({ importKey: 'receipt-0001', originalText: 'Leche', declaredTotalMinor: 100, items: [{ description: 'Leche', quantity: 1, unitPriceMinor: 120, lineTotalMinor: 120 }] }) });
     assert.equal(mismatch.status, 409);
-    const confirmed = await request(baseUrl, '/api/v1/receipts/confirm', { method: 'POST', headers: authorized, body: JSON.stringify({ importKey: 'receipt-0001', originalText: 'Leche', declaredTotalMinor: 120, items: [{ description: 'Leche', quantity: 1, unitPriceMinor: 120, lineTotalMinor: 120 }] }) });
+    const confirmed = await request(baseUrl, '/api/v1/receipts/confirm', { method: 'POST', body: JSON.stringify({ importKey: 'receipt-0001', originalText: 'Leche', declaredTotalMinor: 120, captures: [{ storageKey, mimeType: 'image/png', originalName: 'receipt.png' }], items: [{ description: 'Leche', quantity: 1, unitPriceMinor: 120, lineTotalMinor: 120 }] }) });
     assert.equal(confirmed.status, 201);
 
     const now = new Date().toISOString();
-    const optimized = await request(baseUrl, '/api/v1/optimization-runs', { method: 'POST', headers: authorized, body: JSON.stringify({ requirements: [{ itemId: 'milk', label: 'Milk', exactRequired: true, substitutionAllowed: false }], offers: [{ id: 'offer', itemId: 'milk', retailerId: 'shop', title: 'Milk', priceMinor: 100, shippingMinor: 50, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'l' }, stock: 'in-stock', observedAt: now, confidence: 1, evidence: 'fixture', exact: true, substitutionQuality: 1, primeEligible: true, primeFreeDeliveryEvidence: true }], retailerPenaltyMinor: 0 }) });
-    const plans = (await optimized.json() as { plans: Array<{ shippingMinor: number }> }).plans;
+    const optimized = await request(baseUrl, '/api/v1/optimization-runs', { method: 'POST', body: JSON.stringify({ requirements: [{ itemId: 'milk', label: 'Milk', exactRequired: true, substitutionAllowed: false }], offers: [{ id: 'offer', itemId: 'milk', retailerId: 'shop', title: 'Milk', priceMinor: 100, shippingMinor: 50, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'l' }, stock: 'in-stock', observedAt: now, confidence: 1, evidence: 'fixture', exact: true, substitutionQuality: 1, primeEligible: true, primeFreeDeliveryEvidence: true }], retailerPenaltyMinor: 0 }) });
+    const plans = (await json<{ plans: Array<{ shippingMinor: number }> }>(optimized)).plans;
     assert.equal(plans[0]?.shippingMinor, 0);
 
-    const backup = await request(baseUrl, '/api/v1/backup', { method: 'POST', headers: authorized, body: JSON.stringify({ name: 'integration.db' }) });
+    const backup = await request(baseUrl, '/api/v1/backup', { method: 'POST', body: JSON.stringify({ name: 'integration.db' }) });
     assert.equal(backup.status, 201);
-    const restore = await request(baseUrl, '/api/v1/restore/validate', { method: 'POST', headers: authorized, body: JSON.stringify({ name: 'integration.db' }) });
-    assert.equal((await restore.json() as { validation: { valid: boolean } }).validation.valid, true);
+    const restore = await request(baseUrl, '/api/v1/restore/validate', { method: 'POST', body: JSON.stringify({ name: 'integration.db' }) });
+    assert.equal((await json<{ validation: { valid: boolean } }>(restore)).validation.valid, true);
 
     const html = await request(baseUrl, '/');
     assert.equal(html.status, 200);
     assert.match(html.headers.get('content-security-policy') ?? '', /default-src 'self'/);
     assert.match(await html.text(), /Basketra/);
-    const uiModule = await request(baseUrl, '/ui.js');
-    assert.equal(uiModule.status, 200);
-    assert.match(uiModule.headers.get('content-type') ?? '', /text\/javascript/);
-    assert.match(await uiModule.text(), /export function hydrateIcons/);
-    assert.equal((await request(baseUrl, '/does-not-exist', { headers: authorized })).status, 404);
+    for (const module of ['/api.js', '/state.js', '/lists.js', '/receipts.js', '/ui.js']) {
+      const response = await request(baseUrl, module);
+      assert.equal(response.status, 200);
+      assert.match(response.headers.get('content-type') ?? '', /text\/javascript/);
+    }
+    assert.equal((await request(baseUrl, '/does-not-exist')).status, 404);
+
+    const deletedList = await request(baseUrl, `/api/v1/shopping-lists/${listId}`, { method: 'DELETE' });
+    assert.equal(deletedList.status, 204);
+    assert.equal((await request(baseUrl, `/api/v1/shopping-lists/${listId}`)).status, 404);
 
     await new Promise((resolve) => setTimeout(resolve, 25));
     assert.equal(server.diagnostics().hibernated, true);

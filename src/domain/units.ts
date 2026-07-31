@@ -1,4 +1,6 @@
-export type Unit = 'g' | 'kg' | 'ml' | 'l' | 'unit' | 'pack' | 'roll' | 'sheet' | 'capsule' | 'dose' | 'wash' | 'm';
+export const UNIT_VALUES = ['g', 'kg', 'ml', 'l', 'unit', 'pack', 'roll', 'sheet', 'capsule', 'dose', 'wash', 'm'] as const;
+
+export type Unit = typeof UNIT_VALUES[number];
 export type BaseUnit = 'g' | 'ml' | 'unit' | 'pack' | 'roll' | 'sheet' | 'capsule' | 'dose' | 'wash' | 'm';
 export type Rational = Readonly<{ numerator: number; denominator: number }>;
 export type Quantity = Readonly<{ amount: Rational; unit: Unit }>;

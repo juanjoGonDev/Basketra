@@ -1,12 +1,12 @@
 # Objetivo Central
 
-Basketra es una aplicación privada, personal y mobile-first para convertir tickets físicos o digitales en observaciones históricas de precios, mantener listas de compra y comparar planes de compra verificables. Se ejecuta como un único proceso Node.js con SQLite en una Raspberry Pi ARM64 y se accede normalmente mediante VPN.
+Basketra es una aplicación privada, personal y mobile-first para convertir tickets físicos o digitales en observaciones históricas de precios, mantener listas de compra completas y comparar planes de compra verificables. Se ejecuta como un único proceso Node.js con SQLite en una Raspberry Pi ARM64 y se accede mediante una frontera de infraestructura privada.
 
 Incluye captura o importación de imágenes/PDF, preservación de evidencias, extracción OCR mediante proveedores sustituibles y de carga diferida, revisión humana, listas con sugerencias locales, integración opcional con proveedores compatibles con OpenAI, matching determinista, normalización exacta de precios y optimización de cesta.
 
 No es un SaaS multi-tenant, marketplace, red social, servicio de entrega, comprador automático ni plataforma de scraping masivo. No expone el servicio públicamente por defecto. No asume que Prime implica envío gratuito ni presenta precios generados por IA sin evidencia.
 
-Suposiciones explícitas: una única instalación personal; EUR y formato `es-ES` inicialmente; acceso VPN/LAN privado; Node.js 22.23.1; almacenamiento persistente montado; credenciales por entorno. Decisiones reversibles: proveedor OCR, proveedor IA, penalizaciones del optimizador y política de retención. No objetivos iniciales: autenticación federada, multiusuario, pagos, ejecución distribuida y procesos residentes pesados.
+Suposiciones explícitas: una única instalación personal; EUR y formato `es-ES`; acceso por loopback, VPN, túnel SSH, LAN revisada o proxy privado autenticado; Node.js 22.23.1; almacenamiento persistente montado; credenciales de proveedores por entorno. No objetivos: autenticación interna, autenticación federada, multiusuario, pagos, ejecución distribuida y procesos residentes pesados.
 
 # Requisitos Técnicos (RDD)
 
@@ -20,26 +20,73 @@ Suposiciones explícitas: una única instalación personal; EUR y formato `es-ES
 - Las ofertas conservan fuente, momento de observación, confianza, stock, condiciones y transporte.
 - Prime sólo reduce transporte a cero con evidencia vigente o regla confirmada por el usuario.
 - La optimización es determinista y evalúa subconjuntos de retailers mientras el tamaño sea pequeño.
+- Eliminar una captura de un borrador no elimina la evidencia física almacenada sin demostrar que no está referenciada.
+
+## Frontera de acceso
+
+- Basketra no tiene token interno, sesión ni pantalla de login.
+- El bind por defecto es `127.0.0.1`; Docker publica en loopback por defecto.
+- El acceso remoto soportado termina en VPN, túnel SSH, firewall LAN revisado o proxy privado con autenticación y TLS.
+- La exposición directa a Internet no está soportada.
+- Cualquier actor con conectividad HTTP a Basketra se considera plenamente autorizado para listas, tickets, diagnósticos y backups.
 
 ## Flujos verificables
 
-1. Crear y editar listas; preservar borradores tras recarga; obtener sugerencias locales sin IA.
-2. Añadir capturas de imagen, PDF o texto; validar tipo, tamaño, hash y orden; revisar extracción; confirmar importación idempotente.
-3. Ejecutar OCR o extracción de texto mediante un contrato sustituible, con cancelación y sin worker residente.
-4. Analizar una lista manualmente o tras espera configurable; cancelar resultados obsoletos y exigir confirmación para cambios materiales.
-5. Normalizar ofertas y generar planes `single-retailer`, `balanced` y `maximum-saving` con desglose y explicación.
-6. Crear y validar copias de seguridad de SQLite.
+### Listas de compra
+
+1. Crear, seleccionar, renombrar y eliminar listas sin `prompt` ni diálogos del navegador.
+2. Añadir y editar productos, cantidad, unidad y preferencias exacto/sustitución.
+3. Incrementar o reducir cantidades dentro de límites validados.
+4. Marcar y desmarcar productos como comprados, preservando fecha de finalización cuando aplica.
+5. Reordenar mediante un orden completo, único y transaccional.
+6. Mantener posiciones contiguas después de borrar.
+7. Separar visualmente pendientes y completados.
+8. Preservar lista activa y borrador de producto tras recarga.
+9. Obtener sugerencias locales sin IA y cancelar respuestas obsoletas.
+
+### Tickets
+
+1. Abrir la cámara trasera cuando el navegador lo permita o usar selector de archivos como fallback.
+2. Seleccionar imágenes JPEG/PNG o PDF mediante controles separados.
+3. Validar tipo, tamaño, base64, firma real y clave de almacenamiento.
+4. Mostrar miniaturas persistentes de imágenes y alternativa accesible para PDF.
+5. Reordenar o retirar capturas del borrador sin borrar evidencia persistente.
+6. Extraer mediante proveedor configurado o continuar con transcripción manual.
+7. Mantener el borrador ante fallo de OCR o IA.
+8. Corregir líneas, validar aritmética y confirmar de forma idempotente.
+9. Preservar capturas, extracción original y correcciones.
+
+### Comparación y operación
+
+1. Normalizar ofertas y generar planes `single-retailer`, `balanced` y `maximum-saving`.
+2. Crear y validar copias de seguridad de SQLite.
+3. Migrar antes de readiness con backup validado y transacción completa.
+4. Cancelar operaciones caras o resultados obsoletos.
 
 ## Modelo de datos
 
-La migración inicial crea retailers, stores, canonical_products, product_variants, product_aliases, retailer_listings, price_observations, external_evidence, receipts, receipt_captures, receipt_extractions, receipt_items, receipt_corrections, shopping_lists, shopping_list_items, optimization_runs, optimization_plans, optimization_plan_items, ai_provider_configurations, ai_executions y ocr_executions. Se habilitan claves foráneas, WAL, busy timeout, índices y FTS5.
+La migración inicial crea retailers, stores, canonical_products, product_variants, product_aliases, retailer_listings, price_observations, external_evidence, receipts, receipt_captures, receipt_extractions, receipt_items, receipt_corrections, shopping_lists, shopping_list_items, optimization_runs, optimization_plans, optimization_plan_items, ai_provider_configurations, ai_executions y ocr_executions.
+
+La migración 2 registra backups previos a migraciones. La migración 3 añade `completed` y `completed_at` a productos de listas. Las migraciones aplicadas no se reescriben. Se habilitan claves foráneas, WAL, busy timeout, índices y FTS5.
 
 ## Persistencia y archivos
 
 - SQLite `basketra.db`, timestamps UTC y migraciones explícitas.
 - Importación de ticket en una transacción.
+- Listas modificadas mediante transacciones acotadas para cantidades, completado, borrado y orden.
 - Ficheros con nombre generado, validación de magic bytes, SHA-256, deduplicación y separación temporal/permanente.
-- Nunca se exponen rutas del sistema ni se cachean capturas en el service worker.
+- Las previews aceptan exclusivamente claves generadas de imagen, usan same-origin y `Cache-Control: private, no-store`.
+- PDF no se sirve por el endpoint de preview de imagen.
+- Nunca se exponen rutas del sistema ni se cachean capturas o respuestas `/api/` en el service worker.
+
+## Fuentes únicas de verdad
+
+- Unidades: `UNIT_VALUES` en dominio.
+- Tipos de archivo: `SUPPORTED_FILE_MIME_TYPES` en `FileStore`.
+- Límites de archivo: configuración backend expuesta por `/api/v1/meta`.
+- Claves persistentes frontend: módulo `state.js`.
+- Cliente HTTP frontend: módulo `api.js`.
+- Validaciones autoritativas: backend; las validaciones de navegador son preventivas, no de seguridad.
 
 ## OCR e IA
 
@@ -47,74 +94,65 @@ La migración inicial crea retailers, stores, canonical_products, product_varian
 - El ejecutor IA centraliza timeout, cancelación, selección de capacidad, validación, reintentos finitos, redacción y errores.
 - La URL del proveedor procede exclusivamente de configuración administrativa; no se acepta por petición.
 - El OCR pesado se carga sólo durante el flujo y se libera al terminar.
-- La base no incorpora un motor OCR productivo ni proveedores vivos de ofertas; esas integraciones deben aportar evidencia y respetar los contratos existentes.
+- La ausencia o fallo de IA no bloquea transcripción, corrección, validación o confirmación manual.
+- La base no incorpora un motor OCR productivo ni proveedores vivos de ofertas.
 
 ## Seguridad
 
-- Bind por defecto a `127.0.0.1`; CORS same-origin; CSP y cabeceras estrictas.
-- Token local opcional para endpoints sensibles; sondas de salud mínimas sin datos sensibles.
-- Límites de cuerpo, capturas, dimensiones, concurrencia, timeout y tamaño de respuesta.
+- CORS same-origin, CSP y cabeceras estrictas.
+- Sondas de salud mínimas sin datos sensibles.
+- Límites de cuerpo, capturas, concurrencia, timeout y tamaño de respuesta.
 - Redacción de secretos y ausencia de contenido de tickets en logs por defecto.
-- Diagnóstico protegido, prevención de traversal y SSRF en configuración de proveedores.
-- El contenedor final elimina gestores de paquetes no necesarios y falla CI ante vulnerabilidades HIGH o CRITICAL corregibles.
+- Prevención de traversal y SSRF en configuración de proveedores.
+- El contenedor final elimina gestores de paquetes no necesarios y CI falla ante vulnerabilidades HIGH o CRITICAL corregibles.
+- La protección de red es responsabilidad operativa obligatoria, no una mejora opcional.
 
 ## Presupuesto de recursos
 
 Objetivos sujetos a medición: RSS en reposo <= 80 MiB, uso API típico <= 128 MiB, límite Docker 192 MiB, CPU en reposo efectivamente cero, concurrencia baja y sin polling continuo. La hibernación libera caches y clientes tras inactividad. `IDLE_EXIT_AFTER_MS` está desactivado por defecto y sólo se usa con supervisor externo.
 
-La evidencia del runner de CI con Node.js 22.23.1 registra 61,56 MiB RSS en reposo, 80,29 MiB bajo carga representativa, 0,039% CPU en la ventana medida, un proceso principal y estado hibernado. La medición física en la Raspberry Pi objetivo sigue siendo una validación de despliegue separada.
-
 ## Errores
 
-Todos los errores HTTP tienen código estable, mensaje accionable y `requestId`. Las operaciones caras aceptan cancelación. La incertidumbre parcial de un ticket no invalida las líneas legibles. Los fallos de autenticación, configuración o esquema no se reintentan.
+Todos los errores HTTP tienen código estable, mensaje accionable y `requestId`. Las operaciones caras aceptan cancelación. La incertidumbre parcial de un ticket no invalida líneas legibles. Los fallos de configuración o esquema no se reintentan. Listas o productos inexistentes usan códigos diferenciados.
+
+## Accesibilidad y responsive
+
+- Navegación por teclado, foco visible y diálogos con nombre accesible.
+- Botones con objetivo concreto y etiquetas de formulario asociadas.
+- Estados de carga y error mediante regiones de estado.
+- Controles táctiles de al menos 44 px.
+- Sin scroll horizontal en el viewport móvil objetivo.
+- Contraste WCAG AA y soporte para movimiento reducido.
+- Los estados no dependen únicamente del color.
 
 ## Criterios de aceptación automatizados
 
-- Tests unitarios cubren dinero, unidades, matching, validación de tickets y optimización.
-- Integración usa SQLite temporal real, migraciones, rollback, idempotencia, backup y restauración validada.
-- E2E verifica API y shell PWA; Playwright ejecuta siete flujos móviles reales, incluidos autosave, sugerencias sin carreras, tickets, comparación, error IA recuperable, offline y foco visible.
-- Código de dominio testable: 100% statements/branches/functions/lines con cobertura nativa de Node.
+- Unitarios cubren configuración sin token, unidades y MIME compartidos, archivos, dinero, matching, tickets y optimización.
+- Integración usa SQLite temporal real para CRUD de listas, cantidades, completado, reordenamiento, migración v1→v3, cascada, backups, previews y flujo de tickets.
+- E2E estático verifica módulos, cámara, cache y ausencia de token.
+- Playwright verifica shell móvil, ciclo completo de listas, sugerencias sin carreras, cámara/galería/PDF, previews, ticket manual, fallo recuperable de IA, comparación, offline y foco visible.
+- Las pruebas de navegador generan captura, vídeo y traza sin retries.
+- Código de dominio testable mantiene 100% statements/branches/functions/lines con cobertura nativa de Node.
 - Formato, lint, typecheck estricto, dead code, dependencias, build y smoke deben pasar.
-- Docker valida amd64/arm64, usuario no root, señales, healthcheck, límites de compose, SBOM, provenance y escaneo HIGH/CRITICAL.
-
-## Evidencia verificada del alcance base
-
-- 18 tests unitarios, 2 de integración, 1 aceptación PWA estática y 7 Playwright pasan sin skip, todo ni retries.
-- Cobertura del dominio: 100% líneas, ramas y funciones.
-- Builds `linux/amd64` y `linux/arm64` pasan.
-- El smoke endurecido, Trivy y apagado gradual pasan.
-- Imagen medida: 162.815.322 bytes.
-- Un motor OCR productivo, proveedores vivos de supermercado/Amazon y mediciones sobre hardware Raspberry Pi real no están implementados ni se consideran verificados por esta evidencia.
+- Docker valida amd64/arm64, usuario no root, señales, healthcheck, límites de Compose, SBOM, provenance y escaneo HIGH/CRITICAL.
 
 # Restricciones de Agente
 
 - Nunca inventar archivos, servicios, endpoints, dependencias o abstracciones sin justificación verificable.
-- Nunca refactorizar código ajeno al alcance ni modificar contratos públicos sin autorización o especificación.
-- Nunca ampliar alcance silenciosamente; reutilizar patrones existentes y mantener cambios mínimos, trazables y reversibles.
-- Detenerse y reportar sólo ante ambigüedad crítica de seguridad, arquitectura o alcance.
+- Nunca refactorizar código ajeno al alcance ni modificar contratos públicos sin especificación.
+- Nunca ampliar alcance silenciosamente; mantener cambios trazables y reversibles.
 - Nunca incluir secretos, `.env` reales, claves, credenciales, sesiones ni tickets personales.
 - Nunca debilitar tests, cobertura, lint, tipos, seguridad o CI para lograr verde.
 - Nunca declarar completado mientras fallen checks propios del proyecto.
-- Nunca crear capas sin propósito comprobado ni usar SOLID como excusa para complejidad.
+- Nunca hacer merge, release, deploy ni publicación sin autorización explícita.
 
-# Lista de Tareas (Task List)
+# Definición de terminado
 
-1. **Análisis de repositorio** — salida: inventario de ramas, commits e instrucciones; aceptación: evidencia remota; tests: no aplica; dependencia: ninguna.
-2. **Especificación** — salida: este contrato y spec de tarea; aceptación: criterios objetivos y riesgos; tests: validación documental; dependencia: 1.
-3. **Decisiones de arquitectura** — salida: ADR de monolito, SQLite y proveedores; aceptación: alternativas y consecuencias; tests: revisión de enlaces internos; dependencia: 2.
-4. **Dominio** — salida: dinero, unidades, matching, tickets, ofertas y optimización; aceptación: resultados deterministas; tests: unitarios 100%; dependencia: 3.
-5. **Persistencia** — salida: migraciones SQLite y repositorios transaccionales; aceptación: WAL/FTS/FK/idempotencia; tests: integración real; dependencia: 4.
-6. **Backend** — salida: API versionada, errores, auth, límites y sondas; aceptación: contratos estables; tests: integración HTTP; dependencia: 5.
-7. **Frontend** — salida: PWA mobile-first accesible; aceptación: navegación, autosave, estados y sin overflow; tests: E2E móvil; dependencia: 6.
-8. **OCR** — salida: contrato, proveedor de texto embebido y worker sustituible; aceptación: cancelación y liberación; tests: fixtures sintéticos; dependencia: 7. Motor productivo pendiente de integración externa.
-9. **IA** — salida: proveedor compatible OpenAI y ejecutor estructurado; aceptación: validación local y retries finitos; tests: mock; dependencia: 6.
-10. **Matching** — salida: ranking explicable; aceptación: prioridad y ambigüedad; tests: casos requeridos; dependencia: 4 y 9.
-11. **Comparación** — salida: normalización supermercado/Amazon; aceptación: evidencia, stock y Prime; tests: fixtures; dependencia: 4 y 10. Proveedores vivos pendientes de integración externa.
-12. **Optimización** — salida: tres planes; aceptación: coste efectivo y desempate; tests: casos requeridos; dependencia: 11.
-13. **Testing** — salida: unit/integration/e2e/security; aceptación: sin skip/only y cobertura acordada; dependencia: 4-12.
-14. **Seguridad** — salida: controles y threat model; aceptación: regresiones verificadas; tests: traversal, auth, SSRF y límites; dependencia: 6-9.
-15. **Docker** — salida: Dockerfile y compose; aceptación: no root, señales, límites y healthcheck; tests: smoke; dependencia: 6-14.
-16. **Raspberry Pi** — salida: medición reproducible; aceptación: resultados reales o desviaciones; tests: script de recursos; dependencia: 15. Build ARM64 verificado; medición física pendiente del hardware objetivo.
-17. **CI** — salida: workflows endurecidos; aceptación: acciones por SHA, permisos mínimos y gates; tests: ejecución remota; dependencia: 13-16.
-18. **Documentación** — salida: guías operativas y limitaciones; aceptación: comandos ejecutables; tests: comprobación de referencias; dependencia: 1-17.
-19. **Verificación final** — salida: diff, PR normal y estado CI; aceptación: checks verdes o bloqueo exacto; tests: `pnpm quality` y CI; dependencia: todas.
+- No existe `BASKETRA_AUTH_TOKEN` en runtime, navegador, Compose, `.env.example` o documentación operativa.
+- La API funcional responde sin `Authorization` dentro del perímetro privado.
+- El ciclo completo de listas y productos funciona y persiste.
+- Cámara, galería, PDF, previews y revisión manual funcionan sin depender de IA.
+- Migración v3 y backups previos se validan con base existente.
+- La PWA no cachea datos privados.
+- `pnpm quality`, Playwright, seguridad y validaciones Docker aplicables pasan en CI.
+- Existe PR normal con evidencia y sin merge ni despliegue.

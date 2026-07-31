@@ -30,6 +30,12 @@ function requireText(text, requiredValues, prefix) {
   }
 }
 
+function forbidText(text, forbiddenValues, prefix) {
+  for (const forbidden of forbiddenValues) {
+    if (text.includes(forbidden)) failures.push(`${prefix}: forbidden ${forbidden}`);
+  }
+}
+
 walk('.');
 for (const file of textFiles) {
   const text = readFileSync(file, 'utf8');
@@ -98,6 +104,7 @@ if (/CR_PAT|PERSONAL_ACCESS_TOKEN|GHCR_PAT/.test(ci)) failures.push('CI must use
 function validateCompose(path, requiredControls) {
   const compose = readFileSync(path, 'utf8');
   requireText(compose, requiredControls, path);
+  forbidText(compose, ['BASKETRA_AUTH_TOKEN'], path);
 }
 
 validateCompose('compose.yml', [
@@ -116,7 +123,6 @@ validateCompose('compose.yml', [
 
 validateCompose('compose.raspberry.yml', [
   'ghcr.io/juanjogondev/basketra:stable',
-  'BASKETRA_AUTH_TOKEN:?BASKETRA_AUTH_TOKEN is required',
   'BASKETRA_BIND_ADDRESS:-127.0.0.1',
   'basketra-data:/data',
   'com.centurylinklabs.watchtower.enable: "true"',
@@ -144,7 +150,7 @@ if (!/WATCHTOWER_POLL_INTERVAL:\s*\$\{WATCHTOWER_POLL_INTERVAL:-300\}/.test(rasp
 
 const environmentExample = readFileSync('.env.example', 'utf8');
 requireText(environmentExample, [
-  'BASKETRA_AUTH_TOKEN=',
+  'BASKETRA_BIND_ADDRESS=127.0.0.1',
   'BASKETRA_AI_IMAGE_CAPABILITY=true',
   'BASKETRA_AI_PDF_CAPABILITY=false',
   'BASKETRA_NODE_HEAP_MB=128',
@@ -152,9 +158,21 @@ requireText(environmentExample, [
   'BASKETRA_DOCKER_CONFIG_DIR=',
   'WATCHTOWER_POLL_INTERVAL=300',
 ], '.env.example');
-for (const match of environmentExample.matchAll(/^(BASKETRA_AUTH_TOKEN|BASKETRA_AI_API_KEY)=(.+)$/gm)) {
+forbidText(environmentExample, ['BASKETRA_AUTH_TOKEN'], '.env.example');
+for (const match of environmentExample.matchAll(/^(BASKETRA_AI_API_KEY)=(.+)$/gm)) {
   if (match[2]?.trim()) failures.push(`.env.example must not contain a value for ${match[1]}`);
 }
+
+const config = readFileSync('src/infrastructure/config.ts', 'utf8');
+forbidText(config, ['authToken', 'BASKETRA_AUTH_TOKEN'], 'application configuration');
+const server = readFileSync('src/api/server.ts', 'utf8');
+forbidText(server, ['timingSafeEqual', 'A valid local access token is required'], 'HTTP server');
+requireText(server, [
+  "url.pathname === '/api/v1/meta'",
+  'private, no-store, max-age=0',
+  'INVALID_STORAGE_KEY',
+  'itemOrderMatch',
+], 'HTTP private workflow contract');
 
 const database = readFileSync('src/infrastructure/database.ts', 'utf8');
 requireText(database, [
@@ -167,16 +185,25 @@ requireText(database, [
   'PRAGMA cache_size',
   'PRAGMA journal_size_limit',
   'pruneBackupDirectory',
+  'ALTER TABLE shopping_list_items ADD COLUMN completed',
+  'BEGIN IMMEDIATE',
   '.tmp',
 ], 'database storage contract');
 
 const files = readFileSync('src/infrastructure/files.ts', 'utf8');
 requireText(files, [
+  'SUPPORTED_FILE_MIME_TYPES',
   'DEFAULT_FILE_STORAGE_MAX_BYTES = 512 * 1024 * 1024',
   'Persistent file storage limit would be exceeded',
+  'File signature does not match MIME type',
   'cleanupTemporary()',
   'finally',
 ], 'file storage contract');
+
+const webApi = readFileSync('src/web/api.js', 'utf8');
+forbidText(webApi, ['Bearer', 'authorization', 'authToken'], 'browser HTTP client');
+const serviceWorker = readFileSync('src/web/sw.js', 'utf8');
+requireText(serviceWorker, ["url.pathname.startsWith('/api/')", "'/lists.js'", "'/receipts.js'"], 'PWA cache contract');
 
 const aiProvider = readFileSync('src/ai/provider.ts', 'utf8');
 requireText(aiProvider, [
@@ -199,12 +226,13 @@ if (!packageJson.includes('node --expose-gc scripts/resource-measure.mjs')) fail
 
 for (const requiredTest of [
   'tests/integration/storage-limits.test.ts',
+  'tests/integration/shopping-lists.test.ts',
   'tests/unit/storage-limits.test.ts',
   'tests/unit/ai-response-limits.test.ts',
   'tests/unit/ghcr-retention.test.ts',
   'tests/unit/ghcr-manifest-policy.test.ts',
 ]) {
-  if (!textFiles.includes(requiredTest)) failures.push(`Missing bounded-resource or publication regression test: ${requiredTest}`);
+  if (!textFiles.includes(requiredTest)) failures.push(`Missing bounded-resource, workflow or publication regression test: ${requiredTest}`);
 }
 
 for (const requiredScript of [
@@ -224,4 +252,4 @@ if (failures.length) {
   console.error(failures.join('\n'));
   process.exit(1);
 }
-console.log('Security, workflow, bounded-resource, Compose, documentation and secret scans passed.');
+console.log('Security, workflow, bounded-resource, private-network, Compose, documentation and secret scans passed.');

@@ -1,12 +1,13 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
-import { timingSafeEqual, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { BasketraDatabase, validateBackup } from '../infrastructure/database.ts';
-import { FileStore } from '../infrastructure/files.ts';
+import { FileStore, SUPPORTED_FILE_MIME_TYPES } from '../infrastructure/files.ts';
 import type { AppConfig } from '../infrastructure/config.ts';
 import { asArray, asBoolean, asEnum, asRecord, asSafeInteger, asString } from '../domain/validation.ts';
+import { UNIT_VALUES } from '../domain/units.ts';
 import { optimizeBasket, type ShoppingRequirement } from '../domain/optimization.ts';
 import type { Offer } from '../domain/offers.ts';
 import { validateReceiptLine, validateReceiptTotal, type ReceiptLineInput } from '../domain/receipt.ts';
@@ -16,9 +17,20 @@ import { StructuredAiExecutor, type RuntimeSchema } from '../ai/structured-execu
 import { ReceiptExtractionService } from '../receipts/service.ts';
 import { parseReceiptConfirmation } from '../receipts/import.ts';
 
-const UNIT_VALUES = ['g', 'kg', 'ml', 'l', 'unit', 'pack', 'roll', 'sheet', 'capsule', 'dose', 'wash', 'm'] as const;
 const STOCK_VALUES = ['in-stock', 'out-of-stock', 'unknown'] as const;
-const PUBLIC_PATHS = new Set(['/health', '/readiness', '/', '/index.html', '/app.js', '/ui.js', '/styles.css', '/manifest.webmanifest', '/sw.js', '/icon.svg']);
+const STATIC_ASSETS = new Set([
+  'index.html',
+  'app.js',
+  'api.js',
+  'state.js',
+  'lists.js',
+  'receipts.js',
+  'ui.js',
+  'styles.css',
+  'manifest.webmanifest',
+  'sw.js',
+  'icon.svg',
+]);
 
 export type AppDiagnostics = Readonly<{
   ready: boolean;
@@ -29,6 +41,14 @@ export type AppDiagnostics = Readonly<{
   lastActivityAt: string;
   memory: NodeJS.MemoryUsage;
 }>;
+
+function decodePathSegment(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    throw new ApiError(400, 'INVALID_PATH_PARAMETER', 'Path parameter is not valid URL encoding');
+  }
+}
 
 export class BasketraServer {
   readonly config: AppConfig;
@@ -106,21 +126,46 @@ export class BasketraServer {
     try {
       this.applySecurityHeaders(response, requestId);
       const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
-      if (!PUBLIC_PATHS.has(url.pathname)) this.authorize(request);
       if (request.method === 'GET' && url.pathname === '/health') return this.json(response, 200, { status: 'ok' });
       if (request.method === 'GET' && url.pathname === '/readiness') return this.json(response, this.#ready ? 200 : 503, { ready: this.#ready });
       if (request.method === 'GET' && url.pathname === '/api/v1/diagnostics') return this.json(response, 200, this.diagnostics());
+      if (request.method === 'GET' && url.pathname === '/api/v1/meta') return this.json(response, 200, this.applicationMetadata());
       if (request.method === 'GET' && url.pathname === '/api/v1/settings/ai-provider') return this.json(response, 200, this.aiProviderSettings());
       if (request.method === 'POST' && url.pathname === '/api/v1/settings/ai-provider/test') return await this.testAiProvider(response);
       if (request.method === 'POST' && url.pathname === '/api/v1/ai/shopping-list-analysis') return await this.analyzeShoppingList(request, response);
       if (request.method === 'GET' && url.pathname === '/api/v1/shopping-lists') return this.json(response, 200, { lists: this.#database.listShoppingLists() });
       if (request.method === 'POST' && url.pathname === '/api/v1/shopping-lists') return await this.createShoppingList(request, response);
+
+      const itemOrderMatch = /^\/api\/v1\/shopping-lists\/([^/]+)\/items\/order$/.exec(url.pathname);
+      if (request.method === 'PUT' && itemOrderMatch?.[1]) {
+        return await this.reorderShoppingListItems(request, response, decodePathSegment(itemOrderMatch[1]));
+      }
+
+      const itemMemberMatch = /^\/api\/v1\/shopping-lists\/([^/]+)\/items\/([^/]+)$/.exec(url.pathname);
+      if (itemMemberMatch?.[1] && itemMemberMatch[2]) {
+        const listId = decodePathSegment(itemMemberMatch[1]);
+        const itemId = decodePathSegment(itemMemberMatch[2]);
+        if (request.method === 'PATCH') return await this.updateShoppingListItem(request, response, listId, itemId);
+        if (request.method === 'DELETE') return this.deleteShoppingListItem(response, listId, itemId);
+      }
+
+      const itemCollectionMatch = /^\/api\/v1\/shopping-lists\/([^/]+)\/items$/.exec(url.pathname);
+      if (request.method === 'POST' && itemCollectionMatch?.[1]) {
+        return await this.addShoppingListItem(request, response, decodePathSegment(itemCollectionMatch[1]));
+      }
+
       const listMatch = /^\/api\/v1\/shopping-lists\/([^/]+)$/.exec(url.pathname);
-      if (request.method === 'GET' && listMatch?.[1]) return this.getShoppingList(response, listMatch[1]);
-      const itemMatch = /^\/api\/v1\/shopping-lists\/([^/]+)\/items$/.exec(url.pathname);
-      if (request.method === 'POST' && itemMatch?.[1]) return await this.addShoppingListItem(request, response, itemMatch[1]);
+      if (listMatch?.[1]) {
+        const listId = decodePathSegment(listMatch[1]);
+        if (request.method === 'GET') return this.getShoppingList(response, listId);
+        if (request.method === 'PATCH') return await this.updateShoppingList(request, response, listId);
+        if (request.method === 'DELETE') return this.deleteShoppingList(response, listId);
+      }
+
       if (request.method === 'GET' && url.pathname === '/api/v1/products/suggestions') return this.suggestProducts(response, url.searchParams);
       if (request.method === 'POST' && url.pathname === '/api/v1/files') return await this.storeFile(request, response);
+      const fileMatch = /^\/api\/v1\/files\/([^/]+)$/.exec(url.pathname);
+      if (request.method === 'GET' && fileMatch?.[1]) return this.serveStoredFile(response, decodePathSegment(fileMatch[1]));
       if (request.method === 'POST' && url.pathname === '/api/v1/receipts/extract') return await this.extractReceipt(request, response);
       if (request.method === 'POST' && url.pathname === '/api/v1/receipts/validate') return await this.validateReceipt(request, response);
       if (request.method === 'POST' && url.pathname === '/api/v1/receipts/confirm') return await this.confirmReceipt(request, response);
@@ -137,15 +182,17 @@ export class BasketraServer {
     }
   }
 
-  private authorize(request: IncomingMessage): void {
-    if (!this.config.authToken) return;
-    const header = request.headers.authorization;
-    const supplied = header?.startsWith('Bearer ') ? header.slice(7) : '';
-    const expectedBuffer = Buffer.from(this.config.authToken);
-    const suppliedBuffer = Buffer.from(supplied);
-    if (expectedBuffer.length !== suppliedBuffer.length || !timingSafeEqual(expectedBuffer, suppliedBuffer)) {
-      throw new ApiError(401, 'UNAUTHORIZED', 'A valid local access token is required');
-    }
+  private applicationMetadata(): Readonly<{
+    units: typeof UNIT_VALUES;
+    files: Readonly<{ mimeTypes: typeof SUPPORTED_FILE_MIME_TYPES; maxBytes: number }>;
+  }> {
+    return {
+      units: UNIT_VALUES,
+      files: {
+        mimeTypes: SUPPORTED_FILE_MIME_TYPES,
+        maxBytes: this.#fileStore.maxBytes,
+      },
+    };
   }
 
   private aiProviderSettings(): Readonly<{ configured: boolean; baseUrl?: string; model?: string; apiKeyMask?: string }> {
@@ -255,6 +302,18 @@ export class BasketraServer {
     this.json(response, 200, result);
   }
 
+  private async updateShoppingList(request: IncomingMessage, response: ServerResponse, id: string): Promise<void> {
+    const body = asRecord(await this.readJson(request));
+    const list = this.#database.updateShoppingList(id, asString(body['name'], '$.name', { min: 1, max: 80 }));
+    if (!list) throw new ApiError(404, 'SHOPPING_LIST_NOT_FOUND', 'Shopping list was not found');
+    this.json(response, 200, { list });
+  }
+
+  private deleteShoppingList(response: ServerResponse, id: string): void {
+    if (!this.#database.deleteShoppingList(id)) throw new ApiError(404, 'SHOPPING_LIST_NOT_FOUND', 'Shopping list was not found');
+    this.empty(response);
+  }
+
   private async addShoppingListItem(request: IncomingMessage, response: ServerResponse, listId: string): Promise<void> {
     const body = asRecord(await this.readJson(request));
     const item = this.#database.addShoppingListItem({
@@ -268,6 +327,39 @@ export class BasketraServer {
     this.json(response, 201, { item });
   }
 
+  private async updateShoppingListItem(request: IncomingMessage, response: ServerResponse, listId: string, itemId: string): Promise<void> {
+    const body = asRecord(await this.readJson(request));
+    if (body['quantityMinor'] !== undefined && body['quantityDelta'] !== undefined) {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'quantityMinor and quantityDelta cannot be combined');
+    }
+    const update = {
+      listId,
+      itemId,
+      ...(body['text'] === undefined ? {} : { text: asString(body['text'], '$.text', { min: 1, max: 240 }) }),
+      ...(body['quantityMinor'] === undefined ? {} : { quantityMinor: asSafeInteger(body['quantityMinor'], '$.quantityMinor', { min: 1, max: 100_000 }) }),
+      ...(body['quantityDelta'] === undefined ? {} : { quantityDelta: asSafeInteger(body['quantityDelta'], '$.quantityDelta', { min: -99_999, max: 99_999 }) }),
+      ...(body['unit'] === undefined ? {} : { unit: asEnum(body['unit'], '$.unit', UNIT_VALUES) }),
+      ...(body['exactRequired'] === undefined ? {} : { exactRequired: asBoolean(body['exactRequired'], '$.exactRequired') }),
+      ...(body['substitutionAllowed'] === undefined ? {} : { substitutionAllowed: asBoolean(body['substitutionAllowed'], '$.substitutionAllowed') }),
+      ...(body['completed'] === undefined ? {} : { completed: asBoolean(body['completed'], '$.completed') }),
+    };
+    if (Object.keys(update).length === 2) throw new ApiError(400, 'VALIDATION_ERROR', 'At least one item field must be provided');
+    const item = this.#database.updateShoppingListItem(update);
+    this.json(response, 200, { item });
+  }
+
+  private deleteShoppingListItem(response: ServerResponse, listId: string, itemId: string): void {
+    this.#database.deleteShoppingListItem(listId, itemId);
+    this.empty(response);
+  }
+
+  private async reorderShoppingListItems(request: IncomingMessage, response: ServerResponse, listId: string): Promise<void> {
+    const body = asRecord(await this.readJson(request));
+    const itemIds = asArray(body['itemIds'], '$.itemIds', 500).map((itemId, index) => asString(itemId, `$.itemIds[${index}]`, { min: 1, max: 128 }));
+    const items = this.#database.reorderShoppingListItems(listId, itemIds);
+    this.json(response, 200, { items });
+  }
+
   private suggestProducts(response: ServerResponse, params: URLSearchParams): void {
     const query = asString(params.get('q') ?? '', '$.q', { min: 1, max: 100 });
     const limit = Math.min(20, Number(params.get('limit') ?? 8));
@@ -279,10 +371,33 @@ export class BasketraServer {
     const body = asRecord(await this.readJson(request));
     const file = this.#fileStore.storeBase64({
       base64: asString(body['base64'], '$.base64', { min: 4, max: Math.ceil(this.config.maxBodyBytes * 1.4) }),
-      mimeType: asEnum(body['mimeType'], '$.mimeType', ['image/jpeg', 'image/png', 'application/pdf'] as const),
-      ...(typeof body['originalName'] === 'string' ? { originalName: body['originalName'] } : {}),
+      mimeType: asEnum(body['mimeType'], '$.mimeType', SUPPORTED_FILE_MIME_TYPES),
+      ...(body['originalName'] === undefined ? {} : { originalName: asString(body['originalName'], '$.originalName', { min: 1, max: 240 }) }),
     });
     this.json(response, 201, { file });
+  }
+
+  private serveStoredFile(response: ServerResponse, storageKey: string): void {
+    if (!/^[a-f0-9]{64}\.(?:jpg|png)$/.test(storageKey)) {
+      throw new ApiError(400, 'INVALID_STORAGE_KEY', 'Stored image key is invalid');
+    }
+    let file;
+    try {
+      file = this.#fileStore.read(storageKey);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Stored file does not exist') {
+        throw new ApiError(404, 'FILE_NOT_FOUND', 'Stored file was not found');
+      }
+      throw error;
+    }
+    if (!file.mimeType.startsWith('image/')) throw new ApiError(415, 'FILE_PREVIEW_UNSUPPORTED', 'Only stored images can be previewed');
+    response.writeHead(200, {
+      'content-type': file.mimeType,
+      'content-length': String(file.bytes.byteLength),
+      'cache-control': 'private, no-store, max-age=0',
+      'content-disposition': 'inline',
+    });
+    response.end(file.bytes);
   }
 
   private async extractReceipt(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -416,12 +531,18 @@ export class BasketraServer {
 
   private serveStatic(response: ServerResponse, pathname: string): void {
     const requested = pathname === '/' ? 'index.html' : pathname.slice(1);
-    if (!['index.html', 'app.js', 'ui.js', 'styles.css', 'manifest.webmanifest', 'sw.js', 'icon.svg'].includes(requested)) throw new ApiError(404, 'NOT_FOUND', 'Resource was not found');
+    if (!STATIC_ASSETS.has(requested)) throw new ApiError(404, 'NOT_FOUND', 'Resource was not found');
     const file = join(this.#publicDir, requested);
     if (!existsSync(file)) throw new ApiError(404, 'NOT_FOUND', 'Resource was not found');
-    const mime = extname(file) === '.html' ? 'text/html; charset=utf-8' : extname(file) === '.js' ? 'text/javascript; charset=utf-8' : extname(file) === '.css' ? 'text/css; charset=utf-8' : extname(file) === '.svg' ? 'image/svg+xml' : extname(file) === '.webmanifest' ? 'application/manifest+json; charset=utf-8' : 'text/javascript; charset=utf-8';
+    const mime = extname(file) === '.html' ? 'text/html; charset=utf-8' : extname(file) === '.js' ? 'text/javascript; charset=utf-8' : extname(file) === '.css' ? 'text/css; charset=utf-8' : extname(file) === '.svg' ? 'image/svg+xml' : extname(file) === '.webmanifest' ? 'application/manifest+json; charset=utf-8' : 'application/octet-stream';
     response.writeHead(200, { 'content-type': mime, 'cache-control': requested === 'index.html' ? 'no-cache' : 'public, max-age=3600' });
     response.end(readFileSync(file));
+  }
+
+  private empty(response: ServerResponse, status = 204): void {
+    if (response.headersSent) return;
+    response.writeHead(status, { 'cache-control': 'no-store' });
+    response.end();
   }
 
   private json(response: ServerResponse, status: number, body: unknown): void {

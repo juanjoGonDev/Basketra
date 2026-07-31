@@ -1,24 +1,36 @@
 # Basketra
 
-Basketra is a private, mobile-first grocery price intelligence application for personal use. It stores receipt evidence and immutable price observations, keeps shopping lists, normalizes unit prices, and generates deterministic purchase plans.
+Basketra is a private, mobile-first grocery application for personal use. It stores receipt evidence and immutable price observations, manages complete shopping-list workflows, normalizes unit prices, and generates deterministic purchase plans.
 
 ## Status
 
-The repository contains a working dependency-free foundation built on Node.js 22 and `node:sqlite`:
+The repository contains a dependency-free Node.js 22 application built on `node:sqlite`:
 
 - installable static PWA shell;
-- local shopping lists and FTS5 suggestions;
-- image/PDF evidence upload with magic-byte validation and SHA-256 deduplication;
-- receipt arithmetic review and idempotent transactional confirmation;
+- shopping-list create, select, rename, delete, edit, complete, quantity, and reorder workflows;
+- local FTS5 suggestions that do not require AI;
+- camera, gallery, and PDF capture with shared validation;
+- persistent same-origin image previews excluded from service-worker caching;
+- MIME allowlisting, magic-byte validation, SHA-256 deduplication, and traversal prevention;
+- receipt extraction, manual correction, arithmetic review, and idempotent transactional confirmation;
 - provider-neutral OCR, AI, and offer contracts;
-- OpenAI-compatible structured-output adapter with local runtime validation hooks;
-- exact money/unit normalization;
+- exact money and unit normalization;
 - deterministic single-retailer, balanced, and maximum-saving plans;
 - SQLite backup, restore validation, and guarded startup migrations;
-- authentication, security headers, body limits, hibernation, and graceful shutdown;
+- strict security headers, body limits, hibernation, and graceful shutdown;
 - local Docker development plus private AMD64/ARM64 GHCR delivery for Raspberry Pi.
 
-A production OCR engine and live supermarket/Amazon evidence providers remain external integration work. The current receipt flow supports embedded text or manual transcription and preserves original captures. Pull-request CI verifies the mobile Chromium suite with screenshots, video and traces, hardened container smoke tests, vulnerability scanning, Compose variants, and AMD64/ARM64 builds.
+A production OCR engine and live supermarket/Amazon evidence providers remain external integration work. The receipt workflow works without AI through manual transcription and preserves the original captures. Pull-request CI runs unit, integration, static PWA, mobile Chromium, security, container smoke, vulnerability, AMD64, and ARM64 checks with browser screenshots, video, and traces.
+
+## Supported access model
+
+Basketra has no internal application token or login screen. It is a single-installation private application and must be protected by infrastructure:
+
+- loopback bind with a VPN or SSH tunnel;
+- a reviewed LAN-only bind plus firewall rules;
+- or an authenticated private reverse proxy with TLS.
+
+The default host and Compose configurations bind to `127.0.0.1`. Direct public internet exposure is unsupported. Anyone who can reach the Basketra HTTP service can use its API, diagnostics, backups, lists, and receipt data.
 
 ## Requirements
 
@@ -27,7 +39,7 @@ A production OCR engine and live supermarket/Amazon evidence providers remain ex
 - TypeScript 5.8.3 for static checking
 - Docker with Buildx for container validation
 
-The application runtime has no third-party npm dependencies. The production container also removes npm, Corepack, pnpm and Yarn after the build stage because package managers are not required to execute Basketra.
+The runtime has no third-party npm dependencies. The production container removes npm, Corepack, pnpm, and Yarn after the build stage because package managers are not required at runtime.
 
 ## Local development
 
@@ -65,7 +77,6 @@ pnpm quality
 
 ```bash
 cp .env.example .env
-# Set BASKETRA_AUTH_TOKEN before sharing access.
 docker compose build
 docker compose up -d
 docker compose ps
@@ -73,19 +84,17 @@ curl --fail http://127.0.0.1:3000/health
 curl --fail http://127.0.0.1:3000/readiness
 ```
 
-The local Compose file builds `basketra:local` and binds only to `127.0.0.1`. Access it through a private VPN, SSH tunnel, or an authenticated private reverse proxy. Do not publish the port directly to the internet.
+The local Compose file builds `basketra:local` and publishes only on host loopback. Use a VPN, SSH tunnel, or authenticated private reverse proxy for remote access. Do not change the bind to a public interface without a reviewed firewall and access-control design.
 
 ## Private Raspberry deployment
 
-Successful pushes to `main` publish a private multi-architecture image to GHCR only after every quality, security, browser, smoke, AMD64, and ARM64 job has passed. Publication is staged rather than assigning both tags during the build:
+Successful pushes to `main` publish a private multi-architecture image to GHCR only after every quality, security, browser, smoke, AMD64, and ARM64 gate passes:
 
 1. Buildx publishes only `ghcr.io/juanjogondev/basketra:<full-commit-sha>`.
-2. CI inspects that SHA tag in GHCR and verifies its registry digest and AMD64/ARM64 manifest entries.
-3. CI pulls the SHA tag, runs the exact digest under production limits, requires `/readiness`, and verifies a clean shutdown.
-4. Only then does CI promote that same digest to `ghcr.io/juanjogondev/basketra:stable` without rebuilding.
-5. CI verifies that `stable` resolves to the validated digest.
-
-Manual registry verification after an approved merge:
+2. CI verifies its registry digest and AMD64/ARM64 manifest entries.
+3. CI pulls and runs that exact digest under production restrictions.
+4. Only after readiness and clean shutdown does CI promote the same digest to `stable`.
+5. CI verifies `stable` and retains the newest immutable SHA releases.
 
 ```bash
 COMMIT_SHA=<full-commit-sha>
@@ -94,41 +103,59 @@ docker pull "ghcr.io/juanjogondev/basketra:${COMMIT_SHA}"
 docker pull ghcr.io/juanjogondev/basketra:stable
 ```
 
-The production variant is separate from local development:
+Production startup:
 
 ```bash
 cp .env.example .env
-# Generate and set BASKETRA_AUTH_TOKEN before continuing.
+docker compose -f compose.raspberry.yml config --quiet
 docker compose -f compose.raspberry.yml pull basketra
 docker compose -f compose.raspberry.yml up -d basketra
 curl --fail http://127.0.0.1:3000/readiness
 ```
 
-It keeps the named `basketra-data` volume, loopback bind, resource limits, read-only filesystem, dropped capabilities, and scoped Watchtower labels. The Raspberry host must authenticate to private GHCR with a credential limited to `read:packages`. See [RASPBERRY_DEPLOYMENT.md](RASPBERRY_DEPLOYMENT.md) for secure login, token generation, startup migrations, backups, restore, SHA rollback, Watchtower compatibility, and verification procedures.
+The production variant keeps the `basketra-data` volume, loopback bind, resource limits, read-only filesystem, dropped capabilities, and scoped Watchtower labels. The host must authenticate to private GHCR with a credential limited to `read:packages`. See [RASPBERRY_DEPLOYMENT.md](RASPBERRY_DEPLOYMENT.md).
 
-## Startup migration safety
+## Shopping lists
 
-The database is opened and migrated before the HTTP listener becomes ready. If migrations are pending, Basketra creates and validates a pre-migration backup, applies the complete pending batch transactionally, validates database integrity and target version, and only then proceeds to readiness. A failed migration rolls back the batch and prevents the container healthcheck from succeeding.
+The UI and API support complete list management:
 
-Destructive migrations are code-level opt-in and are rejected by default. There is no environment flag that silently enables them.
+- create, select, rename, and delete lists;
+- add and edit products;
+- increase or decrease quantities;
+- mark products as bought and return them to pending;
+- reorder products with deterministic contiguous positions;
+- preserve the active list and unsubmitted item draft across reloads.
+
+Completion state is stored by schema migration 3. Existing databases are backed up and migrated transactionally before readiness.
+
+## Receipt workflow
+
+1. Capture a photo with the rear-camera hint or choose images/PDF files.
+2. Validate type, size, and server-side signature.
+3. Review persistent image thumbnails or PDF placeholders.
+4. Reorder or remove captures from the draft without deleting original evidence.
+5. Extract with a configured OCR/AI provider or enter a manual transcription.
+6. Correct lines and totals.
+7. Validate arithmetic through the API.
+8. Confirm the idempotent import.
+
+Stored image previews are served from `/api/v1/files/<storage-key>` with strict storage-key validation and `Cache-Control: private, no-store`. PDF content is not exposed through the image-preview route. The service worker excludes all `/api/` requests.
 
 ## Data and manual backup
 
-Persistent data lives in the `basketra-data` volume. Create and validate a backup through the authenticated API:
+Persistent data lives in `basketra-data`. Run backup calls only through the trusted private access path:
 
 ```bash
-curl --request POST http://127.0.0.1:3000/api/v1/backup \
-  --header "Authorization: Bearer $BASKETRA_AUTH_TOKEN" \
+curl --fail --request POST http://127.0.0.1:3000/api/v1/backup \
   --header 'Content-Type: application/json' \
   --data '{"name":"basketra-manual.db"}'
 
-curl --request POST http://127.0.0.1:3000/api/v1/restore/validate \
-  --header "Authorization: Bearer $BASKETRA_AUTH_TOKEN" \
+curl --fail --request POST http://127.0.0.1:3000/api/v1/restore/validate \
   --header 'Content-Type: application/json' \
   --data '{"name":"basketra-manual.db"}'
 ```
 
-See [BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md) and [RASPBERRY_DEPLOYMENT.md](RASPBERRY_DEPLOYMENT.md).
+See [BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md). A named Docker volume is not an independent disaster-recovery copy; export important backups to separately managed storage.
 
 ## AI provider configuration
 
@@ -144,7 +171,7 @@ BASKETRA_AI_IMAGE_CAPABILITY=true
 BASKETRA_AI_PDF_CAPABILITY=false
 ```
 
-The browser never receives the API key. Provider URLs are administrative configuration, never request input. Structured results are validated locally before use.
+The browser never receives the provider key. Provider URLs are administrative environment configuration, never request input. Structured results are validated locally before use.
 
 ## Architecture and operations
 
