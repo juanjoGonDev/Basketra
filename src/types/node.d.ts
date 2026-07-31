@@ -8,6 +8,7 @@ declare namespace NodeJS {
 
 declare const process: {
   env: NodeJS.ProcessEnv;
+  stderr: { write(value: string): boolean };
   memoryUsage(): NodeJS.MemoryUsage;
   once(event: 'SIGTERM' | 'SIGINT', listener: () => void): void;
   exit(code?: number): never;
@@ -42,9 +43,9 @@ declare module 'node:fs' {
   }
   export function mkdirSync(path: string, options?: { recursive?: boolean }): string | undefined;
   export function copyFileSync(source: string, destination: string): void;
-  export function statSync(path: string): { size: number; mtimeMs: number };
+  export function statSync(path: string): { size: number; mtimeMs: number; mode: number; dev: number };
   export function readFileSync(path: string): Uint8Array;
-  export function writeFileSync(path: string, data: Uint8Array | string, options?: { flag?: string }): void;
+  export function writeFileSync(path: string, data: Uint8Array | string, options?: { flag?: string; mode?: number }): void;
   export function existsSync(path: string): boolean;
   export function readdirSync(path: string, options: { withFileTypes: true }): Dirent[];
   export function readdirSync(path: string): string[];
