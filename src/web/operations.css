@@ -1,3 +1,8 @@
+details.settings-card:has(#diagnostics),
+#download-backup {
+  display: none;
+}
+
 .operations-stack {
   display: grid;
   gap: 1rem;
