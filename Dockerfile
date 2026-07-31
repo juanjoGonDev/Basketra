@@ -9,13 +9,20 @@ RUN tsc --noEmit && tsc -p tsconfig.build.json \
     && cp package.json dist/package.json
 
 FROM node:22.23.1-alpine3.24 AS runtime
+ARG BASKETRA_VERSION=0.0.0-dev
+ARG BASKETRA_REVISION=
 ENV NODE_ENV=production \
+    BASKETRA_CONTAINER=true \
+    BASKETRA_VERSION=${BASKETRA_VERSION} \
+    BASKETRA_REVISION=${BASKETRA_REVISION} \
     BASKETRA_HOST=0.0.0.0 \
     BASKETRA_PORT=3000 \
     BASKETRA_DATA_DIR=/data \
     BASKETRA_TEMP_DIR=/tmp/basketra \
     OMP_THREAD_LIMIT=1 \
     OMP_NUM_THREADS=1
+LABEL org.opencontainers.image.version=${BASKETRA_VERSION} \
+      org.opencontainers.image.revision=${BASKETRA_REVISION}
 WORKDIR /app
 RUN apk add --no-cache tesseract-ocr tesseract-ocr-data-spa \
     && apk add --no-cache --virtual .ocr-smoke-deps imagemagick font-dejavu \

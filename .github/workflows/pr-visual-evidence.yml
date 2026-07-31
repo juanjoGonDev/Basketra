@@ -143,12 +143,14 @@ jobs:
           prepare_flow comparison-renders 06-comparison-plans
           prepare_flow AI-unavailability 07-ai-unavailable-recovery
           prepare_flow offline-shell 08-offline-keyboard
+          prepare_flow settings-show-live 09-runtime-operations runtime-backups-logs.png
+          prepare_flow private-route-heartbeat 10-vpn-recovery vpn-reconnected.png
           copy_flow_capture shopping-lists-su swipe-delete.png 02-shopping-list-full-delete.png
           copy_flow_capture local-OCR-creates swipe-delete.png 04-local-ocr-full-delete.png
 
-          test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 10
-          test "$(find evidence-assets -maxdepth 1 -type f -name '*.gif' | wc -l)" -eq 8
-          test "$(find evidence-assets -maxdepth 1 -type f -name '*.webm' | wc -l)" -eq 8
+          test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 12
+          test "$(find evidence-assets -maxdepth 1 -type f -name '*.gif' | wc -l)" -eq 10
+          test "$(find evidence-assets -maxdepth 1 -type f -name '*.webm' | wc -l)" -eq 10
 
           while IFS= read -r file; do
             test "$(stat -c %s "$file")" -le 25000000
@@ -185,6 +187,27 @@ jobs:
 
           Generated from final head \`$HEAD_SHA\` after the [successful browser workflow]($run_url). The media is temporary, directly viewable and is not committed to the repository.
 
+          ### Runtime operations and private-route recovery
+
+          <table>
+          <tr>
+          <td><strong>Runtime, uptime, logs and backup operations</strong><br><img src="$base/09-runtime-operations.png" width="360" alt="Basketra settings showing version, live uptime, redacted logs and backup controls"></td>
+          <td><strong>VPN/private route recovered automatically</strong><br><img src="$base/10-vpn-recovery.png" width="360" alt="Basketra connected again after the private route returned without reloading"></td>
+          </tr>
+          </table>
+
+          **Runtime operations flow**
+
+          ![Runtime operations, logs and backup flow]($base/09-runtime-operations.gif)
+
+          [Open the full runtime operations video]($base/09-runtime-operations.webm)
+
+          **VPN/private-route recovery flow**
+
+          ![Automatic private-route recovery]($base/10-vpn-recovery.gif)
+
+          [Open the full recovery video]($base/10-vpn-recovery.webm)
+
           ### Progressive swipe thresholds
 
           <table>
@@ -215,7 +238,7 @@ jobs:
           </tr>
           </table>
 
-          ### Critical flows
+          ### Existing critical flows
 
           **Shopping-list lifecycle and progressive swipe actions**
 

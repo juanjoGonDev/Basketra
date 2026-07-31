@@ -62,19 +62,28 @@ requireText(ci, [
   "github.event_name == 'push'",
   "github.ref == 'refs/heads/main'",
   'packages: write',
-  'contents: read',
+  'contents: write',
   'linux/amd64,linux/arm64',
+  'Resolve deterministic patch release',
+  'release-version-policy.mjs',
   'id: publish-sha',
   'ghcr.io/juanjogondev/basketra:${{ github.sha }}',
+  'BASKETRA_VERSION=${{ steps.release-version.outputs.version }}',
+  'BASKETRA_REVISION=${{ github.sha }}',
   'steps.publish-sha.outputs.digest',
   "imagetools inspect --format '{{json .Manifest}}' \"$IMAGE:$GITHUB_SHA\"",
   'node scripts/ghcr-manifest-policy.mjs candidate',
   'docker pull --platform linux/amd64 "$IMAGE:$GITHUB_SHA"',
   'org.opencontainers.image.revision',
+  'org.opencontainers.image.version',
   'http://127.0.0.1:3001/readiness',
+  'http://127.0.0.1:3001/api/v1/runtime',
   'docker inspect "$container" --format \'{{.State.ExitCode}}\'',
   'id: promote',
   'imagetools create --metadata-file stable-promotion.json --tag "$IMAGE:stable"',
+  'Promote verified digest to immutable version',
+  'Create or verify GitHub release',
+  'generate_release_notes: true',
   'node scripts/ghcr-manifest-policy.mjs stable',
   'selectGhcrVersionsForDeletion',
   'GHCR_RETAIN_SHA_VERSIONS',
@@ -85,13 +94,20 @@ requireText(ci, [
 if (!/publish-image:[\s\S]*?needs:[\s\S]*?- quality[\s\S]*?- security[\s\S]*?- browser-e2e[\s\S]*?- container[\s\S]*?- container-smoke/.test(ci)) {
   failures.push('GHCR publication must depend on every CI gate');
 }
+const publishJobIndex = ci.indexOf('  publish-image:');
+const contentsWriteMatches = [...ci.matchAll(/^\s+contents: write$/gm)];
+if (publishJobIndex < 0 || contentsWriteMatches.length !== 1 || (contentsWriteMatches[0]?.index ?? -1) < publishJobIndex) {
+  failures.push('Contents write permission must exist only in the trusted main publication job');
+}
 const publishIndex = ci.indexOf('- name: Publish immutable SHA candidate');
 const verifyCandidateIndex = ci.indexOf('- name: Verify published SHA tag and manifest');
 const smokeIndex = ci.indexOf('- name: Pull and smoke-test the exact published digest');
 const promoteIndex = ci.indexOf('- name: Promote verified digest to stable');
 const verifyStableIndex = ci.indexOf('- name: Verify stable is the validated manifest');
-if (!(publishIndex >= 0 && publishIndex < verifyCandidateIndex && verifyCandidateIndex < smokeIndex && smokeIndex < promoteIndex && promoteIndex < verifyStableIndex)) {
-  failures.push('GHCR candidate, digest verification, smoke, promotion and stable verification are out of order');
+const promoteVersionIndex = ci.indexOf('- name: Promote verified digest to immutable version');
+const releaseIndex = ci.indexOf('- name: Create or verify GitHub release');
+if (!(publishIndex >= 0 && publishIndex < verifyCandidateIndex && verifyCandidateIndex < smokeIndex && smokeIndex < promoteIndex && promoteIndex < verifyStableIndex && verifyStableIndex < promoteVersionIndex && promoteVersionIndex < releaseIndex)) {
+  failures.push('GHCR candidate, digest verification, smoke, stable/version promotion and release creation are out of order');
 }
 if (publishIndex >= 0 && verifyCandidateIndex >= 0 && ci.slice(publishIndex, verifyCandidateIndex).includes('basketra:stable')) {
   failures.push('The build-push action must not publish stable before candidate verification');
@@ -100,6 +116,7 @@ if (/docker\/build-push-action@[\s\S]*?tags:\s*\|?[\s\S]*?basketra:stable/.test(
   failures.push('The initial Buildx publication must contain only the immutable SHA tag');
 }
 if (/CR_PAT|PERSONAL_ACCESS_TOKEN|GHCR_PAT/.test(ci)) failures.push('CI must use GITHUB_TOKEN rather than a personal access token');
+if (ci.includes('BASKETRA_AUTH_TOKEN')) failures.push('Obsolete application tokens must not appear in CI');
 
 function validateCompose(path, requiredControls) {
   const compose = readFileSync(path, 'utf8');
@@ -124,6 +141,7 @@ validateCompose('compose.yml', [
 validateCompose('compose.raspberry.yml', [
   'ghcr.io/juanjogondev/basketra:stable',
   'BASKETRA_BIND_ADDRESS:-127.0.0.1',
+  'host.docker.internal:host-gateway',
   'basketra-data:/data',
   'com.centurylinklabs.watchtower.enable: "true"',
   'com.centurylinklabs.watchtower.scope: basketra',
@@ -151,14 +169,16 @@ if (!/WATCHTOWER_POLL_INTERVAL:\s*\$\{WATCHTOWER_POLL_INTERVAL:-300\}/.test(rasp
 const environmentExample = readFileSync('.env.example', 'utf8');
 requireText(environmentExample, [
   'BASKETRA_BIND_ADDRESS=127.0.0.1',
+  'BASKETRA_AI_BASE_URL=http://host.docker.internal:3001/v1/',
   'BASKETRA_AI_IMAGE_CAPABILITY=true',
   'BASKETRA_AI_PDF_CAPABILITY=false',
   'BASKETRA_NODE_HEAP_MB=128',
   'BASKETRA_MEMORY_LIMIT=192m',
   'BASKETRA_DOCKER_CONFIG_DIR=',
   'WATCHTOWER_POLL_INTERVAL=300',
+  '--force-recreate basketra',
 ], '.env.example');
-forbidText(environmentExample, ['BASKETRA_AUTH_TOKEN'], '.env.example');
+forbidText(environmentExample, ['BASKETRA_AUTH_TOKEN', 'BASKETRA_BIND_IP=', 'BASKETRA_MEM_LIMIT=', 'BASKETRA_CPUS='], '.env.example');
 for (const match of environmentExample.matchAll(/^(BASKETRA_AI_API_KEY)=(.+)$/gm)) {
   if (match[2]?.trim()) failures.push(`.env.example must not contain a value for ${match[1]}`);
 }
@@ -173,6 +193,23 @@ requireText(server, [
   'INVALID_STORAGE_KEY',
   'itemOrderMatch',
 ], 'HTTP private workflow contract');
+
+const gateway = readFileSync('src/operations/gateway.ts', 'utf8');
+requireText(gateway, [
+  "url.pathname === '/api/v1/runtime'",
+  "url.pathname === '/api/v1/logs'",
+  "url.pathname === '/api/v1/restore/import'",
+  "url.pathname === '/api/v1/restore/stage'",
+  'MAX_CLIENT_LOG_BATCH',
+  'MAX_CLIENT_LOGS_PER_MINUTE',
+  'AI_LOOPBACK_CONTAINER',
+  'host.docker.internal',
+], 'operations gateway contract');
+forbidText(gateway, ['process.env.BASKETRA_AI_API_KEY', 'receipt.raw_text'], 'operations gateway');
+const logStore = readFileSync('src/operations/log-store.ts', 'utf8');
+requireText(logStore, ['10_000', '40 * 1024 * 1024', 'sanitizeClientLog', 'MAX_EVENT_BYTES'], 'bounded application logs');
+const restore = readFileSync('src/operations/restore.ts', 'utf8');
+requireText(restore, ['RESTORE_CONFIRMATION', 'validateBackup', 'restore-pending.json', 'restore-failed-'], 'staged restore contract');
 
 const database = readFileSync('src/infrastructure/database.ts', 'utf8');
 requireText(database, [
@@ -202,8 +239,11 @@ requireText(files, [
 
 const webApi = readFileSync('src/web/api.js', 'utf8');
 forbidText(webApi, ['Bearer', 'authorization', 'authToken'], 'browser HTTP client');
+requireText(webApi, ['basketra:api-log', "import('./operations.js')"], 'browser observability contract');
+const operationsUi = readFileSync('src/web/operations.js', 'utf8');
+requireText(operationsUi, ['client.connection_restored', 'setInterval(updateUptime, 1000)', 'RESTAURAR', '/api/v1/logs/client'], 'browser operations contract');
 const serviceWorker = readFileSync('src/web/sw.js', 'utf8');
-requireText(serviceWorker, ["url.pathname.startsWith('/api/')", "'/lists.js'", "'/receipts.js'"], 'PWA cache contract');
+requireText(serviceWorker, ["url.pathname.startsWith('/api/')", "'/lists.js'", "'/receipts.js'", "'/operations.js'", "'/operations.css'"], 'PWA cache contract');
 
 const aiProvider = readFileSync('src/ai/provider.ts', 'utf8');
 requireText(aiProvider, [
@@ -227,10 +267,13 @@ if (!packageJson.includes('node --expose-gc scripts/resource-measure.mjs')) fail
 for (const requiredTest of [
   'tests/integration/storage-limits.test.ts',
   'tests/integration/shopping-lists.test.ts',
+  'tests/integration/operations-gateway.test.ts',
   'tests/unit/storage-limits.test.ts',
   'tests/unit/ai-response-limits.test.ts',
   'tests/unit/ghcr-retention.test.ts',
   'tests/unit/ghcr-manifest-policy.test.ts',
+  'tests/unit/runtime-operations.test.ts',
+  'tests/unit/release-version-policy.test.ts',
 ]) {
   if (!textFiles.includes(requiredTest)) failures.push(`Missing bounded-resource, workflow or publication regression test: ${requiredTest}`);
 }
@@ -238,8 +281,9 @@ for (const requiredTest of [
 for (const requiredScript of [
   'scripts/ghcr-retention-policy.mjs',
   'scripts/ghcr-manifest-policy.mjs',
+  'scripts/release-version-policy.mjs',
 ]) {
-  if (!textFiles.includes(requiredScript)) failures.push(`Missing GHCR policy implementation: ${requiredScript}`);
+  if (!textFiles.includes(requiredScript)) failures.push(`Missing GHCR or release policy implementation: ${requiredScript}`);
 }
 
 for (const file of textFiles.filter((path) => path.endsWith('.md'))) {
@@ -252,4 +296,4 @@ if (failures.length) {
   console.error(failures.join('\n'));
   process.exit(1);
 }
-console.log('Security, workflow, bounded-resource, private-network, Compose, documentation and secret scans passed.');
+console.log('Security, workflow, release, observability, backup, bounded-resource, private-network and secret scans passed.');

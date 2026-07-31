@@ -20,7 +20,7 @@ export default defineConfig({
     ...devices['Pixel 7'],
   },
   webServer: {
-    command: `chmod +x tests/fixtures/tesseract && node scripts/build.mjs && PATH="$PWD/tests/fixtures:$PATH" BASKETRA_HOST=127.0.0.1 BASKETRA_PORT=4173 BASKETRA_DATA_DIR=.playwright-data BASKETRA_TEMP_DIR=${temporaryDirectory} node dist/main.js`,
+    command: `chmod +x tests/fixtures/tesseract && node scripts/build.mjs && PATH="$PWD/tests/fixtures:$PATH" BASKETRA_HOST=127.0.0.1 BASKETRA_PORT=4173 BASKETRA_DATA_DIR=.playwright-data BASKETRA_TEMP_DIR=${temporaryDirectory} BASKETRA_VERSION=1.4.2-test BASKETRA_REVISION=abcdef1234567 node dist/main.js`,
     url: 'http://127.0.0.1:4173/readiness',
     timeout: 30_000,
     reuseExistingServer: false,
