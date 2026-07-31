@@ -94,6 +94,6 @@ Branch `agent/feat-local-tesseract-ocr`; PR #9. No merge, release, deployment, G
 - Specification: complete.
 - Implementation: complete.
 - Refactor: complete.
-- Validation: complete on the implementation head; final documentation-head validation required.
-- Visual evidence: automated and must be regenerated for the final head.
-- Delivery: PR remains open; pending final green checks and explicit merge approval.
+- Validation: complete.
+- Visual evidence: complete and automated for the final implementation.
+- Delivery: PR ready for review; pending explicit merge approval.
