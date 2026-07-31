@@ -5,6 +5,11 @@ const EURO_FORMATTER = new Intl.NumberFormat('es-ES', {
   maximumFractionDigits: 2,
 });
 
+const SWIPE_REVEAL_RATIO = 0.16;
+const SWIPE_START_COMMIT_RATIO = 0.38;
+const SWIPE_END_COMMIT_RATIO = 0.68;
+const SWIPE_REVEAL_MAX_PX = 152;
+
 const ICONS = {
   home: '<path d="M3 11.5 12 4l9 7.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 19.5Z"/><path d="M9 21v-6h6v6"/>',
   list: '<path d="M9 6h12M9 12h12M9 18h12"/><path d="m3.5 6 .8.8L6 5M3.5 12l.8.8L6 11M3.5 18l.8.8L6 17"/>',
@@ -16,6 +21,7 @@ const ICONS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   minus: '<path d="M5 12h14"/>',
   edit: '<path d="m4 20 4.5-1 10-10-3.5-3.5-10 10Z"/><path d="m13.5 6.5 3.5 3.5"/>',
+  more: '<circle cx="5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
   upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>',
   sparkles: '<path d="m12 3 1.2 3.1L16 7.3l-2.8 1.2L12 12l-1.2-3.5L8 7.3l2.8-1.2Z"/><path d="m18.5 13 .8 2 1.7.8-1.7.8-.8 2.1-.8-2.1-1.7-.8 1.7-.8Z"/>',
@@ -77,20 +83,82 @@ export function euroInputToMinor(input) {
   return minor;
 }
 
-function hideSwipeActions(root, except) {
-  root.querySelectorAll('[data-swipe-actions]').forEach(actions => {
-    if (actions !== except) actions.hidden = true;
+function swipeContent(row) {
+  return row.querySelector('[data-swipe-content]');
+}
+
+function swipeActions(row) {
+  return row.querySelector('[data-swipe-actions]');
+}
+
+function setActionsAccessible(row, accessible) {
+  const actions = swipeActions(row);
+  if (!actions) return;
+  actions.setAttribute('aria-hidden', String(!accessible));
+  actions.querySelectorAll('button').forEach(button => {
+    button.tabIndex = accessible ? 0 : -1;
   });
+  const toggle = row.querySelector('[data-swipe-toggle]');
+  toggle?.setAttribute('aria-expanded', String(accessible));
+}
+
+function setSwipeOffset(row, pixels) {
+  swipeContent(row)?.style.setProperty('--swipe-x', `${pixels}px`);
+}
+
+function closeSwipeRow(row) {
+  row.classList.remove('is-dragging', 'is-swipe-committing');
+  row.dataset.swipeOpen = 'false';
+  row.dataset.swipeDeleteArmed = 'false';
+  setSwipeOffset(row, 0);
+  setActionsAccessible(row, false);
+}
+
+function closeSwipeRows(root, except) {
+  root.querySelectorAll('[data-swipe-row]').forEach(row => {
+    if (row !== except) closeSwipeRow(row);
+  });
+}
+
+function openSwipeRow(root, row) {
+  closeSwipeRows(root, row);
+  const width = Math.min(SWIPE_REVEAL_MAX_PX, Math.max(112, row.clientWidth * 0.42));
+  row.dataset.swipeOpen = 'true';
+  row.dataset.swipeDeleteArmed = 'false';
+  setSwipeOffset(row, -width);
+  setActionsAccessible(row, true);
+}
+
+function dispatchSwipeAction(row, action) {
+  row.dispatchEvent(new CustomEvent('basketra:swipe-action', {
+    bubbles: true,
+    detail: { action, id: row.dataset.swipeId, kind: row.dataset.swipeKind },
+  }));
 }
 
 export function bindSwipeActions(root = document) {
   let gesture;
+
+  root.querySelectorAll('[data-swipe-row]').forEach(closeSwipeRow);
+
   root.addEventListener('pointerdown', event => {
     if (event.button !== 0 || event.clientX < 24 || event.target.closest('button,input,select,textarea,a,summary')) return;
     const row = event.target.closest('[data-swipe-row]');
-    if (!row) return;
-    gesture = { row, pointerId: event.pointerId, x: event.clientX, y: event.clientY, horizontal: false, deltaX: 0 };
+    if (!row || !swipeContent(row)) return;
+    closeSwipeRows(root, row);
+    gesture = {
+      row,
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      horizontal: false,
+      deltaX: 0,
+      initialOffset: row.dataset.swipeOpen === 'true'
+        ? -Math.min(SWIPE_REVEAL_MAX_PX, Math.max(112, row.clientWidth * 0.42))
+        : 0,
+    };
   });
+
   root.addEventListener('pointermove', event => {
     if (!gesture || event.pointerId !== gesture.pointerId) return;
     const deltaX = event.clientX - gesture.x;
@@ -102,40 +170,78 @@ export function bindSwipeActions(root = document) {
         return;
       }
       gesture.horizontal = true;
+      gesture.row.classList.add('is-dragging');
       gesture.row.setPointerCapture?.(event.pointerId);
     }
     event.preventDefault();
     gesture.deltaX = deltaX;
+    const { row } = gesture;
+    const width = Math.max(row.clientWidth, 1);
+    const minimum = row.dataset.swipeEndAction ? -width * 0.92 : -Math.min(SWIPE_REVEAL_MAX_PX, width * 0.42);
+    const maximum = row.dataset.swipeStartAction ? width * 0.55 : 0;
+    const offset = Math.max(minimum, Math.min(maximum, gesture.initialOffset + deltaX));
+    const ratio = Math.abs(offset) / width;
+    setSwipeOffset(row, offset);
+    row.dataset.swipeDeleteArmed = String(offset < 0 && ratio >= SWIPE_END_COMMIT_RATIO && Boolean(row.dataset.swipeEndAction));
   }, { passive: false });
-  const finish = event => {
+
+  const finish = (event, cancelled = false) => {
     if (!gesture || event.pointerId !== gesture.pointerId) return;
-    const { row, deltaX, horizontal } = gesture;
+    const { row, deltaX, horizontal, initialOffset } = gesture;
     gesture = undefined;
-    if (!horizontal) return;
-    const ratio = Math.abs(deltaX) / Math.max(row.clientWidth, 1);
-    if (deltaX > 0 && ratio >= .38 && row.dataset.swipeStartAction) {
-      row.dispatchEvent(new CustomEvent('basketra:swipe-action', { bubbles: true, detail: { action: row.dataset.swipeStartAction, id: row.dataset.swipeId, kind: row.dataset.swipeKind } }));
+    row.classList.remove('is-dragging');
+    if (!horizontal || cancelled) {
+      if (initialOffset < 0) openSwipeRow(root, row);
+      else closeSwipeRow(row);
       return;
     }
-    if (deltaX < 0) {
-      const actions = row.querySelector('[data-swipe-actions]');
-      if (!actions) return;
-      hideSwipeActions(root, actions);
-      actions.hidden = false;
-      const target = ratio >= .62 ? actions.querySelector('[data-destructive-action]') : actions.querySelector('[data-primary-swipe-action]');
-      target?.focus();
+
+    const effectiveOffset = initialOffset + deltaX;
+    const ratio = Math.abs(effectiveOffset) / Math.max(row.clientWidth, 1);
+    if (effectiveOffset > 0 && ratio >= SWIPE_START_COMMIT_RATIO && row.dataset.swipeStartAction) {
+      closeSwipeRow(row);
+      dispatchSwipeAction(row, row.dataset.swipeStartAction);
+      return;
     }
+    if (effectiveOffset < 0 && ratio >= SWIPE_END_COMMIT_RATIO && row.dataset.swipeEndAction) {
+      row.classList.add('is-swipe-committing');
+      row.dataset.swipeDeleteArmed = 'true';
+      setSwipeOffset(row, -row.clientWidth);
+      const delay = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 150;
+      setTimeout(() => dispatchSwipeAction(row, row.dataset.swipeEndAction), delay);
+      return;
+    }
+    if (effectiveOffset < 0 && ratio >= SWIPE_REVEAL_RATIO && swipeActions(row)) {
+      openSwipeRow(root, row);
+      return;
+    }
+    closeSwipeRow(row);
   };
-  root.addEventListener('pointerup', finish);
-  root.addEventListener('pointercancel', finish);
+
+  root.addEventListener('pointerup', event => finish(event));
+  root.addEventListener('pointercancel', event => finish(event, true));
+
   root.addEventListener('click', event => {
-    if (!event.target.closest('[data-swipe-row]')) hideSwipeActions(root);
+    const toggle = event.target.closest('[data-swipe-toggle]');
+    if (toggle) {
+      const row = toggle.closest('[data-swipe-row]');
+      if (!row) return;
+      if (row.dataset.swipeOpen === 'true') closeSwipeRow(row);
+      else openSwipeRow(root, row);
+      return;
+    }
+    const row = event.target.closest('[data-swipe-row]');
+    if (!row) {
+      closeSwipeRows(root);
+      return;
+    }
+    if (event.target.closest('[data-swipe-actions] button')) closeSwipeRow(row);
   });
+
   root.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
     const row = event.target.closest('[data-swipe-row]');
-    const actions = row?.querySelector('[data-swipe-actions]');
-    if (actions) actions.hidden = true;
+    if (row) closeSwipeRow(row);
   });
 }
 
@@ -147,24 +253,35 @@ export function suggestionOption(suggestion) {
   return `<button type="button" class="suggestion-option" role="option" data-suggestion="${escapeHtml(suggestion.name)}">${icon('plus')}<span>${escapeHtml(suggestion.name)}</span></button>`;
 }
 
+function swipeActionRail(editLabel, deleteLabel, editAttributes, deleteAttributes) {
+  return `<div class="swipe-rail swipe-rail--end" data-swipe-actions aria-hidden="true">
+    <button type="button" class="swipe-rail__action" data-primary-swipe-action ${editAttributes} tabindex="-1">${icon('edit')}<span>${escapeHtml(editLabel)}</span></button>
+    <button type="button" class="swipe-rail__action swipe-rail__action--danger" data-destructive-action ${deleteAttributes} tabindex="-1">${icon('trash')}<span>${escapeHtml(deleteLabel)}</span></button>
+    <span class="swipe-rail__commit" aria-hidden="true">${icon('trash')}<strong>Suelta para eliminar</strong></span>
+  </div>`;
+}
+
 export function shoppingListItem(item, index, total) {
   const id = escapeHtml(item.id);
   const name = escapeHtml(item.text);
   const completionLabel = item.completed ? `Devolver ${name} a pendientes` : `Marcar ${name} como comprado`;
   const details = `${item.quantityMinor} ${escapeHtml(item.unit)} · ${item.exactRequired ? 'Exacto' : 'Flexible'} · ${item.substitutionAllowed ? 'Con alternativas' : 'Sin alternativas'}`;
-  return `<li class="list-row${item.completed ? ' is-completed' : ''}" data-swipe-row data-swipe-kind="shopping-item" data-swipe-id="${id}" data-swipe-start-action="complete">
-    <button type="button" class="completion-button" data-item-action="complete" data-item-id="${id}" aria-label="${completionLabel}" aria-pressed="${String(item.completed)}">${icon('check')}</button>
-    <div class="list-row__content"><strong>${name}</strong><span>${details}</span></div>
-    <div class="list-row__actions">
-      <button type="button" class="icon-button" data-item-action="quantity" data-item-id="${id}" data-delta="-1" ${item.quantityMinor <= 1 ? 'disabled' : ''} aria-label="Reducir cantidad de ${name}">${icon('minus')}</button>
-      <span class="quantity-chip" aria-label="Cantidad actual">${item.quantityMinor}</span>
-      <button type="button" class="icon-button" data-item-action="quantity" data-item-id="${id}" data-delta="1" aria-label="Aumentar cantidad de ${name}">${icon('plus')}</button>
-      <button type="button" class="icon-button" data-item-action="move" data-item-id="${id}" data-direction="-1" ${index === 0 ? 'disabled' : ''} aria-label="Subir ${name}">${icon('chevronUp')}</button>
-      <button type="button" class="icon-button" data-item-action="move" data-item-id="${id}" data-direction="1" ${index === total - 1 ? 'disabled' : ''} aria-label="Bajar ${name}">${icon('chevronDown')}</button>
-    </div>
-    <div class="list-row__actions" data-swipe-actions hidden>
-      <button type="button" class="icon-button" data-primary-swipe-action data-item-action="edit" data-item-id="${id}" aria-label="Editar ${name}">${icon('edit')}</button>
-      <button type="button" class="icon-button danger" data-destructive-action data-item-action="delete" data-item-id="${id}" aria-label="Eliminar ${name}">${icon('trash')}</button>
+  const editAttributes = `data-item-action="edit" data-item-id="${id}" aria-label="Editar ${name}"`;
+  const deleteAttributes = `data-item-action="delete" data-item-id="${id}" aria-label="Eliminar ${name}"`;
+  return `<li class="swipe-shell" data-swipe-row data-swipe-kind="shopping-item" data-swipe-id="${id}" data-swipe-start-action="complete" data-swipe-end-action="delete" data-swipe-open="false">
+    <div class="swipe-rail swipe-rail--start" aria-hidden="true">${icon('check')}<strong>${item.completed ? 'Pendiente' : 'Completado'}</strong></div>
+    ${swipeActionRail('Editar', 'Eliminar', editAttributes, deleteAttributes)}
+    <div class="list-row${item.completed ? ' is-completed' : ''} swipe-content" data-swipe-content>
+      <button type="button" class="completion-button" data-item-action="complete" data-item-id="${id}" aria-label="${completionLabel}" aria-pressed="${String(item.completed)}">${icon('check')}</button>
+      <div class="list-row__content"><strong>${name}</strong><span>${details}</span></div>
+      <div class="list-row__actions">
+        <button type="button" class="icon-button" data-item-action="quantity" data-item-id="${id}" data-delta="-1" ${item.quantityMinor <= 1 ? 'disabled' : ''} aria-label="Reducir cantidad de ${name}">${icon('minus')}</button>
+        <span class="quantity-chip" aria-label="Cantidad actual">${item.quantityMinor}</span>
+        <button type="button" class="icon-button" data-item-action="quantity" data-item-id="${id}" data-delta="1" aria-label="Aumentar cantidad de ${name}">${icon('plus')}</button>
+        <button type="button" class="icon-button" data-item-action="move" data-item-id="${id}" data-direction="-1" ${index === 0 ? 'disabled' : ''} aria-label="Subir ${name}">${icon('chevronUp')}</button>
+        <button type="button" class="icon-button" data-item-action="move" data-item-id="${id}" data-direction="1" ${index === total - 1 ? 'disabled' : ''} aria-label="Bajar ${name}">${icon('chevronDown')}</button>
+        <button type="button" class="icon-button" data-swipe-toggle aria-expanded="false" aria-label="Mostrar acciones de ${name}">${icon('more')}</button>
+      </div>
     </div>
   </li>`;
 }
@@ -203,7 +320,16 @@ export function receiptReview(items, lines, total) {
 
 function receiptLine(item, index, validation = {}) {
   const confirmed = validation.status === 'confirmed';
-  return `<fieldset class="receipt-item" data-item-index="${index}" data-swipe-row data-swipe-kind="receipt-line" data-swipe-id="${index}"><legend>Línea ${index + 1}<span class="status-pill ${confirmed ? 'success' : 'warning'}">${escapeHtml(validation.status || 'needs-review')}</span></legend><label class="field"><span>Producto</span><input data-field="description" maxlength="240" value="${escapeHtml(item.description)}" autocomplete="off"></label><div class="quantity-row"><label class="field"><span>Cantidad</span><input data-field="quantity" type="number" min="0" step="1" inputmode="numeric" value="${item.quantity}"></label><label class="field"><span>Precio unitario (€)</span><input data-field="unitPriceEuro" inputmode="decimal" value="${minorToEuroInput(item.unitPriceMinor)}"></label><label class="field"><span>Total (€)</span><input data-field="lineTotalEuro" inputmode="decimal" value="${minorToEuroInput(item.lineTotalMinor)}"></label></div><div class="list-row__actions" data-swipe-actions hidden><button type="button" class="icon-button" data-primary-swipe-action data-receipt-action="edit" data-receipt-index="${index}" aria-label="Editar línea ${index + 1}">${icon('edit')}</button><button type="button" class="icon-button danger" data-destructive-action data-receipt-action="delete" data-receipt-index="${index}" aria-label="Eliminar línea ${index + 1}">${icon('trash')}</button></div></fieldset>`;
+  const editAttributes = `data-receipt-action="edit" data-receipt-index="${index}" aria-label="Editar línea ${index + 1}"`;
+  const deleteAttributes = `data-receipt-action="delete" data-receipt-index="${index}" aria-label="Eliminar línea ${index + 1}"`;
+  return `<div class="swipe-shell" data-swipe-row data-swipe-kind="receipt-line" data-swipe-id="${index}" data-swipe-end-action="delete" data-swipe-open="false">
+    ${swipeActionRail('Editar', 'Eliminar', editAttributes, deleteAttributes)}
+    <fieldset class="receipt-item swipe-content" data-swipe-content data-item-index="${index}">
+      <legend><span>Línea ${index + 1}</span><span class="receipt-item__legend-actions"><span class="status-pill ${confirmed ? 'success' : 'warning'}">${escapeHtml(validation.status || 'needs-review')}</span><button type="button" class="icon-button" data-swipe-toggle aria-expanded="false" aria-label="Mostrar acciones de la línea ${index + 1}">${icon('more')}</button></span></legend>
+      <label class="field"><span>Producto</span><input data-field="description" maxlength="240" value="${escapeHtml(item.description)}" autocomplete="off"></label>
+      <div class="quantity-row"><label class="field"><span>Cantidad</span><input data-field="quantity" type="number" min="0" step="1" inputmode="numeric" value="${item.quantity}"></label><label class="field"><span>Precio unitario (€)</span><input data-field="unitPriceEuro" inputmode="decimal" value="${minorToEuroInput(item.unitPriceMinor)}"></label><label class="field"><span>Total (€)</span><input data-field="lineTotalEuro" inputmode="decimal" value="${minorToEuroInput(item.lineTotalMinor)}"></label></div>
+    </fieldset>
+  </div>`;
 }
 
 export function optimizationPlan(plan) {
