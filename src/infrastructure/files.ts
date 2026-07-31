@@ -10,6 +10,7 @@ export type StoredFileContent = Readonly<{ storageKey: string; mimeType: Support
 
 export const DEFAULT_FILE_STORAGE_MAX_BYTES = 512 * 1024 * 1024;
 
+const INTERRUPTED_UPLOAD_SUFFIX = '.upload';
 const MAGIC: Readonly<Record<SupportedFileMimeType, readonly number[]>> = {
   'image/jpeg': [0xff, 0xd8, 0xff],
   'image/png': [0x89, 0x50, 0x4e, 0x47],
@@ -49,15 +50,24 @@ export class FileStore {
     this.#permanentDir = resolve(permanentDir);
     this.#tempDir = resolve(tempDir);
     mkdirSync(this.#permanentDir, { recursive: true });
+    this.cleanupInterruptedWrites();
     this.cleanupTemporary();
     if (this.storedBytes() > this.#maxStoredBytes) {
       throw new RangeError('Persistent file storage already exceeds the configured limit');
     }
   }
 
+  private cleanupInterruptedWrites(): void {
+    for (const entry of readdirSync(this.#permanentDir, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(INTERRUPTED_UPLOAD_SUFFIX)) {
+        rmSync(join(this.#permanentDir, entry.name), { force: true });
+      }
+    }
+  }
+
   private storedBytes(): number {
     return readdirSync(this.#permanentDir, { withFileTypes: true })
-      .filter((entry) => entry.isFile())
+      .filter((entry) => entry.isFile() && !entry.name.endsWith(INTERRUPTED_UPLOAD_SUFFIX))
       .reduce((total, entry) => total + statSync(join(this.#permanentDir, entry.name)).size, 0);
   }
 
@@ -75,12 +85,12 @@ export class FileStore {
       if (this.storedBytes() + buffer.byteLength > this.#maxStoredBytes) {
         throw new RangeError('Persistent file storage limit would be exceeded');
       }
-      const temporary = join(this.#tempDir, `${hash}-${randomUUID()}.upload`);
+      const staging = join(this.#permanentDir, `.${hash}-${randomUUID()}${INTERRUPTED_UPLOAD_SUFFIX}`);
       try {
-        writeFileSync(temporary, buffer, { flag: 'wx' });
-        renameSync(temporary, target);
+        writeFileSync(staging, buffer, { flag: 'wx', mode: 0o600 });
+        renameSync(staging, target);
       } finally {
-        rmSync(temporary, { force: true });
+        rmSync(staging, { force: true });
       }
     }
     return { storageKey, hash, mimeType: input.mimeType, bytes: buffer.byteLength };
