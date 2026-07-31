@@ -65,7 +65,8 @@ test('operations gateway distinguishes missing and loopback AI configuration',as
     assert.equal(JSON.stringify(settings).includes(credentialFixture),false);
     const testResponse=await fetch(`${base}/api/v1/settings/ai-provider/test`,{method:'POST'});
     assert.equal(testResponse.status,502);
-    assert.equal((await json(testResponse))['connection'] instanceof Object,true);
+    const connection=(await json(testResponse))['connection'] as Record<string,unknown>;
+    assert.equal(connection['code'],'AI_LOOPBACK_CONTAINER');
     await loopback.close();
   }finally{
     if(previousContainer===undefined)delete process.env['BASKETRA_CONTAINER'];
@@ -112,13 +113,21 @@ test('operations gateway exposes redacted logs and downloadable portable backups
     assert.match(download.headers.get('content-disposition')??'',/attachment/);
     const bytes=new Uint8Array(await download.arrayBuffer());
     assert.ok(bytes.byteLength>0);
+
+    const wrongType=await fetch(`${base}/api/v1/restore/import?name=${encodeURIComponent(name)}`,{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:bytes,
+    });
+    assert.equal(wrongType.status,415);
+    assert.equal(((await json(wrongType))['error'] as Record<string,unknown>)['code'],'BACKUP_CONTENT_TYPE_INVALID');
   }finally{
     await gateway.close();
     rmSync(directory,{recursive:true,force:true});
   }
 });
 
-test('restore is validated, staged with a pre-backup and applied only after shutdown',async()=>{
+test('restore is streamed, validated, staged with a pre-backup and applied only after shutdown',async()=>{
   const directory=`.test-tmp/gateway-restore-${randomUUID()}`;
   let restartRequested=false;
   const gateway=new OperationsGateway(config(directory),{requestRestart:()=>{restartRequested=true}});
@@ -140,13 +149,17 @@ test('restore is validated, staged with a pre-backup and applied only after shut
       method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:'Must disappear'}),
     })).status,201);
 
-    const imported=await json(await fetch(`${base}/api/v1/restore/import`,{
+    const importedResponse=await fetch(`${base}/api/v1/restore/import?name=${encodeURIComponent(backupName)}`,{
       method:'POST',
-      headers:{'content-type':'application/json'},
-      body:JSON.stringify({name:backupName,base64:Buffer.from(backupBytes).toString('base64')}),
-    }));
+      headers:{'content-type':'application/vnd.sqlite3'},
+      body:backupBytes,
+    });
+    assert.equal(importedResponse.status,201);
+    const imported=await json(importedResponse);
     const importedName=(imported['backup'] as Record<string,unknown>)['name'];
     assert.equal(typeof importedName,'string');
+    assert.equal((imported['backup'] as Record<string,unknown>)['bytes'],backupBytes.byteLength);
+
     const rejected=await fetch(`${base}/api/v1/restore/stage`,{
       method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:importedName,confirmation:'NO'}),
     });
@@ -161,7 +174,7 @@ test('restore is validated, staged with a pre-backup and applied only after shut
     await gateway.close();
   }
 
-  assert.equal(applyPendingRestore(directory).status,'applied');
+  assert.equal((await applyPendingRestore(directory)).status,'applied');
   const restored=new BasketraDatabase(`${directory}/basketra.db`);
   try{
     assert.deepEqual(restored.listShoppingLists().map(list=>list.name),['Imported state']);
