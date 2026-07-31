@@ -195,17 +195,31 @@ function addBlankLine() {
   input?.focus();
 }
 
-function deleteReceiptLine(index) {
+function restoreReceiptLine(index, item, original) {
+  state.items.splice(Math.min(index, state.items.length), 0, item);
+  if (original) state.originalItems.splice(Math.min(index, state.originalItems.length), 0, original);
+  renderReview();
+  $('#receipt-state').textContent = 'Línea restaurada; revisa el total antes de confirmar.';
+  toast('Línea restaurada');
+}
+
+function deleteReceiptLine(index, { undoable = true } = {}) {
   try {
     state.items = readReceiptItems();
   } catch {
     // Removing a row must remain possible while another row has an incomplete euro value.
   }
   if (!state.items[index]) return;
-  state.items.splice(index, 1);
-  state.originalItems.splice(index, 1);
+  const [item] = state.items.splice(index, 1);
+  const [original] = state.originalItems.splice(index, 1);
   renderReview();
-  $('#receipt-state').textContent = 'Línea retirada; revisa el total antes de confirmar.';
+  $('#receipt-state').textContent = 'Línea eliminada; revisa el total antes de confirmar.';
+  if (!undoable) return;
+  toast('Línea eliminada', {
+    actionLabel: 'Deshacer',
+    duration: 5200,
+    onAction: () => restoreReceiptLine(index, item, original),
+  });
 }
 
 function handleReceiptAction(event) {
@@ -215,7 +229,7 @@ function handleReceiptAction(event) {
   if (action === 'add-line') addBlankLine();
   if (action === 'delete') deleteReceiptLine(Number(button.dataset.receiptIndex));
   if (action === 'edit') {
-    const row = button.closest('.receipt-item');
+    const row = button.closest('[data-swipe-row]')?.querySelector('.receipt-item');
     row?.querySelector('[data-field="description"]')?.focus();
   }
 }
@@ -417,6 +431,10 @@ function bindEvents() {
   $('#review-receipt').addEventListener('click', () => void validateRows());
   $('#confirm-receipt').addEventListener('click', () => void confirmReceipt());
   $('#add-manual-line').addEventListener('click', addBlankLine);
+  document.addEventListener('basketra:swipe-action', event => {
+    if (event.detail?.kind !== 'receipt-line' || event.detail?.action !== 'delete') return;
+    deleteReceiptLine(Number(event.detail.id));
+  });
 }
 
 export function initReceipts(options) {
