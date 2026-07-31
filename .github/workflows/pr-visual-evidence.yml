@@ -103,7 +103,11 @@ jobs:
             needle=$1
             slug=$2
             directory=$(find downloaded/test-results -mindepth 1 -maxdepth 1 -type d -name "*$needle*" -print -quit)
-            test -n "$directory"
+            if [ -z "$directory" ]; then
+              echo "No Playwright evidence directory matched '$needle'. Available directories:" >&2
+              find downloaded/test-results -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort >&2
+              exit 1
+            fi
             test -f "$directory/final.png"
             test -f "$directory/video.webm"
 
@@ -118,8 +122,8 @@ jobs:
           prepare_flow mobile-PWA-loads 01-mobile-navigation
           prepare_flow shopping-lists-su 02-shopping-list-lifecycle
           prepare_flow local-suggestions 03-stale-suggestions
-          prepare_flow camera-gallery 04-camera-gallery-receipt
-          prepare_flow manual-receipt-re 05-manual-receipt-recovery
+          prepare_flow local-OCR-creates 04-local-ocr-editable-rows
+          prepare_flow local-OCR-failure 05-local-ocr-manual-recovery
           prepare_flow comparison-renders 06-comparison-plans
           prepare_flow AI-unavailability 07-ai-unavailable-recovery
           prepare_flow offline-shell 08-offline-keyboard
@@ -166,14 +170,14 @@ jobs:
           <table>
           <tr>
           <td><strong>Mobile navigation</strong><br><img src="$base/01-mobile-navigation.png" width="280" alt="Basketra mobile navigation"></td>
-          <td><strong>Shopping-list lifecycle</strong><br><img src="$base/02-shopping-list-lifecycle.png" width="280" alt="Basketra shopping-list lifecycle"></td>
+          <td><strong>Shopping-list lifecycle and swipe actions</strong><br><img src="$base/02-shopping-list-lifecycle.png" width="280" alt="Basketra shopping-list lifecycle and swipe actions"></td>
           </tr>
           <tr>
           <td><strong>Stale suggestions</strong><br><img src="$base/03-stale-suggestions.png" width="280" alt="Basketra stale suggestion handling"></td>
-          <td><strong>Camera and receipt</strong><br><img src="$base/04-camera-gallery-receipt.png" width="280" alt="Basketra camera and receipt flow"></td>
+          <td><strong>Local OCR and editable euro rows</strong><br><img src="$base/04-local-ocr-editable-rows.png" width="280" alt="Basketra local OCR and editable euro rows"></td>
           </tr>
           <tr>
-          <td><strong>Manual receipt recovery</strong><br><img src="$base/05-manual-receipt-recovery.png" width="280" alt="Basketra manual receipt recovery"></td>
+          <td><strong>OCR failure and manual recovery</strong><br><img src="$base/05-local-ocr-manual-recovery.png" width="280" alt="Basketra OCR failure and manual euro-row recovery"></td>
           <td><strong>Comparison plans</strong><br><img src="$base/06-comparison-plans.png" width="280" alt="Basketra comparison plans"></td>
           </tr>
           <tr>
@@ -184,23 +188,23 @@ jobs:
 
           ### Critical flows
 
-          **Shopping-list lifecycle**
+          **Shopping-list lifecycle and reusable swipe actions**
 
-          ![Shopping-list lifecycle]($base/02-shopping-list-lifecycle.gif)
+          ![Shopping-list lifecycle and swipe actions]($base/02-shopping-list-lifecycle.gif)
 
           [Open the full shopping-list video]($base/02-shopping-list-lifecycle.webm)
 
-          **Camera, gallery and receipt correction**
+          **Local OCR, editable rows and euro-denominated values**
 
-          ![Camera, gallery and receipt correction]($base/04-camera-gallery-receipt.gif)
+          ![Local OCR and editable euro rows]($base/04-local-ocr-editable-rows.gif)
 
-          [Open the full receipt video]($base/04-camera-gallery-receipt.webm)
+          [Open the full local OCR video]($base/04-local-ocr-editable-rows.webm)
 
-          **Manual recovery without OCR or AI**
+          **OCR failure with preserved draft and manual recovery**
 
-          ![Manual receipt recovery]($base/05-manual-receipt-recovery.gif)
+          ![OCR failure and manual recovery]($base/05-local-ocr-manual-recovery.gif)
 
-          [Open the full recovery video]($base/05-manual-receipt-recovery.webm)
+          [Open the full recovery video]($base/05-local-ocr-manual-recovery.webm)
 
           **Offline and keyboard behavior**
 
