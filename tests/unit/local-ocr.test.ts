@@ -42,6 +42,25 @@ test('local OCR uses fixed Spanish single-thread arguments and validated image b
   provider.dispose();
 });
 
+test('local OCR serializes concurrent requests to bound Raspberry resources',async()=>{
+  const starts:number[]=[];
+  let releaseFirst:(()=>void)|undefined;
+  const provider=new TesseractCliOcrProvider({runner:async request=>{
+    const marker=request.input[0]??0;
+    starts.push(marker);
+    if(marker===1)await new Promise<void>(resolve=>{releaseFirst=resolve});
+    return {stdout:tsv,stderr:''};
+  }});
+  const first=provider.recognize({mimeType:'image/png',bytes:Uint8Array.from([1])});
+  const second=provider.recognize({mimeType:'image/png',bytes:Uint8Array.from([2])});
+  await Promise.resolve();
+  assert.deepEqual(starts,[1]);
+  assert.ok(releaseFirst);
+  releaseFirst();
+  await Promise.all([first,second]);
+  assert.deepEqual(starts,[1,2]);
+});
+
 test('local OCR rejects unsupported inputs before starting a process',async()=>{
   let calls=0;
   const provider=new TesseractCliOcrProvider({runner:async()=>{calls+=1;return {stdout:tsv,stderr:''}}});
