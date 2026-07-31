@@ -1,12 +1,15 @@
 import { test, expect } from '@playwright/test';
 
-function monitorRuntime(page, { allowOfflineErrors = false, allowServiceUnavailable = false } = {}) {
+const validPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8//8/AwMDEwMDAwMDAwAkBgMB/DXemwAAAABJRU5ErkJggg==', 'base64');
+
+function monitorRuntime(page, { allowOfflineErrors = false, allowServiceUnavailable = false, allowExpectedOcrFailure = false } = {}) {
   const failures = [];
   page.on('pageerror', error => failures.push(`pageerror: ${error.message}`));
   page.on('console', message => {
     const text = message.text();
     if (allowOfflineErrors && text.includes('net::ERR_INTERNET_DISCONNECTED')) return;
     if (allowServiceUnavailable && text.includes('503 (Service Unavailable)')) return;
+    if (allowExpectedOcrFailure && text.includes('502 (Bad Gateway)')) return;
     if (message.type() === 'error') failures.push(`console: ${text}`);
   });
   page.on('requestfailed', request => {
@@ -59,6 +62,20 @@ async function addProduct(page, { name, quantity = '1', unit = 'unit', exact = f
   await expect(page.locator('#pending-items')).toContainText(name);
 }
 
+async function swipe(page, locator, direction, { long = false } = {}) {
+  await locator.scrollIntoViewIfNeeded();
+  const box = await locator.boundingBox();
+  expect(box).not.toBeNull();
+  const startX = direction === 'left' ? box.x + box.width - 28 : box.x + 30;
+  const distance = box.width * (long ? 0.7 : 0.45);
+  const endX = direction === 'left' ? startX - distance : startX + distance;
+  const y = box.y + Math.min(box.height / 2, 48);
+  await page.mouse.move(startX, y);
+  await page.mouse.down();
+  await page.mouse.move(endX, y, { steps: 12 });
+  await page.mouse.up();
+}
+
 async function expectNoHorizontalOverflow(page) {
   const dimensions = await page.evaluate(() => ({
     viewport: document.documentElement.clientWidth,
@@ -92,7 +109,7 @@ test('mobile PWA loads with private-network messaging and touch-safe navigation'
   expect(manifest.icons.length).toBeGreaterThan(0);
   await expect(page.getByText('Sólo en tu red privada')).toBeVisible();
   await expect(page.locator('.bottom-nav button')).toHaveCount(5);
-  const heights = await page.locator('button:visible').evaluateAll(buttons => buttons.map(button => buttons.length ? button.getBoundingClientRect().height : 0));
+  const heights = await page.locator('button:visible').evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().height));
   expect(heights.every(height => height >= 44)).toBeTruthy();
   for (const destination of ['Inicio', 'Lista', 'Tickets', 'Planes', 'Ajustes']) {
     await navigate(page, destination);
@@ -102,7 +119,7 @@ test('mobile PWA loads with private-network messaging and touch-safe navigation'
   expect(failures).toEqual([]);
 });
 
-test('shopping lists support create, rename, edit, quantities, completion, ordering and deletion', async ({ page }) => {
+test('shopping lists support reusable swipe, editing, quantities, completion, ordering and deletion', async ({ page }) => {
   const failures = await gotoApp(page);
   await createList(page, 'Compra E2E');
 
@@ -114,23 +131,32 @@ test('shopping lists support create, rename, edit, quantities, completion, order
   await addProduct(page, { name: 'Leche entera 1 L', quantity: '2', unit: 'l', exact: true, substitutions: false });
   await addProduct(page, { name: 'Arroz 1 kg', quantity: '1', unit: 'kg' });
 
+  const milkRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Leche entera 1 L' });
   await page.getByRole('button', { name: 'Aumentar cantidad de Leche entera 1 L' }).click();
-  await expect(page.locator('[data-item-row]').filter({ hasText: 'Leche entera 1 L' }).locator('.quantity-chip')).toHaveText('3');
+  await expect(milkRow.locator('.quantity-chip')).toHaveText('3');
 
+  await swipe(page, milkRow, 'left');
+  await expect(page.getByRole('button', { name: 'Editar Leche entera 1 L' })).toBeVisible();
   await page.getByRole('button', { name: 'Editar Leche entera 1 L' }).click();
   await productInput(page).fill('Leche semidesnatada 1 L');
   await page.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
   await expect(page.locator('#pending-items')).toContainText('Leche semidesnatada 1 L');
 
-  await page.getByRole('button', { name: 'Marcar Arroz 1 kg como comprado' }).click();
+  const riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
+  await swipe(page, riceRow, 'right');
   await expect(page.locator('#completed-items')).toContainText('Arroz 1 kg');
   await page.getByRole('button', { name: 'Devolver Arroz 1 kg a pendientes' }).click();
   await expect(page.locator('#pending-items')).toContainText('Arroz 1 kg');
 
   await page.getByRole('button', { name: 'Subir Arroz 1 kg' }).click();
-  await expect(page.locator('#pending-items [data-item-row]').first()).toContainText('Arroz 1 kg');
+  await expect(page.locator('#pending-items [data-swipe-kind="shopping-item"]').first()).toContainText('Arroz 1 kg');
 
-  await page.getByRole('button', { name: 'Eliminar Arroz 1 kg' }).click();
+  const returnedRice = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
+  await swipe(page, returnedRice, 'left', { long: true });
+  const deleteRice = page.getByRole('button', { name: 'Eliminar Arroz 1 kg' });
+  await expect(deleteRice).toBeFocused();
+  await expect(page.locator('#pending-items')).toContainText('Arroz 1 kg');
+  await deleteRice.click();
   await page.getByRole('button', { name: 'Eliminar producto', exact: true }).click();
   await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
 
@@ -151,11 +177,7 @@ test('local suggestions ignore stale responses and never require AI', async ({ p
   await page.route('**/api/v1/products/suggestions**', async route => {
     const query = new URL(route.request().url()).searchParams.get('q');
     if (query === 'le') await new Promise(resolve => setTimeout(resolve, 450));
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ suggestions: [{ id: query, name: query === 'le' ? 'Old stale result' : 'Leche nueva 1 L', source: 'catalog' }] }),
-    });
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ suggestions: [{ id: query, name: query === 'le' ? 'Old stale result' : 'Leche nueva 1 L', source: 'catalog' }] }) });
   });
   await page.goto('/');
   await createList(page, 'Suggestions E2E');
@@ -168,67 +190,96 @@ test('local suggestions ignore stale responses and never require AI', async ({ p
   expect(failures).toEqual([]);
 });
 
-test('camera, gallery and PDF captures preview, reorder, correct and import without AI', async ({ page }) => {
+test('local OCR creates editable euro rows and imports without AI', async ({ page }) => {
   const failures = await gotoApp(page);
   await navigate(page, 'Tickets');
 
   await expect(page.locator('#receipt-camera')).toHaveAttribute('capture', 'environment');
   await expect(page.locator('#receipt-camera')).toHaveAttribute('accept', 'image/jpeg,image/png');
   await expect(page.locator('#receipt-files')).toHaveAttribute('accept', 'image/jpeg,image/png,application/pdf');
+  await expect(page.locator('#receipt-text')).toHaveCount(0);
+  await expect(page.getByLabel('Verificar y normalizar con IA')).toBeDisabled();
+  await expect(page.locator('#receipt-ai-help')).toContainText('OCR local en español activo');
 
-  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00]);
   const pdf = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00]);
-  await page.locator('#receipt-camera').setInputFiles({ name: 'camera.png', mimeType: 'image/png', buffer: png });
+  await page.locator('#receipt-camera').setInputFiles({ name: 'camera.png', mimeType: 'image/png', buffer: validPng });
   await page.locator('#receipt-files').setInputFiles([
-    { name: 'gallery.png', mimeType: 'image/png', buffer: png },
+    { name: 'gallery.png', mimeType: 'image/png', buffer: validPng },
     { name: 'receipt.pdf', mimeType: 'application/pdf', buffer: pdf },
   ]);
 
   await expect(page.locator('#capture-list li')).toHaveCount(3);
   await expect(page.locator('#capture-list img[data-capture-preview-image]')).toHaveCount(2);
   await expect(page.locator('#capture-list')).toContainText('PDF');
-
-  await page.getByRole('button', { name: 'Ampliar camera.png' }).click();
-  await expect(page.locator('#capture-preview-dialog')).toBeVisible();
-  await expect(page.locator('#capture-preview-image')).toHaveAttribute('src', /\/api\/v1\/files\//);
-  await page.getByRole('button', { name: 'Cerrar vista previa' }).click();
-
-  await page.getByRole('button', { name: 'Bajar camera.png' }).click();
-  await expect(page.locator('#capture-list li').nth(1)).toContainText('camera.png');
   await page.getByRole('button', { name: 'Retirar receipt.pdf del borrador' }).click();
   await expect(page.locator('#capture-list li')).toHaveCount(2);
 
-  await page.getByText('Introducción manual y opciones avanzadas', { exact: true }).click();
-  await page.getByLabel('Texto extraído o transcripción', { exact: true }).fill('Milk;1;120;120\nTOTAL 1,20');
-  await page.getByLabel('Total declarado (céntimos)', { exact: true }).fill('120');
-  await setSwitch(page, 'Verificar y normalizar con IA', false);
-  await page.getByRole('button', { name: 'Procesar capturas', exact: true }).click();
-  await expect(page.locator('#receipt-state')).toContainText('Extracción lista');
-  await expect(page.locator('#receipt-review')).toContainText('Total validado');
+  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
+  await expect(page.locator('#receipt-state')).toContainText('OCR local listo');
+  await expect(page.locator('.receipt-item')).toHaveCount(2);
+  await expect(page.getByLabel('Precio unitario (€)').first()).toHaveValue('1.20');
+  await expect(page.getByLabel('Total (€)').first()).toHaveValue('1.20');
+  await expect(page.getByLabel('Total declarado (€)')).toHaveValue('1.20');
+  await expect(page.locator('#receipt-review')).toContainText('1,20 €');
+  await expect(page.getByText(/céntimos|cént\./i)).toHaveCount(0);
 
-  await page.locator('.receipt-item [data-field="description"]').fill('Whole milk');
+  const firstLine = page.locator('.receipt-item').first();
+  await swipe(page, firstLine, 'left', { long: true });
+  const deleteLine = page.getByRole('button', { name: 'Eliminar línea 1' });
+  await expect(deleteLine).toBeFocused();
+  await expect(page.locator('.receipt-item')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Editar línea 1' }).click();
+  await expect(firstLine.locator('[data-field="description"]')).toBeFocused();
+  await firstLine.locator('[data-field="description"]').fill('Whole milk');
+
+  await page.getByRole('button', { name: 'Añadir línea', exact: true }).click();
+  await expect(page.locator('.receipt-item')).toHaveCount(3);
+  const manualLine = page.locator('.receipt-item').last();
+  await manualLine.locator('[data-field="description"]').fill('Bread');
+  await manualLine.locator('[data-field="quantity"]').fill('1');
+  await manualLine.locator('[data-field="unitPriceEuro"]').fill('0.20');
+  await manualLine.locator('[data-field="lineTotalEuro"]').fill('0.20');
+  await page.getByLabel('Total declarado (€)').fill('2.60');
+  await page.getByRole('button', { name: 'Validar líneas e importes', exact: true }).click();
+  await expect(page.locator('#receipt-state')).toContainText('Líneas y total validados');
+
   await page.getByRole('button', { name: 'Confirmar e importar', exact: true }).click();
   await expect(page.locator('#receipt-state')).toContainText('Ticket importado');
   await expect(page.locator('#capture-list li')).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
   expect(failures).toEqual([]);
 });
 
-test('manual receipt recovery preserves the draft when AI is unavailable', async ({ page }) => {
-  const failures = await gotoApp(page, { allowServiceUnavailable: true });
+test('local OCR failure preserves captures and supports manual euro-row recovery', async ({ page }) => {
+  const failures = await gotoApp(page, { allowExpectedOcrFailure: true });
   await navigate(page, 'Tickets');
-  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00]);
-  await page.locator('#receipt-camera').setInputFiles({ name: 'manual.png', mimeType: 'image/png', buffer: png });
-  await page.getByRole('button', { name: 'Procesar capturas', exact: true }).click();
-  await expect(page.locator('#receipt-state')).toContainText('No hay OCR configurado');
+  await page.locator('#receipt-camera').setInputFiles({ name: 'manual.png', mimeType: 'image/png', buffer: validPng });
+  let failOnce = true;
+  await page.route('**/api/v1/receipts/extract', async route => {
+    if (failOnce) {
+      failOnce = false;
+      await route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ error: { code: 'OCR_LOCAL_PROCESS_FAILED', message: 'El OCR local no pudo leer la imagen; el borrador se conserva', requestId: 'ocr-test' } }) });
+      return;
+    }
+    await route.continue();
+  });
+  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
+  await expect(page.locator('#receipt-state')).toContainText('Puedes corregir o añadir las líneas manualmente');
   await expect(page.locator('#capture-list li')).toHaveCount(1);
-  await page.getByLabel('Texto extraído o transcripción', { exact: true }).fill('Bread;1;150;150\nTOTAL 1,50');
-  await page.getByLabel('Total declarado (céntimos)', { exact: true }).fill('150');
-  await page.getByRole('button', { name: 'Revisar transcripción', exact: true }).click();
-  await expect(page.locator('#receipt-review')).toContainText('Total validado');
+  await expect(page.locator('.receipt-item')).toHaveCount(1);
+
+  await page.getByLabel('Producto', { exact: true }).last().fill('Bread');
+  await page.getByLabel('Cantidad', { exact: true }).last().fill('1');
+  await page.getByLabel('Precio unitario (€)', { exact: true }).fill('1,50');
+  await page.getByLabel('Total (€)', { exact: true }).fill('1.50');
+  await page.getByLabel('Total declarado (€)', { exact: true }).fill('1,50');
+  await page.getByRole('button', { name: 'Validar líneas e importes', exact: true }).click();
+  await expect(page.locator('#receipt-state')).toContainText('Líneas y total validados');
+  await expect(page.locator('#capture-list li')).toHaveCount(1);
   expect(failures).toEqual([]);
 });
 
-test('comparison renders all deterministic plans', async ({ page }) => {
+test('comparison renders all deterministic plans in euros', async ({ page }) => {
   const failures = await gotoApp(page);
   await navigate(page, 'Planes');
   await page.getByRole('button', { name: 'Generar ejemplo verificable', exact: true }).click();
@@ -236,6 +287,8 @@ test('comparison renders all deterministic plans', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Un solo comercio' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Equilibrio recomendado' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Máximo ahorro' })).toBeVisible();
+  await expect(page.locator('.plan-total').first()).toContainText('€');
+  await expect(page.getByText(/cént\./i)).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
   expect(failures).toEqual([]);
 });
@@ -263,10 +316,7 @@ test('offline shell reloads and keyboard focus remains visible', async ({ page, 
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Organiza la compra sin perder tiempo.' })).toBeVisible();
   await page.keyboard.press('Tab');
-  const focus = await page.evaluate(() => ({
-    tag: document.activeElement?.tagName,
-    outline: getComputedStyle(document.activeElement).outlineStyle,
-  }));
+  const focus = await page.evaluate(() => ({ tag: document.activeElement?.tagName, outline: getComputedStyle(document.activeElement).outlineStyle }));
   expect(focus.tag).not.toBe('BODY');
   expect(focus.outline).not.toBe('none');
   await context.setOffline(false);
