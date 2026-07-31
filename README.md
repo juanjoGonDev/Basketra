@@ -18,9 +18,11 @@ The repository contains a dependency-free Node.js 22 application built on `node:
 - receipt correction and idempotent transactional confirmation;
 - exact backend money and unit normalization;
 - deterministic single-retailer, balanced, and maximum-saving plans;
-- SQLite backup, restore validation, and guarded startup migrations;
+- portable SQLite backup download, validated import, and staged startup restore;
+- live runtime version, uptime, AI diagnostics, and bounded redacted application logs;
+- visibility-aware private-route heartbeat that recovers after a VPN interruption;
 - strict security headers, body limits, hibernation, and graceful shutdown;
-- local Docker development plus private AMD64/ARM64 GHCR delivery for Raspberry Pi.
+- verified patch-versioned AMD64/ARM64 GHCR delivery and GitHub releases for Raspberry Pi.
 
 The runtime has no third-party npm dependencies. Tesseract is installed as an Alpine runtime package and runs only while a receipt image is being recognized. Pull-request CI runs unit, integration, static PWA, mobile Chromium, security, container smoke, vulnerability, AMD64, and ARM64 checks with directly viewable browser screenshots, GIFs, video, and traces.
 
@@ -82,7 +84,7 @@ pnpm build
 pnpm quality
 ```
 
-`pnpm test:coverage` enforces 100% lines, branches, and functions for the project-owned domain layer. Playwright covers OCR success and recovery, editable euro rows, swipe actions, full list workflows, camera/gallery persistence, offline behavior, and accessibility states without retries.
+`pnpm test:coverage` enforces 100% lines, branches, and functions for the project-owned domain layer. Playwright covers OCR success and recovery, editable euro rows, progressive swipe actions, full list workflows, camera/gallery persistence, runtime operations, backup import, private-route reconnection, offline behavior, and accessibility states without retries.
 
 ## Local Docker
 
@@ -99,13 +101,15 @@ The image build fails unless Tesseract and the `spa` model are present. The loca
 
 ## Private Raspberry deployment
 
-Successful pushes to `main` publish a private multi-architecture image to GHCR only after every quality, security, browser, smoke, AMD64, and ARM64 gate passes:
+Successful pushes to `main` publish a private multi-architecture image and GitHub release only after every quality, security, browser, smoke, AMD64, and ARM64 gate passes:
 
-1. Buildx publishes only `ghcr.io/juanjogondev/basketra:<full-commit-sha>`.
-2. CI verifies its registry digest and AMD64/ARM64 manifest entries.
-3. CI pulls and runs that exact digest under production restrictions.
-4. Only after readiness and clean shutdown does CI promote the same digest to `stable`.
-5. CI verifies `stable` and retains the newest immutable SHA releases.
+1. CI resolves one stable semantic version for the immutable commit. The first trusted release is `1.0.0`; each subsequent release increments only the patch component.
+2. Buildx publishes only `ghcr.io/juanjogondev/basketra:<full-commit-sha>` initially, with the version and revision embedded in the image and visible in the application.
+3. CI verifies the registry digest and AMD64/ARM64 manifest entries.
+4. CI pulls and runs that exact digest under production restrictions, verifies `/api/v1/runtime`, readiness, resource limits, and clean shutdown.
+5. Only after verification does CI promote the same digest to `stable` and the immutable numeric version tag.
+6. CI verifies both promoted tags, creates or verifies the GitHub release, and retains a bounded set of SHA image versions.
+7. A rerun for the same commit reuses its assigned release version and cannot consume another patch number.
 
 ```bash
 COMMIT_SHA=<full-commit-sha>
@@ -120,7 +124,7 @@ Production startup:
 cp .env.example .env
 docker compose -f compose.raspberry.yml config --quiet
 docker compose -f compose.raspberry.yml pull basketra
-docker compose -f compose.raspberry.yml up -d basketra
+docker compose -f compose.raspberry.yml up -d --force-recreate basketra
 curl --fail http://127.0.0.1:3000/readiness
 ```
 
@@ -137,7 +141,7 @@ The UI and API support complete list management:
 - reorder products with deterministic contiguous positions;
 - preserve the active list and unsubmitted item draft across reloads.
 
-On mobile, swiping right marks a product bought. Swiping left reveals edit and delete controls. A long left swipe only focuses the destructive control; deletion always requires an explicit button press. Equivalent buttons remain available for keyboard, switch, and assistive-technology users.
+On mobile, swiping right marks a product bought. A short left swipe reveals edit and delete controls. Continuing to the red threshold deletes on release and immediately offers Undo. Equivalent visible controls remain available for keyboard, switch, simple-pointer, and assistive-technology users; deletion through a button still uses confirmation.
 
 ## Receipt workflow
 
@@ -159,37 +163,64 @@ Local OCR does not rasterize PDFs. A PDF requires a configured PDF-capable provi
 
 Stored image previews are served from `/api/v1/files/<storage-key>` with strict storage-key validation and `Cache-Control: private, no-store`. PDF content is not exposed through the image-preview route. The service worker excludes all `/api/` requests.
 
-## Data and manual backup
+## Runtime operations
 
-Persistent data lives in `basketra-data`. Run backup calls only through the trusted private access path:
+Settings exposes operational state without revealing process environment or arbitrary host logs:
+
+- deployed semantic version and immutable revision;
+- server start time and a live uptime counter derived locally from that timestamp;
+- RSS memory snapshot;
+- AI configuration state, loopback-in-container warning, and an explicit connection test;
+- bounded structured client and server application events;
+- portable backup creation, optional direct download, validated import, and staged restore.
+
+The private-route heartbeat runs slowly while healthy, retries quickly while disconnected, pauses while the document is hidden, and ignores stale responses. A VPN route restoration updates the connection chip and refreshes operational state without a page reload or a browser `online` event.
+
+Application logs use NDJSON under the persistent data volume. Rotation defaults to 10,000 lines or 40 MiB per active file, with a bounded archive count. Client events are untrusted and pass through a closed server-side schema, field-size caps, batch caps, and rate limiting. Receipt text, uploaded filenames, request bodies, headers, credentials, provider responses, and filesystem paths are never accepted as client log fields.
+
+## Data, backup, and restore
+
+Persistent data lives in `basketra-data`. Settings can create a portable backup and then leaves the download decision to the operator. The API equivalents remain available through the trusted private path:
 
 ```bash
 curl --fail --request POST http://127.0.0.1:3000/api/v1/backup \
   --header 'Content-Type: application/json' \
   --data '{"name":"basketra-manual.db"}'
 
-curl --fail --request POST http://127.0.0.1:3000/api/v1/restore/validate \
-  --header 'Content-Type: application/json' \
-  --data '{"name":"basketra-manual.db"}'
+curl --fail --output basketra-manual.db \
+  http://127.0.0.1:3000/api/v1/backups/basketra-manual.db
 ```
+
+Imported `.db` files are staged separately and must pass SQLite integrity and supported-schema validation. Restore requires the exact confirmation phrase shown in Settings. Basketra creates a portable pre-restore backup, writes an atomic pending marker, exits cleanly, validates the imported database again during startup, and only then replaces the inactive primary database. A failed startup restore preserves the current database and moves the marker aside to prevent a restart loop.
 
 See [BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md). A named Docker volume is not an independent disaster-recovery copy; export important backups to separately managed storage.
 
 ## Optional AI provider configuration
 
-Local image OCR needs no provider. Configure an OpenAI-compatible service only for optional text verification, list assistance, or provider-dependent PDF OCR:
+Local image OCR needs no provider. Configure an OpenAI-compatible service only for optional text verification, list assistance, or provider-dependent PDF OCR. Every environment entry must be on its own line.
+
+For a provider listening on the Raspberry host at port 3001:
 
 ```dotenv
-BASKETRA_AI_BASE_URL=http://10.0.0.20:8080/v1/
-BASKETRA_AI_API_KEY=replace-me
-BASKETRA_AI_MODEL=your-model
+BASKETRA_AI_BASE_URL=http://host.docker.internal:3001/v1/
+BASKETRA_AI_API_KEY=<rotated-provider-key>
+BASKETRA_AI_MODEL=default
 BASKETRA_AI_TIMEOUT_MS=30000
 BASKETRA_AI_MAX_RETRIES=1
 BASKETRA_AI_IMAGE_CAPABILITY=true
 BASKETRA_AI_PDF_CAPABILITY=false
 ```
 
-The browser never receives the provider key. Provider URLs are administrative environment configuration, never request input. Structured results are validated locally before use.
+`127.0.0.1` inside the Basketra container refers to Basketra itself, not to the Raspberry host. `compose.raspberry.yml` maps `host.docker.internal` to Docker's host gateway. After changing `.env`, validate and recreate the service so Docker injects the new values:
+
+```bash
+docker compose -f compose.raspberry.yml config --quiet
+docker compose -f compose.raspberry.yml up -d --force-recreate basketra
+```
+
+Settings distinguishes configuration that is missing, loaded with an invalid container-loopback address, unreachable, rejected by authentication, or reachable. The browser never receives the provider key; it may display only the last four masked characters. Provider URLs are administrative environment configuration, never request input. Structured results are validated locally before use.
+
+The only accepted deployment resource names are `BASKETRA_BIND_ADDRESS`, `BASKETRA_MEMORY_LIMIT`, and `BASKETRA_CPU_LIMIT`. The aliases `BASKETRA_BIND_IP`, `BASKETRA_MEM_LIMIT`, and `BASKETRA_CPUS` are not read. `BASKETRA_AUTH_TOKEN` was removed and must not be restored.
 
 ## Architecture and operations
 
