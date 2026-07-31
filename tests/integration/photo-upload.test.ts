@@ -24,8 +24,9 @@ async function upload(baseUrl: string, bytes: Buffer, mimeType: 'image/jpeg' | '
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ base64: bytes.toString('base64'), mimeType, originalName }),
   });
-  assert.equal(response.status, 201, await response.text());
-  const body = await response.json() as { file: { storageKey: string; bytes: number } };
+  const responseText = await response.text();
+  assert.equal(response.status, 201, responseText);
+  const body = JSON.parse(responseText) as { file: { storageKey: string; bytes: number } };
   return body.file;
 }
 
