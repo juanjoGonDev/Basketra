@@ -1,3 +1,5 @@
+import { formatEuroMinor, minorToEuroInput } from './money.js';
+
 const ICONS = {
   home: '<path d="M3 11.5 12 4l9 7.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 19.5Z"/><path d="M9 21v-6h6v6"/>',
   list: '<path d="M9 6h12M9 12h12M9 18h12"/><path d="m3.5 6 .8.8L6 5M3.5 12l.8.8L6 11M3.5 18l.8.8L6 17"/>',
@@ -64,17 +66,22 @@ export function shoppingListItem(item, index, total) {
   const name = escapeHtml(item.text);
   const completionLabel = item.completed ? `Devolver ${name} a pendientes` : `Marcar ${name} como comprado`;
   const details = `${item.quantityMinor} ${escapeHtml(item.unit)} · ${item.exactRequired ? 'Exacto' : 'Flexible'} · ${item.substitutionAllowed ? 'Con alternativas' : 'Sin alternativas'}`;
-  return `<li class="list-row${item.completed ? ' is-completed' : ''}" data-item-row="${id}">
-    <button type="button" class="completion-button" data-item-action="complete" data-item-id="${id}" aria-label="${completionLabel}" aria-pressed="${String(item.completed)}">${icon('check')}</button>
-    <div class="list-row__content"><strong>${name}</strong><span>${details}</span></div>
-    <div class="list-row__actions">
-      <button type="button" class="icon-button" data-item-action="quantity" data-item-id="${id}" data-delta="-1" ${item.quantityMinor <= 1 ? 'disabled' : ''} aria-label="Reducir cantidad de ${name}">${icon('minus')}</button>
-      <span class="quantity-chip" aria-label="Cantidad actual">${item.quantityMinor}</span>
-      <button type="button" class="icon-button" data-item-action="quantity" data-item-id="${id}" data-delta="1" aria-label="Aumentar cantidad de ${name}">${icon('plus')}</button>
-      <button type="button" class="icon-button" data-item-action="edit" data-item-id="${id}" aria-label="Editar ${name}">${icon('edit')}</button>
-      <button type="button" class="icon-button" data-item-action="move" data-item-id="${id}" data-direction="-1" ${index === 0 ? 'disabled' : ''} aria-label="Subir ${name}">${icon('chevronUp')}</button>
-      <button type="button" class="icon-button" data-item-action="move" data-item-id="${id}" data-direction="1" ${index === total - 1 ? 'disabled' : ''} aria-label="Bajar ${name}">${icon('chevronDown')}</button>
-      <button type="button" class="icon-button danger" data-item-action="delete" data-item-id="${id}" aria-label="Eliminar ${name}">${icon('trash')}</button>
+  return `<li class="swipe-row list-row${item.completed ? ' is-completed' : ''}" data-swipe-row data-swipe-kind="shopping-item" data-swipe-id="${id}" data-swipe-start-action="complete" data-swipe-end-action="edit">
+    <div class="swipe-actions swipe-actions--start" aria-hidden="true"><span>${icon('check')}<strong>${item.completed ? 'Pendiente' : 'Comprado'}</strong></span></div>
+    <div class="swipe-actions swipe-actions--end">
+      <button type="button" data-swipe-action="edit" aria-label="Editar ${name}">${icon('edit')}<span>Editar</span></button>
+      <button type="button" class="danger" data-swipe-action="delete" aria-label="Eliminar ${name}">${icon('trash')}<span>Eliminar</span></button>
+    </div>
+    <div class="swipe-surface list-row__surface" data-swipe-surface tabindex="0" aria-expanded="false">
+      <button type="button" class="completion-button" data-item-action="complete" data-item-id="${id}" aria-label="${completionLabel}" aria-pressed="${String(item.completed)}">${icon('check')}</button>
+      <div class="list-row__content"><strong>${name}</strong><span>${details}</span></div>
+      <div class="list-row__actions">
+        <button type="button" class="icon-button" data-item-action="quantity" data-item-id="${id}" data-delta="-1" ${item.quantityMinor <= 1 ? 'disabled' : ''} aria-label="Reducir cantidad de ${name}">${icon('minus')}</button>
+        <span class="quantity-chip" aria-label="Cantidad actual">${item.quantityMinor}</span>
+        <button type="button" class="icon-button" data-item-action="quantity" data-item-id="${id}" data-delta="1" aria-label="Aumentar cantidad de ${name}">${icon('plus')}</button>
+        <button type="button" class="icon-button" data-item-action="move" data-item-id="${id}" data-direction="-1" ${index === 0 ? 'disabled' : ''} aria-label="Subir ${name}">${icon('chevronUp')}</button>
+        <button type="button" class="icon-button" data-item-action="move" data-item-id="${id}" data-direction="1" ${index === total - 1 ? 'disabled' : ''} aria-label="Bajar ${name}">${icon('chevronDown')}</button>
+      </div>
     </div>
   </li>`;
 }
@@ -106,12 +113,32 @@ export function proposalPanel(proposal) {
 
 export function receiptReview(items, lines, total) {
   const expected = total?.expectedMinor ?? items.reduce((sum, item) => sum + item.lineTotalMinor, 0);
-  return `<div class="review-summary"><div><p class="eyebrow">Revisión</p><h2>Comprueba cada línea</h2></div><span class="status-pill ${total?.valid === false ? 'warning' : 'success'}">${total?.valid === false ? 'Revisar total' : 'Total validado'}</span></div><div class="review-total"><span>Total calculado</span><strong>${expected} céntimos</strong></div><div class="receipt-items">${items.map((item, index) => receiptLine(item, index, lines[index])).join('')}</div>`;
+  const status = total?.valid === false ? 'warning' : 'success';
+  const label = total?.valid === false ? 'Revisar total' : 'Total validado';
+  return `<div class="review-summary"><div><p class="eyebrow">Revisión</p><h2>Comprueba cada línea</h2></div><span class="status-pill ${status}">${label}</span></div>
+    <div class="review-total"><span>Total calculado</span><strong>${formatEuroMinor(expected)}</strong></div>
+    <ul class="receipt-items">${items.map((item, index) => receiptLine(item, index, lines[index])).join('')}</ul>
+    <button type="button" class="button secondary full" data-receipt-action="add-line">${icon('plus')}Añadir línea</button>`;
 }
 
 function receiptLine(item, index, validation = {}) {
   const confirmed = validation.status === 'confirmed';
-  return `<fieldset class="receipt-item" data-item-index="${index}"><legend>Línea ${index + 1}<span class="status-pill ${confirmed ? 'success' : 'warning'}">${escapeHtml(validation.status || 'needs-review')}</span></legend><label class="field"><span>Descripción</span><input data-field="description" maxlength="240" value="${escapeHtml(item.description)}"></label><div class="quantity-row"><label class="field"><span>Cantidad</span><input data-field="quantity" type="number" min="0" value="${item.quantity}"></label><label class="field"><span>Precio unitario</span><input data-field="unitPriceMinor" type="number" min="0" value="${item.unitPriceMinor}"></label><label class="field"><span>Total</span><input data-field="lineTotalMinor" type="number" min="0" value="${item.lineTotalMinor}"></label></div></fieldset>`;
+  const status = escapeHtml(validation.status || 'needs-review');
+  return `<li class="swipe-row receipt-item" data-swipe-row data-swipe-kind="receipt-line" data-swipe-id="${index}" data-swipe-end-action="edit">
+    <div class="swipe-actions swipe-actions--end">
+      <button type="button" data-swipe-action="edit" aria-label="Editar línea ${index + 1}">${icon('edit')}<span>Editar</span></button>
+      <button type="button" class="danger" data-swipe-action="delete" aria-label="Eliminar línea ${index + 1}">${icon('trash')}<span>Eliminar</span></button>
+    </div>
+    <div class="swipe-surface receipt-item__surface" data-swipe-surface tabindex="0" aria-expanded="false">
+      <div class="receipt-item__header"><strong>Línea ${index + 1}</strong><span class="status-pill ${confirmed ? 'success' : 'warning'}">${status}</span></div>
+      <label class="field"><span>Producto</span><input data-field="description" maxlength="240" value="${escapeHtml(item.description)}" autocomplete="off"></label>
+      <div class="receipt-money-grid">
+        <label class="field"><span>Cantidad</span><input data-field="quantity" type="number" min="0" step="1" inputmode="numeric" value="${item.quantity}"></label>
+        <label class="field"><span>Precio unitario</span><span class="money-input"><input data-field="unitPriceEuro" inputmode="decimal" value="${minorToEuroInput(item.unitPriceMinor)}" aria-label="Precio unitario en euros"><span>€</span></span></label>
+        <label class="field"><span>Total línea</span><span class="money-input"><input data-field="lineTotalEuro" inputmode="decimal" value="${minorToEuroInput(item.lineTotalMinor)}" aria-label="Total de línea en euros"><span>€</span></span></label>
+      </div>
+    </div>
+  </li>`;
 }
 
 export function optimizationPlan(plan) {
@@ -120,7 +147,7 @@ export function optimizationPlan(plan) {
     balanced: ['balance', 'Equilibrio recomendado'],
     'maximum-saving': ['savings', 'Máximo ahorro'],
   }[plan.kind] || ['prices', plan.kind];
-  return `<article class="plan-card"><header><span>${icon(presentation[0])}</span><h2>${escapeHtml(presentation[1])}</h2></header><strong class="plan-total">${plan.effectiveTotalMinor} cént.</strong><dl><div><dt>Comercios</dt><dd>${plan.retailerIds.length}</dd></div><div><dt>Faltantes</dt><dd>${plan.missingItemIds.length}</dd></div><div><dt>Confianza</dt><dd>${Math.round(plan.confidence * 100)}%</dd></div></dl><p>${escapeHtml(plan.explanation)}</p></article>`;
+  return `<article class="plan-card"><header><span>${icon(presentation[0])}</span><h2>${escapeHtml(presentation[1])}</h2></header><strong class="plan-total">${formatEuroMinor(plan.effectiveTotalMinor)}</strong><dl><div><dt>Comercios</dt><dd>${plan.retailerIds.length}</dd></div><div><dt>Faltantes</dt><dd>${plan.missingItemIds.length}</dd></div><div><dt>Confianza</dt><dd>${Math.round(plan.confidence * 100)}%</dd></div></dl><p>${escapeHtml(plan.explanation)}</p></article>`;
 }
 
 export function formatBytes(bytes) {
