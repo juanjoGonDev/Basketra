@@ -1,11 +1,30 @@
 # OCR limitations
 
-Basketra defines a replaceable `OcrProvider` and implements two production paths:
+Basketra defines a replaceable `OcrProvider` and implements three production paths:
 
+- local Tesseract 5 OCR for JPEG and PNG receipt images;
 - embedded or manually supplied text, which bypasses OCR entirely;
-- bounded multimodal extraction through the configured OpenAI-compatible provider for image captures and, when explicitly enabled, PDF files.
+- bounded multimodal extraction through a configured OpenAI-compatible provider for PDF files and optional post-OCR verification.
 
-The backend validates every stored capture again before reading it, preserves page order, propagates cancellation, applies one operation deadline through the centralized AI executor and releases the lazy provider during hibernation. The browser never contacts the provider directly.
+## Local image OCR
+
+The production container includes Tesseract and the Spanish `tessdata_fast` model. Image OCR is free, local and enabled without an API key, account or network request.
+
+Basketra does not keep an OCR service or model worker resident. Each recognition starts one ephemeral child process and releases it when the page finishes. The provider:
+
+- invokes `tesseract` directly without a shell;
+- accepts only already validated JPEG or PNG bytes;
+- uses the Spanish LSTM engine with receipt-oriented page segmentation;
+- limits OpenMP to one thread;
+- serializes recognition so only one Tesseract process runs per application instance;
+- applies a 20-second timeout and bounded stdout/stderr;
+- propagates request cancellation and kills the process;
+- parses TSV into ordered lines and a bounded confidence value;
+- never logs receipt text, OCR output, filenames, paths or raw process errors.
+
+The container build fails unless the Tesseract executable and `spa` language model are both available on AMD64 and ARM64.
+
+## Optional AI and PDF path
 
 Configuration:
 
@@ -14,16 +33,18 @@ BASKETRA_AI_IMAGE_CAPABILITY=true
 BASKETRA_AI_PDF_CAPABILITY=false
 ```
 
-PDF capability is disabled by default because OpenAI-compatible servers vary in file-message support. Enable it only after the provider connection and a synthetic PDF fixture have been verified. When usable embedded text is supplied, Basketra does not invoke image/PDF OCR.
+AI verification is disabled in the ticket UI unless a provider is configured. Local image OCR remains available independently. A configured provider can verify the locally extracted text; its result is still treated as a proposal and validated locally.
 
-Current limitations:
+Local PDF rasterization is not bundled. PDF capability is disabled by default because OpenAI-compatible servers vary in file-message support. A PDF therefore requires one of these paths:
 
-- Basketra does not yet parse embedded PDF text itself; the client or a future PDF adapter must supply that text, otherwise a PDF-capable provider is required.
-- The provider returns a transcription proposal, not trusted application data.
-- Accuracy depends on capture quality, provider capability and model selection.
-- The current server path sends validated files as bounded data URLs; very long receipts should be split into ordered captures.
-- A client-side Web Worker OCR adapter remains possible for fully local extraction but is not bundled.
+- a verified PDF-capable provider;
+- embedded text supplied by a future adapter;
+- manual editable receipt rows.
 
-Required deployment validation includes privacy-safe synthetic Mercadona, Alcampo, Lidl, Carrefour, long-ticket, PDF, weight, discount and split-line fixtures. No real personal receipts belong in Git or CI.
+## Accuracy and recovery
 
-OCR output, deterministic parsing and AI interpretation are stored separately. Arithmetic is recalculated independently, uncertain lines are prioritized for review, and user corrections never overwrite original evidence.
+OCR accuracy depends on lighting, focus, crop, rotation, print quality and receipt layout. Long receipts should be split into ordered captures. The interface preserves every original capture and presents editable rows in euros, so a partial or failed recognition never blocks manual correction.
+
+Required deployment validation uses privacy-safe synthetic fixtures for supermarkets, long tickets, weights, discounts and split lines. No real personal receipts belong in Git or CI.
+
+OCR output, deterministic parsing and optional AI interpretation are stored separately. Arithmetic is recalculated independently, uncertain lines are prioritized for review, and user corrections never overwrite original evidence.
