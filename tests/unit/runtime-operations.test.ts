@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { BasketraDatabase } from '../../src/infrastructure/database.ts';
 import { ApplicationLogStore, sanitizeClientLog } from '../../src/operations/log-store.ts';
 import { applyPendingRestore, importBackupStream, stagePendingRestore } from '../../src/operations/restore.ts';
-import { nextPatchVersion, resolveRuntimeVersion } from '../../src/operations/version.ts';
+import { resolveRuntimeVersion } from '../../src/operations/version.ts';
 
 function temporaryDirectory(label: string): string {
   return `.test-tmp/${label}-${randomUUID()}`;
@@ -18,7 +18,7 @@ async function* chunks(bytes: Uint8Array, size = 4096): AsyncIterable<Uint8Array
   }
 }
 
-test('runtime versions are validated and releases increment only the patch component',()=>{
+test('runtime consumes only validated injected release metadata',()=>{
   assert.deepEqual(resolveRuntimeVersion({ BASKETRA_VERSION:'1.2.3',BASKETRA_REVISION:'abcdef1234567' }),{
     version:'1.2.3',
     revision:'abcdef1234567',
@@ -26,10 +26,6 @@ test('runtime versions are validated and releases increment only the patch compo
   assert.deepEqual(resolveRuntimeVersion({ BASKETRA_VERSION:'not-semver',BASKETRA_REVISION:'unsafe revision' }),{
     version:'0.0.0-dev',
   });
-  assert.equal(nextPatchVersion(undefined),'1.0.0');
-  assert.equal(nextPatchVersion('v1.0.0'),'1.0.1');
-  assert.equal(nextPatchVersion('2.7.19'),'2.7.20');
-  assert.throws(()=>nextPatchVersion('2.7.19-beta'),/stable semantic version/);
 });
 
 test('client logs accept only bounded allowlisted metadata',()=>{
