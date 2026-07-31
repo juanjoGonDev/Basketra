@@ -99,19 +99,26 @@ jobs:
           command -v ffmpeg >/dev/null
           mkdir -p evidence-assets
 
-          prepare_flow() {
+          find_flow_directory() {
             needle=$1
-            slug=$2
             directory=$(find downloaded/test-results -mindepth 1 -maxdepth 1 -type d -name "*$needle*" -print -quit)
             if [ -z "$directory" ]; then
               echo "No Playwright evidence directory matched '$needle'. Available directories:" >&2
               find downloaded/test-results -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort >&2
               exit 1
             fi
-            test -f "$directory/final.png"
+            printf '%s\n' "$directory"
+          }
+
+          prepare_flow() {
+            needle=$1
+            slug=$2
+            screenshot=${3:-final.png}
+            directory=$(find_flow_directory "$needle")
+            test -f "$directory/$screenshot"
             test -f "$directory/video.webm"
 
-            cp "$directory/final.png" "evidence-assets/$slug.png"
+            cp "$directory/$screenshot" "evidence-assets/$slug.png"
             cp "$directory/video.webm" "evidence-assets/$slug.webm"
             ffmpeg -hide_banner -loglevel error -y -t 12 \
               -i "$directory/video.webm" \
@@ -119,16 +126,27 @@ jobs:
               "evidence-assets/$slug.gif"
           }
 
+          copy_flow_capture() {
+            needle=$1
+            source=$2
+            target=$3
+            directory=$(find_flow_directory "$needle")
+            test -f "$directory/$source"
+            cp "$directory/$source" "evidence-assets/$target"
+          }
+
           prepare_flow mobile-PWA-loads 01-mobile-navigation
-          prepare_flow shopping-lists-su 02-shopping-list-lifecycle
+          prepare_flow shopping-lists-su 02-shopping-list-lifecycle swipe-reveal.png
           prepare_flow local-suggestions 03-stale-suggestions
-          prepare_flow local-OCR-creates 04-local-ocr-editable-rows
+          prepare_flow local-OCR-creates 04-local-ocr-editable-rows swipe-reveal.png
           prepare_flow local-OCR-failure 05-local-ocr-manual-recovery
           prepare_flow comparison-renders 06-comparison-plans
           prepare_flow AI-unavailability 07-ai-unavailable-recovery
           prepare_flow offline-shell 08-offline-keyboard
+          copy_flow_capture shopping-lists-su swipe-delete.png 02-shopping-list-full-delete.png
+          copy_flow_capture local-OCR-creates swipe-delete.png 04-local-ocr-full-delete.png
 
-          test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 8
+          test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 10
           test "$(find evidence-assets -maxdepth 1 -type f -name '*.gif' | wc -l)" -eq 8
           test "$(find evidence-assets -maxdepth 1 -type f -name '*.webm' | wc -l)" -eq 8
 
@@ -167,14 +185,25 @@ jobs:
 
           Generated from final head \`$HEAD_SHA\` after the [successful browser workflow]($run_url). The media is temporary, directly viewable and is not committed to the repository.
 
+          ### Progressive swipe thresholds
+
+          <table>
+          <tr>
+          <td><strong>Shopping list: short swipe reveals actions</strong><br><img src="$base/02-shopping-list-lifecycle.png" width="280" alt="Shopping-list row partially swiped to reveal edit and delete actions"></td>
+          <td><strong>Shopping list: full swipe deletes with undo</strong><br><img src="$base/02-shopping-list-full-delete.png" width="280" alt="Shopping-list row deleted after a full swipe with an undo action"></td>
+          </tr>
+          <tr>
+          <td><strong>Receipt: short swipe reveals actions</strong><br><img src="$base/04-local-ocr-editable-rows.png" width="280" alt="Editable receipt row partially swiped to reveal edit and delete actions"></td>
+          <td><strong>Receipt: full swipe deletes with undo</strong><br><img src="$base/04-local-ocr-full-delete.png" width="280" alt="Editable receipt row deleted after a full swipe with an undo action"></td>
+          </tr>
+          </table>
+
+          ### Remaining screens
+
           <table>
           <tr>
           <td><strong>Mobile navigation</strong><br><img src="$base/01-mobile-navigation.png" width="280" alt="Basketra mobile navigation"></td>
-          <td><strong>Shopping-list lifecycle and swipe actions</strong><br><img src="$base/02-shopping-list-lifecycle.png" width="280" alt="Basketra shopping-list lifecycle and swipe actions"></td>
-          </tr>
-          <tr>
           <td><strong>Stale suggestions</strong><br><img src="$base/03-stale-suggestions.png" width="280" alt="Basketra stale suggestion handling"></td>
-          <td><strong>Local OCR and editable euro rows</strong><br><img src="$base/04-local-ocr-editable-rows.png" width="280" alt="Basketra local OCR and editable euro rows"></td>
           </tr>
           <tr>
           <td><strong>OCR failure and manual recovery</strong><br><img src="$base/05-local-ocr-manual-recovery.png" width="280" alt="Basketra OCR failure and manual euro-row recovery"></td>
@@ -188,13 +217,13 @@ jobs:
 
           ### Critical flows
 
-          **Shopping-list lifecycle and reusable swipe actions**
+          **Shopping-list lifecycle and progressive swipe actions**
 
-          ![Shopping-list lifecycle and swipe actions]($base/02-shopping-list-lifecycle.gif)
+          ![Shopping-list lifecycle and progressive swipe actions]($base/02-shopping-list-lifecycle.gif)
 
           [Open the full shopping-list video]($base/02-shopping-list-lifecycle.webm)
 
-          **Local OCR, editable rows and euro-denominated values**
+          **Local OCR, editable rows, progressive swipe and euro-denominated values**
 
           ![Local OCR and editable euro rows]($base/04-local-ocr-editable-rows.gif)
 
