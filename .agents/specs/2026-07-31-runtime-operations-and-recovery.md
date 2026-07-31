@@ -18,11 +18,11 @@ Fix misleading AI configuration failures and add operational controls suitable f
 - The supplied environment used obsolete aliases (`BASKETRA_BIND_IP`, `BASKETRA_MEM_LIMIT`, `BASKETRA_CPUS`), included an obsolete application token, and used `127.0.0.1` for an AI service outside the Basketra container.
 - Docker Compose only injects the canonical AI variables listed in `compose.raspberry.yml`; changing `.env` does not mutate an already-created container until it is recreated.
 - Inside a container, `127.0.0.1` identifies that container, not a service running on the Raspberry host.
-- The browser currently checks connectivity only during initialization and browser `online`/`offline` events. VPN route changes do not reliably emit those events.
-- Diagnostics expose `startedAt` but the UI renders a static JSON snapshot.
-- Manual backups can be created but cannot be downloaded or imported from the application.
-- The package version is `0.1.0` and the published image does not carry an independently visible release version.
-- Existing backend failures are written to stderr but there is no bounded application log stream visible from Settings.
+- The browser previously checked connectivity only during initialization and browser `online`/`offline` events. VPN route changes do not reliably emit those events.
+- Diagnostics exposed `startedAt` but the UI rendered a static JSON snapshot.
+- Manual backups could be created but not downloaded or imported from the application.
+- The package version was `0.1.0` and the published image did not carry an independently visible release version.
+- Existing backend failures were written to stderr but there was no bounded application log stream visible from Settings.
 
 ## Decisions
 
@@ -35,11 +35,13 @@ Fix misleading AI configuration failures and add operational controls suitable f
 7. Server and client events share one structured NDJSON stream under `/data/logs`. Rotation defaults are 10,000 lines or 40 MiB, oldest-file-first, with a bounded number of archives.
 8. Client logs are untrusted. The server accepts only a closed, sanitized schema, caps batch size and field length, and rate-limits ingestion. No receipt text, filenames, request bodies, credentials, headers, arbitrary messages or filesystem paths are accepted.
 9. Backups remain portable SQLite files. Creation and download are separate actions. Download uses attachment headers and streaming.
-10. Imported backups are written to a dedicated staging directory, validated for SQLite integrity and schema version, and never overwrite the active database directly.
-11. Restore requires an explicit confirmation phrase. The gateway first creates a portable pre-restore backup, writes an atomic pending-restore marker and exits only after responding. On restart, the pending restore is validated again and atomically applied before the database opens. A failed restore preserves the current database and cannot loop indefinitely.
+10. Imported backups stream directly to a dedicated owner-only staging file, are bounded at the 512 MiB database ceiling, hashed incrementally, validated for SQLite integrity/schema, and never overwrite the active database directly.
+11. Restore requires an explicit confirmation phrase. The gateway first creates a portable pre-restore backup, writes an atomic pending-restore marker and exits only after responding. On restart, the pending restore and pre-backup are validated again and the replacement is applied atomically before the database opens. A failed restore preserves the current database and cannot loop indefinitely.
 12. The runtime version is injected at image build time. Development builds show `0.0.0-dev`. Trusted main publication resolves one deterministic semantic version per commit, starting at `1.0.0` when no release exists and incrementing only the patch component thereafter.
-13. The verified GHCR publication workflow creates the GitHub release only after the exact image digest has passed registry and runtime verification. Reruns for the same commit reuse the existing version and do not create another release.
-14. Generated screenshots, GIFs and videos remain temporary PR assets and are not committed.
+13. The release policy is the only owner of version calculation; runtime code only validates and displays injected metadata.
+14. Trusted main workflows are serialized rather than cancelled so two merges cannot race for a release number or interrupt promotion midway.
+15. The verified GHCR publication workflow creates the GitHub release only after the exact image digest has passed registry and runtime verification. Reruns for the same commit reuse the existing version and do not create another release.
+16. Generated screenshots, GIFs and videos remain temporary PR assets and are not committed.
 
 ## Acceptance
 
@@ -48,11 +50,12 @@ Fix misleading AI configuration failures and add operational controls suitable f
 - The deployment guide uses canonical variable names, one variable per line, `host.docker.internal`, and `docker compose ... up -d --force-recreate basketra` after environment changes.
 - The removed `BASKETRA_AUTH_TOKEN` is not reintroduced.
 - Disconnecting and reconnecting the VPN updates the chip without reloading manually and future health checks continue.
+- Connectivity has one browser owner; the legacy check no longer competes with the heartbeat.
 - Settings shows a live uptime counter, start time and deployed version.
 - Settings shows bounded redacted client/server logs and supports manual refresh.
 - Creating a backup offers a direct download without automatically forcing one.
-- A local `.db` file can be imported, validated and staged; restore requires explicit confirmation and preserves a pre-restore backup.
-- Invalid, oversized, unsupported or future-schema backups are rejected without changing the active database.
+- A local `.db` file streams to disk, is validated and can be staged; restore requires explicit confirmation and preserves a pre-restore backup.
+- Invalid content types, empty, oversized, corrupt, unsupported or future-schema backups are rejected without changing the active database or retaining partial files.
 - Release publication assigns one patch-incremented version to the validated commit and exposes it in the app and OCI labels.
 - Unit, integration and Playwright tests cover configuration states, heartbeat recovery, uptime, logs, backup download/import/restore staging and version rendering.
 - Quality, security, CodeQL, container smoke, AMD64, ARM64 and direct visual evidence pass on the final head.
@@ -63,16 +66,17 @@ Fix misleading AI configuration failures and add operational controls suitable f
 - API keys are never returned; only an existing last-four mask may be displayed.
 - Logs contain allowlisted metadata only and are stored under bounded retention.
 - Backup names are server-generated or strictly validated; path traversal is rejected.
-- Imported databases are size-bounded, staged with owner-only permissions and validated before any marker can be written.
+- Imported databases are streamed, size-bounded, staged with owner-only permissions and validated before any marker can be written.
 - Restore is a deliberate destructive operation with confirmation, a pre-restore backup and startup-time atomic replacement.
 - No browser endpoint can read Docker configuration, process environment, registry credentials or arbitrary host logs.
 
 ## Tests
 
-- Unit tests for log sanitization/rotation, semantic version resolution and restore marker validation.
-- Integration tests for AI settings states, logs, streamed backup download, import validation, restore staging and startup apply/rollback.
-- Playwright mobile and desktop flows for Settings, live uptime, client/server logs, backup create/download/import confirmation and VPN-route recovery.
-- Existing OCR, receipt, list, security and multi-architecture suites remain green.
+- Unit tests cover log sanitization/rotation, runtime metadata, canonical semantic version resolution, streamed import limits/cleanup and restore marker validation.
+- Integration tests cover AI settings states, loopback warnings, redacted logs, streamed backup download/import, invalid content type, restore staging and startup apply.
+- Twelve deterministic mobile Chromium flows run without retries, including Settings, live uptime, client/server logs, backup create/download/import confirmation and VPN-route recovery.
+- Existing OCR, receipt, list, security, container smoke and native AMD64/ARM64 suites remain green.
+- PR evidence publication renders the operational and VPN recovery screenshots, GIFs and videos directly.
 
 ## Rollback
 
@@ -80,13 +84,14 @@ Revert the PR. Before rollback after a restore, keep the generated pre-restore b
 
 ## Delivery
 
-Branch `agent/feat-runtime-operations`; draft PR pending implementation and validation. No merge, release, deployment, secret rotation or Raspberry mutation is performed by this task.
+Branch `agent/feat-runtime-operations`; PR #10. No merge, release, deployment, secret rotation or Raspberry mutation is performed by this task.
 
 ## Status
 
 - Reconnaissance: complete.
 - Specification: complete.
-- Implementation: in progress.
-- Validation: pending.
-- Visual evidence: pending.
-- Delivery: pending.
+- Implementation: complete.
+- Refactor: complete.
+- Validation: complete on the implementation head; final documentation-only head is being revalidated.
+- Visual evidence: automated and pending final-head publication.
+- Delivery: pending final CI confirmation and review-ready transition.
