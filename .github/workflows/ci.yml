@@ -134,7 +134,6 @@ jobs:
           persist-credentials: false
       - name: Validate Compose variants
         env:
-          BASKETRA_AUTH_TOKEN: ci-validation-placeholder
           BASKETRA_DOCKER_CONFIG_DIR: /tmp/basketra-docker-config
         run: |
           mkdir -p "$BASKETRA_DOCKER_CONFIG_DIR"
@@ -190,7 +189,7 @@ jobs:
           docker volume rm basketra-ci-data 2>/dev/null || true
 
   publish-image:
-    name: "🚀 Publish verified private GHCR image"
+    name: "🚀 Publish verified private GHCR image and release"
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs:
       - quality
@@ -201,7 +200,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
-      contents: read
+      contents: write
       packages: write
     env:
       IMAGE: ghcr.io/juanjogondev/basketra
@@ -211,6 +210,23 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Resolve deterministic patch release
+        id: release-version
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { resolveReleaseVersion } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/release-version-policy.mjs`);
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            });
+            const resolved = resolveReleaseVersion(releases, context.sha);
+            core.setOutput('version', resolved.version);
+            core.setOutput('tag', resolved.tag);
+            core.setOutput('reused', String(resolved.reused));
+            core.info(`Release ${resolved.tag} assigned to ${context.sha}; reused=${resolved.reused}`);
       - name: Log in to GHCR
         uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
         with:
@@ -229,9 +245,13 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/juanjogondev/basketra:${{ github.sha }}
+          build-args: |
+            BASKETRA_VERSION=${{ steps.release-version.outputs.version }}
+            BASKETRA_REVISION=${{ github.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.release-version.outputs.version }}
             org.opencontainers.image.title=Basketra
           sbom: true
           provenance: mode=max
@@ -248,6 +268,7 @@ jobs:
       - name: Pull and smoke-test the exact published digest
         env:
           DIGEST: ${{ steps.publish-sha.outputs.digest }}
+          RELEASE_VERSION: ${{ steps.release-version.outputs.version }}
         run: |
           set -euo pipefail
           container=basketra-published-${GITHUB_RUN_ID}
@@ -259,7 +280,9 @@ jobs:
           trap cleanup EXIT
           docker pull --platform linux/amd64 "$IMAGE:$GITHUB_SHA"
           revision=$(docker image inspect "$IMAGE:$GITHUB_SHA" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+          version=$(docker image inspect "$IMAGE:$GITHUB_SHA" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')
           test "$revision" = "$GITHUB_SHA"
+          test "$version" = "$RELEASE_VERSION"
           docker run --detach --name "$container" \
             --read-only \
             --tmpfs /tmp/basketra:rw,noexec,nosuid,size=32m \
@@ -281,6 +304,8 @@ jobs:
             fi
             sleep 1
           done
+          curl --fail --silent http://127.0.0.1:3001/api/v1/runtime | \
+            node -e 'let text="";process.stdin.on("data",chunk=>text+=chunk).on("end",()=>{const runtime=JSON.parse(text);if(runtime.version!==process.env.RELEASE_VERSION||runtime.revision!==process.env.GITHUB_SHA)process.exit(1)})'
           started=$(date +%s)
           docker stop --time 20 "$container"
           elapsed=$(($(date +%s)-started))
@@ -305,6 +330,52 @@ jobs:
           done
           echo "stable does not resolve to the validated SHA digest" >&2
           exit 1
+      - name: Promote verified digest to immutable version
+        id: promote-version
+        env:
+          DIGEST: ${{ steps.publish-sha.outputs.digest }}
+          RELEASE_VERSION: ${{ steps.release-version.outputs.version }}
+        run: docker buildx imagetools create --metadata-file version-promotion.json --tag "$IMAGE:$RELEASE_VERSION" "$IMAGE@$DIGEST"
+      - name: Verify version is the validated manifest
+        env:
+          DIGEST: ${{ steps.publish-sha.outputs.digest }}
+          RELEASE_VERSION: ${{ steps.release-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect --format '{{json .Manifest}}' "$IMAGE:$RELEASE_VERSION" > version-manifest.json
+          node scripts/ghcr-manifest-policy.mjs stable candidate-manifest.json version-manifest.json "$DIGEST"
+      - name: Create or verify GitHub release
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          RELEASE_TAG: ${{ steps.release-version.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release-version.outputs.version }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { owner, repo } = context.repo;
+            let existing;
+            try {
+              existing = (await github.rest.repos.getReleaseByTag({ owner, repo, tag: process.env.RELEASE_TAG })).data;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            if (existing) {
+              if (existing.target_commitish !== context.sha) {
+                throw new Error(`${process.env.RELEASE_TAG} already targets another commit`);
+              }
+              core.info(`Verified existing release ${process.env.RELEASE_TAG}`);
+              return;
+            }
+            await github.rest.repos.createRelease({
+              owner,
+              repo,
+              tag_name: process.env.RELEASE_TAG,
+              target_commitish: context.sha,
+              name: `Basketra ${process.env.RELEASE_VERSION}`,
+              generate_release_notes: true,
+              draft: false,
+              prerelease: false,
+            });
       - name: Enforce bounded GHCR release retention
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
