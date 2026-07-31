@@ -17,7 +17,7 @@ Basketra bounds persistent SQLite copies so repeated operations cannot consume t
 | Manual and pre-restore backups | newest 5, at most 768 MiB combined |
 | Deduplicated receipt files | 512 MiB maximum |
 
-The limits are enforced in application code. A write or backup that cannot fit fails explicitly. Retention considers both file count and total bytes. Browser upload requests remain bounded by `BASKETRA_MAX_BODY_BYTES`; large disaster-recovery copies should also be exported and restored through the offline runbook.
+The limits are enforced in application code. A write or backup that cannot fit fails explicitly. Retention considers both file count and total bytes. Database imports stream directly to a staging file, keep memory usage bounded, and reject input above the 512 MiB primary-database ceiling. Full-volume or larger disaster-recovery operations remain offline procedures.
 
 ## Create and optionally download a backup
 
@@ -40,14 +40,15 @@ The download route uses a fixed backup directory, strict filename validation, at
 
 The Settings import control accepts `.db` files. Import never overwrites the active database. Basketra:
 
-1. writes the upload to a uniquely named staging file with owner-only permissions;
-2. enforces the configured request size;
-3. runs SQLite integrity checking;
-4. verifies that the schema version is supported and not newer than the running application;
-5. computes a SHA-256 digest;
-6. atomically moves the validated file into `/data/backups/imports`.
+1. streams the upload directly into a uniquely named staging file with owner-only permissions;
+2. enforces the 512 MiB database limit while reading and removes a partial file on failure;
+3. accepts only the SQLite binary content types used by the application;
+4. computes SHA-256 incrementally without buffering the complete database;
+5. runs SQLite integrity checking;
+6. verifies that the schema version is supported and not newer than the running application;
+7. atomically moves the validated file into `/data/backups/imports`.
 
-Invalid, empty, oversized, malformed, corrupt, schema-zero, or future-schema files are rejected and removed. Receipt content, filenames, database bytes, and filesystem paths are not written to application logs.
+Invalid, empty, oversized, malformed, corrupt, schema-zero, or future-schema files are rejected and removed. Receipt content, original filenames, database bytes, and filesystem paths are not written to application logs.
 
 The older server-side validation endpoint remains available for backups that already exist under `/data/backups`:
 
@@ -62,11 +63,11 @@ curl --fail --request POST http://127.0.0.1:3000/api/v1/restore/validate \
 Restore is destructive and requires the exact confirmation phrase displayed by the UI. A successful request does not replace the active database while SQLite is open. Instead, Basketra:
 
 1. creates and validates a portable `basketra-pre-restore-*.db` backup of the active database;
-2. revalidates the selected imported copy;
+2. revalidates the selected imported copy and its digest;
 3. writes an atomic pending-restore marker containing only generated names, digest, schema metadata, and timestamp;
 4. responds to the browser;
 5. exits cleanly;
-6. validates the candidate and digest again during the next startup, before opening the primary database;
+6. validates the candidate, digest, and pre-restore backup again during the next startup, before opening the primary database;
 7. copies and validates a temporary replacement;
 8. removes stale WAL/SHM files and atomically renames the replacement to `/data/basketra.db`;
 9. starts normally and resumes the private-route heartbeat.
@@ -93,7 +94,7 @@ On migration failure, the transaction rolls back, the source version remains unc
 
 ## Offline restore procedure
 
-Use the offline procedure for large backups, full-volume recovery, or when the application cannot start:
+Use the offline procedure for full-volume recovery, very large databases, or when the application cannot start:
 
 1. Validate the candidate backup where possible.
 2. Stop Basketra.
