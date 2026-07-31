@@ -67,7 +67,7 @@ async function swipe(page, locator, direction, { long = false } = {}) {
   const box = await locator.boundingBox();
   expect(box).not.toBeNull();
   const startX = direction === 'left' ? box.x + box.width * 0.72 : box.x + box.width * 0.35;
-  const distance = box.width * (long ? 0.72 : 0.34);
+  const distance = box.width * (long ? 0.72 : direction === 'right' ? 0.46 : 0.34);
   const endX = direction === 'left' ? startX - distance : startX + distance;
   const y = box.y + Math.min(box.height / 2, 42);
   await page.mouse.move(startX, y);
