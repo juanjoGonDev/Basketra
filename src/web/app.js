@@ -4,7 +4,6 @@ import { initReceipts } from './receipts.js';
 import { loadAiMode, saveAiMode } from './state.js';
 import {
   bindSwipeActions,
-  connectionStatus,
   hydrateIcons,
   optimizationPlan,
   proposalPanel,
@@ -79,18 +78,6 @@ $$('[data-nav]').forEach(element => element.addEventListener('click', event => {
   event.preventDefault();
   navigate(element.dataset.nav);
 }));
-
-async function checkConnection() {
-  const element = $('#connection-state');
-  try {
-    await api('/health');
-    element.innerHTML = connectionStatus(true);
-    element.dataset.ok = 'true';
-  } catch {
-    element.innerHTML = connectionStatus(false);
-    delete element.dataset.ok;
-  }
-}
 
 function scheduleAutomaticAi(text) {
   if (aiState.timer) clearTimeout(aiState.timer);
@@ -167,29 +154,6 @@ async function runDemoComparison(button) {
   }
 }
 
-async function createBackup(button) {
-  setBusy(button, true);
-  try {
-    const result = await api('/api/v1/backup', {
-      method: 'POST',
-      body: JSON.stringify({ name: `basketra-${Date.now()}.db` }),
-    });
-    toast(`Backup creado: ${result.backup.name}`);
-  } catch (error) {
-    toast(error.message);
-  } finally {
-    setBusy(button, false);
-  }
-}
-
-async function loadDiagnostics() {
-  try {
-    $('#diagnostics').textContent = JSON.stringify(await api('/api/v1/diagnostics'), null, 2);
-  } catch (error) {
-    $('#diagnostics').textContent = error.message;
-  }
-}
-
 async function loadAiConfiguration() {
   try {
     return (await api('/api/v1/settings/ai-provider')).configured === true;
@@ -202,8 +166,6 @@ async function initialize() {
   navigate(location.hash.slice(1) || 'home');
   bindAiControls();
   $('#run-demo-comparison').addEventListener('click', event => void runDemoComparison(event.currentTarget));
-  $('#download-backup').addEventListener('click', event => void createBackup(event.currentTarget));
-  await checkConnection();
   try {
     const metadata = await api('/api/v1/meta');
     const aiConfigured = await loadAiConfiguration();
@@ -214,11 +176,8 @@ async function initialize() {
     $('#upload-state').textContent = error.message;
     toast(error.message);
   }
-  await loadDiagnostics();
 }
 
-window.addEventListener('online', () => void checkConnection());
-window.addEventListener('offline', () => void checkConnection());
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
 void initialize();
