@@ -1,5 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const temporaryDirectory = process.env.CI
+  ? `/dev/shm/basketra-playwright-${process.env.GITHUB_RUN_ID ?? process.pid}`
+  : '.playwright-tmp';
+
 export default defineConfig({
   testDir: './tests/browser',
   fullyParallel: false,
@@ -16,7 +20,7 @@ export default defineConfig({
     ...devices['Pixel 7'],
   },
   webServer: {
-    command: 'node scripts/build.mjs && BASKETRA_HOST=127.0.0.1 BASKETRA_PORT=4173 BASKETRA_DATA_DIR=.playwright-data BASKETRA_TEMP_DIR=.playwright-tmp node dist/main.js',
+    command: `node scripts/build.mjs && BASKETRA_HOST=127.0.0.1 BASKETRA_PORT=4173 BASKETRA_DATA_DIR=.playwright-data BASKETRA_TEMP_DIR=${temporaryDirectory} node dist/main.js`,
     url: 'http://127.0.0.1:4173/readiness',
     timeout: 30_000,
     reuseExistingServer: false,
