@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { CURRENT_SCHEMA_VERSION, validateBackup } from '../infrastructure/database.ts';
 
@@ -37,16 +37,18 @@ function safeBackupName(name: string): string {
   return value;
 }
 
-function sha256(bytes: Uint8Array): string {
-  return createHash('sha256').update(bytes).digest('hex');
-}
-
 function importedDirectory(dataDirectory: string): string {
   return join(resolve(dataDirectory), 'backups', 'imports');
 }
 
 function markerPath(dataDirectory: string): string {
   return join(resolve(dataDirectory), MARKER_NAME);
+}
+
+async function hashFile(path: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest('hex');
 }
 
 function readPendingRestore(dataDirectory: string): PendingRestore {
@@ -70,25 +72,33 @@ function readPendingRestore(dataDirectory: string): PendingRestore {
   };
 }
 
-export function importBackup(
+export async function importBackupStream(
   dataDirectory: string,
-  input: Readonly<{ originalName: string; base64: string }>,
+  originalName: string,
+  source: AsyncIterable<Uint8Array | string>,
   maxBytes: number,
-): ImportedBackup {
+): Promise<ImportedBackup> {
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new RangeError('maxBytes must be a positive safe integer');
-  safeBackupName(input.originalName);
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(input.base64) || input.base64.length % 4 !== 0) {
-    throw new Error('BACKUP_BASE64_INVALID');
-  }
-  const bytes = Buffer.from(input.base64, 'base64');
-  if (bytes.byteLength === 0 || bytes.byteLength > maxBytes) throw new Error('BACKUP_SIZE_INVALID');
+  safeBackupName(originalName);
   const directory = importedDirectory(dataDirectory);
   mkdirSync(directory, { recursive: true });
   const name = `import-${Date.now()}-${randomUUID()}.db`;
   const temporaryPath = join(directory, `${name}.partial`);
   const destinationPath = join(directory, name);
+  const hash = createHash('sha256');
+  let bytes = 0;
+  let firstChunk = true;
   try {
-    writeFileSync(temporaryPath, bytes, { mode: 0o600 });
+    for await (const chunk of source) {
+      const buffer = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+      bytes += buffer.byteLength;
+      if (bytes > maxBytes) throw new Error('BACKUP_SIZE_INVALID');
+      if (buffer.byteLength === 0) continue;
+      writeFileSync(temporaryPath, buffer, { flag: firstChunk ? 'w' : 'a', mode: 0o600 });
+      firstChunk = false;
+      hash.update(buffer);
+    }
+    if (bytes === 0 || firstChunk) throw new Error('BACKUP_SIZE_INVALID');
     const validation = validateBackup(temporaryPath);
     if (!validation.valid) throw new Error('BACKUP_INTEGRITY_INVALID');
     if (validation.version < 1 || validation.version > CURRENT_SCHEMA_VERSION) {
@@ -97,36 +107,35 @@ export function importBackup(
     renameSync(temporaryPath, destinationPath);
     return {
       name,
-      bytes: bytes.byteLength,
+      bytes,
       schemaVersion: validation.version,
-      sha256: sha256(bytes),
+      sha256: hash.digest('hex'),
     };
   } finally {
     rmSync(temporaryPath, { force: true });
   }
 }
 
-export function listImportedBackups(dataDirectory: string): ImportedBackup[] {
+export async function listImportedBackups(dataDirectory: string): Promise<ImportedBackup[]> {
   const directory = importedDirectory(dataDirectory);
   mkdirSync(directory, { recursive: true });
-  return readdirSync(directory, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && BACKUP_NAME.test(entry.name))
-    .map((entry) => {
-      const path = join(directory, entry.name);
-      const bytes = readFileSync(path);
-      const validation = validateBackup(path);
-      return {
-        name: entry.name,
-        bytes: statSync(path).size,
-        schemaVersion: validation.version,
-        sha256: sha256(bytes),
-      };
-    })
-    .filter((backup) => backup.schemaVersion >= 1 && backup.schemaVersion <= CURRENT_SCHEMA_VERSION)
-    .sort((left, right) => right.name.localeCompare(left.name));
+  const backups: ImportedBackup[] = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (!entry.isFile() || !BACKUP_NAME.test(entry.name)) continue;
+    const path = join(directory, entry.name);
+    const validation = validateBackup(path);
+    if (!validation.valid || validation.version < 1 || validation.version > CURRENT_SCHEMA_VERSION) continue;
+    backups.push({
+      name: entry.name,
+      bytes: statSync(path).size,
+      schemaVersion: validation.version,
+      sha256: await hashFile(path),
+    });
+  }
+  return backups.sort((left, right) => right.name.localeCompare(left.name));
 }
 
-export function stagePendingRestore(
+export async function stagePendingRestore(
   dataDirectory: string,
   input: Readonly<{
     importedName: string;
@@ -134,13 +143,14 @@ export function stagePendingRestore(
     confirmation: string;
     now?: Date;
   }>,
-): PendingRestore {
+): Promise<PendingRestore> {
   if (input.confirmation !== CONFIRMATION) throw new Error('RESTORE_CONFIRMATION_REQUIRED');
   const importedName = safeBackupName(input.importedName);
   const preRestoreBackupName = safeBackupName(input.preRestoreBackupName);
   const sourcePath = join(importedDirectory(dataDirectory), importedName);
+  const preRestorePath = join(resolve(dataDirectory), 'backups', preRestoreBackupName);
   if (!existsSync(sourcePath)) throw new Error('IMPORTED_BACKUP_NOT_FOUND');
-  const bytes = readFileSync(sourcePath);
+  if (!existsSync(preRestorePath)) throw new Error('PRE_RESTORE_BACKUP_NOT_FOUND');
   const validation = validateBackup(sourcePath);
   if (!validation.valid || validation.version < 1 || validation.version > CURRENT_SCHEMA_VERSION) {
     throw new Error('BACKUP_SCHEMA_UNSUPPORTED');
@@ -149,7 +159,7 @@ export function stagePendingRestore(
     version: 1,
     importedName,
     preRestoreBackupName,
-    sha256: sha256(bytes),
+    sha256: await hashFile(sourcePath),
     requestedAt: (input.now ?? new Date()).toISOString(),
   };
   const target = markerPath(dataDirectory);
@@ -163,7 +173,7 @@ export function stagePendingRestore(
   return pending;
 }
 
-export function applyPendingRestore(dataDirectory: string): RestoreStartupResult {
+export async function applyPendingRestore(dataDirectory: string): Promise<RestoreStartupResult> {
   const marker = markerPath(dataDirectory);
   if (!existsSync(marker)) return { status: 'none' };
   let importedName: string | undefined;
@@ -171,9 +181,10 @@ export function applyPendingRestore(dataDirectory: string): RestoreStartupResult
     const pending = readPendingRestore(dataDirectory);
     importedName = pending.importedName;
     const sourcePath = join(importedDirectory(dataDirectory), pending.importedName);
+    const preRestorePath = join(resolve(dataDirectory), 'backups', pending.preRestoreBackupName);
     if (!existsSync(sourcePath)) throw new Error('IMPORTED_BACKUP_NOT_FOUND');
-    const sourceBytes = readFileSync(sourcePath);
-    if (sha256(sourceBytes) !== pending.sha256) throw new Error('BACKUP_DIGEST_MISMATCH');
+    if (!existsSync(preRestorePath)) throw new Error('PRE_RESTORE_BACKUP_NOT_FOUND');
+    if (await hashFile(sourcePath) !== pending.sha256) throw new Error('BACKUP_DIGEST_MISMATCH');
     const validation = validateBackup(sourcePath);
     if (!validation.valid || validation.version < 1 || validation.version > CURRENT_SCHEMA_VERSION) {
       throw new Error('BACKUP_SCHEMA_UNSUPPORTED');
