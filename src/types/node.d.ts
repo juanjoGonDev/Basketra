@@ -21,9 +21,13 @@ declare const Buffer: {
 };
 
 declare module 'node:crypto' {
+  export interface Hash {
+    update(value: string | Uint8Array): Hash;
+    digest(encoding: 'hex'): string;
+  }
   export function randomUUID(): string;
   export function timingSafeEqual(left: Uint8Array, right: Uint8Array): boolean;
-  export function createHash(algorithm: string): { update(value: string | Uint8Array): { digest(encoding: 'hex'): string }; digest(encoding: 'hex'): string };
+  export function createHash(algorithm: string): Hash;
 }
 
 declare module 'node:path' {
@@ -41,7 +45,7 @@ declare module 'node:fs' {
     isFile(): boolean;
     isDirectory(): boolean;
   }
-  export interface ReadStream {
+  export interface ReadStream extends AsyncIterable<Uint8Array> {
     on(event: 'error', listener: (error: Error) => void): this;
     pipe(destination: import('node:http').ServerResponse): void;
   }
