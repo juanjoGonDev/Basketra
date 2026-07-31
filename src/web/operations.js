@@ -1,3 +1,5 @@
+const MAX_BACKUP_IMPORT_BYTES = 512 * 1024 * 1024;
+
 const state = {
   heartbeatTimer: null,
   heartbeatController: null,
@@ -284,15 +286,6 @@ async function createBackup() {
   }
 }
 
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error || new Error('No se pudo leer la copia'));
-    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
-    reader.readAsDataURL(file);
-  });
-}
-
 async function importBackupFile() {
   const input = $('#backup-import-file');
   const file = input.files?.[0];
@@ -300,13 +293,18 @@ async function importBackupFile() {
     $('#restore-state').textContent = 'Selecciona una copia .db.';
     return;
   }
+  if (!file.name.toLowerCase().endsWith('.db') || file.size === 0 || file.size > MAX_BACKUP_IMPORT_BYTES) {
+    $('#restore-state').textContent = 'La copia debe ser un archivo .db no vacío de hasta 512 MiB.';
+    return;
+  }
   const button = $('#import-backup');
   button.disabled = true;
-  $('#restore-state').textContent = 'Subiendo y validando integridad…';
+  $('#restore-state').textContent = 'Subiendo por streaming y validando integridad…';
   try {
-    const result = await requestJson('/api/v1/restore/import', {
+    const result = await requestJson(`/api/v1/restore/import?name=${encodeURIComponent(file.name)}`, {
       method: 'POST',
-      body: JSON.stringify({ name: file.name, base64: await fileToBase64(file) }),
+      headers: { 'content-type': 'application/vnd.sqlite3' },
+      body: file,
     });
     $('#restore-state').textContent = `Copia validada: esquema ${result.backup.schemaVersion}, ${Math.ceil(result.backup.bytes / 1024)} KB.`;
     input.value = '';
@@ -391,7 +389,7 @@ function installOperationsUi() {
     </section>
     <section class="surface operations-card" aria-labelledby="logs-title">
       <div class="panel-heading"><div><p class="eyebrow">Observabilidad</p><h2 id="logs-title">Logs de aplicación</h2></div></div>
-      <p>Sólo se muestran eventos estructurados y redacted; nunca contenido de tickets, claves o cuerpos de petición.</p>
+      <p>Sólo se muestran eventos estructurados y censurados; nunca contenido de tickets, claves o cuerpos de petición.</p>
       <button id="refresh-logs" class="button secondary full" type="button">Actualizar logs</button>
       <ul id="application-logs" class="operations-logs" aria-live="polite"></ul>
     </section>
