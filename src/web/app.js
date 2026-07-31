@@ -3,6 +3,7 @@ import { initLists } from './lists.js';
 import { initReceipts } from './receipts.js';
 import { loadAiMode, saveAiMode } from './state.js';
 import {
+  bindSwipeActions,
   connectionStatus,
   hydrateIcons,
   optimizationPlan,
@@ -14,17 +15,52 @@ const aiState = {
   timer: null,
 };
 
+const toastState = {
+  timer: null,
+  version: 0,
+};
+
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 
 hydrateIcons();
+bindSwipeActions(document);
 
-function toast(message) {
+document.addEventListener('basketra:swipe-action', event => {
+  if (event.detail?.kind !== 'shopping-item' || event.detail?.action !== 'complete') return;
+  const itemId = CSS.escape(String(event.detail.id || ''));
+  document.querySelector(`[data-item-action="complete"][data-item-id="${itemId}"]`)?.click();
+});
+
+function hideToast(version) {
+  if (version !== toastState.version) return;
   const element = $('#toast');
-  element.textContent = message;
+  element.classList.remove('show');
+  $('#toast-action').hidden = true;
+  $('#toast-action').onclick = null;
+}
+
+function toast(message, options = {}) {
+  const element = $('#toast');
+  const action = $('#toast-action');
+  const version = ++toastState.version;
+  clearTimeout(toastState.timer);
+  $('#toast-message').textContent = message;
+  action.hidden = !options.actionLabel;
+  action.textContent = options.actionLabel || '';
+  action.disabled = false;
+  action.onclick = options.onAction
+    ? async () => {
+        action.disabled = true;
+        try {
+          await options.onAction();
+        } finally {
+          hideToast(version);
+        }
+      }
+    : null;
   element.classList.add('show');
-  clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => element.classList.remove('show'), 2600);
+  toastState.timer = setTimeout(() => hideToast(version), options.duration ?? 4200);
 }
 
 function navigate(requestedView) {
@@ -154,6 +190,14 @@ async function loadDiagnostics() {
   }
 }
 
+async function loadAiConfiguration() {
+  try {
+    return (await api('/api/v1/settings/ai-provider')).configured === true;
+  } catch {
+    return false;
+  }
+}
+
 async function initialize() {
   navigate(location.hash.slice(1) || 'home');
   bindAiControls();
@@ -162,8 +206,9 @@ async function initialize() {
   await checkConnection();
   try {
     const metadata = await api('/api/v1/meta');
+    const aiConfigured = await loadAiConfiguration();
     await initLists({ metadata, toast });
-    initReceipts({ metadata, toast });
+    initReceipts({ metadata, toast, aiConfigured });
   } catch (error) {
     $('#list-state').textContent = error.message;
     $('#upload-state').textContent = error.message;

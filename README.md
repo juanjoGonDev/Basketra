@@ -7,20 +7,24 @@ Basketra is a private, mobile-first grocery application for personal use. It sto
 The repository contains a dependency-free Node.js 22 application built on `node:sqlite`:
 
 - installable static PWA shell;
-- shopping-list create, select, rename, delete, edit, complete, quantity, and reorder workflows;
+- shopping-list create, select, rename, delete, edit, complete, quantity, reorder, and mobile swipe workflows;
 - local FTS5 suggestions that do not require AI;
 - camera, gallery, and PDF capture with shared validation;
 - persistent same-origin image previews excluded from service-worker caching;
 - MIME allowlisting, magic-byte validation, SHA-256 deduplication, and traversal prevention;
-- receipt extraction, manual correction, arithmetic review, and idempotent transactional confirmation;
-- provider-neutral OCR, AI, and offer contracts;
-- exact money and unit normalization;
+- free local Spanish OCR for JPEG and PNG receipt images;
+- editable receipt rows with euro-denominated prices and arithmetic validation;
+- optional OpenAI-compatible verification and PDF OCR;
+- receipt correction and idempotent transactional confirmation;
+- exact backend money and unit normalization;
 - deterministic single-retailer, balanced, and maximum-saving plans;
 - SQLite backup, restore validation, and guarded startup migrations;
 - strict security headers, body limits, hibernation, and graceful shutdown;
 - local Docker development plus private AMD64/ARM64 GHCR delivery for Raspberry Pi.
 
-A production OCR engine and live supermarket/Amazon evidence providers remain external integration work. The receipt workflow works without AI through manual transcription and preserves the original captures. Pull-request CI runs unit, integration, static PWA, mobile Chromium, security, container smoke, vulnerability, AMD64, and ARM64 checks with browser screenshots, video, and traces.
+The runtime has no third-party npm dependencies. Tesseract is installed as an Alpine runtime package and runs only while a receipt image is being recognized. Pull-request CI runs unit, integration, static PWA, mobile Chromium, security, container smoke, vulnerability, AMD64, and ARM64 checks with directly viewable browser screenshots, GIFs, video, and traces.
+
+Live supermarket or Amazon evidence providers remain external integration work.
 
 ## Supported access model
 
@@ -37,9 +41,9 @@ The default host and Compose configurations bind to `127.0.0.1`. Direct public i
 - Node.js 22.23.1
 - pnpm 10.15.0
 - TypeScript 5.8.3 for static checking
-- Docker with Buildx for container validation
+- Docker with Buildx for container validation and the supported OCR runtime
 
-The runtime has no third-party npm dependencies. The production container removes npm, Corepack, pnpm, and Yarn after the build stage because package managers are not required at runtime.
+Local `pnpm dev` requires a `tesseract` executable with Spanish language data when exercising real image OCR. The production container includes and validates both automatically.
 
 ## Local development
 
@@ -53,6 +57,13 @@ pnpm dev
 ```
 
 Open `http://127.0.0.1:3000`.
+
+For local image OCR, install Tesseract 5 and verify the Spanish language model:
+
+```bash
+tesseract --version
+tesseract --list-langs | grep '^spa$'
+```
 
 ## Quality gates
 
@@ -71,7 +82,7 @@ pnpm build
 pnpm quality
 ```
 
-`pnpm test:coverage` enforces 100% lines, branches, and functions for the project-owned domain layer.
+`pnpm test:coverage` enforces 100% lines, branches, and functions for the project-owned domain layer. Playwright covers OCR success and recovery, editable euro rows, swipe actions, full list workflows, camera/gallery persistence, offline behavior, and accessibility states without retries.
 
 ## Local Docker
 
@@ -84,7 +95,7 @@ curl --fail http://127.0.0.1:3000/health
 curl --fail http://127.0.0.1:3000/readiness
 ```
 
-The local Compose file builds `basketra:local` and publishes only on host loopback. Use a VPN, SSH tunnel, or authenticated private reverse proxy for remote access. Do not change the bind to a public interface without a reviewed firewall and access-control design.
+The image build fails unless Tesseract and the `spa` model are present. The local Compose file publishes only on host loopback. Use a VPN, SSH tunnel, or authenticated private reverse proxy for remote access.
 
 ## Private Raspberry deployment
 
@@ -126,18 +137,25 @@ The UI and API support complete list management:
 - reorder products with deterministic contiguous positions;
 - preserve the active list and unsubmitted item draft across reloads.
 
-Completion state is stored by schema migration 3. Existing databases are backed up and migrated transactionally before readiness.
+On mobile, swiping right marks a product bought. Swiping left reveals edit and delete controls. A long left swipe only focuses the destructive control; deletion always requires an explicit button press. Equivalent buttons remain available for keyboard, switch, and assistive-technology users.
 
 ## Receipt workflow
 
-1. Capture a photo with the rear-camera hint or choose images/PDF files.
-2. Validate type, size, and server-side signature.
+1. Capture a photo with the rear-camera hint or choose JPEG, PNG, or PDF files.
+2. Validate type, size, body, signature, and storage key.
 3. Review persistent image thumbnails or PDF placeholders.
 4. Reorder or remove captures from the draft without deleting original evidence.
-5. Extract with a configured OCR/AI provider or enter a manual transcription.
-6. Correct lines and totals.
-7. Validate arithmetic through the API.
-8. Confirm the idempotent import.
+5. Run local Spanish OCR for JPEG or PNG images.
+6. Optionally verify extracted text with a configured AI provider.
+7. Edit product, quantity, unit price, and line total directly in rows expressed as euros.
+8. Add or remove manual rows and validate the declared euro total.
+9. Confirm the idempotent import.
+
+The browser never asks users to enter integer cents. `0.20 €` is entered as `0.20` or `0,20`; the backend remains authoritative and stores money as integer minor units.
+
+Local OCR is single-threaded and serialized. It runs as an ephemeral process with a fixed command, timeout, cancellation, and output bounds. OCR content, filenames, filesystem paths, and raw process output are not logged.
+
+Local OCR does not rasterize PDFs. A PDF requires a configured PDF-capable provider or manual editable rows. Any OCR or provider failure preserves the capture draft and existing corrections.
 
 Stored image previews are served from `/api/v1/files/<storage-key>` with strict storage-key validation and `Cache-Control: private, no-store`. PDF content is not exposed through the image-preview route. The service worker excludes all `/api/` requests.
 
@@ -157,9 +175,9 @@ curl --fail --request POST http://127.0.0.1:3000/api/v1/restore/validate \
 
 See [BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md). A named Docker volume is not an independent disaster-recovery copy; export important backups to separately managed storage.
 
-## AI provider configuration
+## Optional AI provider configuration
 
-Basketra treats `webApi` and other compatible services as ordinary OpenAI-compatible providers:
+Local image OCR needs no provider. Configure an OpenAI-compatible service only for optional text verification, list assistance, or provider-dependent PDF OCR:
 
 ```dotenv
 BASKETRA_AI_BASE_URL=http://10.0.0.20:8080/v1/

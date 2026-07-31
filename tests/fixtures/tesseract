@@ -1,0 +1,12 @@
+#!/usr/bin/env node
+
+process.stdin.resume();
+process.stdin.on('end', () => {
+  const rows = [
+    'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext',
+    '5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t96\tMilk;1;120;120',
+    '5\t1\t1\t1\t2\t1\t0\t14\t10\t10\t95\tTOTAL',
+    '5\t1\t1\t1\t2\t2\t12\t14\t10\t10\t95\t1,20',
+  ];
+  process.stdout.write(`${rows.join('\n')}\n`);
+});

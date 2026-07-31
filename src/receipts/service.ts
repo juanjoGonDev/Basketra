@@ -1,7 +1,7 @@
 import type { AiProvider } from '../ai/provider.ts';
 import { asArray, asBoolean, asRecord, asString } from '../domain/validation.ts';
 import type { FileStore } from '../infrastructure/files.ts';
-import { EmbeddedTextOcrProvider, MultimodalAiOcrProvider, type OcrResult } from '../ocr/provider.ts';
+import { EmbeddedTextOcrProvider, MultimodalAiOcrProvider, TesseractCliOcrProvider, type OcrProvider, type OcrResult } from '../ocr/provider.ts';
 import {
   buildReceiptReview,
   extractDeclaredTotalMinor,
@@ -34,12 +34,14 @@ export class ReceiptExtractionService {
   readonly #fileStore: FileStore;
   readonly #getAiProvider: () => AiProvider;
   readonly #maxRetries: number;
-  #ocrProvider: MultimodalAiOcrProvider | undefined;
+  readonly #localOcrProvider: OcrProvider;
+  #aiOcrProvider: MultimodalAiOcrProvider | undefined;
 
-  constructor(fileStore: FileStore, getAiProvider: () => AiProvider, maxRetries: number) {
+  constructor(fileStore: FileStore, getAiProvider: () => AiProvider, maxRetries: number, localOcrProvider: OcrProvider = new TesseractCliOcrProvider()) {
     this.#fileStore = fileStore;
     this.#getAiProvider = getAiProvider;
     this.#maxRetries = maxRetries;
+    this.#localOcrProvider = localOcrProvider;
   }
 
   parseRequest(value: unknown): ReceiptExtractionRequest {
@@ -61,7 +63,7 @@ export class ReceiptExtractionService {
     if (captures.length === 0) throw new RangeError('At least one receipt capture is required');
     return {
       captures,
-      verifyWithAi: root['verifyWithAi'] === undefined ? true : asBoolean(root['verifyWithAi'], '$.verifyWithAi'),
+      verifyWithAi: root['verifyWithAi'] === undefined ? false : asBoolean(root['verifyWithAi'], '$.verifyWithAi'),
     };
   }
 
@@ -83,7 +85,7 @@ export class ReceiptExtractionService {
             embeddedText: capture.embeddedText,
             ...(capture.originalName ? { fileName: capture.originalName } : {}),
           }, signal)
-        : await this.getOcrProvider().recognize({
+        : await this.getOcrProvider(stored.mimeType).recognize({
             mimeType: stored.mimeType,
             bytes: stored.bytes,
             ...(capture.originalName ? { fileName: capture.originalName } : {}),
@@ -121,12 +123,14 @@ export class ReceiptExtractionService {
   }
 
   dispose(): void {
-    this.#ocrProvider?.dispose();
-    this.#ocrProvider = undefined;
+    this.#localOcrProvider.dispose();
+    this.#aiOcrProvider?.dispose();
+    this.#aiOcrProvider = undefined;
   }
 
-  private getOcrProvider(): MultimodalAiOcrProvider {
-    this.#ocrProvider ??= new MultimodalAiOcrProvider(this.#getAiProvider(), this.#maxRetries);
-    return this.#ocrProvider;
+  private getOcrProvider(mimeType: string): OcrProvider {
+    if (mimeType === 'image/jpeg' || mimeType === 'image/png') return this.#localOcrProvider;
+    this.#aiOcrProvider ??= new MultimodalAiOcrProvider(this.#getAiProvider(), this.#maxRetries);
+    return this.#aiOcrProvider;
   }
 }

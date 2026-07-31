@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { AiProvider, AiStructuredInput } from '../../src/ai/provider.ts';
 import { FileStore } from '../../src/infrastructure/files.ts';
-import { MultimodalAiOcrProvider } from '../../src/ocr/provider.ts';
+import { MultimodalAiOcrProvider, type OcrProvider } from '../../src/ocr/provider.ts';
 import {
   buildReceiptReview,
   extractDeclaredTotalMinor,
@@ -24,6 +24,18 @@ function provider(overrides:Partial<AiProvider>={}):AiProvider{
     async executeStructured(){return {text:'MILK 1 x 1,20 1,20',confidence:.9}},
     dispose(){},
     ...overrides,
+  };
+}
+
+function localOcr(text='Milk 1,20\nTOTAL 1,20'):OcrProvider{
+  return {
+    name:'test-local-ocr',
+    async recognize(input,signal){
+      signal?.throwIfAborted();
+      assert.equal(input.mimeType,'image/png');
+      return {text,confidence:.91,source:'local-tesseract'};
+    },
+    dispose(){},
   };
 }
 
@@ -80,28 +92,30 @@ test('receipt service skips OCR and AI when embedded text is supplied',async()=>
   try{
     const file=store.storeBase64({base64:pngBase64,mimeType:'image/png'});
     let providerCalls=0;
-    const service=new ReceiptExtractionService(store,()=>{providerCalls+=1;return provider()},0);
+    const service=new ReceiptExtractionService(store,()=>{providerCalls+=1;return provider()},0,localOcr());
     const input=service.parseRequest({captures:[{storageKey:file.storageKey,embeddedText:'Milk;1;120;120\nTOTAL 1,20'}],verifyWithAi:false});
     const result=await service.extract(input);
     assert.equal(providerCalls,0);
     assert.equal(result.pages[0]?.source,'embedded-text');
     assert.equal(result.final.review.lines[0]?.status,'confirmed');
     assert.equal(result.final.declaredTotalMinor,120);
+    assert.equal(service.parseRequest({captures:[{storageKey:file.storageKey}]}).verifyWithAi,false);
     assert.throws(()=>service.parseRequest({captures:[],verifyWithAi:false}),/At least one/);
     service.dispose();
   }finally{rmSync(root,{recursive:true,force:true})}
 });
 
-test('receipt service uses OCR and AI proposals but validates arithmetic independently',async()=>{
+test('receipt service uses local OCR and optional AI while validating arithmetic independently',async()=>{
   const root=mkdtempSync(join(tmpdir(),'basketra-receipt-ai-'));
   const store=new FileStore(join(root,'files'),join(root,'tmp'),1024);
   try{
     const file=store.storeBase64({base64:pngBase64,mimeType:'image/png'});
     let calls=0;
-    const mock=provider({async executeStructured(){calls+=1;return calls===1?{text:'Milk 1,20\nTOTAL 1,20',confidence:.9}:{currency:'EUR',declaredTotalMinor:120,items:[{description:'Milk',quantity:1,unitPriceMinor:120,lineTotalMinor:110,confidence:.9}],warnings:['line mismatch']}}});
-    const service=new ReceiptExtractionService(store,()=>mock,0);
+    const mock=provider({async executeStructured(){calls+=1;return {currency:'EUR',declaredTotalMinor:120,items:[{description:'Milk',quantity:1,unitPriceMinor:120,lineTotalMinor:110,confidence:.9}],warnings:['line mismatch']}}});
+    const service=new ReceiptExtractionService(store,()=>mock,0,localOcr('Milk 1,20\nTOTAL 1,20'));
     const result=await service.extract(service.parseRequest({captures:[{storageKey:file.storageKey}],verifyWithAi:true}));
-    assert.equal(calls,2);
+    assert.equal(calls,1);
+    assert.equal(result.pages[0]?.source,'local-tesseract');
     assert.equal(result.ai?.attempts,1);
     assert.equal(result.final.review.lines[0]?.status,'arithmetic-mismatch');
     assert.equal(result.final.review.total?.valid,false);

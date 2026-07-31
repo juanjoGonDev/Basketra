@@ -29,6 +29,7 @@ const model = {
   items: [],
   editingItemId: '',
   deletingItemId: '',
+  swipeDeletingItemIds: new Set(),
   suggestionController: null,
 };
 
@@ -273,6 +274,78 @@ function showDeleteItemDialog(itemId) {
   openDialog($('#delete-item-dialog'));
 }
 
+function itemCreationPayload(item) {
+  return {
+    text: item.text,
+    quantityMinor: item.quantityMinor,
+    unit: item.unit,
+    exactRequired: item.exactRequired,
+    substitutionAllowed: item.substitutionAllowed,
+  };
+}
+
+async function restoreSwipedItem(listId, item, originalIndex) {
+  try {
+    const created = await api(`/api/v1/shopping-lists/${encodeURIComponent(listId)}/items`, {
+      method: 'POST',
+      body: JSON.stringify(itemCreationPayload(item)),
+    });
+    let restored = created.item;
+    if (item.completed) {
+      const completed = await api(`/api/v1/shopping-lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(restored.id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ completed: true }),
+      });
+      restored = completed.item;
+    }
+
+    const current = await api(`/api/v1/shopping-lists/${encodeURIComponent(listId)}`);
+    const orderedIds = current.items.filter(candidate => candidate.id !== restored.id).map(candidate => candidate.id);
+    orderedIds.splice(Math.min(originalIndex, orderedIds.length), 0, restored.id);
+    const ordered = await api(`/api/v1/shopping-lists/${encodeURIComponent(listId)}/items/order`, {
+      method: 'PUT',
+      body: JSON.stringify({ itemIds: orderedIds }),
+    });
+    if (model.activeListId === listId) {
+      model.items = ordered.items;
+      renderItems();
+      $('#item-state').textContent = 'Producto restaurado';
+    }
+    toast('Producto restaurado');
+  } catch (error) {
+    $('#item-state').textContent = `No se pudo deshacer: ${error.message}`;
+    toast(`No se pudo deshacer: ${error.message}`);
+  }
+}
+
+async function deleteItemFromSwipe(itemId) {
+  if (model.swipeDeletingItemIds.has(itemId)) return;
+  const item = model.items.find(candidate => candidate.id === itemId);
+  const originalIndex = model.items.findIndex(candidate => candidate.id === itemId);
+  const listId = model.activeListId;
+  if (!item || originalIndex < 0 || !listId) return;
+  model.swipeDeletingItemIds.add(itemId);
+  try {
+    await api(`/api/v1/shopping-lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(itemId)}`, { method: 'DELETE' });
+    if (model.editingItemId === itemId) cancelItemEdit();
+    if (model.activeListId === listId) {
+      model.items.splice(originalIndex, 1);
+      renderItems();
+      $('#item-state').textContent = 'Producto eliminado';
+    }
+    toast('Producto eliminado', {
+      actionLabel: 'Deshacer',
+      duration: 5200,
+      onAction: () => restoreSwipedItem(listId, item, originalIndex),
+    });
+  } catch (error) {
+    $('#item-state').textContent = error.message;
+    toast(error.message);
+  } finally {
+    model.swipeDeletingItemIds.delete(itemId);
+  }
+}
+
 async function confirmDeleteItem() {
   if (!model.deletingItemId) return;
   const button = $('#confirm-delete-item');
@@ -440,6 +513,10 @@ function bindEvents() {
   $('#cancel-delete-item').addEventListener('click', () => {
     model.deletingItemId = '';
     closeDialog($('#delete-item-dialog'));
+  });
+  document.addEventListener('basketra:swipe-action', event => {
+    if (event.detail?.kind !== 'shopping-item' || event.detail?.action !== 'delete') return;
+    void deleteItemFromSwipe(String(event.detail.id || ''));
   });
 }
 
