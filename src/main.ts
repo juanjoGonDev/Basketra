@@ -3,7 +3,7 @@ import { OperationsGateway } from './operations/gateway.ts';
 import { applyPendingRestore } from './operations/restore.ts';
 
 const config = loadConfig();
-const restore = applyPendingRestore(config.dataDir);
+const restore = await applyPendingRestore(config.dataDir);
 if (restore.status === 'applied') {
   console.log(JSON.stringify({ level: 'info', event: 'restore_applied', importedName: restore.importedName }));
 }
