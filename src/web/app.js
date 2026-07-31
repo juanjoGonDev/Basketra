@@ -15,6 +15,11 @@ const aiState = {
   timer: null,
 };
 
+const toastState = {
+  timer: null,
+  version: 0,
+};
+
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 
@@ -27,12 +32,35 @@ document.addEventListener('basketra:swipe-action', event => {
   document.querySelector(`[data-item-action="complete"][data-item-id="${itemId}"]`)?.click();
 });
 
-function toast(message) {
+function hideToast(version) {
+  if (version !== toastState.version) return;
   const element = $('#toast');
-  element.textContent = message;
+  element.classList.remove('show');
+  $('#toast-action').hidden = true;
+  $('#toast-action').onclick = null;
+}
+
+function toast(message, options = {}) {
+  const element = $('#toast');
+  const action = $('#toast-action');
+  const version = ++toastState.version;
+  clearTimeout(toastState.timer);
+  $('#toast-message').textContent = message;
+  action.hidden = !options.actionLabel;
+  action.textContent = options.actionLabel || '';
+  action.disabled = false;
+  action.onclick = options.onAction
+    ? async () => {
+        action.disabled = true;
+        try {
+          await options.onAction();
+        } finally {
+          hideToast(version);
+        }
+      }
+    : null;
   element.classList.add('show');
-  clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => element.classList.remove('show'), 2600);
+  toastState.timer = setTimeout(() => hideToast(version), options.duration ?? 4200);
 }
 
 function navigate(requestedView) {
