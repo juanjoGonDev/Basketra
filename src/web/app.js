@@ -3,6 +3,7 @@ import { initLists } from './lists.js';
 import { initReceipts } from './receipts.js';
 import { loadAiMode, saveAiMode } from './state.js';
 import {
+  bindSwipeActions,
   connectionStatus,
   hydrateIcons,
   optimizationPlan,
@@ -18,6 +19,13 @@ const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 
 hydrateIcons();
+bindSwipeActions(document);
+
+document.addEventListener('basketra:swipe-action', event => {
+  if (event.detail?.kind !== 'shopping-item' || event.detail?.action !== 'complete') return;
+  const itemId = CSS.escape(String(event.detail.id || ''));
+  document.querySelector(`[data-item-action="complete"][data-item-id="${itemId}"]`)?.click();
+});
 
 function toast(message) {
   const element = $('#toast');
@@ -154,6 +162,14 @@ async function loadDiagnostics() {
   }
 }
 
+async function loadAiConfiguration() {
+  try {
+    return (await api('/api/v1/settings/ai-provider')).configured === true;
+  } catch {
+    return false;
+  }
+}
+
 async function initialize() {
   navigate(location.hash.slice(1) || 'home');
   bindAiControls();
@@ -162,8 +178,9 @@ async function initialize() {
   await checkConnection();
   try {
     const metadata = await api('/api/v1/meta');
+    const aiConfigured = await loadAiConfiguration();
     await initLists({ metadata, toast });
-    initReceipts({ metadata, toast });
+    initReceipts({ metadata, toast, aiConfigured });
   } catch (error) {
     $('#list-state').textContent = error.message;
     $('#upload-state').textContent = error.message;
