@@ -57,6 +57,13 @@ The receipt review must use editable product rows instead of a raw textarea, dis
 - Native image builds for `linux/amd64` and `linux/arm64`.
 - CodeQL, repository security policy, dependency audit and Trivy scanning.
 
+## Checks
+
+- Pull Request Quality: `30629965218` — success.
+- CodeQL Advanced: `30629965209` — success.
+- Visual evidence publication: `30629965215` — success.
+- Quality, Security, Browser E2E, container smoke, AMD64 and ARM64 jobs all passed on the same validated head.
+
 ## Risks
 
 - OCR uses transient CPU/RAM: one process, one thread, one concurrent recognition, timeout and output caps bound it.
