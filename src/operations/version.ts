@@ -19,19 +19,3 @@ export function resolveRuntimeVersion(environment: NodeJS.ProcessEnv = process.e
       : {}),
   };
 }
-
-export function nextPatchVersion(latestVersion: string | undefined): string {
-  if (!latestVersion) return '1.0.0';
-  const normalized = latestVersion.startsWith('v') ? latestVersion.slice(1) : latestVersion;
-  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(normalized);
-  if (!match?.[1] || !match[2] || !match[3]) {
-    throw new Error('Latest release version is not a stable semantic version');
-  }
-  const major = Number(match[1]);
-  const minor = Number(match[2]);
-  const patch = Number(match[3]);
-  if (![major, minor, patch].every(Number.isSafeInteger)) {
-    throw new Error('Latest release version is outside safe integer limits');
-  }
-  return `${major}.${minor}.${patch + 1}`;
-}
