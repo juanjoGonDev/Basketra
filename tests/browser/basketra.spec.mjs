@@ -66,7 +66,7 @@ async function swipe(page, locator, direction, { long = false } = {}) {
   await locator.scrollIntoViewIfNeeded();
   const box = await locator.boundingBox();
   expect(box).not.toBeNull();
-  const startX = direction === 'left' ? box.x + box.width - 28 : box.x + 30;
+  const startX = direction === 'left' ? box.x + box.width - 28 : box.x + box.width * 0.45;
   const distance = box.width * (long ? 0.7 : 0.45);
   const endX = direction === 'left' ? startX - distance : startX + distance;
   const y = box.y + Math.min(box.height / 2, 48);
@@ -216,7 +216,7 @@ test('local OCR creates editable euro rows and imports without AI', async ({ pag
 
   await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
   await expect(page.locator('#receipt-state')).toContainText('OCR local listo');
-  await expect(page.locator('.receipt-item')).toHaveCount(2);
+  await expect(page.locator('.receipt-item')).toHaveCount(1);
   await expect(page.getByLabel('Precio unitario (€)').first()).toHaveValue('1.20');
   await expect(page.getByLabel('Total (€)').first()).toHaveValue('1.20');
   await expect(page.getByLabel('Total declarado (€)')).toHaveValue('1.20');
@@ -227,19 +227,19 @@ test('local OCR creates editable euro rows and imports without AI', async ({ pag
   await swipe(page, firstLine, 'left', { long: true });
   const deleteLine = page.getByRole('button', { name: 'Eliminar línea 1' });
   await expect(deleteLine).toBeFocused();
-  await expect(page.locator('.receipt-item')).toHaveCount(2);
+  await expect(page.locator('.receipt-item')).toHaveCount(1);
   await page.getByRole('button', { name: 'Editar línea 1' }).click();
   await expect(firstLine.locator('[data-field="description"]')).toBeFocused();
   await firstLine.locator('[data-field="description"]').fill('Whole milk');
 
   await page.getByRole('button', { name: 'Añadir línea', exact: true }).click();
-  await expect(page.locator('.receipt-item')).toHaveCount(3);
+  await expect(page.locator('.receipt-item')).toHaveCount(2);
   const manualLine = page.locator('.receipt-item').last();
   await manualLine.locator('[data-field="description"]').fill('Bread');
   await manualLine.locator('[data-field="quantity"]').fill('1');
   await manualLine.locator('[data-field="unitPriceEuro"]').fill('0.20');
   await manualLine.locator('[data-field="lineTotalEuro"]').fill('0.20');
-  await page.getByLabel('Total declarado (€)').fill('2.60');
+  await page.getByLabel('Total declarado (€)').fill('1.40');
   await page.getByRole('button', { name: 'Validar líneas e importes', exact: true }).click();
   await expect(page.locator('#receipt-state')).toContainText('Líneas y total validados');
 
