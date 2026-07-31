@@ -59,10 +59,7 @@ The receipt review must use editable product rows instead of a raw textarea, dis
 
 ## Checks
 
-- Pull Request Quality: `30629965218` — success.
-- CodeQL Advanced: `30629965209` — success.
-- Visual evidence publication: `30629965215` — success.
-- Quality, Security, Browser E2E, container smoke, AMD64 and ARM64 jobs all passed on the same validated head.
+The final PR head must pass the canonical Pull Request Quality workflow, including Quality, Security, Browser E2E, container smoke, AMD64 and ARM64 jobs, plus CodeQL and direct visual-evidence publication. Run URLs and the validated head are recorded in the PR rather than in this versioned task spec.
 
 ## Risks
 
