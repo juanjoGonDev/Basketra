@@ -40,7 +40,7 @@
     </section>
 
     <section class="view" data-view="lists">
-      <div class="page-header"><div><p class="eyebrow">Compra activa</p><h1>Lista de la compra</h1><p>Crea, edita y completa la compra sin diálogos ocultos.</p></div></div>
+      <div class="page-header"><div><p class="eyebrow">Compra activa</p><h1>Lista de la compra</h1><p>Desliza a la derecha para completar; desliza a la izquierda para mostrar edición y borrado. Los botones siguen disponibles para accesibilidad.</p></div></div>
 
       <section class="surface list-manager" aria-labelledby="list-manager-title">
         <div class="panel-heading"><span class="section-icon" data-icon="list"></span><div><p class="eyebrow">Mis listas</p><h2 id="list-manager-title">Selecciona o crea una</h2></div></div>
@@ -104,7 +104,7 @@
     </section>
 
     <section class="view" data-view="scan">
-      <div class="page-header"><div><p class="eyebrow">Tickets</p><h1>Captura y revisa</h1><p>Haz fotos directamente o selecciona imágenes y PDF. Verás cada captura antes de procesarla.</p></div></div>
+      <div class="page-header"><div><p class="eyebrow">Tickets</p><h1>Captura y revisa</h1><p>Las fotos JPEG y PNG se leen con OCR local en español. Después corriges cada producto e importe directamente en euros.</p></div></div>
       <section class="surface capture-source">
         <div class="panel-heading"><span class="section-icon" data-icon="camera"></span><div><p class="eyebrow">Paso 1</p><h2>Añade las páginas</h2></div></div>
         <div class="capture-actions">
@@ -117,13 +117,14 @@
 
       <section class="surface receipt-workflow">
         <div class="panel-heading"><span class="section-icon" data-icon="scan"></span><div><p class="eyebrow">Paso 2</p><h2>Extrae y revisa</h2></div></div>
-        <label class="switch-row"><span><strong>Verificar con IA</strong><small>La validación local sigue siendo obligatoria.</small></span><input id="verify-receipt-ai" type="checkbox" aria-label="Verificar y normalizar con IA" checked><span class="switch"></span></label>
-        <button id="extract-receipt" class="button primary full" type="button" disabled><span data-icon="scan"></span>Procesar capturas</button>
+        <label class="switch-row"><span><strong>Verificar con IA</strong><small id="receipt-ai-help">Comprobando configuración…</small></span><input id="verify-receipt-ai" type="checkbox" aria-label="Verificar y normalizar con IA"><span class="switch"></span></label>
+        <button id="extract-receipt" class="button primary full" type="button" disabled><span data-icon="scan"></span>Leer con OCR local</button>
         <span id="receipt-state" class="inline-status" role="status"></span>
-        <details class="manual-entry"><summary>Introducción manual y opciones avanzadas</summary><div class="details-body">
-          <label class="field"><span>Texto extraído o transcripción</span><textarea id="receipt-text" rows="7" placeholder="Producto;cantidad;precio unitario;total"></textarea></label>
-          <label class="field"><span>Total declarado (céntimos)</span><input id="receipt-total" type="number" min="0" value="0" inputmode="numeric"></label>
-          <button id="review-receipt" class="button secondary full" type="button"><span data-icon="check"></span>Revisar transcripción</button>
+        <details class="manual-entry" open><summary>Revisión manual y total</summary><div class="details-body">
+          <p>Las líneas son editables. Desliza a la izquierda para mostrar editar o eliminar; un desplazamiento largo enfoca eliminar, pero nunca borra sin pulsar el botón.</p>
+          <button id="add-manual-line" class="button secondary full" type="button"><span data-icon="plus"></span>Añadir línea manual</button>
+          <label class="field"><span>Total declarado (€)</span><input id="receipt-total" type="text" value="0.00" inputmode="decimal" autocomplete="off"></label>
+          <button id="review-receipt" class="button secondary full" type="button"><span data-icon="check"></span>Validar líneas e importes</button>
         </div></details>
       </section>
       <div id="receipt-review" class="surface panel" hidden></div>
