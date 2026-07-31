@@ -17,7 +17,9 @@ ENV NODE_ENV=production \
     OMP_THREAD_LIMIT=1 \
     OMP_NUM_THREADS=1
 WORKDIR /app
-RUN apk add --no-cache tesseract-ocr tesseract-ocr-data-spa
+RUN apk add --no-cache tesseract-ocr tesseract-ocr-data-spa \
+    && tesseract --version \
+    && tesseract --list-langs | grep -qx spa
 COPY --from=build --chown=node:node /app/dist ./dist
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
