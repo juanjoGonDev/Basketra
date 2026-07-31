@@ -1,4 +1,9 @@
-import { formatEuroMinor, minorToEuroInput } from './money.js';
+const EURO_FORMATTER = new Intl.NumberFormat('es-ES', {
+  style: 'currency',
+  currency: 'EUR',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
 
 const ICONS = {
   home: '<path d="M3 11.5 12 4l9 7.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 19.5Z"/><path d="M9 21v-6h6v6"/>',
@@ -53,6 +58,87 @@ export function hydrateIcons(root = document) {
   });
 }
 
+export function formatEuroMinor(value) {
+  if (!Number.isSafeInteger(value) || value < 0) throw new RangeError('El importe debe ser válido');
+  return EURO_FORMATTER.format(value / 100);
+}
+
+export function minorToEuroInput(value) {
+  if (!Number.isSafeInteger(value) || value < 0) throw new RangeError('El importe debe ser válido');
+  return `${Math.floor(value / 100)}.${String(value % 100).padStart(2, '0')}`;
+}
+
+export function euroInputToMinor(input) {
+  const normalized = String(input).trim().replace(/\s|€/gu, '').replace(',', '.');
+  const match = /^(\d+)(?:\.(\d{0,2}))?$/u.exec(normalized);
+  if (!match) throw new RangeError('Introduce un importe en euros con hasta dos decimales');
+  const minor = Number(match[1]) * 100 + Number((match[2] || '').padEnd(2, '0'));
+  if (!Number.isSafeInteger(minor)) throw new RangeError('El importe es demasiado grande');
+  return minor;
+}
+
+function hideSwipeActions(root, except) {
+  root.querySelectorAll('[data-swipe-actions]').forEach(actions => {
+    if (actions !== except) actions.hidden = true;
+  });
+}
+
+export function bindSwipeActions(root = document) {
+  let gesture;
+  root.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || event.clientX < 24 || event.target.closest('button,input,select,textarea,a,summary')) return;
+    const row = event.target.closest('[data-swipe-row]');
+    if (!row) return;
+    gesture = { row, pointerId: event.pointerId, x: event.clientX, y: event.clientY, horizontal: false, deltaX: 0 };
+  });
+  root.addEventListener('pointermove', event => {
+    if (!gesture || event.pointerId !== gesture.pointerId) return;
+    const deltaX = event.clientX - gesture.x;
+    const deltaY = event.clientY - gesture.y;
+    if (!gesture.horizontal) {
+      if (Math.abs(deltaX) < 8 && Math.abs(deltaY) < 8) return;
+      if (Math.abs(deltaY) >= Math.abs(deltaX)) {
+        gesture = undefined;
+        return;
+      }
+      gesture.horizontal = true;
+      gesture.row.setPointerCapture?.(event.pointerId);
+    }
+    event.preventDefault();
+    gesture.deltaX = deltaX;
+  }, { passive: false });
+  const finish = event => {
+    if (!gesture || event.pointerId !== gesture.pointerId) return;
+    const { row, deltaX, horizontal } = gesture;
+    gesture = undefined;
+    if (!horizontal) return;
+    const ratio = Math.abs(deltaX) / Math.max(row.clientWidth, 1);
+    if (deltaX > 0 && ratio >= .38 && row.dataset.swipeStartAction) {
+      row.dispatchEvent(new CustomEvent('basketra:swipe-action', { bubbles: true, detail: { action: row.dataset.swipeStartAction, id: row.dataset.swipeId, kind: row.dataset.swipeKind } }));
+      return;
+    }
+    if (deltaX < 0) {
+      const actions = row.querySelector('[data-swipe-actions]');
+      if (!actions) return;
+      hideSwipeActions(root, actions);
+      actions.hidden = false;
+      const target = ratio >= .62 ? actions.querySelector('[data-destructive-action]') : actions.querySelector('[data-primary-swipe-action]');
+      target?.focus();
+    }
+  };
+  root.addEventListener('pointerup', finish);
+  root.addEventListener('pointercancel', finish);
+  root.addEventListener('click', event => {
+    if (!event.target.closest('[data-swipe-row]')) hideSwipeActions(root);
+  });
+  root.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    const row = event.target.closest('[data-swipe-row]');
+    const actions = row?.querySelector('[data-swipe-actions]');
+    if (actions) actions.hidden = true;
+  });
+}
+
 export function connectionStatus(connected) {
   return `${icon(connected ? 'wifi' : 'wifiOff')}<span>${connected ? 'Conectado' : 'Sin conexión'}</span>`;
 }
@@ -66,22 +152,19 @@ export function shoppingListItem(item, index, total) {
   const name = escapeHtml(item.text);
   const completionLabel = item.completed ? `Devolver ${name} a pendientes` : `Marcar ${name} como comprado`;
   const details = `${item.quantityMinor} ${escapeHtml(item.unit)} · ${item.exactRequired ? 'Exacto' : 'Flexible'} · ${item.substitutionAllowed ? 'Con alternativas' : 'Sin alternativas'}`;
-  return `<li class="swipe-row list-row${item.completed ? ' is-completed' : ''}" data-swipe-row data-swipe-kind="shopping-item" data-swipe-id="${id}" data-swipe-start-action="complete" data-swipe-end-action="edit">
-    <div class="swipe-actions swipe-actions--start" aria-hidden="true"><span>${icon('check')}<strong>${item.completed ? 'Pendiente' : 'Comprado'}</strong></span></div>
-    <div class="swipe-actions swipe-actions--end">
-      <button type="button" data-swipe-action="edit" aria-label="Editar ${name}">${icon('edit')}<span>Editar</span></button>
-      <button type="button" class="danger" data-swipe-action="delete" aria-label="Eliminar ${name}">${icon('trash')}<span>Eliminar</span></button>
+  return `<li class="list-row${item.completed ? ' is-completed' : ''}" data-swipe-row data-swipe-kind="shopping-item" data-swipe-id="${id}" data-swipe-start-action="complete">
+    <button type="button" class="completion-button" data-item-action="complete" data-item-id="${id}" aria-label="${completionLabel}" aria-pressed="${String(item.completed)}">${icon('check')}</button>
+    <div class="list-row__content"><strong>${name}</strong><span>${details}</span></div>
+    <div class="list-row__actions">
+      <button type="button" class="icon-button" data-item-action="quantity" data-item-id="${id}" data-delta="-1" ${item.quantityMinor <= 1 ? 'disabled' : ''} aria-label="Reducir cantidad de ${name}">${icon('minus')}</button>
+      <span class="quantity-chip" aria-label="Cantidad actual">${item.quantityMinor}</span>
+      <button type="button" class="icon-button" data-item-action="quantity" data-item-id="${id}" data-delta="1" aria-label="Aumentar cantidad de ${name}">${icon('plus')}</button>
+      <button type="button" class="icon-button" data-item-action="move" data-item-id="${id}" data-direction="-1" ${index === 0 ? 'disabled' : ''} aria-label="Subir ${name}">${icon('chevronUp')}</button>
+      <button type="button" class="icon-button" data-item-action="move" data-item-id="${id}" data-direction="1" ${index === total - 1 ? 'disabled' : ''} aria-label="Bajar ${name}">${icon('chevronDown')}</button>
     </div>
-    <div class="swipe-surface list-row__surface" data-swipe-surface tabindex="0" aria-expanded="false">
-      <button type="button" class="completion-button" data-item-action="complete" data-item-id="${id}" aria-label="${completionLabel}" aria-pressed="${String(item.completed)}">${icon('check')}</button>
-      <div class="list-row__content"><strong>${name}</strong><span>${details}</span></div>
-      <div class="list-row__actions">
-        <button type="button" class="icon-button" data-item-action="quantity" data-item-id="${id}" data-delta="-1" ${item.quantityMinor <= 1 ? 'disabled' : ''} aria-label="Reducir cantidad de ${name}">${icon('minus')}</button>
-        <span class="quantity-chip" aria-label="Cantidad actual">${item.quantityMinor}</span>
-        <button type="button" class="icon-button" data-item-action="quantity" data-item-id="${id}" data-delta="1" aria-label="Aumentar cantidad de ${name}">${icon('plus')}</button>
-        <button type="button" class="icon-button" data-item-action="move" data-item-id="${id}" data-direction="-1" ${index === 0 ? 'disabled' : ''} aria-label="Subir ${name}">${icon('chevronUp')}</button>
-        <button type="button" class="icon-button" data-item-action="move" data-item-id="${id}" data-direction="1" ${index === total - 1 ? 'disabled' : ''} aria-label="Bajar ${name}">${icon('chevronDown')}</button>
-      </div>
+    <div class="list-row__actions" data-swipe-actions hidden>
+      <button type="button" class="icon-button" data-primary-swipe-action data-item-action="edit" data-item-id="${id}" aria-label="Editar ${name}">${icon('edit')}</button>
+      <button type="button" class="icon-button danger" data-destructive-action data-item-action="delete" data-item-id="${id}" aria-label="Eliminar ${name}">${icon('trash')}</button>
     </div>
   </li>`;
 }
@@ -115,30 +198,12 @@ export function receiptReview(items, lines, total) {
   const expected = total?.expectedMinor ?? items.reduce((sum, item) => sum + item.lineTotalMinor, 0);
   const status = total?.valid === false ? 'warning' : 'success';
   const label = total?.valid === false ? 'Revisar total' : 'Total validado';
-  return `<div class="review-summary"><div><p class="eyebrow">Revisión</p><h2>Comprueba cada línea</h2></div><span class="status-pill ${status}">${label}</span></div>
-    <div class="review-total"><span>Total calculado</span><strong>${formatEuroMinor(expected)}</strong></div>
-    <ul class="receipt-items">${items.map((item, index) => receiptLine(item, index, lines[index])).join('')}</ul>
-    <button type="button" class="button secondary full" data-receipt-action="add-line">${icon('plus')}Añadir línea</button>`;
+  return `<div class="review-summary"><div><p class="eyebrow">Revisión</p><h2>Comprueba cada línea</h2></div><span class="status-pill ${status}">${label}</span></div><div class="review-total"><span>Total calculado</span><strong>${formatEuroMinor(expected)}</strong></div><div class="receipt-items">${items.map((item, index) => receiptLine(item, index, lines[index])).join('')}</div><button type="button" class="button secondary full" data-receipt-action="add-line">${icon('plus')}Añadir línea</button>`;
 }
 
 function receiptLine(item, index, validation = {}) {
   const confirmed = validation.status === 'confirmed';
-  const status = escapeHtml(validation.status || 'needs-review');
-  return `<li class="swipe-row receipt-item" data-swipe-row data-swipe-kind="receipt-line" data-swipe-id="${index}" data-swipe-end-action="edit">
-    <div class="swipe-actions swipe-actions--end">
-      <button type="button" data-swipe-action="edit" aria-label="Editar línea ${index + 1}">${icon('edit')}<span>Editar</span></button>
-      <button type="button" class="danger" data-swipe-action="delete" aria-label="Eliminar línea ${index + 1}">${icon('trash')}<span>Eliminar</span></button>
-    </div>
-    <div class="swipe-surface receipt-item__surface" data-swipe-surface tabindex="0" aria-expanded="false">
-      <div class="receipt-item__header"><strong>Línea ${index + 1}</strong><span class="status-pill ${confirmed ? 'success' : 'warning'}">${status}</span></div>
-      <label class="field"><span>Producto</span><input data-field="description" maxlength="240" value="${escapeHtml(item.description)}" autocomplete="off"></label>
-      <div class="receipt-money-grid">
-        <label class="field"><span>Cantidad</span><input data-field="quantity" type="number" min="0" step="1" inputmode="numeric" value="${item.quantity}"></label>
-        <label class="field"><span>Precio unitario</span><span class="money-input"><input data-field="unitPriceEuro" inputmode="decimal" value="${minorToEuroInput(item.unitPriceMinor)}" aria-label="Precio unitario en euros"><span>€</span></span></label>
-        <label class="field"><span>Total línea</span><span class="money-input"><input data-field="lineTotalEuro" inputmode="decimal" value="${minorToEuroInput(item.lineTotalMinor)}" aria-label="Total de línea en euros"><span>€</span></span></label>
-      </div>
-    </div>
-  </li>`;
+  return `<fieldset class="receipt-item" data-item-index="${index}" data-swipe-row data-swipe-kind="receipt-line" data-swipe-id="${index}"><legend>Línea ${index + 1}<span class="status-pill ${confirmed ? 'success' : 'warning'}">${escapeHtml(validation.status || 'needs-review')}</span></legend><label class="field"><span>Producto</span><input data-field="description" maxlength="240" value="${escapeHtml(item.description)}" autocomplete="off"></label><div class="quantity-row"><label class="field"><span>Cantidad</span><input data-field="quantity" type="number" min="0" step="1" inputmode="numeric" value="${item.quantity}"></label><label class="field"><span>Precio unitario (€)</span><input data-field="unitPriceEuro" inputmode="decimal" value="${minorToEuroInput(item.unitPriceMinor)}"></label><label class="field"><span>Total (€)</span><input data-field="lineTotalEuro" inputmode="decimal" value="${minorToEuroInput(item.lineTotalMinor)}"></label></div><div class="list-row__actions" data-swipe-actions hidden><button type="button" class="icon-button" data-primary-swipe-action data-receipt-action="edit" data-receipt-index="${index}" aria-label="Editar línea ${index + 1}">${icon('edit')}</button><button type="button" class="icon-button danger" data-destructive-action data-receipt-action="delete" data-receipt-index="${index}" aria-label="Eliminar línea ${index + 1}">${icon('trash')}</button></div></fieldset>`;
 }
 
 export function optimizationPlan(plan) {
