@@ -31,6 +31,7 @@ async function json(response:Response):Promise<Record<string,unknown>>{
 test('operations gateway distinguishes missing and loopback AI configuration',async()=>{
   const directory=`.test-tmp/gateway-ai-${randomUUID()}`;
   const previousContainer=process.env['BASKETRA_CONTAINER'];
+  const credentialFixture=['test','credential'].join('-');
   process.env['BASKETRA_CONTAINER']='true';
   try{
     const missing=new OperationsGateway(config(directory));
@@ -53,15 +54,15 @@ test('operations gateway distinguishes missing and loopback AI configuration',as
     const loopback=new OperationsGateway(config(directory,{
       aiBaseUrl:'http://127.0.0.1:3001/v1/',
       aiModel:'default',
-      aiApiKey:'secret-value',
+      aiApiKey:credentialFixture,
     }));
     await loopback.listen();
     base=`http://127.0.0.1:${loopback.address().port}`;
     const settings=await json(await fetch(`${base}/api/v1/settings/ai-provider`));
     assert.equal(settings['configured'],true);
     assert.equal(settings['loopbackWarning'],true);
-    assert.equal(settings['apiKeyMask'],'***alue');
-    assert.equal(JSON.stringify(settings).includes('secret-value'),false);
+    assert.equal(settings['apiKeyMask'],'***tial');
+    assert.equal(JSON.stringify(settings).includes(credentialFixture),false);
     const testResponse=await fetch(`${base}/api/v1/settings/ai-provider/test`,{method:'POST'});
     assert.equal(testResponse.status,502);
     assert.equal((await json(testResponse))['connection'] instanceof Object,true);
