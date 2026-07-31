@@ -66,13 +66,13 @@ async function swipe(page, locator, direction, { long = false } = {}) {
   await locator.scrollIntoViewIfNeeded();
   const box = await locator.boundingBox();
   expect(box).not.toBeNull();
-  const startX = direction === 'left' ? box.x + box.width - 28 : box.x + box.width * 0.45;
-  const distance = box.width * (long ? 0.7 : 0.45);
+  const startX = direction === 'left' ? box.x + box.width * 0.72 : box.x + box.width * 0.35;
+  const distance = box.width * (long ? 0.72 : 0.34);
   const endX = direction === 'left' ? startX - distance : startX + distance;
-  const y = box.y + Math.min(box.height / 2, 48);
+  const y = box.y + Math.min(box.height / 2, 42);
   await page.mouse.move(startX, y);
   await page.mouse.down();
-  await page.mouse.move(endX, y, { steps: 12 });
+  await page.mouse.move(endX, y, { steps: 14 });
   await page.mouse.up();
 }
 
@@ -119,7 +119,7 @@ test('mobile PWA loads with private-network messaging and touch-safe navigation'
   expect(failures).toEqual([]);
 });
 
-test('shopping lists support reusable swipe, editing, quantities, completion, ordering and deletion', async ({ page }) => {
+test('shopping lists support progressive swipe reveal, completion, full-delete and undo', async ({ page }, testInfo) => {
   const failures = await gotoApp(page);
   await createList(page, 'Compra E2E');
 
@@ -136,7 +136,10 @@ test('shopping lists support reusable swipe, editing, quantities, completion, or
   await expect(milkRow.locator('.quantity-chip')).toHaveText('3');
 
   await swipe(page, milkRow, 'left');
+  await expect(milkRow).toHaveAttribute('data-swipe-open', 'true');
   await expect(page.getByRole('button', { name: 'Editar Leche entera 1 L' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Eliminar Leche entera 1 L' })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('swipe-reveal.png') });
   await page.getByRole('button', { name: 'Editar Leche entera 1 L' }).click();
   await productInput(page).fill('Leche semidesnatada 1 L');
   await page.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
@@ -153,17 +156,26 @@ test('shopping lists support reusable swipe, editing, quantities, completion, or
 
   const returnedRice = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
   await swipe(page, returnedRice, 'left', { long: true });
-  const deleteRice = page.getByRole('button', { name: 'Eliminar Arroz 1 kg' });
-  await expect(deleteRice).toBeFocused();
+  await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
+  await expect(page.locator('#toast-message')).toHaveText('Producto eliminado');
+  await expect(page.getByRole('button', { name: 'Deshacer' })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('swipe-delete.png') });
+  await page.getByRole('button', { name: 'Deshacer' }).click();
   await expect(page.locator('#pending-items')).toContainText('Arroz 1 kg');
-  await deleteRice.click();
-  await page.getByRole('button', { name: 'Eliminar producto', exact: true }).click();
+
+  const restoredRice = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
+  await page.getByRole('button', { name: 'Mostrar acciones de Arroz 1 kg' }).click();
+  await expect(restoredRice).toHaveAttribute('data-swipe-open', 'true');
+  await page.keyboard.press('Escape');
+  await expect(restoredRice).toHaveAttribute('data-swipe-open', 'false');
+  await swipe(page, restoredRice, 'left', { long: true });
   await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
 
   await page.reload();
   await navigate(page, 'Lista');
   await expect(page.locator('#list-select')).toContainText('Compra completa');
   await expect(page.locator('#pending-items')).toContainText('Leche semidesnatada 1 L');
+  await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
 
   await page.getByRole('button', { name: 'Eliminar', exact: true }).click();
   await page.getByRole('button', { name: 'Eliminar lista', exact: true }).click();
@@ -190,7 +202,7 @@ test('local suggestions ignore stale responses and never require AI', async ({ p
   expect(failures).toEqual([]);
 });
 
-test('local OCR creates editable euro rows and imports without AI', async ({ page }) => {
+test('local OCR creates editable euro rows with progressive swipe and imports without AI', async ({ page }, testInfo) => {
   const failures = await gotoApp(page);
   await navigate(page, 'Tickets');
 
@@ -223,11 +235,13 @@ test('local OCR creates editable euro rows and imports without AI', async ({ pag
   await expect(page.locator('#receipt-review')).toContainText('1,20 €');
   await expect(page.getByText(/céntimos|cént\./i)).toHaveCount(0);
 
-  const firstLine = page.locator('.receipt-item').first();
-  await swipe(page, firstLine, 'left', { long: true });
-  const deleteLine = page.getByRole('button', { name: 'Eliminar línea 1' });
-  await expect(deleteLine).toBeFocused();
-  await expect(page.locator('.receipt-item')).toHaveCount(1);
+  const firstLineShell = page.locator('[data-swipe-kind="receipt-line"]').first();
+  const firstLine = firstLineShell.locator('.receipt-item');
+  await swipe(page, firstLineShell, 'left');
+  await expect(firstLineShell).toHaveAttribute('data-swipe-open', 'true');
+  await expect(page.getByRole('button', { name: 'Editar línea 1' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Eliminar línea 1' })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('swipe-reveal.png') });
   await page.getByRole('button', { name: 'Editar línea 1' }).click();
   await expect(firstLine.locator('[data-field="description"]')).toBeFocused();
   await firstLine.locator('[data-field="description"]').fill('Whole milk');
@@ -239,6 +253,18 @@ test('local OCR creates editable euro rows and imports without AI', async ({ pag
   await manualLine.locator('[data-field="quantity"]').fill('1');
   await manualLine.locator('[data-field="unitPriceEuro"]').fill('0.20');
   await manualLine.locator('[data-field="lineTotalEuro"]').fill('0.20');
+
+  const manualLineShell = page.locator('[data-swipe-kind="receipt-line"]').last();
+  await swipe(page, manualLineShell, 'left', { long: true });
+  await expect(page.locator('.receipt-item')).toHaveCount(1);
+  await expect(page.locator('#toast-message')).toHaveText('Línea eliminada');
+  await expect(page.getByRole('button', { name: 'Deshacer' })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('swipe-delete.png') });
+  await page.getByRole('button', { name: 'Deshacer' }).click();
+  await expect(page.locator('.receipt-item')).toHaveCount(2);
+  await expect(page.locator('.receipt-item').last().locator('[data-field="description"]')).toHaveValue('Bread');
+  await expect(page.locator('.receipt-item').last().locator('[data-field="unitPriceEuro"]')).toHaveValue('0.20');
+
   await page.getByLabel('Total declarado (€)').fill('1.40');
   await page.getByRole('button', { name: 'Validar líneas e importes', exact: true }).click();
   await expect(page.locator('#receipt-state')).toContainText('Líneas y total validados');
