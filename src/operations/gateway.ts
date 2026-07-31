@@ -5,12 +5,14 @@ import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AppConfig } from '../infrastructure/config.ts';
 import { BasketraServer } from '../api/server.ts';
+import { DEFAULT_DATABASE_STORAGE_LIMITS } from '../infrastructure/database.ts';
 import { ApplicationLogStore, sanitizeClientLog, type LogSource } from './log-store.ts';
-import { importBackup, listImportedBackups, RESTORE_CONFIRMATION, stagePendingRestore } from './restore.ts';
+import { importBackupStream, listImportedBackups, RESTORE_CONFIRMATION, stagePendingRestore } from './restore.ts';
 import { resolveRuntimeVersion } from './version.ts';
 
 const DIRECT_ASSETS = new Set(['operations.js', 'operations.css']);
 const BACKUP_NAME = /^[a-zA-Z0-9._-]+\.db$/;
+const BACKUP_CONTENT_TYPES = new Set(['application/vnd.sqlite3', 'application/octet-stream']);
 const MAX_CLIENT_LOG_BATCH = 20;
 const MAX_CLIENT_LOGS_PER_MINUTE = 120;
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
@@ -45,6 +47,10 @@ function safeBackupName(value: string): string {
     throw new Error('BACKUP_NAME_INVALID');
   }
   return value;
+}
+
+function headerValue(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? value[0] ?? '' : value ?? '';
 }
 
 function ensureTrailingSlash(url: URL): URL {
@@ -161,10 +167,10 @@ export class OperationsGateway {
         return await this.ingestClientLogs(request, response, requestId);
       }
       if (request.method === 'GET' && url.pathname === '/api/v1/restore/imports') {
-        return this.json(response, 200, { backups: listImportedBackups(this.config.dataDir) }, requestId);
+        return this.json(response, 200, { backups: await listImportedBackups(this.config.dataDir) }, requestId);
       }
       if (request.method === 'POST' && url.pathname === '/api/v1/restore/import') {
-        return await this.importBackup(request, response, requestId);
+        return await this.importBackup(request, response, requestId, url);
       }
       if (request.method === 'POST' && url.pathname === '/api/v1/restore/stage') {
         return await this.stageRestore(request, response, requestId);
@@ -188,6 +194,7 @@ export class OperationsGateway {
       });
       const status = code.includes('NOT_FOUND') ? 404
         : code.includes('TOO_LARGE') || code.includes('SIZE') ? 413
+        : code.includes('CONTENT_TYPE') ? 415
         : code.includes('CONFIRMATION') ? 409
         : code.includes('UNSUPPORTED') ? 422
         : 400;
@@ -322,13 +329,20 @@ export class OperationsGateway {
     this.json(response, 202, { accepted }, requestId);
   }
 
-  private async importBackup(request: IncomingMessage, response: ServerResponse, requestId: string): Promise<void> {
-    const body = await this.readJson(request, Math.ceil(this.config.maxBodyBytes * 1.5));
-    if (!isRecord(body)) throw new Error('VALIDATION_ERROR');
-    const backup = importBackup(this.config.dataDir, {
-      originalName: readString(body, 'name', 120),
-      base64: readString(body, 'base64', Math.ceil(this.config.maxBodyBytes * 1.4)),
-    }, this.config.maxBodyBytes);
+  private async importBackup(request: IncomingMessage, response: ServerResponse, requestId: string, url: URL): Promise<void> {
+    const contentType = headerValue(request.headers['content-type']).split(';')[0]?.trim().toLowerCase() ?? '';
+    if (!BACKUP_CONTENT_TYPES.has(contentType)) throw new Error('BACKUP_CONTENT_TYPE_INVALID');
+    const originalName = safeBackupName(url.searchParams.get('name') ?? '');
+    const declaredLength = Number(headerValue(request.headers['content-length']));
+    if (Number.isFinite(declaredLength) && declaredLength > DEFAULT_DATABASE_STORAGE_LIMITS.maxDatabaseBytes) {
+      throw new Error('BACKUP_SIZE_INVALID');
+    }
+    const backup = await importBackupStream(
+      this.config.dataDir,
+      originalName,
+      request,
+      DEFAULT_DATABASE_STORAGE_LIMITS.maxDatabaseBytes,
+    );
     this.#logStore.append({ source: 'server', level: 'info', event: 'backup.imported', requestId, code: `SCHEMA_${backup.schemaVersion}` });
     this.json(response, 201, { backup }, requestId);
   }
@@ -346,7 +360,7 @@ export class OperationsGateway {
       body: JSON.stringify({ name: preRestoreBackupName }),
     });
     if (!backupResponse.ok) throw new Error('PRE_RESTORE_BACKUP_FAILED');
-    const pending = stagePendingRestore(this.config.dataDir, {
+    const pending = await stagePendingRestore(this.config.dataDir, {
       importedName,
       preRestoreBackupName,
       confirmation,
@@ -468,12 +482,13 @@ export class OperationsGateway {
     switch (code) {
       case 'BACKUP_NOT_FOUND': return 'La copia de seguridad no existe';
       case 'BACKUP_NAME_INVALID': return 'El nombre de la copia no es válido';
-      case 'BACKUP_BASE64_INVALID': return 'El archivo importado no está codificado correctamente';
-      case 'BACKUP_SIZE_INVALID': return 'La copia está vacía o supera el límite configurado';
+      case 'BACKUP_CONTENT_TYPE_INVALID': return 'Selecciona un archivo SQLite .db válido';
+      case 'BACKUP_SIZE_INVALID': return 'La copia está vacía o supera el límite de 512 MiB';
       case 'BACKUP_INTEGRITY_INVALID': return 'La copia no supera la comprobación de integridad SQLite';
       case 'BACKUP_SCHEMA_UNSUPPORTED': return 'La versión de base de datos de la copia no es compatible';
       case 'RESTORE_CONFIRMATION_REQUIRED': return `Escribe ${RESTORE_CONFIRMATION} para confirmar`;
       case 'IMPORTED_BACKUP_NOT_FOUND': return 'La copia importada ya no está disponible';
+      case 'PRE_RESTORE_BACKUP_NOT_FOUND': return 'La copia previa a la restauración ya no está disponible';
       case 'PRE_RESTORE_BACKUP_FAILED': return 'No se pudo crear la copia previa a la restauración';
       case 'CLIENT_LOG_BATCH_INVALID': return 'El lote de logs del cliente no es válido';
       case 'LOG_LIMIT_INVALID': return 'El límite de logs no es válido';
