@@ -83,7 +83,7 @@ export class OperationsGateway {
   readonly #logStore: ApplicationLogStore;
   readonly #startedAt: string;
   readonly #publicDir: string;
-  readonly #requestRestart?: () => void;
+  readonly #requestRestart: (() => void) | undefined;
   readonly #clock: () => Date;
   #innerPort = 0;
   #clientLogWindowStarted = 0;
@@ -394,7 +394,7 @@ export class OperationsGateway {
     const upstream = httpRequest({
       host: '127.0.0.1',
       port: this.#innerPort,
-      method: request.method,
+      method: request.method ?? 'GET',
       path: request.url ?? '/',
       headers: request.headers,
     }, (upstreamResponse) => {
