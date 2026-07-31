@@ -22,8 +22,10 @@ RUN apk add --no-cache tesseract-ocr tesseract-ocr-data-spa \
     && tesseract --version \
     && tesseract --list-langs | grep -qx spa \
     && base64 -d /tmp/ocr-smoke.png.b64 > /tmp/ocr-smoke.png \
-    && (ulimit -v 131072; tesseract /tmp/ocr-smoke.png stdout --oem 1 --psm 6 -l spa 2>/dev/null | grep -q TOTAL) \
-    && rm -f /tmp/ocr-smoke.png /tmp/ocr-smoke.png.b64
+    && echo '31a0ad84772e5e2b98db0d5a5ef690154e29479153ee4b38da42f542d5fd9b5d  /tmp/ocr-smoke.png' | sha256sum -c - \
+    && (ulimit -v 131072; tesseract /tmp/ocr-smoke.png stdout --oem 1 --psm 6 -l spa | tee /tmp/ocr-smoke.txt) \
+    && grep -q TOTAL /tmp/ocr-smoke.txt \
+    && rm -f /tmp/ocr-smoke.png /tmp/ocr-smoke.png.b64 /tmp/ocr-smoke.txt
 COPY --from=build --chown=node:node /app/dist ./dist
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
