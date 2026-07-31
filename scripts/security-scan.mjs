@@ -95,8 +95,8 @@ if (!/publish-image:[\s\S]*?needs:[\s\S]*?- quality[\s\S]*?- security[\s\S]*?- b
   failures.push('GHCR publication must depend on every CI gate');
 }
 const publishJobIndex = ci.indexOf('  publish-image:');
-const contentsWriteIndex = ci.indexOf('      contents: write');
-if (publishJobIndex < 0 || contentsWriteIndex < publishJobIndex || ci.indexOf('contents: write', contentsWriteIndex + 1) >= 0) {
+const contentsWriteMatches = [...ci.matchAll(/^\s+contents: write$/gm)];
+if (publishJobIndex < 0 || contentsWriteMatches.length !== 1 || (contentsWriteMatches[0]?.index ?? -1) < publishJobIndex) {
   failures.push('Contents write permission must exist only in the trusted main publication job');
 }
 const publishIndex = ci.indexOf('- name: Publish immutable SHA candidate');
