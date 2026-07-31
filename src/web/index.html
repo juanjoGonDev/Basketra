@@ -40,7 +40,7 @@
     </section>
 
     <section class="view" data-view="lists">
-      <div class="page-header"><div><p class="eyebrow">Compra activa</p><h1>Lista de la compra</h1><p>Desliza a la derecha para completar; desliza a la izquierda para mostrar edición y borrado. Los botones siguen disponibles para accesibilidad.</p></div></div>
+      <div class="page-header"><div><p class="eyebrow">Compra activa</p><h1>Lista de la compra</h1><p>Desliza a la derecha para completar. A la izquierda, un gesto corto descubre editar y eliminar; si continúas hasta el umbral rojo, se elimina al soltar y puedes deshacerlo.</p></div></div>
 
       <section class="surface list-manager" aria-labelledby="list-manager-title">
         <div class="panel-heading"><span class="section-icon" data-icon="list"></span><div><p class="eyebrow">Mis listas</p><h2 id="list-manager-title">Selecciona o crea una</h2></div></div>
@@ -121,7 +121,7 @@
         <button id="extract-receipt" class="button primary full" type="button" disabled><span data-icon="scan"></span>Leer con OCR local</button>
         <span id="receipt-state" class="inline-status" role="status"></span>
         <details class="manual-entry" open><summary>Revisión manual y total</summary><div class="details-body">
-          <p>Las líneas son editables. Desliza a la izquierda para mostrar editar o eliminar; un desplazamiento largo enfoca eliminar, pero nunca borra sin pulsar el botón.</p>
+          <p>Cada producto es una fila editable. Desliza un poco a la izquierda para descubrir editar y eliminar; continúa hasta el fondo rojo para eliminar al soltar. La acción ofrece Deshacer y también puede ejecutarse con botones.</p>
           <button id="add-manual-line" class="button secondary full" type="button"><span data-icon="plus"></span>Añadir línea manual</button>
           <label class="field"><span>Total declarado (€)</span><input id="receipt-total" type="text" value="0.00" inputmode="decimal" autocomplete="off"></label>
           <button id="review-receipt" class="button secondary full" type="button"><span data-icon="check"></span>Validar líneas e importes</button>
@@ -175,7 +175,7 @@
     <button data-nav="prices"><span data-icon="prices"></span><span>Planes</span></button>
     <button data-nav="settings"><span data-icon="settings"></span><span>Ajustes</span></button>
   </nav>
-  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="toast" role="status" aria-live="polite"><span id="toast-message"></span><button id="toast-action" type="button" hidden></button></div>
   <script type="module" src="/app.js"></script>
 </body>
 </html>
