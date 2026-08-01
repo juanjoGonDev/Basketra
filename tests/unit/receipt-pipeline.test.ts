@@ -343,7 +343,8 @@ test('receipt service verifies every OCR page independently and combines adjacen
   const store = new FileStore(join(root, 'files'), join(root, 'tmp'), 4096);
   try {
     const first = store.storeBase64({ base64: pngBase64, mimeType: 'image/png' });
-    const second = store.storeBase64({ base64: pngBase64, mimeType: 'image/png' });
+    const secondBytes = Buffer.concat([Buffer.from(pngBase64, 'base64'), Buffer.from([1])]);
+    const second = store.storeBase64({ base64: secondBytes.toString('base64'), mimeType: 'image/png' });
     const seenContent: string[] = [];
     const mock = provider({
       async executeStructured(input) {
