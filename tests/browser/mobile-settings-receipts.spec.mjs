@@ -82,7 +82,7 @@ test('settings remain readable and unobscured across light and dark responsive l
   }
 });
 
-test('receipt pages use a two-slot OCR and AI pool with per-image retry and retailer autofill', async ({ page }, testInfo) => {
+test('OCR exposes a two-slot per-image pipeline with retry and retailer autofill', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
@@ -191,6 +191,62 @@ test('receipt pages use a two-slot OCR and AI pool with per-image retry and reta
   expect(payload.ai.pages).toHaveLength(3);
   expect(payload.originalText).toContain('ALCAMPO ALMERIA');
   await expect(page.locator('#receipt-state')).toContainText('Ticket importado');
+});
+
+test('receipt cancellation stops queued work and preserves every capture', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 360, height: 780 });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ configured: false }),
+  }));
+
+  let started = 0;
+  let releaseRequests = () => {};
+  const requestGate = new Promise(resolve => {
+    releaseRequests = resolve;
+  });
+  await page.route('**/api/v1/receipts/extract', async route => {
+    started += 1;
+    await requestGate;
+    try {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ extraction: pageExtraction(0, false) }),
+      });
+    } catch {
+      // The expected AbortController cancellation closes intercepted requests.
+    }
+  });
+
+  await page.goto('/');
+  await navigate(page, 'Tickets');
+  await page.locator('#receipt-files').setInputFiles([0, 1, 2].map(index => ({
+    name: `cancel-${index + 1}.png`,
+    mimeType: 'image/png',
+    buffer: Buffer.concat([validPng, Buffer.from([10 + index])]),
+  })));
+  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
+  await expect.poll(() => started).toBe(2);
+  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'OCR local' })).toHaveCount(2);
+  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Pendiente' })).toHaveCount(1);
+
+  await page.locator('.capture-card').first().getByRole('button', { name: 'Cancelar esta imagen', exact: true }).click();
+  await expect(page.locator('.capture-card').first().locator('.status-pill')).toHaveText('Cancelada');
+  await expect.poll(() => started).toBe(3);
+
+  await page.getByRole('button', { name: 'Cancelar todo', exact: true }).click();
+  releaseRequests();
+  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Cancelada' })).toHaveCount(3);
+  await expect(page.locator('.capture-card')).toHaveCount(3);
+  await expect(page.locator('#receipt-progress-detail')).toContainText('3 canceladas');
+  await expect(page.locator('#receipt-review')).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Leer con OCR local', exact: true })).toBeEnabled();
+  await expect(page.locator('#receipt-state')).toContainText('capturas, los OCR parciales y las páginas completadas se conservan');
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({ path: testInfo.outputPath('ocr-cancelled.png'), fullPage: true });
 });
 
 function pageExtraction(index, verified) {
