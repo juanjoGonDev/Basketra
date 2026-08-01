@@ -18,8 +18,20 @@ test.afterEach(async ({ page }, testInfo) => {
   await page.screenshot({ path: testInfo.outputPath('operations-viewport.png'), fullPage: true });
 });
 
-test('settings show live runtime, redacted logs and downloadable importable backups', async ({ page, request }, testInfo) => {
+test('settings show live runtime, redacted copyable logs and downloadable importable backups', async ({ page, request }, testInfo) => {
   const failures = [];
+  await page.addInitScript(() => {
+    window.__basketraCopiedLogs = '';
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: command => {
+        if (command !== 'copy') return false;
+        window.__basketraCopiedLogs = document.activeElement?.value || '';
+        return true;
+      },
+    });
+  });
   page.on('pageerror', error => failures.push(`pageerror: ${error.message}`));
   page.on('console', message => {
     if (message.type() === 'error') failures.push(`console: ${message.text()}`);
@@ -71,6 +83,21 @@ test('settings show live runtime, redacted logs and downloadable importable back
   await expect(page.locator('#application-logs')).toContainText('server.started');
   await expect(page.locator('#application-logs')).toContainText('backup.imported');
   await expect(page.locator('#application-logs')).not.toContainText('basketra-import.db');
+
+  const copyButton = page.getByRole('button', { name: 'Copiar logs', exact: true });
+  await expect(copyButton).toBeEnabled();
+  await copyButton.click();
+  await expect(page.locator('#copy-logs-state')).toContainText('eventos copiados como JSON');
+  const copiedLogs = await page.evaluate(() => window.__basketraCopiedLogs);
+  expect(copiedLogs).toContain('"event":"server.started"');
+  expect(copiedLogs).toContain('"event":"backup.imported"');
+  expect(copiedLogs).not.toContain('basketra-import.db');
+  const copiedLines = copiedLogs.trim().split('\n');
+  expect(copiedLines.length).toBeGreaterThan(1);
+  for (const line of copiedLines) {
+    expect(line).toBe(JSON.stringify(JSON.parse(line)));
+  }
+
   await page.screenshot({ path: testInfo.outputPath('runtime-backups-logs.png'), fullPage: true });
   await expectNoHorizontalOverflow(page);
   expect(failures).toEqual([]);
