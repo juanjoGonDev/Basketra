@@ -306,6 +306,41 @@ body:has(.view[data-view="settings"].active) main {
 }
 
 @media (min-width: 64rem) {
+  body {
+    padding-bottom: 2rem;
+  }
+
+  main,
+  body:has(.view[data-view="settings"].active) main {
+    width: min(100%, 78rem);
+    padding-top: 5.25rem;
+  }
+
+  .bottom-nav {
+    position: fixed;
+    top: var(--header);
+    right: 0;
+    bottom: auto;
+    left: 0;
+    width: 100%;
+    min-height: 3.75rem;
+    grid-template-columns: repeat(5, minmax(7rem, 10rem));
+    justify-content: center;
+    padding: 0.4rem max(1rem, calc((100vw - 78rem) / 2));
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
+    transform: none;
+  }
+
+  .bottom-nav button {
+    min-height: 2.95rem;
+    display: flex;
+    flex-direction: row;
+    gap: 0.45rem;
+    font-size: 0.76rem;
+  }
+
   html:has(.view[data-view="settings"].active) {
     scroll-padding-bottom: 2rem;
   }
@@ -320,6 +355,11 @@ body:has(.view[data-view="settings"].active) main {
 
   .operations-logs {
     max-height: 30rem;
+  }
+
+  .sticky-action,
+  #toast {
+    bottom: 1rem;
   }
 }
 
