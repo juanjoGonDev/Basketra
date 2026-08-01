@@ -146,6 +146,10 @@ body:has(.view[data-view="settings"].active) main {
   font-size: 0.82rem;
 }
 
+.operations-help:empty {
+  display: none;
+}
+
 .operations-log-actions {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
