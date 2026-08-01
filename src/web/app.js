@@ -62,6 +62,12 @@ function toast(message, options = {}) {
   toastState.timer = setTimeout(() => hideToast(version), options.duration ?? 4200);
 }
 
+function resetDocumentScroll() {
+  document.documentElement.scrollTop = 0;
+  document.body.scrollTop = 0;
+  window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+}
+
 function navigate(requestedView) {
   const view = $(`.view[data-view="${CSS.escape(requestedView)}"]`) ? requestedView : 'home';
   $$('.view').forEach(element => element.classList.toggle('active', element.dataset.view === view));
@@ -70,14 +76,25 @@ function navigate(requestedView) {
     else element.removeAttribute('aria-current');
   });
   history.replaceState(null, '', `#${view}`);
-  window.scrollTo(0, 0);
+  resetDocumentScroll();
   $('#main').focus({ preventScroll: true });
+  requestAnimationFrame(resetDocumentScroll);
 }
 
 $$('[data-nav]').forEach(element => element.addEventListener('click', event => {
   event.preventDefault();
   navigate(element.dataset.nav);
 }));
+
+function prepareSettingsView() {
+  const settings = $('.view[data-view="settings"]');
+  if (!settings) return;
+  settings.querySelector('.privacy-card')?.remove();
+  const description = settings.querySelector('.page-header p:not(.eyebrow)');
+  if (description) {
+    description.textContent = 'Supervisa la instalación, el proveedor opcional y las copias de seguridad.';
+  }
+}
 
 function scheduleAutomaticAi(text) {
   if (aiState.timer) clearTimeout(aiState.timer);
@@ -163,6 +180,7 @@ async function loadAiConfiguration() {
 }
 
 async function initialize() {
+  prepareSettingsView();
   navigate(location.hash.slice(1) || 'home');
   bindAiControls();
   $('#run-demo-comparison').addEventListener('click', event => void runDemoComparison(event.currentTarget));
