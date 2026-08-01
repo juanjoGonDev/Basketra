@@ -1,4 +1,4 @@
-import type { AiProvider, AiStructuredInput } from './provider.ts';
+import { AiProviderError, type AiProvider, type AiStructuredInput } from './provider.ts';
 
 export type RuntimeSchema<T> = Readonly<{
   jsonSchema: Readonly<Record<string, unknown>>;
@@ -30,6 +30,7 @@ export class StructuredAiExecutor {
 }
 
 function isRetryable(error: unknown): boolean {
+  if (error instanceof AiProviderError) return error.retryable;
   if (!(error instanceof Error)) return false;
   return !['AI_AUTHENTICATION_FAILED', 'AI_UNSUPPORTED_CAPABILITY', 'AI_INVALID_CONFIGURATION'].includes(error.message);
 }
