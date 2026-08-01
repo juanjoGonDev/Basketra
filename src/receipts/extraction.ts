@@ -73,6 +73,7 @@ const RECEIPT_SCHEMA: RuntimeSchema<AiReceiptInterpretation> = {
             confidence: { type: 'number', minimum: 0, maximum: 1 },
             sourceLines: {
               type: 'array',
+              minItems: 1,
               maxItems: MAX_SOURCE_LINES,
               items: { type: 'integer', minimum: 1, maximum: 100_000 },
             },
@@ -104,6 +105,9 @@ const RECEIPT_SCHEMA: RuntimeSchema<AiReceiptInterpretation> = {
       }
       const sourceLines = asArray(item['sourceLines'], `$.items[${index}].sourceLines`, MAX_SOURCE_LINES)
         .map((line, lineIndex) => asSafeInteger(line, `$.items[${index}].sourceLines[${lineIndex}]`, { min: 1, max: 100_000 }));
+      if (sourceLines.length === 0) {
+        throw new RangeError(`$.items[${index}].sourceLines must contain at least one OCR line`);
+      }
       const taxCategory = item['taxCategory'] === undefined
         ? undefined
         : asEnum(item['taxCategory'], `$.items[${index}].taxCategory`, TAX_CATEGORIES);
