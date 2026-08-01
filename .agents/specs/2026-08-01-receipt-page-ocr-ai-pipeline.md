@@ -16,37 +16,38 @@ The source request is preserved in the uploaded task text and attached receipt p
 
 ## Evidence
 
-- `ReceiptExtractionService.extract` currently loops captures sequentially, concatenates every OCR page, then sends the complete combined text to AI once.
-- The browser exposes only one global indeterminate progress panel and receives no page-level stage information.
+- The original `ReceiptExtractionService.extract` looped captures sequentially, concatenated every OCR page, then sent the complete combined text to AI once.
+- The original browser exposed only one global indeterminate progress panel and received no page-level stage information.
 - `TesseractCliOcrProvider` intentionally serializes local OCR to one process, one OpenMP thread and bounded output. This remains the resource safety boundary for Raspberry Pi.
-- Existing deterministic parsing handles inline `product quantity x unit total` lines but not a standalone quantity prefix followed by a priced product line.
-- Existing overlap removal is a global signature set. It can incorrectly remove legitimate repeated purchases outside the actual page boundary.
+- The original deterministic parser handled inline `product quantity x unit total` lines but not a standalone quantity prefix followed by a priced product line.
+- The original overlap removal used a global signature set and could remove legitimate repeated purchases outside the actual page boundary.
 - webApi contains an internal `createPromisePoolQueue` around browser executions. It is not a remote job API: Basketra cannot enqueue a correlated page job, inspect its state, cancel a queued item, or reuse that queue contract. Basketra must therefore own page orchestration while webApi remains the OpenAI-compatible provider.
 - webApi supports bounded OpenAI-compatible structured outputs and its own provider-side request queue. Basketra does not need a webApi runtime or public API change for this feature.
 
 ## Decisions
 
-1. Add explicit page endpoints rather than a simulated percentage:
-   - OCR one capture;
-   - verify one OCR result with AI;
-   - assemble validated page results.
-2. The browser owns one FIFO receipt-page pool with concurrency `2`, page-level abort controllers and stale-result generations. The server also limits receipt page operations to two active tasks across requests.
+1. Keep the canonical receipt extraction endpoint and call it with one capture per page:
+   - the first request performs local OCR;
+   - the second request supplies that page's OCR as bounded `embeddedText` and enables AI verification;
+   - a final deterministic request assembles the already validated page text in capture order.
+   This avoids a second protocol owner while still exposing page stages in the browser.
+2. The browser owns one FIFO receipt-page pool with concurrency `2`, page-level abort controllers and stale-result generations. The server independently limits receipt page operations to two active tasks across requests.
 3. Local OCR stays serialized internally. Two page pipelines may overlap only when one page is waiting on AI while another uses OCR, or when two AI verifications are active.
 4. The AI receives OCR text only for image verification. Images are not forwarded after local OCR. PDF behavior remains capability-based and separate.
 5. AI output uses a strict JSON Schema and includes corrected text, retailer, optional article count/total, ordered items, tax category, source-line references, confidence and warnings.
 6. Deterministic parsing is extended for standalone quantity prefixes, decimal commas without a leading zero, tax letters and article-count summaries.
 7. Assembly is page-aware. It removes only the longest matching suffix/prefix sequence between adjacent pages and never applies a global product signature set.
-8. A failed or cancelled page preserves completed pages. Confirmation remains unavailable until every retained capture is completed; the user must retry or remove incomplete captures.
-9. Retailer autofill never overwrites a manual edit. Conflicting detected candidates are surfaced as explicit choices.
-10. Real uploaded receipt photographs are treated as private evidence and are not committed. Tests use redacted OCR fixtures derived from the visible receipt structure plus synthetic image fixtures already used by the repository.
+8. Exact duplicate captures with the same storage key are collapsed server-side. Similar or overlapping photographs with different content remain independent pages.
+9. A failed or cancelled page preserves completed pages. Confirmation remains unavailable until every retained capture is completed; the user must retry or remove incomplete captures.
+10. Retailer autofill never overwrites a manual edit. Conflicting detected candidates are surfaced as explicit choices.
+11. Real uploaded receipt photographs are treated as private evidence and are not committed. Tests use redacted OCR fixtures derived from the visible receipt structure plus synthetic image fixtures already used by the repository.
 
 ## Scope
 
 ### In scope
 
 - receipt extraction domain and service;
-- server page OCR, verification and assembly endpoints;
-- bounded page-operation queue;
+- bounded page-operation queue on the existing receipt endpoint;
 - browser page pool, cancellation, retry, stale-result protection and retailer detection;
 - capture-card progress UI and responsive styles;
 - regression tests and exact-head visual evidence.
@@ -79,14 +80,14 @@ The source request is preserved in the uploaded task text and attached receipt p
 
 ## Tests
 
-- bounded FIFO queue concurrency, slot release, cancellation and stale generations;
-- page OCR endpoint, AI verification endpoint and assembly endpoint;
-- AI schema rejection, timeout/error fallback and redaction boundaries;
+- bounded FIFO queue concurrency, slot release and waiting-task cancellation;
+- per-page OCR and AI verification through the existing extraction endpoint;
+- AI schema rejection, provider failure, retry and redaction boundaries;
 - standalone quantity-prefix parsing and tax category extraction;
 - retailer, total and article-count metadata;
-- adjacent overlap assembly and preservation of real repeats;
-- per-page retry and global cancellation in Playwright;
-- responsive capture progress cards, keyboard actions and theme contrast;
+- adjacent overlap assembly, exact duplicate collapse and preservation of real repeats;
+- per-page and global cancellation in Playwright;
+- responsive capture progress cards and theme coverage;
 - integration through Basketra's real OpenAI-compatible provider contract using a deterministic local HTTP fixture.
 
 ## Checks
@@ -121,9 +122,19 @@ Revert the pull request. No migration, provider protocol, external queue or pers
 
 - branch: `agent/feat-receipt-page-pipeline`;
 - target: `main`;
-- normal non-draft pull request;
+- normal non-draft pull request after final validation;
 - no merge, release, deployment, protected-branch change or Raspberry mutation without explicit authorization.
 
 ## Status
 
-Recon and specification complete. Implementation and validation pending.
+Implementation complete on the feature branch:
+
+- page-local OCR followed by text-only AI verification;
+- browser and server concurrency bounds of two;
+- page states, elapsed time, retry and cancellation inside capture cards;
+- retailer, total, article-count, split-quantity and tax-category parsing;
+- adjacent overlap assembly with exact duplicate capture collapse;
+- unit, integration and Playwright regression coverage;
+- PWA cache invalidation for the new receipt workflow.
+
+Final exact-head CI and visual-evidence publication are pending before the pull request is marked ready for review.
