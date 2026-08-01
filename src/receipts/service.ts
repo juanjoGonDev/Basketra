@@ -1,14 +1,25 @@
 import type { AiProvider } from '../ai/provider.ts';
 import { asArray, asBoolean, asRecord, asString } from '../domain/validation.ts';
 import type { FileStore } from '../infrastructure/files.ts';
-import { EmbeddedTextOcrProvider, MultimodalAiOcrProvider, TesseractCliOcrProvider, type OcrProvider, type OcrResult } from '../ocr/provider.ts';
+import {
+  EmbeddedTextOcrProvider,
+  MultimodalAiOcrProvider,
+  TesseractCliOcrProvider,
+  type OcrProvider,
+  type OcrResult,
+} from '../ocr/provider.ts';
 import {
   buildReceiptReview,
-  extractDeclaredTotalMinor,
+  extractReceiptMetadata,
+  mergeReceiptPageItems,
   parseDeterministicReceiptText,
   verifyReceiptWithAi,
   type AiReceiptInterpretation,
+  type ReceiptExtractionItem,
+  type ReceiptMetadata,
 } from './extraction.ts';
+
+const DEFAULT_PAGE_CONCURRENCY = 2;
 
 export type ReceiptCaptureRequest = Readonly<{
   storageKey: string;
@@ -28,20 +39,119 @@ export type ReceiptPageEvidence = Readonly<{
   text: string;
   confidence: number;
   source: OcrResult['source'];
+  deterministic: Readonly<{
+    items: readonly ReceiptExtractionItem[];
+    metadata: ReceiptMetadata;
+  }>;
+  ai?: Readonly<{
+    interpretation: AiReceiptInterpretation;
+    attempts: number;
+  }>;
 }>;
+
+type QueuedPageTask<T> = {
+  readonly task: () => Promise<T>;
+  readonly resolve: (value: T) => void;
+  readonly reject: (reason?: unknown) => void;
+  readonly signal?: AbortSignal;
+  readonly onAbort?: () => void;
+};
+
+export class ReceiptPageTaskQueue {
+  readonly #concurrency: number;
+  readonly #waiting: QueuedPageTask<unknown>[] = [];
+  #active = 0;
+  #disposed = false;
+
+  constructor(concurrency = DEFAULT_PAGE_CONCURRENCY) {
+    if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
+      throw new RangeError('Receipt page concurrency must be a positive safe integer');
+    }
+    this.#concurrency = concurrency;
+  }
+
+  get activeCount(): number {
+    return this.#active;
+  }
+
+  get waitingCount(): number {
+    return this.#waiting.length;
+  }
+
+  async run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    signal?.throwIfAborted();
+    if (this.#disposed) throw new Error('Receipt page queue is disposed');
+
+    return await new Promise<T>((resolve, reject) => {
+      const entry: QueuedPageTask<T> = {
+        task,
+        resolve,
+        reject,
+        ...(signal ? { signal } : {}),
+      };
+      if (signal) {
+        const onAbort = () => {
+          const index = this.#waiting.indexOf(entry as QueuedPageTask<unknown>);
+          if (index === -1) return;
+          this.#waiting.splice(index, 1);
+          reject(abortError());
+        };
+        (entry as { onAbort?: () => void }).onAbort = onAbort;
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+      this.#waiting.push(entry as QueuedPageTask<unknown>);
+      this.schedule();
+    });
+  }
+
+  dispose(): void {
+    this.#disposed = true;
+    for (const entry of this.#waiting.splice(0)) {
+      entry.signal?.removeEventListener('abort', entry.onAbort ?? (() => {}));
+      entry.reject(new Error('Receipt page queue is disposed'));
+    }
+  }
+
+  private schedule(): void {
+    while (!this.#disposed && this.#active < this.#concurrency && this.#waiting.length > 0) {
+      const entry = this.#waiting.shift();
+      if (!entry) return;
+      entry.signal?.removeEventListener('abort', entry.onAbort ?? (() => {}));
+      if (entry.signal?.aborted) {
+        entry.reject(abortError());
+        continue;
+      }
+      this.#active += 1;
+      void entry.task()
+        .then(entry.resolve, entry.reject)
+        .finally(() => {
+          this.#active -= 1;
+          this.schedule();
+        });
+    }
+  }
+}
 
 export class ReceiptExtractionService {
   readonly #fileStore: FileStore;
   readonly #getAiProvider: () => AiProvider;
   readonly #maxRetries: number;
   readonly #localOcrProvider: OcrProvider;
+  readonly #pageQueue: ReceiptPageTaskQueue;
   #aiOcrProvider: MultimodalAiOcrProvider | undefined;
 
-  constructor(fileStore: FileStore, getAiProvider: () => AiProvider, maxRetries: number, localOcrProvider: OcrProvider = new TesseractCliOcrProvider()) {
+  constructor(
+    fileStore: FileStore,
+    getAiProvider: () => AiProvider,
+    maxRetries: number,
+    localOcrProvider: OcrProvider = new TesseractCliOcrProvider(),
+    pageQueue: ReceiptPageTaskQueue = new ReceiptPageTaskQueue(),
+  ) {
     this.#fileStore = fileStore;
     this.#getAiProvider = getAiProvider;
     this.#maxRetries = maxRetries;
     this.#localOcrProvider = localOcrProvider;
+    this.#pageQueue = pageQueue;
   }
 
   parseRequest(value: unknown): ReceiptExtractionRequest {
@@ -63,52 +173,109 @@ export class ReceiptExtractionService {
     if (captures.length === 0) throw new RangeError('At least one receipt capture is required');
     return {
       captures,
-      verifyWithAi: root['verifyWithAi'] === undefined ? false : asBoolean(root['verifyWithAi'], '$.verifyWithAi'),
+      verifyWithAi: root['verifyWithAi'] === undefined
+        ? false
+        : asBoolean(root['verifyWithAi'], '$.verifyWithAi'),
     };
   }
 
   async extract(request: ReceiptExtractionRequest, signal?: AbortSignal): Promise<Readonly<{
     pages: readonly ReceiptPageEvidence[];
     originalText: string;
-    deterministic: Readonly<{ items: ReturnType<typeof parseDeterministicReceiptText>; declaredTotalMinor?: number }>;
-    ai?: Readonly<{ interpretation: AiReceiptInterpretation; attempts: number }>;
-    final: Readonly<{ items: AiReceiptInterpretation['items']; declaredTotalMinor?: number; review: ReturnType<typeof buildReceiptReview> }>;
+    deterministic: Readonly<{
+      items: readonly ReceiptExtractionItem[];
+      retailerName?: string;
+      declaredTotalMinor?: number;
+      articleCount?: number;
+    }>;
+    ai?: Readonly<{
+      interpretation: AiReceiptInterpretation;
+      attempts: number;
+      pages: readonly Readonly<{
+        position: number;
+        interpretation: AiReceiptInterpretation;
+        attempts: number;
+      }>[];
+    }>;
+    final: Readonly<{
+      items: readonly ReceiptExtractionItem[];
+      retailerName?: string;
+      declaredTotalMinor?: number;
+      articleCount?: number;
+      warnings: readonly string[];
+      review: ReturnType<typeof buildReceiptReview>;
+    }>;
   }>> {
-    const pages: ReceiptPageEvidence[] = [];
-    for (const [position, capture] of request.captures.entries()) {
-      signal?.throwIfAborted();
-      const stored = this.#fileStore.read(capture.storageKey);
-      const result = capture.embeddedText
-        ? await new EmbeddedTextOcrProvider().recognize({
-            mimeType: stored.mimeType,
-            bytes: stored.bytes,
-            embeddedText: capture.embeddedText,
-            ...(capture.originalName ? { fileName: capture.originalName } : {}),
-          }, signal)
-        : await this.getOcrProvider(stored.mimeType).recognize({
-            mimeType: stored.mimeType,
-            bytes: stored.bytes,
-            ...(capture.originalName ? { fileName: capture.originalName } : {}),
-          }, signal);
-      pages.push({ position, storageKey: capture.storageKey, mimeType: stored.mimeType, ...result });
-    }
-
+    signal?.throwIfAborted();
+    const pagePromises = request.captures.map((capture, position) => this.#pageQueue.run(
+      () => this.extractPage(capture, position, request.verifyWithAi, signal),
+      signal,
+    ));
+    const pages = await Promise.all(pagePromises);
     const originalText = pages.map((page) => page.text).join('\n').trim();
-    const deterministicItems = parseDeterministicReceiptText(originalText);
-    const deterministicTotal = extractDeclaredTotalMinor(originalText);
+
+    const deterministicItems = mergeReceiptPageItems(
+      pages.map((page) => page.deterministic.items),
+    );
+    const deterministicMetadata = combineMetadata(
+      pages.map((page) => page.deterministic.metadata),
+    );
     const deterministic = {
       items: deterministicItems,
-      ...(deterministicTotal === undefined ? {} : { declaredTotalMinor: deterministicTotal }),
+      ...(deterministicMetadata.retailerName
+        ? { retailerName: deterministicMetadata.retailerName }
+        : {}),
+      ...(deterministicMetadata.declaredTotalMinor === undefined
+        ? {}
+        : { declaredTotalMinor: deterministicMetadata.declaredTotalMinor }),
+      ...(deterministicMetadata.articleCount === undefined
+        ? {}
+        : { articleCount: deterministicMetadata.articleCount }),
     };
 
-    let ai: Readonly<{ interpretation: AiReceiptInterpretation; attempts: number }> | undefined;
-    if (request.verifyWithAi) {
-      const result = await verifyReceiptWithAi(this.#getAiProvider(), this.#maxRetries, originalText, signal);
-      ai = { interpretation: result.value, attempts: result.attempts };
+    const aiPages = pages.flatMap((page) => page.ai
+      ? [{ position: page.position, ...page.ai }]
+      : []);
+    const aiInterpretations = aiPages.map((page) => page.interpretation);
+    const aiMetadata = combineMetadata(aiInterpretations);
+    const aiItemsByPage = pages.map((page) => page.ai?.interpretation.items ?? page.deterministic.items);
+    const aiItems = mergeReceiptPageItems(aiItemsByPage);
+    const warnings = aiInterpretations.flatMap((interpretation) => interpretation.warnings);
+
+    let ai: Readonly<{
+      interpretation: AiReceiptInterpretation;
+      attempts: number;
+      pages: readonly Readonly<{
+        position: number;
+        interpretation: AiReceiptInterpretation;
+        attempts: number;
+      }>[];
+    }> | undefined;
+    if (aiPages.length > 0) {
+      ai = {
+        interpretation: {
+          ...(aiMetadata.retailerName ? { retailerName: aiMetadata.retailerName } : {}),
+          ...(aiMetadata.declaredTotalMinor === undefined
+            ? {}
+            : { declaredTotalMinor: aiMetadata.declaredTotalMinor }),
+          ...(aiMetadata.articleCount === undefined
+            ? {}
+            : { articleCount: aiMetadata.articleCount }),
+          currency: 'EUR',
+          correctedText: aiInterpretations.map((interpretation) => interpretation.correctedText).join('\n').trim(),
+          items: aiItems,
+          warnings,
+        },
+        attempts: aiPages.reduce((sum, page) => sum + page.attempts, 0),
+        pages: aiPages,
+      };
     }
 
     const finalItems = ai?.interpretation.items.length ? ai.interpretation.items : deterministicItems;
-    const finalTotal = ai?.interpretation.declaredTotalMinor ?? deterministicTotal;
+    const finalRetailerName = ai?.interpretation.retailerName ?? deterministicMetadata.retailerName;
+    const finalTotal = ai?.interpretation.declaredTotalMinor ?? deterministicMetadata.declaredTotalMinor;
+    const finalArticleCount = ai?.interpretation.articleCount ?? deterministicMetadata.articleCount;
+
     return {
       pages,
       originalText,
@@ -116,16 +283,60 @@ export class ReceiptExtractionService {
       ...(ai ? { ai } : {}),
       final: {
         items: finalItems,
+        ...(finalRetailerName ? { retailerName: finalRetailerName } : {}),
         ...(finalTotal === undefined ? {} : { declaredTotalMinor: finalTotal }),
+        ...(finalArticleCount === undefined ? {} : { articleCount: finalArticleCount }),
+        warnings,
         review: buildReceiptReview(finalItems, finalTotal),
       },
     };
   }
 
   dispose(): void {
+    this.#pageQueue.dispose();
     this.#localOcrProvider.dispose();
     this.#aiOcrProvider?.dispose();
     this.#aiOcrProvider = undefined;
+  }
+
+  private async extractPage(
+    capture: ReceiptCaptureRequest,
+    position: number,
+    verifyWithAi: boolean,
+    signal?: AbortSignal,
+  ): Promise<ReceiptPageEvidence> {
+    signal?.throwIfAborted();
+    const stored = this.#fileStore.read(capture.storageKey);
+    const result = capture.embeddedText
+      ? await new EmbeddedTextOcrProvider().recognize({
+          mimeType: stored.mimeType,
+          bytes: stored.bytes,
+          embeddedText: capture.embeddedText,
+          ...(capture.originalName ? { fileName: capture.originalName } : {}),
+        }, signal)
+      : await this.getOcrProvider(stored.mimeType).recognize({
+          mimeType: stored.mimeType,
+          bytes: stored.bytes,
+          ...(capture.originalName ? { fileName: capture.originalName } : {}),
+        }, signal);
+
+    const deterministicItems = parseDeterministicReceiptText(result.text);
+    const metadata = extractReceiptMetadata(result.text);
+    const ai = verifyWithAi
+      ? await verifyReceiptWithAi(this.#getAiProvider(), this.#maxRetries, result.text, signal)
+      : undefined;
+
+    return {
+      position,
+      storageKey: capture.storageKey,
+      mimeType: stored.mimeType,
+      ...result,
+      deterministic: {
+        items: deterministicItems,
+        metadata,
+      },
+      ...(ai ? { ai: { interpretation: ai.value, attempts: ai.attempts } } : {}),
+    };
   }
 
   private getOcrProvider(mimeType: string): OcrProvider {
@@ -133,4 +344,19 @@ export class ReceiptExtractionService {
     this.#aiOcrProvider ??= new MultimodalAiOcrProvider(this.#getAiProvider(), this.#maxRetries);
     return this.#aiOcrProvider;
   }
+}
+
+function combineMetadata(values: readonly ReceiptMetadata[]): ReceiptMetadata {
+  const retailerName = values.find((value) => value.retailerName)?.retailerName;
+  const declaredTotalMinor = values.findLast((value) => value.declaredTotalMinor !== undefined)?.declaredTotalMinor;
+  const articleCount = values.findLast((value) => value.articleCount !== undefined)?.articleCount;
+  return {
+    ...(retailerName ? { retailerName } : {}),
+    ...(declaredTotalMinor === undefined ? {} : { declaredTotalMinor }),
+    ...(articleCount === undefined ? {} : { articleCount }),
+  };
+}
+
+function abortError(): DOMException {
+  return new DOMException('The receipt page operation was aborted', 'AbortError');
 }
