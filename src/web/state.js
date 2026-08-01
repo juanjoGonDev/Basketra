@@ -28,21 +28,6 @@ function isStoredCapture(value) {
     && /^[a-f0-9]{64}$/.test(value.contentHash);
 }
 
-function createDraftId() {
-  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return [...bytes].map(value => value.toString(16).padStart(2, '0')).join('');
-}
-
-function normalizeStoredCapture(value) {
-  return {
-    ...value,
-    draftId: typeof value.draftId === 'string' && /^[a-zA-Z0-9-]{16,80}$/.test(value.draftId)
-      ? value.draftId
-      : createDraftId(),
-  };
-}
-
 export function loadActiveListId() {
   return localStorage.getItem(STORAGE_KEYS.activeListId) || '';
 }
@@ -71,10 +56,8 @@ export function loadCaptures() {
     localStorage.removeItem(STORAGE_KEYS.captures);
     return [];
   }
-  const captures = value.filter(isStoredCapture).map(normalizeStoredCapture);
-  if (captures.length !== value.length || captures.some((capture, index) => capture.draftId !== value[index]?.draftId)) {
-    localStorage.setItem(STORAGE_KEYS.captures, JSON.stringify(captures));
-  }
+  const captures = value.filter(isStoredCapture);
+  if (captures.length !== value.length) localStorage.setItem(STORAGE_KEYS.captures, JSON.stringify(captures));
   return captures;
 }
 
