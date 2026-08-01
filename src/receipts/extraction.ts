@@ -1,4 +1,8 @@
-import type { AiProvider } from '../ai/provider.ts';
+import {
+  buildAiAttachmentContentPart,
+  type AiAttachmentInput,
+  type AiProvider,
+} from '../ai/provider.ts';
 import { StructuredAiExecutor, type RuntimeSchema } from '../ai/structured-executor.ts';
 import { validateReceiptLine, validateReceiptTotal, type ReceiptLineInput } from '../domain/receipt.ts';
 import { asArray, asEnum, asRecord, asSafeInteger, asString } from '../domain/validation.ts';
@@ -270,9 +274,11 @@ export async function verifyReceiptWithAi(
   provider: AiProvider,
   maxRetries: number,
   originalText: string,
+  attachment: AiAttachmentInput,
   signal?: AbortSignal,
 ): Promise<Readonly<{ value: AiReceiptInterpretation; attempts: number }>> {
   const executor = new StructuredAiExecutor(provider, maxRetries);
+  const attachmentPart = buildAiAttachmentContentPart(attachment, await provider.getCapabilities());
   const numberedText = originalText
     .split(/\r?\n/u)
     .map((line, index) => `${index + 1}: ${line}`)
@@ -281,17 +287,27 @@ export async function verifyReceiptWithAi(
     operation: 'receipt-page-verification',
     schemaName: 'receipt_page_verification',
     systemPrompt: [
-      'Verify one photographed grocery-receipt page from OCR text only.',
+      'Verify one grocery-receipt page using both the original attached capture and its OCR transcription.',
+      'Treat the attachment as the visual or document source of truth and the numbered OCR as editable evidence for source-line references.',
       'Do not invent unreadable products, quantities, prices, totals or retailer names.',
       'Preserve physical line order and reconstruct a quantity prefix only when the immediately following product line supports it.',
       'For example, `6 x ,89` followed by `C.LADRON MANZAN 5,34 A` means quantity 6, unit price 89 cents, line total 534 cents and tax category A.',
       'Separate trailing tax letters A, B or C from monetary values.',
       'Return monetary fields as integer euro cents.',
-      'Return sourceLines with the numbered OCR lines supporting every item.',
-      'Return correctedText in page order, retailerName, declaredTotalMinor and articleCount only when visible.',
+      'Return sourceLines with the numbered OCR lines supporting every item, even when the attachment corrects OCR characters.',
+      'Return correctedText in page order, retailerName, declaredTotalMinor and articleCount only when visible in the attachment or OCR.',
       'Mark uncertainty through confidence and warnings. Return JSON only.',
     ].join(' '),
-    content: numberedText,
+    content: [
+      {
+        type: 'text',
+        text: [
+          'Numbered OCR transcription for this same attachment:',
+          numberedText,
+        ].join('\n'),
+      },
+      attachmentPart,
+    ],
     schema: RECEIPT_SCHEMA,
     ...(signal ? { signal } : {}),
   });
