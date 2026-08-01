@@ -1,6 +1,6 @@
 import type { AiProvider } from '../ai/provider.ts';
 import { asArray, asBoolean, asRecord, asString } from '../domain/validation.ts';
-import type { FileStore, StoredFile } from '../infrastructure/files.ts';
+import type { FileStore, StoredFileContent as StoredFile } from '../infrastructure/files.ts';
 import {
   EmbeddedTextOcrProvider,
   MultimodalAiOcrProvider,
