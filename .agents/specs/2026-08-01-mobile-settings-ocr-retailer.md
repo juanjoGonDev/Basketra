@@ -8,6 +8,7 @@ Improve the user-visible mobile workflow based on production screenshots:
 - remove the redundant local-login notice;
 - replace the OCR-only text status with a visible, accessible running progress treatment;
 - capture the receipt retailer and suggest previously stored retailers while the user types;
+- allow the complete censored application log events to be copied to the clipboard for support and incident diagnosis;
 - keep direct browser screenshots, videos and traces as acceptance evidence.
 
 ## Evidence
@@ -21,12 +22,15 @@ The supplied 691 × 1536 Android screenshots show:
 - OCR represented only by `Leyendo el ticket con OCR local…`, without a visual running state or elapsed time;
 - no field identifying the retailer before receipt confirmation.
 
+The follow-up support workflow also requires copying logs directly from Settings so they can be pasted into a diagnostic conversation without manually selecting individual rendered rows.
+
 Current code confirms the causes:
 
 - `operations.css` uses the undefined `--surface-subtle` token with a light fallback and does not pad `.operations-card`;
 - the Settings shell retains the legacy local-login card;
 - `receipts.js` exposes only a text status during the synchronous OCR request;
-- receipts already reference `retailers`, but confirmation does not populate that relation and no retailer suggestion endpoint exists.
+- receipts already reference `retailers`, but confirmation does not populate that relation and no retailer suggestion endpoint exists;
+- the log UI renders a shortened localized summary and has no clipboard action for the complete event objects.
 
 ## Scope
 
@@ -37,6 +41,8 @@ Current code confirms the causes:
 - accessible indeterminate OCR progress with elapsed time and cancellation;
 - optional retailer input with debounced, abortable server suggestions;
 - canonical retailer persistence in SQLite through receipt confirmation;
+- clipboard export of the bounded retained log tail as compact JSON Lines;
+- an insecure-private-HTTP clipboard fallback for browsers that do not expose `navigator.clipboard`;
 - unit, integration and Playwright regression coverage;
 - visual evidence in mobile light and dark themes.
 
@@ -45,6 +51,7 @@ Current code confirms the causes:
 - per-character OCR telemetry or fabricated percentage completion;
 - resident OCR workers, polling jobs, WebSockets or additional runtime dependencies;
 - store/branch geolocation modelling;
+- unbounded browser loading of every rotated historical log file;
 - changes to Raspberry configuration, deployment, release or secrets.
 
 ## Decisions
@@ -55,6 +62,9 @@ Current code confirms the causes:
 4. Retailer matching and insertion are case-insensitive and transactionally owned by `BasketraDatabase`.
 5. Suggestions use one bounded same-origin endpoint, debounce input, cancel stale requests and ignore obsolete responses.
 6. Existing light/dark automatic theme behavior is preserved; tests explicitly emulate both schemes.
+7. Clipboard export serializes the complete sanitized event objects returned by the canonical log endpoint, one compact JSON object per line. It does not copy the shortened visual rendering.
+8. The existing 500-event API limit is preserved to prevent a clipboard action from loading tens of megabytes on a 256 MiB Raspberry. The UI states this bound explicitly.
+9. Clipboard writes first use the modern API and fall back to a temporary selected textarea because the production private-IP HTTP origin may not be a secure context.
 
 ## Acceptance criteria
 
@@ -70,7 +80,11 @@ Current code confirms the causes:
 - Confirming a receipt with a retailer persists/reuses one case-insensitive retailer and links the receipt to it.
 - Confirming without a retailer remains valid.
 - No receipt contents, retailer search values or provider credentials are added to logs.
-- Playwright records directly reviewable mobile screenshots/video for Settings light, Settings dark, OCR running/cancelled and retailer suggestion/confirmation states.
+- Settings exposes a `Copiar logs` action beside refresh.
+- The action copies up to the latest 500 complete sanitized events as newline-delimited compact JSON, including fields omitted from the visual summary.
+- Clipboard failure is surfaced without losing the prepared payload, and private HTTP deployments use the selection fallback.
+- Copied content never includes filtered receipt text, backup file names, provider credentials or request bodies.
+- Playwright records directly reviewable mobile screenshots/video for Settings light, Settings dark, OCR running/cancelled, retailer suggestion/confirmation and clipboard log controls.
 
 ## Checks
 
@@ -94,6 +108,8 @@ Current code confirms the causes:
 - Risk: an unbounded autocomplete query could increase database work. Mitigation: minimum query length, escaped prefix search and a hard limit.
 - Risk: duplicate retailers differing only by case. Mitigation: lookup and insertion run inside the existing immediate receipt transaction using `COLLATE NOCASE`.
 - Risk: progress could imply false precision. Mitigation: no percentage is shown; elapsed time and indeterminate state are explicit.
+- Risk: clipboard export could allocate excessive memory or expose sensitive fields. Mitigation: reuse the sanitized endpoint, preserve its 500-event bound and test that filtered values remain absent.
+- Risk: Clipboard API access is unavailable on the private HTTP origin. Mitigation: a tested selected-text fallback runs from the explicit user action.
 - Rollback: revert the pull request. The optional retailer relation uses the existing schema and does not require a migration.
 
 ## Delivery
@@ -105,4 +121,4 @@ Current code confirms the causes:
 
 ## Status
 
-Implemented and submitted in PR #11. Required CI and exact-head visual evidence remain the delivery gate.
+Clipboard log export added to PR #11. Exact-head CI and updated visual evidence remain the delivery gate.
