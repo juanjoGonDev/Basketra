@@ -78,11 +78,11 @@ export class ReceiptPageTaskQueue {
     return this.#waiting.length;
   }
 
-  async run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     signal?.throwIfAborted();
     if (this.#disposed) throw new Error('Receipt page queue is disposed');
 
-    return await new Promise<T>((resolve, reject) => {
+    const result = new Promise<T>((resolve, reject) => {
       const entry: QueuedPageTask<T> = {
         task,
         resolve,
@@ -102,12 +102,14 @@ export class ReceiptPageTaskQueue {
       this.#waiting.push(entry as QueuedPageTask<unknown>);
       this.schedule();
     });
+    void result.catch(() => {});
+    return result;
   }
 
   dispose(): void {
     this.#disposed = true;
     for (const entry of this.#waiting.splice(0)) {
-      entry.signal?.removeEventListener('abort', entry.onAbort ?? (() => {}));
+      if (entry.onAbort) entry.signal?.removeEventListener('abort', entry.onAbort);
       entry.reject(new Error('Receipt page queue is disposed'));
     }
   }
@@ -116,7 +118,7 @@ export class ReceiptPageTaskQueue {
     while (!this.#disposed && this.#active < this.#concurrency && this.#waiting.length > 0) {
       const entry = this.#waiting.shift();
       if (!entry) return;
-      entry.signal?.removeEventListener('abort', entry.onAbort ?? (() => {}));
+      if (entry.onAbort) entry.signal?.removeEventListener('abort', entry.onAbort);
       if (entry.signal?.aborted) {
         entry.reject(abortError());
         continue;
