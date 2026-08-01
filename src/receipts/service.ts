@@ -61,7 +61,6 @@ export class ReceiptPageTaskQueue {
   readonly #concurrency: number;
   readonly #waiting: QueuedPageTask<unknown>[] = [];
   #active = 0;
-  #disposed = false;
 
   constructor(concurrency = DEFAULT_PAGE_CONCURRENCY) {
     if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
@@ -80,8 +79,6 @@ export class ReceiptPageTaskQueue {
 
   run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     signal?.throwIfAborted();
-    if (this.#disposed) throw new Error('Receipt page queue is disposed');
-
     const result = new Promise<T>((resolve, reject) => {
       const entry: QueuedPageTask<T> = {
         task,
@@ -107,15 +104,14 @@ export class ReceiptPageTaskQueue {
   }
 
   dispose(): void {
-    this.#disposed = true;
     for (const entry of this.#waiting.splice(0)) {
       if (entry.onAbort) entry.signal?.removeEventListener('abort', entry.onAbort);
-      entry.reject(new Error('Receipt page queue is disposed'));
+      entry.reject(new Error('Receipt page queue was reset'));
     }
   }
 
   private schedule(): void {
-    while (!this.#disposed && this.#active < this.#concurrency && this.#waiting.length > 0) {
+    while (this.#active < this.#concurrency && this.#waiting.length > 0) {
       const entry = this.#waiting.shift();
       if (!entry) return;
       if (entry.onAbort) entry.signal?.removeEventListener('abort', entry.onAbort);
