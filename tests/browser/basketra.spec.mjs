@@ -227,7 +227,7 @@ test('local OCR creates editable euro rows with progressive swipe and imports wi
   await expect(page.locator('#capture-list li')).toHaveCount(2);
 
   await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
-  await expect(page.locator('#receipt-state')).toContainText('OCR local listo');
+  await expect(page.locator('#receipt-state')).toContainText('Todas las imágenes están combinadas');
   await expect(page.locator('.receipt-item')).toHaveCount(1);
   await expect(page.getByLabel('Precio unitario (€)').first()).toHaveValue('1.20');
   await expect(page.getByLabel('Total (€)').first()).toHaveValue('1.20');
@@ -276,7 +276,7 @@ test('local OCR creates editable euro rows with progressive swipe and imports wi
   expect(failures).toEqual([]);
 });
 
-test('local OCR failure preserves captures and supports manual euro-row recovery', async ({ page }) => {
+test('local OCR failure preserves captures and supports page retry', async ({ page }) => {
   const failures = await gotoApp(page, { allowExpectedOcrFailure: true });
   await navigate(page, 'Tickets');
   await page.locator('#receipt-camera').setInputFiles({ name: 'manual.png', mimeType: 'image/png', buffer: validPng });
@@ -290,17 +290,16 @@ test('local OCR failure preserves captures and supports manual euro-row recovery
     await route.continue();
   });
   await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
-  await expect(page.locator('#receipt-state')).toContainText('Puedes corregir o añadir las líneas manualmente');
+  await expect(page.locator('#receipt-state')).toContainText('1 imágenes con error');
   await expect(page.locator('#capture-list li')).toHaveCount(1);
-  await expect(page.locator('.receipt-item')).toHaveCount(1);
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
+  await expect(page.getByRole('button', { name: 'Reintentar imagen', exact: true })).toBeVisible();
+  await expect(page.locator('.receipt-item')).toHaveCount(0);
 
-  await page.getByLabel('Producto', { exact: true }).last().fill('Bread');
-  await page.getByLabel('Cantidad', { exact: true }).last().fill('1');
-  await page.getByLabel('Precio unitario (€)', { exact: true }).fill('1,50');
-  await page.getByLabel('Total (€)', { exact: true }).fill('1.50');
-  await page.getByLabel('Total declarado (€)', { exact: true }).fill('1,50');
-  await page.getByRole('button', { name: 'Validar líneas e importes', exact: true }).click();
-  await expect(page.locator('#receipt-state')).toContainText('Líneas y total validados');
+  await page.getByRole('button', { name: 'Reintentar imagen', exact: true }).click();
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada');
+  await expect(page.locator('#receipt-state')).toContainText('Todas las imágenes están combinadas');
+  await expect(page.locator('.receipt-item')).toHaveCount(1);
   await expect(page.locator('#capture-list li')).toHaveCount(1);
   expect(failures).toEqual([]);
 });
