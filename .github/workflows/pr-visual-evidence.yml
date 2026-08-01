@@ -143,14 +143,22 @@ jobs:
           prepare_flow comparison-renders 06-comparison-plans
           prepare_flow AI-unavailability 07-ai-unavailable-recovery
           prepare_flow offline-shell 08-offline-keyboard
-          prepare_flow settings-show-live 09-runtime-operations runtime-backups-logs.png
-          prepare_flow private-route-heartbeat 10-vpn-recovery vpn-reconnected.png
+          prepare_flow operations-settings-show-l 09-runtime-operations runtime-backups-logs.png
+          prepare_flow operations-private-route-h 10-vpn-recovery vpn-reconnected.png
+          prepare_flow mobile-settings-receipts-s 11-responsive-settings settings-dark-430.png
+          prepare_flow mobile-settings-receipts-O 12-ocr-retailer retailer-confirmed.png
+
           copy_flow_capture shopping-lists-su swipe-delete.png 02-shopping-list-full-delete.png
           copy_flow_capture local-OCR-creates swipe-delete.png 04-local-ocr-full-delete.png
+          copy_flow_capture mobile-settings-receipts-s settings-light-320.png 11-settings-light-320.png
+          copy_flow_capture mobile-settings-receipts-s settings-dark-360.png 11-settings-dark-360.png
+          copy_flow_capture mobile-settings-receipts-s settings-light-390.png 11-settings-light-390.png
+          copy_flow_capture mobile-settings-receipts-s settings-light-768.png 11-settings-light-768.png
+          copy_flow_capture mobile-settings-receipts-O ocr-running.png 12-ocr-running.png
 
-          test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 12
-          test "$(find evidence-assets -maxdepth 1 -type f -name '*.gif' | wc -l)" -eq 10
-          test "$(find evidence-assets -maxdepth 1 -type f -name '*.webm' | wc -l)" -eq 10
+          test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 19
+          test "$(find evidence-assets -maxdepth 1 -type f -name '*.gif' | wc -l)" -eq 12
+          test "$(find evidence-assets -maxdepth 1 -type f -name '*.webm' | wc -l)" -eq 12
 
           while IFS= read -r file; do
             test "$(stat -c %s "$file")" -le 25000000
@@ -186,6 +194,36 @@ jobs:
           ## Visual evidence
 
           Generated from final head \`$HEAD_SHA\` after the [successful browser workflow]($run_url). The media is temporary, directly viewable and is not committed to the repository.
+
+          ### Responsive Settings and receipt review
+
+          <table>
+          <tr>
+          <td><strong>Settings · light · 320 px</strong><br><img src="$base/11-settings-light-320.png" width="240" alt="Basketra Settings at 320 pixels in light mode"></td>
+          <td><strong>Settings · dark · 360 px</strong><br><img src="$base/11-settings-dark-360.png" width="240" alt="Basketra Settings at 360 pixels in dark mode"></td>
+          <td><strong>Settings · light · 390 px</strong><br><img src="$base/11-settings-light-390.png" width="240" alt="Basketra Settings at 390 pixels in light mode"></td>
+          </tr>
+          <tr>
+          <td><strong>Settings · dark · 430 px</strong><br><img src="$base/11-responsive-settings.png" width="240" alt="Basketra Settings at 430 pixels in dark mode"></td>
+          <td><strong>Settings · tablet · 768 px</strong><br><img src="$base/11-settings-light-768.png" width="280" alt="Basketra Settings at tablet width in light mode"></td>
+          <td><strong>OCR running progress</strong><br><img src="$base/12-ocr-running.png" width="240" alt="Basketra receipt OCR showing elapsed progress and cancellation"></td>
+          </tr>
+          <tr>
+          <td colspan="3"><strong>Retailer suggestion and confirmed receipt</strong><br><img src="$base/12-ocr-retailer.png" width="360" alt="Basketra receipt review with a saved retailer suggestion and successful confirmation"></td>
+          </tr>
+          </table>
+
+          **Responsive Settings flow**
+
+          ![Responsive Settings across light and dark devices]($base/11-responsive-settings.gif)
+
+          [Open the full responsive Settings video]($base/11-responsive-settings.webm)
+
+          **OCR progress, cancellation and retailer flow**
+
+          ![OCR progress and retailer suggestion flow]($base/12-ocr-retailer.gif)
+
+          [Open the full OCR and retailer video]($base/12-ocr-retailer.webm)
 
           ### Runtime operations and private-route recovery
 

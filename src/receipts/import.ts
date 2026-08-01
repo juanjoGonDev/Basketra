@@ -61,12 +61,16 @@ export function parseReceiptConfirmation(value: unknown): Readonly<{
   });
 
   const provider = asString(root['provider'] ?? 'manual-or-embedded', '$.provider', { min: 1, max: 120 });
+  const retailerName = root['retailerName'] === undefined || root['retailerName'] === null || root['retailerName'] === ''
+    ? undefined
+    : asString(root['retailerName'], '$.retailerName', { min: 1, max: 120 });
   return {
     input: {
       importKey: asString(root['importKey'], '$.importKey', { min: 8, max: 128 }),
       declaredTotalMinor,
       originalText: asString(root['originalText'], '$.originalText', { min: 1, max: 500_000 }),
       provider,
+      ...(retailerName ? { retailerName } : {}),
       deterministic: root['deterministic'] ?? items,
       ...(root['ai'] === undefined ? {} : { ai: root['ai'] }),
       ...(captures ? { captures } : {}),

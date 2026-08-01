@@ -10,6 +10,11 @@ const state = {
   originalText: '',
   controller: null,
   aiConfigured: false,
+  progressStartedAt: 0,
+  progressTimer: null,
+  cancelledByUser: false,
+  retailerSuggestionController: null,
+  retailerSuggestionTimer: null,
 };
 
 let metadata;
@@ -37,6 +42,7 @@ function invalidateExtraction() {
   $('#receipt-review').hidden = true;
   $('#confirm-receipt').hidden = true;
   $('#receipt-state').textContent = '';
+  stopReceiptProgress();
 }
 
 function persistAndRenderCaptures() {
@@ -234,6 +240,54 @@ function handleReceiptAction(event) {
   }
 }
 
+function formatElapsed(milliseconds) {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return minutes > 0
+    ? `${minutes}:${String(remainingSeconds).padStart(2, '0')}`
+    : `${remainingSeconds} s`;
+}
+
+function updateReceiptProgress(stage) {
+  if (stage) $('#receipt-progress-stage').textContent = stage;
+  const elapsed = Date.now() - state.progressStartedAt;
+  $('#receipt-progress-elapsed').textContent = formatElapsed(elapsed);
+  $('#receipt-progress-track').setAttribute(
+    'aria-valuetext',
+    `${$('#receipt-progress-stage').textContent}. Tiempo transcurrido ${formatElapsed(elapsed)}`,
+  );
+}
+
+function startReceiptProgress(verifyWithAi) {
+  state.cancelledByUser = false;
+  state.progressStartedAt = Date.now();
+  const progress = $('#receipt-progress');
+  const captureCount = state.captures.length;
+  $('#receipt-progress-captures').textContent = `${captureCount} ${captureCount === 1 ? 'captura' : 'capturas'}`;
+  $('#cancel-receipt-extraction').disabled = false;
+  progress.hidden = false;
+  updateReceiptProgress(verifyWithAi ? 'Leyendo con OCR local y preparando verificación' : 'Leyendo con OCR local');
+  clearInterval(state.progressTimer);
+  state.progressTimer = setInterval(() => updateReceiptProgress(), 1000);
+}
+
+function stopReceiptProgress() {
+  clearInterval(state.progressTimer);
+  state.progressTimer = null;
+  const progress = $('#receipt-progress');
+  if (progress) progress.hidden = true;
+}
+
+function cancelReceiptExtraction() {
+  if (!state.controller) return;
+  state.cancelledByUser = true;
+  $('#cancel-receipt-extraction').disabled = true;
+  state.controller.abort();
+  $('#receipt-state').textContent = 'Análisis cancelado. Las capturas y la revisión manual se conservan.';
+  stopReceiptProgress();
+}
+
 async function processReceipt() {
   if (state.captures.length === 0) {
     $('#receipt-state').textContent = 'Añade al menos una captura antes de procesar.';
@@ -245,8 +299,9 @@ async function processReceipt() {
   state.controller = controller;
   const button = $('#extract-receipt');
   setBusy(button, true);
-  $('#receipt-state').textContent = 'Leyendo el ticket con OCR local…';
   const verifyWithAi = state.aiConfigured && $('#verify-receipt-ai').checked;
+  startReceiptProgress(verifyWithAi);
+  $('#receipt-state').textContent = 'El OCR está en curso. Puedes seguir el tiempo transcurrido o cancelar sin perder el borrador.';
   try {
     let result;
     try {
@@ -254,6 +309,7 @@ async function processReceipt() {
     } catch (error) {
       if (error.name === 'AbortError') throw error;
       if (!verifyWithAi || String(error.code || '').startsWith('OCR_')) throw error;
+      updateReceiptProgress('La verificación IA falló; conservando el OCR local');
       $('#receipt-state').textContent = 'La verificación IA falló; conservando el OCR local…';
       result = await requestExtraction(false, controller.signal);
     }
@@ -263,7 +319,12 @@ async function processReceipt() {
       ? 'OCR local y verificación listos para corregir.'
       : 'OCR local listo para corregir y confirmar.';
   } catch (error) {
-    if (error.name === 'AbortError') return;
+    if (error.name === 'AbortError') {
+      if (!state.cancelledByUser) {
+        $('#receipt-state').textContent = 'El análisis anterior se detuvo para iniciar una operación más reciente.';
+      }
+      return;
+    }
     $('.manual-entry').open = true;
     if (state.items.length === 0) addBlankLine();
     if (error.code === 'AI_NOT_CONFIGURED' && state.captures.some(capture => capture.mimeType === 'application/pdf')) {
@@ -272,6 +333,8 @@ async function processReceipt() {
     }
     $('#receipt-state').textContent = `${error.message}. Puedes corregir o añadir las líneas manualmente; el borrador se conserva.`;
   } finally {
+    if (state.controller === controller) state.controller = null;
+    stopReceiptProgress();
     setBusy(button, false);
   }
 }
@@ -346,6 +409,71 @@ async function validateRows() {
   }
 }
 
+function hideRetailerSuggestions() {
+  const suggestions = $('#retailer-suggestions');
+  suggestions.hidden = true;
+  suggestions.replaceChildren();
+  $('#receipt-retailer').setAttribute('aria-expanded', 'false');
+}
+
+function renderRetailerSuggestions(suggestions) {
+  const container = $('#retailer-suggestions');
+  container.replaceChildren();
+  if (suggestions.length === 0) {
+    hideRetailerSuggestions();
+    return;
+  }
+  for (const suggestion of suggestions) {
+    const option = document.createElement('button');
+    option.type = 'button';
+    option.className = 'retailer-suggestion';
+    option.dataset.retailerName = suggestion.name;
+    option.setAttribute('role', 'option');
+    const name = document.createElement('strong');
+    name.textContent = suggestion.name;
+    const usage = document.createElement('small');
+    usage.textContent = suggestion.receiptCount === 1
+      ? '1 ticket guardado'
+      : `${suggestion.receiptCount} tickets guardados`;
+    option.append(name, usage);
+    container.append(option);
+  }
+  container.hidden = false;
+  $('#receipt-retailer').setAttribute('aria-expanded', 'true');
+}
+
+function scheduleRetailerSuggestions() {
+  clearTimeout(state.retailerSuggestionTimer);
+  state.retailerSuggestionController?.abort();
+  const query = $('#receipt-retailer').value.trim();
+  if (query.length < 2) {
+    hideRetailerSuggestions();
+    return;
+  }
+  const controller = new AbortController();
+  state.retailerSuggestionController = controller;
+  state.retailerSuggestionTimer = setTimeout(async () => {
+    if (controller.signal.aborted) return;
+    try {
+      const result = await api(`/api/v1/retailers/suggestions?q=${encodeURIComponent(query)}`, {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted || $('#receipt-retailer').value.trim() !== query) return;
+      renderRetailerSuggestions(result.suggestions || []);
+    } catch (error) {
+      if (error.name !== 'AbortError') hideRetailerSuggestions();
+    }
+  }, 180);
+}
+
+function selectRetailerSuggestion(event) {
+  const option = event.target.closest('[data-retailer-name]');
+  if (!option) return;
+  $('#receipt-retailer').value = option.dataset.retailerName;
+  hideRetailerSuggestions();
+  $('#receipt-retailer').focus();
+}
+
 async function confirmReceipt() {
   let items;
   let declaredTotalMinor;
@@ -361,6 +489,7 @@ async function confirmReceipt() {
     return;
   }
   const originalText = state.originalText.trim() || serializeManualItems(items);
+  const retailerName = $('#receipt-retailer').value.trim();
   const button = $('#confirm-receipt');
   setBusy(button, true);
   $('#receipt-state').textContent = 'Validando ticket…';
@@ -384,6 +513,7 @@ async function confirmReceipt() {
         originalText,
         declaredTotalMinor,
         provider: providerLabel(),
+        ...(retailerName ? { retailerName } : {}),
         deterministic: state.extraction?.deterministic || { items },
         ...(state.extraction?.ai ? { ai: state.extraction.ai.interpretation } : {}),
         captures: state.captures.map(capture => ({
@@ -407,10 +537,49 @@ async function confirmReceipt() {
     $('#receipt-review').hidden = true;
     $('#confirm-receipt').hidden = true;
     $('#receipt-total').value = '0.00';
+    $('#receipt-retailer').value = '';
+    hideRetailerSuggestions();
   } catch (error) {
     $('#receipt-state').textContent = `Revisa el ticket: ${error.message}. El borrador se conserva.`;
   } finally {
     setBusy(button, false);
+  }
+}
+
+function installReceiptEnhancements() {
+  const workflow = $('.receipt-workflow');
+  const extractButton = $('#extract-receipt');
+  if (workflow && extractButton && !$('#receipt-progress')) {
+    const progress = document.createElement('section');
+    progress.id = 'receipt-progress';
+    progress.className = 'receipt-progress';
+    progress.hidden = true;
+    progress.setAttribute('aria-live', 'polite');
+    progress.innerHTML = `
+      <div class="receipt-progress__heading">
+        <strong id="receipt-progress-stage">Leyendo con OCR local</strong>
+        <span id="receipt-progress-elapsed">0 s</span>
+      </div>
+      <div id="receipt-progress-track" class="receipt-progress__track" role="progressbar" aria-label="Progreso del análisis OCR" aria-valuetext="Iniciando OCR"></div>
+      <div class="receipt-progress__meta">
+        <span id="receipt-progress-captures">0 capturas</span>
+        <span>El porcentaje exacto no está disponible durante Tesseract.</span>
+      </div>
+      <button id="cancel-receipt-extraction" class="button secondary receipt-progress__cancel" type="button">Cancelar análisis</button>`;
+    extractButton.insertAdjacentElement('afterend', progress);
+  }
+
+  const manualBody = $('.manual-entry .details-body');
+  if (manualBody && !$('#receipt-retailer')) {
+    const retailer = document.createElement('div');
+    retailer.className = 'retailer-field';
+    retailer.innerHTML = `
+      <label class="field" for="receipt-retailer">
+        <span>Comercio (opcional)</span>
+        <input id="receipt-retailer" maxlength="120" autocomplete="organization" placeholder="Ej. Mercadona" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="retailer-suggestions">
+      </label>
+      <div id="retailer-suggestions" class="retailer-suggestions" role="listbox" aria-label="Comercios guardados" hidden></div>`;
+    manualBody.prepend(retailer);
   }
 }
 
@@ -428,9 +597,16 @@ function bindEvents() {
     closeDialog($('#capture-preview-dialog'));
   });
   $('#extract-receipt').addEventListener('click', () => void processReceipt());
+  $('#cancel-receipt-extraction').addEventListener('click', cancelReceiptExtraction);
   $('#review-receipt').addEventListener('click', () => void validateRows());
   $('#confirm-receipt').addEventListener('click', () => void confirmReceipt());
   $('#add-manual-line').addEventListener('click', addBlankLine);
+  $('#receipt-retailer').addEventListener('input', scheduleRetailerSuggestions);
+  $('#receipt-retailer').addEventListener('keydown', event => {
+    if (event.key === 'Escape') hideRetailerSuggestions();
+  });
+  $('#receipt-retailer').addEventListener('blur', () => setTimeout(hideRetailerSuggestions, 120));
+  $('#retailer-suggestions').addEventListener('click', selectRetailerSuggestion);
   document.addEventListener('basketra:swipe-action', event => {
     if (event.detail?.kind !== 'receipt-line' || event.detail?.action !== 'delete') return;
     deleteReceiptLine(Number(event.detail.id));
@@ -441,6 +617,7 @@ export function initReceipts(options) {
   metadata = options.metadata;
   toast = options.toast;
   state.aiConfigured = options.aiConfigured === true;
+  installReceiptEnhancements();
   const aiToggle = $('#verify-receipt-ai');
   aiToggle.checked = false;
   aiToggle.disabled = !state.aiConfigured;

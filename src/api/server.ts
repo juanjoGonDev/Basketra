@@ -163,6 +163,7 @@ export class BasketraServer {
       }
 
       if (request.method === 'GET' && url.pathname === '/api/v1/products/suggestions') return this.suggestProducts(response, url.searchParams);
+      if (request.method === 'GET' && url.pathname === '/api/v1/retailers/suggestions') return this.suggestRetailers(response, url.searchParams);
       if (request.method === 'POST' && url.pathname === '/api/v1/files') return await this.storeFile(request, response);
       const fileMatch = /^\/api\/v1\/files\/([^/]+)$/.exec(url.pathname);
       if (request.method === 'GET' && fileMatch?.[1]) return this.serveStoredFile(response, decodePathSegment(fileMatch[1]));
@@ -365,6 +366,13 @@ export class BasketraServer {
     const limit = Math.min(20, Number(params.get('limit') ?? 8));
     if (!Number.isSafeInteger(limit) || limit < 1) throw new ApiError(400, 'VALIDATION_ERROR', 'Suggestion limit is invalid');
     this.json(response, 200, { suggestions: this.#database.searchProducts(query, limit) });
+  }
+
+  private suggestRetailers(response: ServerResponse, params: URLSearchParams): void {
+    const query = asString(params.get('q') ?? '', '$.q', { min: 2, max: 120 });
+    const limit = Math.min(12, Number(params.get('limit') ?? 8));
+    if (!Number.isSafeInteger(limit) || limit < 1) throw new ApiError(400, 'VALIDATION_ERROR', 'Suggestion limit is invalid');
+    this.json(response, 200, { suggestions: this.#database.searchRetailers(query, limit) });
   }
 
   private async storeFile(request: IncomingMessage, response: ServerResponse): Promise<void> {

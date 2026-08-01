@@ -62,6 +62,12 @@ function toast(message, options = {}) {
   toastState.timer = setTimeout(() => hideToast(version), options.duration ?? 4200);
 }
 
+function resetDocumentScroll() {
+  document.documentElement.scrollTop = 0;
+  document.body.scrollTop = 0;
+  window.scrollTo(0, 0);
+}
+
 function navigate(requestedView) {
   const view = $(`.view[data-view="${CSS.escape(requestedView)}"]`) ? requestedView : 'home';
   $$('.view').forEach(element => element.classList.toggle('active', element.dataset.view === view));
@@ -70,8 +76,9 @@ function navigate(requestedView) {
     else element.removeAttribute('aria-current');
   });
   history.replaceState(null, '', `#${view}`);
-  window.scrollTo(0, 0);
+  resetDocumentScroll();
   $('#main').focus({ preventScroll: true });
+  requestAnimationFrame(resetDocumentScroll);
 }
 
 $$('[data-nav]').forEach(element => element.addEventListener('click', event => {

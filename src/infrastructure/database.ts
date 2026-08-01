@@ -19,11 +19,19 @@ export type ShoppingListItemRecord = Readonly<{
   updatedAt: string;
 }>;
 
+export type RetailerSuggestion = Readonly<{
+  id: string;
+  name: string;
+  receiptCount: number;
+  lastUsedAt?: string;
+}>;
+
 export type ReceiptImportInput = Readonly<{
   importKey: string;
   declaredTotalMinor: number;
   originalText: string;
   provider: string;
+  retailerName?: string;
   deterministic: unknown;
   ai?: unknown;
   captures?: readonly Readonly<{ storageKey: string; contentHash?: string; mimeType: string; originalName?: string }>[];
@@ -140,6 +148,10 @@ type BackupEntry = Readonly<{ name: string; path: string; bytes: number; mtimeMs
 
 function now(): string {
   return new Date().toISOString();
+}
+
+function escapeLikePrefix(value: string): string {
+  return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
 }
 
 function mapShoppingListItem(row: ShoppingListItemRow): ShoppingListItemRecord {
@@ -572,6 +584,35 @@ export class BasketraDatabase {
     return this.#database.prepare(`SELECT entity_id AS id, name, 'catalog' AS source FROM product_search WHERE product_search MATCH ? ORDER BY bm25(product_search) LIMIT ?`).all(`${normalized}*`, limit) as Array<Readonly<{ id: string; name: string; source: string }>>;
   }
 
+  searchRetailers(query: string, limit: number): RetailerSuggestion[] {
+    const normalized = query.trim();
+    if (!normalized) return [];
+    const rows = this.#database.prepare(`
+      SELECT
+        retailers.id,
+        retailers.name,
+        COUNT(receipts.id) AS receiptCount,
+        MAX(receipts.created_at) AS lastUsedAt
+      FROM retailers
+      LEFT JOIN receipts ON receipts.retailer_id = retailers.id
+      WHERE retailers.name LIKE ? ESCAPE '\\' COLLATE NOCASE
+      GROUP BY retailers.id, retailers.name
+      ORDER BY receiptCount DESC, lastUsedAt DESC, retailers.name COLLATE NOCASE
+      LIMIT ?
+    `).all(`${escapeLikePrefix(normalized)}%`, limit) as Array<{
+      id: string;
+      name: string;
+      receiptCount: number;
+      lastUsedAt: string | null;
+    }>;
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      receiptCount: Number(row.receiptCount),
+      ...(row.lastUsedAt ? { lastUsedAt: row.lastUsedAt } : {}),
+    }));
+  }
+
   seedProduct(input: Readonly<{ name: string; brand?: string; aliases?: readonly string[] }>): string {
     const productId = createId('product');
     const variantId = createId('variant');
@@ -600,7 +641,15 @@ export class BasketraDatabase {
     const timestamp = now();
     this.#database.exec('BEGIN IMMEDIATE');
     try {
-      this.#database.prepare('INSERT INTO receipts(id, status, currency, declared_total_minor, import_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(receiptId, 'confirmed', 'EUR', input.declaredTotalMinor, input.importKey, timestamp, timestamp);
+      let retailerId: string | null = null;
+      if (input.retailerName) {
+        const existingRetailer = this.#database.prepare('SELECT id FROM retailers WHERE name = ? COLLATE NOCASE').get(input.retailerName) as { id: string } | undefined;
+        retailerId = existingRetailer?.id ?? createId('retailer');
+        if (!existingRetailer) {
+          this.#database.prepare('INSERT INTO retailers(id, name, created_at) VALUES (?, ?, ?)').run(retailerId, input.retailerName, timestamp);
+        }
+      }
+      this.#database.prepare('INSERT INTO receipts(id, retailer_id, status, currency, declared_total_minor, import_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(receiptId, retailerId, 'confirmed', 'EUR', input.declaredTotalMinor, input.importKey, timestamp, timestamp);
       for (const [position, capture] of (input.captures ?? []).entries()) {
         this.#database.prepare('INSERT INTO receipt_captures(id, receipt_id, position, storage_key, content_hash, mime_type, original_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(createId('capture'), receiptId, position, capture.storageKey, capture.contentHash ?? null, capture.mimeType, capture.originalName ?? null, timestamp);
       }

@@ -3,31 +3,74 @@ details.settings-card:has(#diagnostics),
   display: none;
 }
 
+html:has(.view[data-view="settings"].active) {
+  scroll-padding-bottom: calc(var(--nav) + env(safe-area-inset-bottom) + 1rem);
+}
+
+.view[data-view="settings"] {
+  min-width: 0;
+  padding-bottom: calc(var(--nav) + env(safe-area-inset-bottom) + 2rem);
+}
+
+.view[data-view="settings"] > .page-header {
+  scroll-margin-top: calc(var(--header) + 1rem);
+}
+
 .operations-stack {
   display: grid;
   gap: 1rem;
-  margin-top: 1rem;
+  min-width: 0;
+  margin-top: 0;
+}
+
+.operations-stack > * {
+  min-width: 0;
 }
 
 .operations-card {
   display: grid;
   gap: 0.9rem;
+  min-width: 0;
+  padding: clamp(0.9rem, 3.5vw, 1.2rem);
+  overflow: hidden;
+}
+
+.operations-card:last-child {
+  scroll-margin-bottom: calc(var(--nav) + env(safe-area-inset-bottom) + 1rem);
+}
+
+.operations-card .panel-heading,
+.operations-card .panel-heading > div {
+  min-width: 0;
+}
+
+.operations-card h2,
+.operations-card p,
+.operations-card strong,
+.operations-card small,
+.operations-card a,
+.operations-card label {
+  overflow-wrap: anywhere;
 }
 
 .operations-metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
+  min-width: 0;
 }
 
 .operations-metrics > div {
   display: grid;
-  gap: 0.2rem;
+  align-content: start;
+  gap: 0.25rem;
   min-width: 0;
+  min-height: 5.5rem;
   padding: 0.8rem;
   border: 1px solid var(--border, #d4e2dd);
   border-radius: 0.9rem;
-  background: var(--surface-subtle, #f2f8f5);
+  background: var(--surface-soft, #eef6f2);
+  color: var(--text, #13231d);
 }
 
 .operations-metrics small,
@@ -56,20 +99,24 @@ details.settings-card:has(#diagnostics),
 .operations-logs {
   display: grid;
   gap: 0.55rem;
+  max-width: 100%;
   max-height: 22rem;
   margin: 0;
   padding: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   list-style: none;
 }
 
 .operations-log {
   display: grid;
   gap: 0.2rem;
+  min-width: 0;
   padding: 0.7rem 0.8rem;
   border-inline-start: 0.25rem solid var(--border, #d4e2dd);
   border-radius: 0.55rem;
-  background: var(--surface-subtle, #f2f8f5);
+  background: var(--surface-soft, #eef6f2);
+  color: var(--text, #13231d);
 }
 
 .operations-log--warn {
@@ -85,6 +132,115 @@ details.settings-card:has(#diagnostics),
   margin: 0.25rem 0;
   border: 0;
   border-top: 1px solid var(--border, #d4e2dd);
+}
+
+.receipt-progress {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border));
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+}
+
+.receipt-progress__heading,
+.receipt-progress__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.receipt-progress__heading strong,
+.receipt-progress__meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.receipt-progress__meta {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.receipt-progress__track {
+  position: relative;
+  height: 0.55rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 14%, var(--surface));
+}
+
+.receipt-progress__track::after {
+  position: absolute;
+  inset-block: 0;
+  left: -42%;
+  width: 42%;
+  border-radius: inherit;
+  background: var(--primary);
+  animation: receipt-progress-slide 1.15s ease-in-out infinite;
+  content: "";
+}
+
+@keyframes receipt-progress-slide {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(340%); }
+}
+
+.receipt-progress__cancel {
+  justify-self: start;
+}
+
+.retailer-field {
+  position: relative;
+  z-index: 4;
+}
+
+.retailer-suggestions {
+  display: grid;
+  gap: 0.35rem;
+  margin: -0.1rem 0 0;
+  padding: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.retailer-suggestion {
+  min-height: var(--touch);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.7rem;
+  align-items: center;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.65rem;
+  background: var(--surface-soft);
+  color: var(--text);
+  text-align: left;
+}
+
+.retailer-suggestion strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.retailer-suggestion small {
+  white-space: nowrap;
+}
+
+@media (max-width: 359px) {
+  .operations-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .receipt-progress__heading,
+  .receipt-progress__meta {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
 }
 
 @media (min-width: 720px) {
@@ -105,5 +261,12 @@ details.settings-card:has(#diagnostics),
   .operations-card,
   .operations-log {
     scroll-behavior: auto;
+  }
+
+  .receipt-progress__track::after {
+    left: 0;
+    width: 100%;
+    animation: none;
+    opacity: 0.72;
   }
 }
