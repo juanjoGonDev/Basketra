@@ -65,7 +65,7 @@ function toast(message, options = {}) {
 function resetDocumentScroll() {
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
-  window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  window.scrollTo(0, 0);
 }
 
 function navigate(requestedView) {
@@ -87,13 +87,7 @@ $$('[data-nav]').forEach(element => element.addEventListener('click', event => {
 }));
 
 function prepareSettingsView() {
-  const settings = $('.view[data-view="settings"]');
-  if (!settings) return;
-  settings.querySelector('.privacy-card')?.remove();
-  const description = settings.querySelector('.page-header p:not(.eyebrow)');
-  if (description) {
-    description.textContent = 'Supervisa la instalación, el proveedor opcional y las copias de seguridad.';
-  }
+  $('.view[data-view="settings"] .privacy-card')?.remove();
 }
 
 function scheduleAutomaticAi(text) {
