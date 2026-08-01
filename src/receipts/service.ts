@@ -205,7 +205,8 @@ export class ReceiptExtractionService {
     }>;
   }>> {
     signal?.throwIfAborted();
-    const pagePromises = request.captures.map((capture, position) => this.#pageQueue.run(
+    const captures = uniqueCaptures(request.captures);
+    const pagePromises = captures.map((capture, position) => this.#pageQueue.run(
       () => this.extractPage(capture, position, request.verifyWithAi, signal),
       signal,
     ));
@@ -342,6 +343,15 @@ export class ReceiptExtractionService {
     this.#aiOcrProvider ??= new MultimodalAiOcrProvider(this.#getAiProvider(), this.#maxRetries);
     return this.#aiOcrProvider;
   }
+}
+
+function uniqueCaptures(captures: readonly ReceiptCaptureRequest[]): ReceiptCaptureRequest[] {
+  const seen = new Set<string>();
+  return captures.filter((capture) => {
+    if (seen.has(capture.storageKey)) return false;
+    seen.add(capture.storageKey);
+    return true;
+  });
 }
 
 function combineMetadata(values: readonly ReceiptMetadata[]): ReceiptMetadata {
