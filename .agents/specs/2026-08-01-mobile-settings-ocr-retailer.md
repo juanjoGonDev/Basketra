@@ -74,8 +74,6 @@ Current code confirms the causes:
 
 ## Checks
 
-Planned:
-
 - `pnpm format:check`
 - `pnpm lint`
 - `pnpm typecheck`
@@ -101,9 +99,10 @@ Planned:
 ## Delivery
 
 - Branch: `agent/feat-mobile-receipt-source-progress`
+- Pull request: `#11`
 - Target: `main`
 - Merge, release, deployment and Raspberry changes require separate authorization.
 
 ## Status
 
-In progress.
+Implemented and submitted in PR #11. Required CI and exact-head visual evidence remain the delivery gate.
