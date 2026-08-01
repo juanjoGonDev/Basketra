@@ -13,6 +13,37 @@ export type AiMessageContentPart =
 
 export type AiMessageContent = string | readonly AiMessageContentPart[];
 
+export type AiProviderErrorCode =
+  | 'AI_ATTACHMENT_TOO_LARGE'
+  | 'AI_AUTHENTICATION_FAILED'
+  | 'AI_EMPTY_RESPONSE'
+  | 'AI_IMAGE_CAPABILITY_UNAVAILABLE'
+  | 'AI_INVALID_RESPONSE'
+  | 'AI_PDF_CAPABILITY_UNAVAILABLE'
+  | 'AI_PROVIDER_FAILED'
+  | 'AI_RATE_LIMITED'
+  | 'AI_REQUEST_REJECTED'
+  | 'AI_RESPONSE_TOO_LARGE'
+  | 'AI_TIMEOUT'
+  | 'AI_UNREACHABLE';
+
+export class AiProviderError extends Error {
+  readonly code: AiProviderErrorCode;
+  readonly status?: number;
+  readonly retryable: boolean;
+
+  constructor(
+    code: AiProviderErrorCode,
+    options: Readonly<{ status?: number; retryable?: boolean }> = {},
+  ) {
+    super(code);
+    this.name = 'AiProviderError';
+    this.code = code;
+    this.retryable = options.retryable ?? false;
+    if (options.status !== undefined) this.status = options.status;
+  }
+}
+
 export type AiAttachmentInput = Readonly<{
   mimeType: 'image/jpeg' | 'image/png' | 'application/pdf';
   bytes: Uint8Array;
@@ -24,7 +55,7 @@ export function buildAiAttachmentContentPart(
   capabilities: AiCapabilities,
 ): AiMessageContentPart {
   if (input.mimeType === 'image/jpeg' || input.mimeType === 'image/png') {
-    if (!capabilities.image) throw new Error('AI_IMAGE_CAPABILITY_UNAVAILABLE');
+    if (!capabilities.image) throw new AiProviderError('AI_IMAGE_CAPABILITY_UNAVAILABLE');
     return {
       type: 'image_url',
       image_url: {
@@ -33,7 +64,7 @@ export function buildAiAttachmentContentPart(
       },
     };
   }
-  if (!capabilities.pdf) throw new Error('AI_PDF_CAPABILITY_UNAVAILABLE');
+  if (!capabilities.pdf) throw new AiProviderError('AI_PDF_CAPABILITY_UNAVAILABLE');
   return {
     type: 'file',
     file: {
@@ -78,7 +109,9 @@ async function readResponseText(response: Response, maxBytes: number): Promise<s
   const declaredLength = response.headers.get('content-length');
   if (declaredLength !== null) {
     const parsedLength = Number(declaredLength);
-    if (Number.isFinite(parsedLength) && parsedLength > maxBytes) throw new Error('AI_RESPONSE_TOO_LARGE');
+    if (Number.isFinite(parsedLength) && parsedLength > maxBytes) {
+      throw new AiProviderError('AI_RESPONSE_TOO_LARGE');
+    }
   }
 
   if (!response.body) return '';
@@ -92,7 +125,7 @@ async function readResponseText(response: Response, maxBytes: number): Promise<s
       bytes += result.value.byteLength;
       if (bytes > maxBytes) {
         await reader.cancel('AI_RESPONSE_TOO_LARGE');
-        throw new Error('AI_RESPONSE_TOO_LARGE');
+        throw new AiProviderError('AI_RESPONSE_TOO_LARGE');
       }
       chunks.push(result.value);
     }
@@ -144,7 +177,11 @@ export class OpenAiCompatibleProvider implements AiProvider {
 
   async executeStructured(input: AiStructuredInput): Promise<unknown> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(new Error('AI_TIMEOUT')), this.config.timeoutMs);
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, this.config.timeoutMs);
     timeout.unref();
     const signal = input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
     try {
@@ -164,13 +201,18 @@ export class OpenAiCompatibleProvider implements AiProvider {
         }),
         signal,
       });
-      if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? 'AI_AUTHENTICATION_FAILED' : `AI_HTTP_${response.status}`);
+      if (!response.ok) throw mapProviderHttpError(response.status);
       const responseText = await readResponseText(response, this.#maxResponseBytes);
-      if (!responseText) throw new Error('AI_EMPTY_RESPONSE');
-      const body = JSON.parse(responseText) as { choices?: Array<{ message?: { content?: string } }> };
+      if (!responseText) throw new AiProviderError('AI_EMPTY_RESPONSE', { retryable: true });
+      const body = parseProviderJson(responseText) as { choices?: Array<{ message?: { content?: string } }> };
       const content = body.choices?.[0]?.message?.content;
-      if (!content) throw new Error('AI_EMPTY_RESPONSE');
-      return JSON.parse(content) as unknown;
+      if (!content) throw new AiProviderError('AI_EMPTY_RESPONSE', { retryable: true });
+      return parseProviderJson(content);
+    } catch (error) {
+      if (input.signal?.aborted) throw new DOMException('The AI operation was aborted', 'AbortError');
+      if (timedOut) throw new AiProviderError('AI_TIMEOUT', { retryable: true });
+      if (error instanceof AiProviderError) throw error;
+      throw new AiProviderError('AI_UNREACHABLE', { retryable: true });
     } finally {
       clearTimeout(timeout);
     }
@@ -180,6 +222,33 @@ export class OpenAiCompatibleProvider implements AiProvider {
 
   private headers(): Record<string, string> {
     return this.config.apiKey ? { authorization: `Bearer ${this.config.apiKey}` } : {};
+  }
+}
+
+function mapProviderHttpError(status: number): AiProviderError {
+  if (status === 401 || status === 403) {
+    return new AiProviderError('AI_AUTHENTICATION_FAILED', { status });
+  }
+  if (status === 408 || status === 504) {
+    return new AiProviderError('AI_TIMEOUT', { status, retryable: true });
+  }
+  if (status === 413) {
+    return new AiProviderError('AI_ATTACHMENT_TOO_LARGE', { status });
+  }
+  if (status === 429) {
+    return new AiProviderError('AI_RATE_LIMITED', { status, retryable: true });
+  }
+  if (status >= 500) {
+    return new AiProviderError('AI_PROVIDER_FAILED', { status, retryable: true });
+  }
+  return new AiProviderError('AI_REQUEST_REJECTED', { status });
+}
+
+function parseProviderJson(value: string): unknown {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    throw new AiProviderError('AI_INVALID_RESPONSE', { retryable: true });
   }
 }
 
