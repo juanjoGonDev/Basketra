@@ -137,4 +137,4 @@ Implementation complete on the feature branch:
 - unit, integration and Playwright regression coverage;
 - PWA cache invalidation for the new receipt workflow.
 
-Final exact-head CI and visual-evidence publication are pending before the pull request is marked ready for review.
+Implementation head `4bb5004ccc8460576ecb3c1455e33859e4ae3c3d` passed repository quality and resource budgets, security, browser acceptance, container smoke, linux/amd64, linux/arm64, CodeQL and exact-head visual-evidence publication. The pull request is marked ready only after this final documentation head repeats the same required gates.
