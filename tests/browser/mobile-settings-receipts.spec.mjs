@@ -52,6 +52,7 @@ test('settings remain readable and unobscured across light and dark responsive l
     await expect(page.getByRole('heading', { name: 'Ajustes', exact: true })).toBeVisible();
     await expect(page.getByText('Sin inicio de sesión local')).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Servidor y versión' })).toBeVisible();
+    await expect(page.locator('#ai-provider-network-note')).toBeHidden();
     await expectNoHorizontalOverflow(page);
 
     const metric = page.locator('.operations-metrics > div').first();
@@ -72,6 +73,8 @@ test('settings remain readable and unobscured across light and dark responsive l
     });
     expect(clearance).toBeGreaterThanOrEqual(8);
 
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect.poll(async () => page.evaluate(() => window.scrollY)).toBe(0);
     await page.screenshot({
       path: testInfo.outputPath(`settings-${colorScheme}-${viewport.width}.png`),
       fullPage: true,
@@ -100,8 +103,12 @@ test('OCR exposes cancellable running progress and receipt retailer suggestions'
     buffer: validPng,
   });
 
+  let releaseExtraction = () => {};
+  const extractionGate = new Promise(resolve => {
+    releaseExtraction = resolve;
+  });
   await page.route('**/api/v1/receipts/extract', async route => {
-    await new Promise(resolve => setTimeout(resolve, 2500));
+    await extractionGate;
     try {
       await route.fulfill({
         status: 200,
@@ -121,6 +128,7 @@ test('OCR exposes cancellable running progress and receipt retailer suggestions'
   await page.screenshot({ path: testInfo.outputPath('ocr-running.png'), fullPage: true });
 
   await page.getByRole('button', { name: 'Cancelar análisis', exact: true }).click();
+  releaseExtraction();
   await expect(page.locator('#receipt-progress')).toBeHidden();
   await expect(page.locator('#receipt-state')).toContainText('Análisis cancelado');
   await expect(page.locator('#capture-list li')).toHaveCount(1);

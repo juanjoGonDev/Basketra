@@ -1,4 +1,6 @@
 const MAX_BACKUP_IMPORT_BYTES = 512 * 1024 * 1024;
+const LOG_COPY_LIMIT = 500;
+const LOG_RENDER_LIMIT = 120;
 
 const state = {
   heartbeatTimer: null,
@@ -10,6 +12,9 @@ const state = {
   clientLogs: [],
   clientFlushTimer: null,
   importedBackups: [],
+  logCopyCount: 0,
+  logCopyPayload: '',
+  aiSettings: null,
 };
 
 const $ = selector => document.querySelector(selector);
@@ -129,7 +134,10 @@ async function requestJson(path, options = {}) {
   const body = contentType.includes('application/json') ? await response.json().catch(() => ({})) : await response.text();
   if (!response.ok) {
     const code = body && typeof body === 'object' ? body.error?.code || body.connection?.code : undefined;
-    const error = new Error(body && typeof body === 'object' && body.error?.message ? body.error.message : `HTTP ${response.status}`);
+    const message = body && typeof body === 'object'
+      ? body.error?.message || body.connection?.message
+      : undefined;
+    const error = new Error(message || `HTTP ${response.status}`);
     error.code = code;
     error.status = response.status;
     emitClientLog({
@@ -159,10 +167,47 @@ function renderRuntime(diagnostics) {
   updateUptime();
 }
 
+function providerProbeUrl(settings) {
+  if (!settings?.baseUrl) return '';
+  try {
+    const baseUrl = new URL(settings.baseUrl);
+    if (!baseUrl.pathname.endsWith('/')) baseUrl.pathname += '/';
+    return new URL('models', baseUrl).href;
+  } catch {
+    return `${settings.baseUrl.replace(/\/?$/, '/') }models`;
+  }
+}
+
+function providerHost(settings) {
+  try {
+    return new URL(settings?.baseUrl || '').hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function providerNetworkGuidance(settings) {
+  const host = providerHost(settings);
+  if (host === 'host.docker.internal') {
+    return 'host.docker.internal apunta al host Docker de Basketra, es decir, a la Raspberry. Si webApi se ejecuta en otro equipo, usa la IP privada de ese equipo en BASKETRA_AI_BASE_URL y configura webApi con HOST=0.0.0.0, restringiendo el puerto a tu LAN o VPN.';
+  }
+  if (host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]') {
+    return 'Una dirección loopback apunta al propio contenedor Basketra. Usa host.docker.internal sólo si webApi está en la Raspberry; si está en otro equipo, usa su IP privada.';
+  }
+  return 'La prueba sale desde el contenedor Basketra. El equipo que ejecuta webApi debe escuchar en esa dirección y puerto; para clientes remotos webApi necesita HOST=0.0.0.0 y el puerto debe quedar limitado a la LAN o VPN.';
+}
+
 function renderAiSettings(settings) {
+  state.aiSettings = settings;
   const status = $('#ai-configuration-status');
   const detail = $('#ai-configuration-detail');
   const testButton = $('#test-ai-provider');
+  const request = $('#ai-provider-request');
+  const authorization = $('#ai-provider-authorization');
+  const note = $('#ai-provider-network-note');
+  request.textContent = settings.configured ? `GET ${providerProbeUrl(settings)}` : 'Pendiente de configuración';
+  authorization.textContent = settings.apiKeyMask ? 'Bearer configurado' : 'Sin cabecera Authorization';
+  note.textContent = settings.configured ? providerNetworkGuidance(settings) : '';
   if (!settings.configured) {
     status.textContent = 'Configuración no cargada';
     status.dataset.state = 'error';
@@ -174,7 +219,7 @@ function renderAiSettings(settings) {
   if (settings.loopbackWarning) {
     status.textContent = 'Configurado con dirección incorrecta para Docker';
     status.dataset.state = 'warning';
-    detail.textContent = `El contenedor no puede usar ${settings.baseUrl}. Usa ${settings.recommendedHostUrl} y fuerza la recreación.`;
+    detail.textContent = `${settings.model} · ${settings.baseUrl}${settings.apiKeyMask ? ` · clave ${settings.apiKeyMask}` : ''}`;
     return;
   }
   status.textContent = 'Configuración cargada';
@@ -217,16 +262,90 @@ function renderLogs(events) {
   }
 }
 
+function serializeLogEvents(events) {
+  return events.length > 0
+    ? `${events.map(event => JSON.stringify(event)).join('\n')}\n`
+    : '';
+}
+
+function prepareLogCopy(events) {
+  state.logCopyCount = events.length;
+  state.logCopyPayload = serializeLogEvents(events);
+  const button = $('#copy-logs');
+  const status = $('#copy-logs-state');
+  button.disabled = state.logCopyPayload.length === 0;
+  status.textContent = events.length > 0
+    ? `${events.length} eventos completos preparados para copiar.`
+    : 'Todavía no hay logs para copiar.';
+}
+
 async function loadLogs() {
   const button = $('#refresh-logs');
+  const copyButton = $('#copy-logs');
   button.disabled = true;
+  copyButton.disabled = true;
   try {
-    const result = await requestJson('/api/v1/logs?limit=120');
-    renderLogs(result.events || []);
+    const result = await requestJson(`/api/v1/logs?limit=${LOG_COPY_LIMIT}`);
+    const events = Array.isArray(result.events) ? result.events : [];
+    renderLogs(events.slice(-LOG_RENDER_LIMIT));
+    prepareLogCopy(events);
   } catch (error) {
     $('#application-logs').textContent = error.message;
+    $('#copy-logs-state').textContent = state.logCopyPayload
+      ? 'No se pudieron actualizar los logs. La última copia preparada sigue disponible.'
+      : 'No se pudieron preparar los logs para copiar.';
+    copyButton.disabled = state.logCopyPayload.length === 0;
   } finally {
     button.disabled = false;
+  }
+}
+
+function copyWithSelection(text) {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.readOnly = true;
+  textarea.setAttribute('aria-hidden', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.inset = '0';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  document.body.append(textarea);
+  textarea.focus({ preventScroll: true });
+  textarea.select();
+  textarea.setSelectionRange(0, text.length);
+  const copied = document.execCommand('copy');
+  textarea.remove();
+  if (!copied) throw new Error('CLIPBOARD_UNAVAILABLE');
+}
+
+async function writeClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Private HTTP deployments may not expose the asynchronous Clipboard API.
+    }
+  }
+  copyWithSelection(text);
+}
+
+async function copyLogs() {
+  const button = $('#copy-logs');
+  const status = $('#copy-logs-state');
+  button.disabled = true;
+  button.setAttribute('aria-busy', 'true');
+  status.textContent = 'Copiando logs…';
+  try {
+    if (!state.logCopyPayload) await loadLogs();
+    if (!state.logCopyPayload) return;
+    await writeClipboard(state.logCopyPayload);
+    status.textContent = `${state.logCopyCount} eventos copiados como JSON, una línea por evento.`;
+  } catch {
+    status.textContent = 'No se pudo acceder al portapapeles. Revisa el permiso del navegador y vuelve a intentarlo.';
+  } finally {
+    button.removeAttribute('aria-busy');
+    button.disabled = state.logCopyPayload.length === 0;
   }
 }
 
@@ -341,19 +460,24 @@ async function stageRestore() {
 
 async function testAiProvider() {
   const button = $('#test-ai-provider');
+  const stateElement = $('#ai-test-state');
+  const probe = providerProbeUrl(state.aiSettings);
   button.disabled = true;
-  $('#ai-test-state').textContent = 'Comprobando desde el contenedor…';
+  stateElement.textContent = `Enviando GET ${probe} desde el contenedor Basketra…`;
   try {
     const result = await requestJson('/api/v1/settings/ai-provider/test', { method: 'POST' });
-    $('#ai-test-state').textContent = result.connection.ok ? 'Conexión correcta.' : result.connection.code;
+    stateElement.textContent = result.connection.ok
+      ? `Conexión correcta: GET ${probe} respondió y el proveedor aceptó la autenticación.`
+      : result.connection.code;
   } catch (error) {
     const messages = {
-      AI_LOOPBACK_CONTAINER: '127.0.0.1 apunta al contenedor. Usa host.docker.internal y recréalo.',
-      AI_UNREACHABLE: 'La configuración está cargada, pero el proveedor no es alcanzable.',
-      AI_AUTHENTICATION_FAILED: 'El proveedor rechazó la clave configurada.',
-      AI_TIMEOUT: 'El proveedor no respondió dentro del tiempo configurado.',
+      AI_LOOPBACK_CONTAINER: providerNetworkGuidance(state.aiSettings),
+      AI_UNREACHABLE: `No se pudo abrir una conexión con ${probe}. ${providerNetworkGuidance(state.aiSettings)}`,
+      AI_AUTHENTICATION_FAILED: 'webApi respondió, pero rechazó la clave. BASKETRA_AI_API_KEY debe coincidir exactamente con API_KEY.',
+      AI_TIMEOUT: `El proveedor no respondió dentro del tiempo configurado al solicitar ${probe}.`,
+      AI_HTTP_404: `El host respondió, pero ${probe} no existe. Para webApi la URL base debe terminar en /v1/.`,
     };
-    $('#ai-test-state').textContent = messages[error.code] || error.message;
+    stateElement.textContent = messages[error.code] || `${error.message}. Solicitud probada: GET ${probe}.`;
   } finally {
     button.disabled = false;
     await loadLogs();
@@ -384,13 +508,23 @@ function installOperationsUi() {
       <div class="panel-heading"><div><p class="eyebrow">Proveedor opcional</p><h2 id="ai-config-title">Diagnóstico de IA</h2></div></div>
       <strong id="ai-configuration-status">Cargando…</strong>
       <p id="ai-configuration-detail"></p>
+      <dl class="provider-check">
+        <div><dt>Comprobación real</dt><dd id="ai-provider-request">Cargando…</dd></div>
+        <div><dt>Autorización</dt><dd id="ai-provider-authorization">Cargando…</dd></div>
+      </dl>
+      <p id="ai-provider-network-note" class="operations-help"></p>
       <button id="test-ai-provider" class="button secondary full" type="button">Probar desde Basketra</button>
       <p id="ai-test-state" class="inline-status" role="status"></p>
     </section>
     <section class="surface operations-card" aria-labelledby="logs-title">
       <div class="panel-heading"><div><p class="eyebrow">Observabilidad</p><h2 id="logs-title">Logs de aplicación</h2></div></div>
       <p>Sólo se muestran eventos estructurados y censurados; nunca contenido de tickets, claves o cuerpos de petición.</p>
-      <button id="refresh-logs" class="button secondary full" type="button">Actualizar logs</button>
+      <div class="inline-actions operations-log-actions">
+        <button id="refresh-logs" class="button secondary" type="button">Actualizar logs</button>
+        <button id="copy-logs" class="button secondary" type="button" disabled>Copiar logs</button>
+      </div>
+      <small>La copia incluye hasta ${LOG_COPY_LIMIT} eventos completos en JSON por línea, con los mismos campos censurados del backend.</small>
+      <p id="copy-logs-state" class="inline-status" role="status">Preparando logs…</p>
       <ul id="application-logs" class="operations-logs" aria-live="polite"></ul>
     </section>
     <section class="surface operations-card" aria-labelledby="backup-title">
@@ -409,6 +543,7 @@ function installOperationsUi() {
   settings.append(section);
   $('#test-ai-provider').addEventListener('click', () => void testAiProvider());
   $('#refresh-logs').addEventListener('click', () => void loadLogs());
+  $('#copy-logs').addEventListener('click', () => void copyLogs());
   $('#create-operational-backup').addEventListener('click', () => void createBackup());
   $('#import-backup').addEventListener('click', () => void importBackupFile());
   $('#stage-restore').addEventListener('click', () => void stageRestore());
