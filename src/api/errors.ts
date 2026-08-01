@@ -84,6 +84,8 @@ function mapAiProviderError(error: AiProviderError): ApiError {
   switch (error.code) {
     case 'AI_ATTACHMENT_TOO_LARGE':
       return new ApiError(413, error.code, 'El proveedor rechazó la imagen por tamaño; el OCR local se conserva');
+    case 'AI_ATTACHMENT_UPLOAD_FAILED':
+      return new ApiError(504, error.code, 'El proveedor no pudo preparar la imagen; el OCR local se conserva y puedes reintentar');
     case 'AI_AUTHENTICATION_FAILED':
       return new ApiError(502, error.code, 'El proveedor de IA rechazó sus credenciales');
     case 'AI_IMAGE_CAPABILITY_UNAVAILABLE':
