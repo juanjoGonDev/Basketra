@@ -77,6 +77,43 @@ test('OpenAI-compatible provider classifies attachment rejection without leaking
   );
 });
 
+test('OpenAI-compatible provider consumes only allowlisted bounded error metadata', async () => {
+  const provider = providerWithResponse(504, JSON.stringify({
+    error: {
+      code: 'attachment_upload_failed',
+      message: 'private receipt content',
+      extra: { path: '/private/receipt.png' },
+    },
+  }));
+
+  await assert.rejects(
+    () => provider.executeStructured(structuredInput),
+    (error: unknown) => {
+      assert.ok(error instanceof AiProviderError);
+      assert.equal(error.code, 'AI_ATTACHMENT_UPLOAD_FAILED');
+      assert.equal(error.status, 504);
+      assert.equal(error.retryable, true);
+      assert.doesNotMatch(String(error), /private receipt|private\/receipt/u);
+      return true;
+    },
+  );
+
+  const oversized = providerWithResponse(504, JSON.stringify({
+    error: {
+      code: 'attachment_upload_failed',
+      message: 'x'.repeat(9 * 1024),
+    },
+  }));
+  await assert.rejects(
+    () => oversized.executeStructured(structuredInput),
+    (error: unknown) => {
+      assert.ok(error instanceof AiProviderError);
+      assert.equal(error.code, 'AI_TIMEOUT');
+      return true;
+    },
+  );
+});
+
 test('OpenAI-compatible provider classifies retryable upstream failures', async () => {
   const provider = providerWithResponse(500, '{"error":{"message":"internal details"}}');
 
@@ -90,6 +127,26 @@ test('OpenAI-compatible provider classifies retryable upstream failures', async 
       return true;
     },
   );
+});
+
+test('OpenAI-compatible provider forwards only a validated correlation identifier', async () => {
+  const requests: Request[] = [];
+  const provider = new OpenAiCompatibleProvider({
+    baseUrl: new URL('http://provider.test/v1/'),
+    model: 'test-model',
+    timeoutMs: 1000,
+  }, (async (input, init) => {
+    requests.push(new Request(input, init));
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: '{"value":"ok"}' } }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch);
+
+  await provider.executeStructured({ ...structuredInput, correlationId: 'receipt:abc-123' });
+  await provider.executeStructured({ ...structuredInput, correlationId: 'invalid value\r\nheader' });
+
+  assert.equal(requests[0]?.headers.get('x-client-request-id'), 'receipt:abc-123');
+  assert.equal(requests[1]?.headers.get('x-client-request-id'), null);
 });
 
 test('structured executor does not retry deterministic provider rejection', async () => {
@@ -115,10 +172,12 @@ test('structured executor does not retry deterministic provider rejection', asyn
   assert.equal(calls, 1);
 });
 
-test('structured executor retries transient provider failures within its bound', async () => {
+test('structured executor retries transient provider failures within its bound and reuses correlation', async () => {
   let calls = 0;
-  const provider = executorProvider(async () => {
+  const correlationIds: Array<string | undefined> = [];
+  const provider = executorProvider(async (input) => {
     calls += 1;
+    correlationIds.push(input.correlationId);
     if (calls === 1) throw new AiProviderError('AI_PROVIDER_FAILED', { status: 500, retryable: true });
     return { value: 'ok' };
   });
@@ -135,6 +194,8 @@ test('structured executor retries transient provider failures within its bound',
   });
   assert.deepEqual(result, { value: { value: 'ok' }, attempts: 2 });
   assert.equal(calls, 2);
+  assert.equal(typeof correlationIds[0], 'string');
+  assert.equal(correlationIds[0], correlationIds[1]);
 });
 
 test('API error mapping keeps AI failures actionable instead of INTERNAL_ERROR', () => {
@@ -142,6 +203,11 @@ test('API error mapping keeps AI failures actionable instead of INTERNAL_ERROR',
   assert.equal(rejected.status, 422);
   assert.equal(rejected.code, 'AI_REQUEST_REJECTED');
   assert.match(rejected.message, /solicitud multimodal/u);
+
+  const upload = mapError(new AiProviderError('AI_ATTACHMENT_UPLOAD_FAILED', { status: 504, retryable: true }));
+  assert.equal(upload.status, 504);
+  assert.equal(upload.code, 'AI_ATTACHMENT_UPLOAD_FAILED');
+  assert.match(upload.message, /preparar la imagen/u);
 
   const failed = mapError(new AiProviderError('AI_PROVIDER_FAILED', { status: 500, retryable: true }));
   assert.equal(failed.status, 502);
