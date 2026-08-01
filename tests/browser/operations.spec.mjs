@@ -140,6 +140,7 @@ test('desktop settings explain the webApi probe and keep navigation above conten
   await page.getByRole('button', { name: 'Probar desde Basketra', exact: true }).click();
   await expect(page.locator('#ai-test-state')).toContainText('No se pudo abrir una conexión');
   await expect(page.locator('#ai-test-state')).toContainText('IP privada');
+  await page.evaluate(() => window.scrollTo(0, 0));
 
   const geometry = await page.evaluate(() => {
     const header = document.querySelector('.app-header').getBoundingClientRect();
