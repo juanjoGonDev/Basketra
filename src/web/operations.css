@@ -3,9 +3,13 @@ details.settings-card:has(#diagnostics),
   display: none;
 }
 
+html:has(.view[data-view="settings"].active) {
+  scroll-padding-bottom: calc(var(--nav) + env(safe-area-inset-bottom) + 1rem);
+}
+
 .view[data-view="settings"] {
   min-width: 0;
-  padding-bottom: 1rem;
+  padding-bottom: calc(var(--nav) + env(safe-area-inset-bottom) + 2rem);
 }
 
 .view[data-view="settings"] > .page-header {
@@ -29,6 +33,10 @@ details.settings-card:has(#diagnostics),
   min-width: 0;
   padding: clamp(0.9rem, 3.5vw, 1.2rem);
   overflow: hidden;
+}
+
+.operations-card:last-child {
+  scroll-margin-bottom: calc(var(--nav) + env(safe-area-inset-bottom) + 1rem);
 }
 
 .operations-card .panel-heading,
