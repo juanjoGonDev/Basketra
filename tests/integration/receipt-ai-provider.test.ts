@@ -12,11 +12,12 @@ const pngBase64 = Buffer.from(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x00])).t
 
 test('receipt page verification crosses the real OpenAI-compatible provider with OCR text only', async () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-openai-receipt-'));
+  const apiKey = `fixture-${process.pid}-${Date.now()}`;
   const requests: Array<Record<string, unknown>> = [];
   const providerServer = createServer(async (request, response) => {
     assert.equal(request.method, 'POST');
     assert.equal(request.url, '/v1/chat/completions');
-    assert.equal(request.headers.authorization, 'Bearer integration-secret');
+    assert.equal(request.headers.authorization, `Bearer ${apiKey}`);
     const chunks: Uint8Array[] = [];
     for await (const chunk of request) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
@@ -58,7 +59,7 @@ test('receipt page verification crosses the real OpenAI-compatible provider with
   const stored = store.storeBase64({ base64: pngBase64, mimeType: 'image/png' });
   const provider = new OpenAiCompatibleProvider({
     baseUrl: new URL(`http://127.0.0.1:${address.port}/v1/`),
-    apiKey: 'integration-secret',
+    apiKey,
     model: 'gpt-5',
     timeoutMs: 2_000,
     capabilities: { image: true, pdf: false },
@@ -83,7 +84,8 @@ test('receipt page verification crosses the real OpenAI-compatible provider with
     assert.equal(messages[1]?.role, 'user');
     assert.equal(typeof messages[1]?.content, 'string');
     assert.match(String(messages[1]?.content), /1: ALCAMPO ALMERIA/u);
-    assert.doesNotMatch(JSON.stringify(messages), /image_url|data:image|storageKey|integration-secret/u);
+    assert.doesNotMatch(JSON.stringify(messages), /image_url|data:image|storageKey/u);
+    assert.doesNotMatch(JSON.stringify(messages), new RegExp(apiKey, 'u'));
 
     const responseFormat = request?.['response_format'] as {
       type?: string;
