@@ -6,7 +6,6 @@ const SHELL = [
   '/api.js',
   '/operations.js',
   '/operations.css',
-  '/log-copy.js',
   '/state.js',
   '/lists.js',
   '/receipts.js',
