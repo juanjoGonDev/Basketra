@@ -65,9 +65,10 @@ The production screenshot is served by release revision `8a81acc40eb6` and shows
 ## Delivery
 
 - Branch: `agent/fix-settings-provider-diagnostics`
+- Pull request: `#12`
 - Target: `main`
 - Merge, release and Raspberry environment changes require separate authorization.
 
 ## Status
 
-In progress.
+Implemented. Quality, security, browser acceptance, container smoke, AMD64, ARM64, CodeQL and exact-head visual-evidence workflows passed on the implementation head. Final documentation-only head remains subject to the same required pull-request gates.
