@@ -156,7 +156,11 @@ test('OCR exposes a two-slot per-image pipeline with retry and retailer autofill
     buffer: Buffer.concat([validPng, Buffer.from([index])]),
   })));
   await expect(page.locator('.capture-card')).toHaveCount(3);
-  await page.getByLabel('Verificar y normalizar con IA').check();
+  const aiInput = page.getByLabel('Verificar y normalizar con IA');
+  const aiSwitch = page.locator('label.switch-row').filter({ has: aiInput });
+  await aiSwitch.scrollIntoViewIfNeeded();
+  await aiSwitch.click();
+  await expect(aiInput).toBeChecked();
   await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
 
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'OCR local' })).toHaveCount(2);
