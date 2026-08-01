@@ -322,7 +322,17 @@ export class ReceiptExtractionService {
     const deterministicItems = parseDeterministicReceiptText(result.text);
     const metadata = extractReceiptMetadata(result.text);
     const ai = verifyWithAi
-      ? await verifyReceiptWithAi(this.#getAiProvider(), this.#maxRetries, result.text, signal)
+      ? await verifyReceiptWithAi(
+          this.#getAiProvider(),
+          this.#maxRetries,
+          result.text,
+          {
+            mimeType: stored.mimeType,
+            bytes: stored.bytes,
+            ...(capture.originalName ? { fileName: capture.originalName } : {}),
+          },
+          signal,
+        )
       : undefined;
 
     return {
