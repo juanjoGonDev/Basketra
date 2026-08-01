@@ -1,88 +1,102 @@
 import { test, expect } from '@playwright/test';
-import { navigate, expectNoHorizontalOverflow, mockApplicationShell } from './support.mjs';
 
-test.beforeEach(async ({ page }) => {
-  await mockApplicationShell(page);
+function navigate(page, name) {
+  return page.locator('.bottom-nav').getByRole('button', { name, exact: true }).click();
+}
+
+async function expectNoHorizontalOverflow(page) {
+  const dimensions = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    page: document.documentElement.scrollWidth,
+  }));
+  expect(dimensions.page).toBeLessThanOrEqual(dimensions.viewport);
+}
+
+test.afterEach(async ({ page }, testInfo) => {
+  if (page.isClosed()) return;
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: testInfo.outputPath('operations-viewport.png'), fullPage: true });
 });
 
-test('settings show live runtime, redacted copyable logs and downloadable importable backups', async ({ page }, testInfo) => {
+test('settings show live runtime, redacted copyable logs and downloadable importable backups', async ({ page, request }, testInfo) => {
   const failures = [];
-  page.on('pageerror', error => failures.push(error.message));
-  page.on('console', message => {
-    if (message.type() === 'error') failures.push(message.text());
-  });
   await page.addInitScript(() => {
-    window.__copiedLogs = '';
-    Object.defineProperty(navigator, 'clipboard', {
+    window.__basketraCopiedLogs = '';
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+    Object.defineProperty(document, 'execCommand', {
       configurable: true,
-      value: {
-        writeText(value) {
-          window.__copiedLogs = value;
-          return Promise.resolve();
-        },
+      value: command => {
+        if (command !== 'copy') return false;
+        window.__basketraCopiedLogs = document.activeElement?.value || '';
+        return true;
       },
     });
   });
-
-  const runtime = {
-    version: '1.0.0',
-    revision: 'abcdef123456',
-    startedAt: new Date(Date.now() - 65_000).toISOString(),
-    memory: { rssBytes: 64 * 1024 * 1024 },
-  };
-  await page.route('**/api/v1/runtime', route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify(runtime),
-  }));
-  await page.route('**/api/v1/logs**', route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({
-      events: [
-        { timestamp: '2026-08-01T10:00:00.000Z', source: 'server', level: 'info', event: 'server.started', requestId: 'req-1' },
-        { timestamp: '2026-08-01T10:01:00.000Z', source: 'client', level: 'warn', event: 'client.connection_lost', code: 'NETWORK' },
-      ],
-    }),
-  }));
-  await page.route('**/api/v1/backups', async route => {
-    if (route.request().method() === 'POST') {
-      await route.fulfill({
-        status: 201,
-        contentType: 'application/json',
-        body: JSON.stringify({ backup: { name: 'basketra-2026-08-01.db', createdAt: '2026-08-01T10:00:00.000Z', sizeBytes: 4096 } }),
-      });
-      return;
-    }
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ backups: [] }) });
+  page.on('pageerror', error => failures.push(`pageerror: ${error.message}`));
+  page.on('console', message => {
+    if (message.type() === 'error') failures.push(`console: ${message.text()}`);
   });
-  await page.route('**/api/v1/backups/basketra-2026-08-01.db', route => route.fulfill({
-    status: 200,
-    contentType: 'application/octet-stream',
-    headers: { 'content-disposition': 'attachment; filename="basketra-2026-08-01.db"' },
-    body: Buffer.from('SQLite format 3\0'),
-  }));
-  await page.route('**/api/v1/backup/import', route => route.fulfill({
-    status: 202,
-    contentType: 'application/json',
-    body: JSON.stringify({ pending: { name: 'imported.db', requiresRestart: true } }),
-  }));
 
   await page.goto('/');
   await navigate(page, 'Ajustes');
-  await expect(page.locator('#runtime-version')).toHaveText('1.0.0');
-  await expect(page.locator('#runtime-uptime')).toContainText('01:');
-  await expect(page.locator('#runtime-memory')).toHaveText('64 MB RSS');
+  await expect(page.getByRole('heading', { name: 'Servidor y versión' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Copiar logs', exact: true })).toBeVisible();
+  await expect(page.locator('#runtime-version')).toHaveText('1.4.2-test');
+  await expect(page.locator('#runtime-revision')).toContainText('abcdef123456');
+  await expect(page.locator('#server-started-at')).not.toHaveText('Cargando…');
 
-  await page.getByRole('button', { name: 'Actualizar logs' }).click();
+  const firstUptime = await page.locator('#server-uptime').textContent();
+  await expect.poll(async () => page.locator('#server-uptime').textContent(), { timeout: 3500 })
+    .not.toBe(firstUptime);
+  await expect(page.locator('#ai-configuration-status')).toHaveText('Configuración no cargada');
+  await expect(page.locator('#ai-configuration-detail')).toContainText('BASKETRA_AI_BASE_URL');
+  await expect(page.locator('#ai-provider-request')).toHaveText('Pendiente de configuración');
+  await expect(page.locator('#test-ai-provider')).toBeDisabled();
+
+  await page.getByRole('button', { name: 'Crear copia', exact: true }).click();
+  const downloadLink = page.locator('#backup-download-link');
+  await expect(downloadLink).toBeVisible();
+  await expect(page.locator('#backup-state')).toContainText('Decide si quieres descargarla');
+  const downloadPath = await downloadLink.getAttribute('href');
+  expect(downloadPath).toMatch(/^\/api\/v1\/backups\//);
+
+  const backupResponse = await request.get(downloadPath);
+  expect(backupResponse.ok()).toBeTruthy();
+  expect(backupResponse.headers()['content-type']).toBe('application/vnd.sqlite3');
+  expect(backupResponse.headers()['content-disposition']).toContain('attachment');
+  const backupBytes = await backupResponse.body();
+  expect(backupBytes.byteLength).toBeGreaterThan(0);
+
+  await page.locator('#backup-import-file').setInputFiles({
+    name: 'basketra-import.db',
+    mimeType: 'application/vnd.sqlite3',
+    buffer: backupBytes,
+  });
+  await page.getByRole('button', { name: 'Importar y validar', exact: true }).click();
+  await expect(page.locator('#restore-state')).toContainText('Copia validada');
+  await expect(page.locator('#restore-backup-select')).toBeEnabled();
+  await expect(page.locator('#stage-restore')).toBeEnabled();
+
+  await page.locator('#restore-confirmation').fill('NO');
+  await page.getByRole('button', { name: 'Restaurar tras reinicio', exact: true }).click();
+  await expect(page.locator('#restore-state')).toContainText('escribe RESTAURAR exactamente');
+
+  await page.getByRole('button', { name: 'Actualizar logs', exact: true }).click();
   await expect(page.locator('#application-logs')).toContainText('server.started');
-  await expect(page.locator('#application-logs')).toContainText('client.connection_lost');
-  await page.getByRole('button', { name: 'Copiar logs' }).click();
-  await expect(page.locator('#copy-logs-state')).toContainText('copiados');
-  const copied = await page.evaluate(() => window.__copiedLogs);
-  const lines = copied.trim().split('\n');
-  expect(lines).toHaveLength(2);
-  for (const line of lines) {
+  await expect(page.locator('#application-logs')).toContainText('backup.imported');
+  await expect(page.locator('#application-logs')).not.toContainText('basketra-import.db');
+
+  const copyButton = page.getByRole('button', { name: 'Copiar logs', exact: true });
+  await expect(copyButton).toBeEnabled();
+  await copyButton.click();
+  await expect(page.locator('#copy-logs-state')).toContainText('eventos copiados como JSON');
+  const copiedLogs = await page.evaluate(() => window.__basketraCopiedLogs);
+  expect(copiedLogs).toContain('"event":"server.started"');
+  expect(copiedLogs).toContain('"event":"backup.imported"');
+  expect(copiedLogs).not.toContain('basketra-import.db');
+  const copiedLines = copiedLogs.trim().split('\n');
+  expect(copiedLines.length).toBeGreaterThan(1);
+  for (const line of copiedLines) {
     expect(line).toBe(JSON.stringify(JSON.parse(line)));
   }
 
@@ -154,32 +168,40 @@ test('desktop settings explain the webApi probe and keep navigation above conten
   });
   expect(geometry.navigationTop).toBeGreaterThanOrEqual(geometry.headerBottom - 1);
   expect(geometry.firstCardTop).toBeGreaterThanOrEqual(geometry.navigationBottom - 1);
-  expect(geometry.stackWidth).toBeGreaterThan(700);
-  expect(new Set(geometry.metricColumns).size).toBe(2);
+  expect(geometry.stackWidth).toBeGreaterThan(1000);
+  expect(geometry.metricColumns[0]).toBe(geometry.metricColumns[2]);
+  expect(geometry.metricColumns[1]).toBe(geometry.metricColumns[3]);
+
   await page.screenshot({ path: testInfo.outputPath('desktop-provider-diagnostics.png'), fullPage: true });
   await expectNoHorizontalOverflow(page);
 });
 
 test('private-route heartbeat recovers after VPN connectivity returns without a reload', async ({ page }, testInfo) => {
-  let available = true;
-  let healthCalls = 0;
-  await page.route('**/health', async route => {
-    healthCalls += 1;
-    if (!available) {
-      await route.abort('failed');
-      return;
-    }
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok' }) });
+  let failHeartbeat = true;
+  const unexpectedFailures = [];
+  await page.route('**/health?heartbeat=*', route => {
+    if (failHeartbeat) return route.abort('failed');
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok"}' });
   });
+  page.on('requestfailed', request => {
+    if (request.url().includes('/health?heartbeat=')) return;
+    const failure = request.failure()?.errorText ?? '';
+    if (!failure.includes('net::ERR_ABORTED')) unexpectedFailures.push(`${request.method()} ${request.url()} ${failure}`);
+  });
+  page.on('pageerror', error => unexpectedFailures.push(error.message));
 
   await page.goto('/');
-  await expect(page.locator('#connection-status')).toHaveAttribute('data-ok', 'true');
-  available = false;
-  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
-  await expect(page.locator('#connection-status')).toHaveAttribute('data-ok', 'false');
-  available = true;
-  await page.evaluate(() => window.dispatchEvent(new Event('online')));
-  await expect.poll(() => healthCalls).toBeGreaterThan(1);
-  await expect(page.locator('#connection-status')).toHaveAttribute('data-ok', 'true');
-  await page.screenshot({ path: testInfo.outputPath('vpn-recovery.png'), fullPage: true });
+  await expect(page.locator('#connection-state')).toContainText('Desconectado', { timeout: 6000 });
+  failHeartbeat = false;
+  await expect(page.locator('#connection-state')).toContainText('Conectado', { timeout: 6000 });
+  await expect(page.locator('#connection-state')).toHaveAttribute('data-ok', 'true');
+
+  await page.waitForTimeout(1700);
+  await navigate(page, 'Ajustes');
+  await page.getByRole('button', { name: 'Actualizar logs', exact: true }).click();
+  await expect(page.locator('#application-logs')).toContainText('client.connection_lost');
+  await expect(page.locator('#application-logs')).toContainText('client.connection_restored');
+  await page.screenshot({ path: testInfo.outputPath('vpn-reconnected.png'), fullPage: true });
+  await expectNoHorizontalOverflow(page);
+  expect(unexpectedFailures).toEqual([]);
 });
