@@ -13,6 +13,36 @@ export type AiMessageContentPart =
 
 export type AiMessageContent = string | readonly AiMessageContentPart[];
 
+export type AiAttachmentInput = Readonly<{
+  mimeType: 'image/jpeg' | 'image/png' | 'application/pdf';
+  bytes: Uint8Array;
+  fileName?: string;
+}>;
+
+export function buildAiAttachmentContentPart(
+  input: AiAttachmentInput,
+  capabilities: AiCapabilities,
+): AiMessageContentPart {
+  if (input.mimeType === 'image/jpeg' || input.mimeType === 'image/png') {
+    if (!capabilities.image) throw new Error('AI_IMAGE_CAPABILITY_UNAVAILABLE');
+    return {
+      type: 'image_url',
+      image_url: {
+        url: `data:${input.mimeType};base64,${Buffer.from(input.bytes).toString('base64')}`,
+        detail: 'high',
+      },
+    };
+  }
+  if (!capabilities.pdf) throw new Error('AI_PDF_CAPABILITY_UNAVAILABLE');
+  return {
+    type: 'file',
+    file: {
+      filename: input.fileName?.trim() || 'receipt.pdf',
+      file_data: `data:application/pdf;base64,${Buffer.from(input.bytes).toString('base64')}`,
+    },
+  };
+}
+
 export type AiStructuredInput = Readonly<{
   operation: string;
   systemPrompt: string;
