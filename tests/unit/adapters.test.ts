@@ -124,7 +124,7 @@ test('OpenAI-compatible provider sends strict schema and handles failures', asyn
 
   const failed = new OpenAiCompatibleProvider({ baseUrl: new URL('http://localhost/v1/'), model: 'x', timeoutMs: 100 }, async () => new Response('', { status: 503 }));
   assert.deepEqual(await failed.testConnection(), { ok: false });
-  await assert.rejects(() => failed.executeStructured({ operation: 'x', schemaName: 'x', systemPrompt: 'x', content: 'x', jsonSchema: {} }), /AI_HTTP_503/);
+  await assert.rejects(() => failed.executeStructured({ operation: 'x', schemaName: 'x', systemPrompt: 'x', content: 'x', jsonSchema: {} }), /AI_PROVIDER_FAILED/);
   const auth = new OpenAiCompatibleProvider({ baseUrl: new URL('http://localhost/v1/'), model: 'x', timeoutMs: 100 }, async () => new Response('', { status: 401 }));
   await assert.rejects(() => auth.executeStructured({ operation: 'x', schemaName: 'x', systemPrompt: 'x', content: 'x', jsonSchema: {} }), /AUTHENTICATION/);
   const empty = new OpenAiCompatibleProvider({ baseUrl: new URL('http://localhost/v1/'), model: 'x', timeoutMs: 100 }, async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }));
