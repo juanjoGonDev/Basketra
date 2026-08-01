@@ -71,4 +71,6 @@ export function setBusy(element, busy) {
   element.setAttribute('aria-busy', String(busy));
 }
 
-void import('./operations.js').catch(() => {});
+void import('./operations.js')
+  .then(() => import('./log-copy.js'))
+  .catch(() => {});
