@@ -91,13 +91,17 @@ test('HTTP confirmation persists an optional retailer and exposes bounded sugges
     });
     assert.equal(confirmed.status, 201);
 
-    const suggestions = await fetch(`${baseUrl}/api/v1/retailers/suggestions?q=ca&limit=3`);
-    assert.equal(suggestions.status, 200);
-    assert.deepEqual(await json(suggestions), {
-      suggestions: [{
-        id: (await json<{ receiptId: string }>(confirmed.clone())).receiptId,
-      }],
-    });
+    const suggestionsResponse = await fetch(`${baseUrl}/api/v1/retailers/suggestions?q=ca&limit=3`);
+    assert.equal(suggestionsResponse.status, 200);
+    const suggestions = await json<{ suggestions: Array<{ id: string; name: string; receiptCount: number; lastUsedAt?: string }> }>(suggestionsResponse);
+    assert.equal(suggestions.suggestions.length, 1);
+    assert.match(suggestions.suggestions[0]?.id ?? '', /^retailer_/);
+    assert.equal(suggestions.suggestions[0]?.name, 'Carrefour');
+    assert.equal(suggestions.suggestions[0]?.receiptCount, 1);
+    assert.match(suggestions.suggestions[0]?.lastUsedAt ?? '', /^\d{4}-/);
+
+    assert.equal((await fetch(`${baseUrl}/api/v1/retailers/suggestions?q=c`)).status, 400);
+    assert.equal((await fetch(`${baseUrl}/api/v1/retailers/suggestions?q=ca&limit=0`)).status, 400);
   } finally {
     await server.close();
     rmSync(root, { recursive: true, force: true });
