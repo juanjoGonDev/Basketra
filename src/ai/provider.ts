@@ -15,6 +15,7 @@ export type AiMessageContent = string | readonly AiMessageContentPart[];
 
 export type AiProviderErrorCode =
   | 'AI_ATTACHMENT_TOO_LARGE'
+  | 'AI_ATTACHMENT_UPLOAD_FAILED'
   | 'AI_AUTHENTICATION_FAILED'
   | 'AI_EMPTY_RESPONSE'
   | 'AI_IMAGE_CAPABILITY_UNAVAILABLE'
@@ -80,6 +81,7 @@ export type AiStructuredInput = Readonly<{
   content: AiMessageContent;
   schemaName: string;
   jsonSchema: Readonly<Record<string, unknown>>;
+  correlationId?: string;
   signal?: AbortSignal;
 }>;
 
@@ -99,6 +101,24 @@ const DEFAULT_CAPABILITIES: AiCapabilities = {
 };
 
 export const DEFAULT_AI_MAX_RESPONSE_BYTES = 1024 * 1024;
+const MAX_PROVIDER_ERROR_BYTES = 8 * 1024;
+const CORRELATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/u;
+const PROVIDER_ATTACHMENT_UPLOAD_CODES = new Set([
+  'attachment_upload_failed',
+  'composer_not_ready',
+  'composer_queue_timeout',
+]);
+const PROVIDER_REQUEST_REJECTION_CODES = new Set([
+  'attachment_input_invalid',
+  'attachment_input_not_found',
+  'attachment_upload_rejected',
+  'structured_output_streaming_unsupported',
+]);
+
+type ProviderErrorMetadata = Readonly<{
+  code?: string;
+  type?: string;
+}>;
 
 function assertPositiveInteger(value: number, name: string): number {
   if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`${name} must be a positive safe integer`);
@@ -133,6 +153,52 @@ async function readResponseText(response: Response, maxBytes: number): Promise<s
     reader.releaseLock();
   }
   return Buffer.concat(chunks).toString('utf8');
+}
+
+async function readProviderErrorMetadata(response: Response): Promise<ProviderErrorMetadata | undefined> {
+  const declaredLength = response.headers.get('content-length');
+  if (declaredLength !== null) {
+    const parsedLength = Number(declaredLength);
+    if (Number.isFinite(parsedLength) && parsedLength > MAX_PROVIDER_ERROR_BYTES) return undefined;
+  }
+  if (!response.body) return undefined;
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      bytes += result.value.byteLength;
+      if (bytes > MAX_PROVIDER_ERROR_BYTES) {
+        await reader.cancel('PROVIDER_ERROR_BODY_LIMIT');
+        return undefined;
+      }
+      chunks.push(result.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  try {
+    const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined;
+    const error = (parsed as Record<string, unknown>)['error'];
+    if (typeof error !== 'object' || error === null || Array.isArray(error)) return undefined;
+    const record = error as Record<string, unknown>;
+    const code = readBoundedProviderField(record['code']);
+    const type = readBoundedProviderField(record['type']);
+    return code || type ? { ...(code ? { code } : {}), ...(type ? { type } : {}) } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readBoundedProviderField(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase();
+  return /^[a-z0-9_.-]{1,80}$/u.test(normalized) ? normalized : undefined;
 }
 
 export class OpenAiCompatibleProvider implements AiProvider {
@@ -187,7 +253,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
     try {
       const response = await this.fetchImplementation(new URL('chat/completions', ensureTrailingSlash(this.config.baseUrl)), {
         method: 'POST',
-        headers: { ...this.headers(), 'content-type': 'application/json' },
+        headers: { ...this.headers(input.correlationId), 'content-type': 'application/json' },
         body: JSON.stringify({
           model: this.config.model,
           messages: [
@@ -201,7 +267,10 @@ export class OpenAiCompatibleProvider implements AiProvider {
         }),
         signal,
       });
-      if (!response.ok) throw mapProviderHttpError(response.status);
+      if (!response.ok) {
+        const metadata = await readProviderErrorMetadata(response);
+        throw mapProviderHttpError(response.status, metadata);
+      }
       const responseText = await readResponseText(response, this.#maxResponseBytes);
       if (!responseText) throw new AiProviderError('AI_EMPTY_RESPONSE', { retryable: true });
       const body = parseProviderJson(responseText) as { choices?: Array<{ message?: { content?: string } }> };
@@ -220,12 +289,27 @@ export class OpenAiCompatibleProvider implements AiProvider {
 
   dispose(): void {}
 
-  private headers(): Record<string, string> {
-    return this.config.apiKey ? { authorization: `Bearer ${this.config.apiKey}` } : {};
+  private headers(correlationId?: string): Record<string, string> {
+    return {
+      ...(this.config.apiKey ? { authorization: `Bearer ${this.config.apiKey}` } : {}),
+      ...(correlationId && CORRELATION_ID_PATTERN.test(correlationId)
+        ? { 'x-client-request-id': correlationId }
+        : {}),
+    };
   }
 }
 
-function mapProviderHttpError(status: number): AiProviderError {
+function mapProviderHttpError(status: number, metadata?: ProviderErrorMetadata): AiProviderError {
+  const providerCode = metadata?.code ?? metadata?.type;
+  if (providerCode && PROVIDER_ATTACHMENT_UPLOAD_CODES.has(providerCode)) {
+    return new AiProviderError('AI_ATTACHMENT_UPLOAD_FAILED', {
+      status,
+      retryable: status === 503 || status === 504,
+    });
+  }
+  if (providerCode && PROVIDER_REQUEST_REJECTION_CODES.has(providerCode)) {
+    return new AiProviderError('AI_REQUEST_REJECTED', { status });
+  }
   if (status === 401 || status === 403) {
     return new AiProviderError('AI_AUTHENTICATION_FAILED', { status });
   }
