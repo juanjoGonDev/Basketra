@@ -1,5 +1,9 @@
 import { spawn } from 'node:child_process';
-import type { AiMessageContent, AiProvider } from '../ai/provider.ts';
+import {
+  buildAiAttachmentContentPart,
+  type AiMessageContent,
+  type AiProvider,
+} from '../ai/provider.ts';
 import { StructuredAiExecutor, type RuntimeSchema } from '../ai/structured-executor.ts';
 import { asRecord, asString } from '../domain/validation.ts';
 
@@ -288,28 +292,29 @@ export class MultimodalAiOcrProvider implements OcrProvider {
   dispose(): void {}
 
   private buildContent(input: OcrInput, capabilities: Awaited<ReturnType<AiProvider['getCapabilities']>>): AiMessageContent {
-    const encoded = Buffer.from(input.bytes).toString('base64');
+    if (input.mimeType !== 'image/jpeg'
+      && input.mimeType !== 'image/png'
+      && input.mimeType !== 'application/pdf') {
+      throw new RangeError('Unsupported OCR input type');
+    }
     const instruction = { type: 'text' as const, text: 'Transcribe this receipt capture. Return all visible receipt text and nothing from outside the receipt.' };
-    if (input.mimeType === 'image/jpeg' || input.mimeType === 'image/png') {
-      if (!capabilities.image) throw new Error('OCR_IMAGE_CAPABILITY_UNAVAILABLE');
+    try {
       return [
         instruction,
-        { type: 'image_url', image_url: { url: `data:${input.mimeType};base64,${encoded}`, detail: 'high' } },
+        buildAiAttachmentContentPart({
+          mimeType: input.mimeType,
+          bytes: input.bytes,
+          ...(input.fileName ? { fileName: input.fileName } : {}),
+        }, capabilities),
       ];
+    } catch (error) {
+      if (error instanceof Error && error.message === 'AI_IMAGE_CAPABILITY_UNAVAILABLE') {
+        throw new Error('OCR_IMAGE_CAPABILITY_UNAVAILABLE');
+      }
+      if (error instanceof Error && error.message === 'AI_PDF_CAPABILITY_UNAVAILABLE') {
+        throw new Error('OCR_PDF_CAPABILITY_UNAVAILABLE');
+      }
+      throw error;
     }
-    if (input.mimeType === 'application/pdf') {
-      if (!capabilities.pdf) throw new Error('OCR_PDF_CAPABILITY_UNAVAILABLE');
-      return [
-        instruction,
-        {
-          type: 'file',
-          file: {
-            filename: input.fileName?.trim() || 'receipt.pdf',
-            file_data: `data:application/pdf;base64,${encoded}`,
-          },
-        },
-      ];
-    }
-    throw new RangeError('Unsupported OCR input type');
   }
 }
