@@ -280,30 +280,66 @@ test('multimodal OCR sends validated image content and enforces capabilities', a
   );
 });
 
-test('AI receipt verification validates page interpretation and source lines locally', async () => {
-  let input: AiStructuredInput | undefined;
-  const mock = provider({
+test('AI receipt verification requires the original image or PDF beside OCR text', async () => {
+  let imageInput: AiStructuredInput | undefined;
+  const imageMock = provider({
     async executeStructured(value) {
-      input = value;
+      imageInput = value;
       return interpretedPage({ retailerName: 'ALCAMPO ALMERIA', declaredTotalMinor: 120, articleCount: 1 });
     },
   });
-  const result = await verifyReceiptWithAi(mock, 0, 'Milk 1,20');
+  const imageAttachment = {
+    mimeType: 'image/png' as const,
+    bytes: Buffer.from(pngBase64, 'base64'),
+    fileName: 'receipt.png',
+  };
+  const result = await verifyReceiptWithAi(imageMock, 0, 'Milk 1,20', imageAttachment);
   assert.equal(result.value.items[0]?.description, 'Milk');
   assert.equal(result.value.declaredTotalMinor, 120);
   assert.equal(result.value.articleCount, 1);
-  assert.equal(typeof input?.content, 'string');
-  assert.match(String(input?.content), /^1: Milk 1,20$/u);
+  const imageContent = JSON.stringify(imageInput?.content);
+  assert.match(imageContent, /Numbered OCR transcription/u);
+  assert.match(imageContent, /1: Milk 1,20/u);
+  assert.match(imageContent, /"type":"image_url"/u);
+  assert.match(imageContent, /data:image\/png;base64,/u);
+
+  let pdfInput: AiStructuredInput | undefined;
+  const pdfMock = provider({
+    async getCapabilities() {
+      return { structuredOutput: true, jsonObject: true, image: true, pdf: true, internetSearch: false };
+    },
+    async executeStructured(value) {
+      pdfInput = value;
+      return interpretedPage();
+    },
+  });
+  await verifyReceiptWithAi(pdfMock, 0, 'Milk 1,20', {
+    mimeType: 'application/pdf',
+    bytes: Buffer.from(pdfBase64, 'base64'),
+    fileName: 'receipt.pdf',
+  });
+  const pdfContent = JSON.stringify(pdfInput?.content);
+  assert.match(pdfContent, /"type":"file"/u);
+  assert.match(pdfContent, /"filename":"receipt.pdf"/u);
+  assert.match(pdfContent, /data:application\/pdf;base64,/u);
+
   await assert.rejects(() => verifyReceiptWithAi(provider({
     async executeStructured() {
       return { ...interpretedPage(), currency: 'USD' };
     },
-  }), 0, 'x'));
+  }), 0, 'x', imageAttachment));
   await assert.rejects(() => verifyReceiptWithAi(provider({
     async executeStructured() {
       return { ...interpretedPage(), items: [{ ...interpretedPage().items[0], sourceLines: [] }] };
     },
-  }), 0, 'x'));
+  }), 0, 'x', imageAttachment));
+  await assert.rejects(
+    () => verifyReceiptWithAi(provider(), 0, 'x', {
+      mimeType: 'application/pdf',
+      bytes: Buffer.from(pdfBase64, 'base64'),
+    }),
+    /PDF_CAPABILITY/u,
+  );
 });
 
 test('receipt service skips OCR and AI when embedded text is supplied', async () => {
@@ -348,7 +384,7 @@ test('receipt service verifies every OCR page independently and combines adjacen
     const seenContent: string[] = [];
     const mock = provider({
       async executeStructured(input) {
-        const content = String(input.content);
+        const content = JSON.stringify(input.content);
         seenContent.push(content);
         if (content.includes('ALCAMPO')) {
           return interpretedPage({
@@ -378,6 +414,8 @@ test('receipt service verifies every OCR page independently and combines adjacen
       verifyWithAi: true,
     }));
     assert.equal(seenContent.length, 2);
+    assert.ok(seenContent.every((content) => content.includes('data:image/png;base64,')));
+    assert.notEqual(seenContent[0], seenContent[1]);
     assert.ok(seenContent.every((content) => !content.includes('Rice') || !content.includes('ALCAMPO')));
     assert.equal(result.ai?.pages.length, 2);
     assert.equal(result.final.retailerName, 'ALCAMPO ALMERIA');
