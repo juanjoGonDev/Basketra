@@ -1,4 +1,4 @@
-const CACHE = 'basketra-shell-v4';
+const CACHE = 'basketra-shell-v5';
 const SHELL = [
   '/',
   '/index.html',
@@ -6,6 +6,7 @@ const SHELL = [
   '/api.js',
   '/operations.js',
   '/operations.css',
+  '/log-copy.js',
   '/state.js',
   '/lists.js',
   '/receipts.js',
