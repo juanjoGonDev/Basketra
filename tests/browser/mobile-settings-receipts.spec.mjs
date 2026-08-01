@@ -52,6 +52,7 @@ test('settings remain readable and unobscured across light and dark responsive l
     await expect(page.getByRole('heading', { name: 'Ajustes', exact: true })).toBeVisible();
     await expect(page.getByText('Sin inicio de sesión local')).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Servidor y versión' })).toBeVisible();
+    await expect(page.locator('#ai-provider-network-note')).toBeHidden();
     await expectNoHorizontalOverflow(page);
 
     const metric = page.locator('.operations-metrics > div').first();
@@ -72,6 +73,8 @@ test('settings remain readable and unobscured across light and dark responsive l
     });
     expect(clearance).toBeGreaterThanOrEqual(8);
 
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect.poll(async () => page.evaluate(() => window.scrollY)).toBe(0);
     await page.screenshot({
       path: testInfo.outputPath(`settings-${colorScheme}-${viewport.width}.png`),
       fullPage: true,
