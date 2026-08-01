@@ -7,6 +7,10 @@ html:has(.view[data-view="settings"].active) {
   scroll-padding-bottom: calc(var(--nav) + env(safe-area-inset-bottom) + 1rem);
 }
 
+body:has(.view[data-view="settings"].active) main {
+  width: min(100%, 78rem);
+}
+
 .view[data-view="settings"] {
   min-width: 0;
   padding-bottom: calc(var(--nav) + env(safe-area-inset-bottom) + 2rem);
@@ -29,6 +33,7 @@ html:has(.view[data-view="settings"].active) {
 
 .operations-card {
   display: grid;
+  align-self: start;
   gap: 0.9rem;
   min-width: 0;
   padding: clamp(0.9rem, 3.5vw, 1.2rem);
@@ -49,8 +54,10 @@ html:has(.view[data-view="settings"].active) {
 .operations-card strong,
 .operations-card small,
 .operations-card a,
-.operations-card label {
-  overflow-wrap: anywhere;
+.operations-card label,
+.operations-card dt,
+.operations-card dd {
+  overflow-wrap: break-word;
 }
 
 .operations-metrics {
@@ -81,7 +88,12 @@ html:has(.view[data-view="settings"].active) {
 
 .operations-metrics strong,
 .operations-log strong {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+}
+
+#server-started-at {
+  word-break: normal;
+  font-variant-numeric: tabular-nums;
 }
 
 #ai-configuration-status[data-state="ok"] {
@@ -94,6 +106,48 @@ html:has(.view[data-view="settings"].active) {
 
 #ai-configuration-status[data-state="error"] {
   color: var(--danger, #9b2c2c);
+}
+
+.provider-check {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+}
+
+.provider-check > div {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, auto) minmax(0, 1fr);
+  gap: 0.7rem;
+  align-items: start;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.75rem;
+  background: var(--surface-soft);
+}
+
+.provider-check dt {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.provider-check dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.76rem;
+}
+
+.operations-help {
+  padding: 0.75rem;
+  border-inline-start: 0.25rem solid var(--primary);
+  border-radius: 0.55rem;
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+  font-size: 0.82rem;
+}
+
+.operations-log-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .operations-logs {
@@ -231,7 +285,9 @@ html:has(.view[data-view="settings"].active) {
 }
 
 @media (max-width: 359px) {
-  .operations-metrics {
+  .operations-metrics,
+  .operations-log-actions,
+  .provider-check > div {
     grid-template-columns: 1fr;
   }
 
@@ -247,13 +303,23 @@ html:has(.view[data-view="settings"].active) {
   .operations-stack {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
 
-  .operations-card:last-child {
-    grid-column: 1 / -1;
+@media (min-width: 64rem) {
+  html:has(.view[data-view="settings"].active) {
+    scroll-padding-bottom: 2rem;
   }
 
-  .operations-metrics {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+  .view[data-view="settings"] {
+    padding-bottom: 2rem;
+  }
+
+  .operations-card:last-child {
+    scroll-margin-bottom: 2rem;
+  }
+
+  .operations-logs {
+    max-height: 30rem;
   }
 }
 
