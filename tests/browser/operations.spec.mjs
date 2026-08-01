@@ -40,6 +40,7 @@ test('settings show live runtime, redacted copyable logs and downloadable import
   await page.goto('/');
   await navigate(page, 'Ajustes');
   await expect(page.getByRole('heading', { name: 'Servidor y versión' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Copiar logs', exact: true })).toBeVisible();
   await expect(page.locator('#runtime-version')).toHaveText('1.4.2-test');
   await expect(page.locator('#runtime-revision')).toContainText('abcdef123456');
   await expect(page.locator('#server-started-at')).not.toHaveText('Cargando…');
@@ -49,6 +50,7 @@ test('settings show live runtime, redacted copyable logs and downloadable import
     .not.toBe(firstUptime);
   await expect(page.locator('#ai-configuration-status')).toHaveText('Configuración no cargada');
   await expect(page.locator('#ai-configuration-detail')).toContainText('BASKETRA_AI_BASE_URL');
+  await expect(page.locator('#ai-provider-request')).toHaveText('Pendiente de configuración');
   await expect(page.locator('#test-ai-provider')).toBeDisabled();
 
   await page.getByRole('button', { name: 'Crear copia', exact: true }).click();
@@ -101,6 +103,67 @@ test('settings show live runtime, redacted copyable logs and downloadable import
   await page.screenshot({ path: testInfo.outputPath('runtime-backups-logs.png'), fullPage: true });
   await expectNoHorizontalOverflow(page);
   expect(failures).toEqual([]);
+});
+
+test('desktop settings explain the webApi probe and keep navigation above content', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1664, height: 900 });
+  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      configured: true,
+      status: 'configured',
+      missing: [],
+      baseUrl: 'http://host.docker.internal:3001/v1/',
+      model: 'gpt-5',
+      apiKeyMask: '***test',
+      image: true,
+      pdf: false,
+      loopbackWarning: false,
+      requiresContainerRecreate: true,
+      recommendedHostUrl: 'http://host.docker.internal:3001/v1/',
+    }),
+  }));
+  await page.route('**/api/v1/settings/ai-provider/test', route => route.fulfill({
+    status: 502,
+    contentType: 'application/json',
+    body: JSON.stringify({ connection: { ok: false, code: 'AI_UNREACHABLE' } }),
+  }));
+
+  await page.goto('/');
+  await navigate(page, 'Ajustes');
+  await expect(page.locator('#ai-provider-request')).toHaveText('GET http://host.docker.internal:3001/v1/models');
+  await expect(page.locator('#ai-provider-authorization')).toHaveText('Bearer configurado');
+  await expect(page.locator('#ai-provider-network-note')).toContainText('apunta al host Docker de Basketra');
+  await expect(page.locator('#ai-provider-network-note')).toContainText('HOST=0.0.0.0');
+
+  await page.getByRole('button', { name: 'Probar desde Basketra', exact: true }).click();
+  await expect(page.locator('#ai-test-state')).toContainText('No se pudo abrir una conexión');
+  await expect(page.locator('#ai-test-state')).toContainText('IP privada');
+
+  const geometry = await page.evaluate(() => {
+    const header = document.querySelector('.app-header').getBoundingClientRect();
+    const navigation = document.querySelector('.bottom-nav').getBoundingClientRect();
+    const firstCard = document.querySelector('.operations-card').getBoundingClientRect();
+    const stack = document.querySelector('.operations-stack').getBoundingClientRect();
+    const metrics = [...document.querySelectorAll('.operations-metrics > div')].map(element => element.getBoundingClientRect());
+    return {
+      headerBottom: header.bottom,
+      navigationTop: navigation.top,
+      navigationBottom: navigation.bottom,
+      firstCardTop: firstCard.top,
+      stackWidth: stack.width,
+      metricColumns: [metrics[0]?.x, metrics[1]?.x, metrics[2]?.x, metrics[3]?.x],
+    };
+  });
+  expect(geometry.navigationTop).toBeGreaterThanOrEqual(geometry.headerBottom - 1);
+  expect(geometry.firstCardTop).toBeGreaterThanOrEqual(geometry.navigationBottom - 1);
+  expect(geometry.stackWidth).toBeGreaterThan(1000);
+  expect(geometry.metricColumns[0]).toBe(geometry.metricColumns[2]);
+  expect(geometry.metricColumns[1]).toBe(geometry.metricColumns[3]);
+
+  await page.screenshot({ path: testInfo.outputPath('desktop-provider-diagnostics.png'), fullPage: true });
+  await expectNoHorizontalOverflow(page);
 });
 
 test('private-route heartbeat recovers after VPN connectivity returns without a reload', async ({ page }, testInfo) => {
