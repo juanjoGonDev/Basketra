@@ -1,6 +1,6 @@
 import type { AiProvider } from '../ai/provider.ts';
 import { asArray, asBoolean, asRecord, asString } from '../domain/validation.ts';
-import type { FileStore } from '../infrastructure/files.ts';
+import type { FileStore, StoredFile } from '../infrastructure/files.ts';
 import {
   EmbeddedTextOcrProvider,
   MultimodalAiOcrProvider,
@@ -20,6 +20,7 @@ import {
 } from './extraction.ts';
 
 const DEFAULT_PAGE_CONCURRENCY = 2;
+const DEFAULT_AI_CONCURRENCY = 1;
 
 export type ReceiptCaptureRequest = Readonly<{
   storageKey: string;
@@ -48,6 +49,8 @@ export type ReceiptPageEvidence = Readonly<{
     attempts: number;
   }>;
 }>;
+
+type ReceiptOcrPageEvidence = Omit<ReceiptPageEvidence, 'ai'>;
 
 type QueuedPageTask<T> = {
   readonly task: () => Promise<T>;
@@ -136,6 +139,7 @@ export class ReceiptExtractionService {
   readonly #maxRetries: number;
   readonly #localOcrProvider: OcrProvider;
   readonly #pageQueue: ReceiptPageTaskQueue;
+  readonly #aiQueue: ReceiptPageTaskQueue;
   #aiOcrProvider: MultimodalAiOcrProvider | undefined;
 
   constructor(
@@ -144,12 +148,14 @@ export class ReceiptExtractionService {
     maxRetries: number,
     localOcrProvider: OcrProvider = new TesseractCliOcrProvider(),
     pageQueue: ReceiptPageTaskQueue = new ReceiptPageTaskQueue(),
+    aiQueue: ReceiptPageTaskQueue = new ReceiptPageTaskQueue(DEFAULT_AI_CONCURRENCY),
   ) {
     this.#fileStore = fileStore;
     this.#getAiProvider = getAiProvider;
     this.#maxRetries = maxRetries;
     this.#localOcrProvider = localOcrProvider;
     this.#pageQueue = pageQueue;
+    this.#aiQueue = aiQueue;
   }
 
   parseRequest(value: unknown): ReceiptExtractionRequest {
@@ -206,10 +212,19 @@ export class ReceiptExtractionService {
   }>> {
     signal?.throwIfAborted();
     const captures = uniqueCaptures(request.captures);
-    const pagePromises = captures.map((capture, position) => this.#pageQueue.run(
-      () => this.extractPage(capture, position, request.verifyWithAi, signal),
-      signal,
-    ));
+    const pagePromises = captures.map(async (capture, position) => {
+      const ocrPage = await this.#pageQueue.run(
+        () => this.extractOcrPage(capture, position, signal),
+        signal,
+      );
+
+      if (!request.verifyWithAi) return ocrPage;
+
+      return this.#aiQueue.run(
+        () => this.verifyPageWithAi(capture, ocrPage, signal),
+        signal,
+      );
+    });
     const pages = await Promise.all(pagePromises);
     const originalText = pages.map((page) => page.text).join('\n').trim();
 
@@ -293,47 +308,22 @@ export class ReceiptExtractionService {
 
   dispose(): void {
     this.#pageQueue.dispose();
+    this.#aiQueue.dispose();
     this.#localOcrProvider.dispose();
     this.#aiOcrProvider?.dispose();
     this.#aiOcrProvider = undefined;
   }
 
-  private async extractPage(
+  private async extractOcrPage(
     capture: ReceiptCaptureRequest,
     position: number,
-    verifyWithAi: boolean,
     signal?: AbortSignal,
-  ): Promise<ReceiptPageEvidence> {
+  ): Promise<ReceiptOcrPageEvidence> {
     signal?.throwIfAborted();
     const stored = this.#fileStore.read(capture.storageKey);
-    const result = capture.embeddedText
-      ? await new EmbeddedTextOcrProvider().recognize({
-          mimeType: stored.mimeType,
-          bytes: stored.bytes,
-          embeddedText: capture.embeddedText,
-          ...(capture.originalName ? { fileName: capture.originalName } : {}),
-        }, signal)
-      : await this.getOcrProvider(stored.mimeType).recognize({
-          mimeType: stored.mimeType,
-          bytes: stored.bytes,
-          ...(capture.originalName ? { fileName: capture.originalName } : {}),
-        }, signal);
-
+    const result = await this.recognizeCapture(capture, stored, signal);
     const deterministicItems = parseDeterministicReceiptText(result.text);
     const metadata = extractReceiptMetadata(result.text);
-    const ai = verifyWithAi
-      ? await verifyReceiptWithAi(
-          this.#getAiProvider(),
-          this.#maxRetries,
-          result.text,
-          {
-            mimeType: stored.mimeType,
-            bytes: stored.bytes,
-            ...(capture.originalName ? { fileName: capture.originalName } : {}),
-          },
-          signal,
-        )
-      : undefined;
 
     return {
       position,
@@ -344,12 +334,67 @@ export class ReceiptExtractionService {
         items: deterministicItems,
         metadata,
       },
-      ...(ai ? { ai: { interpretation: ai.value, attempts: ai.attempts } } : {}),
     };
   }
 
-  private getOcrProvider(mimeType: string): OcrProvider {
-    if (mimeType === 'image/jpeg' || mimeType === 'image/png') return this.#localOcrProvider;
+  private async recognizeCapture(
+    capture: ReceiptCaptureRequest,
+    stored: StoredFile,
+    signal?: AbortSignal,
+  ): Promise<OcrResult> {
+    if (capture.embeddedText) {
+      return new EmbeddedTextOcrProvider().recognize({
+        mimeType: stored.mimeType,
+        bytes: stored.bytes,
+        embeddedText: capture.embeddedText,
+        ...(capture.originalName ? { fileName: capture.originalName } : {}),
+      }, signal);
+    }
+
+    const input = {
+      mimeType: stored.mimeType,
+      bytes: stored.bytes,
+      ...(capture.originalName ? { fileName: capture.originalName } : {}),
+    };
+
+    if (stored.mimeType === 'image/jpeg' || stored.mimeType === 'image/png') {
+      return this.#localOcrProvider.recognize(input, signal);
+    }
+
+    return this.#aiQueue.run(
+      () => this.getAiOcrProvider().recognize(input, signal),
+      signal,
+    );
+  }
+
+  private async verifyPageWithAi(
+    capture: ReceiptCaptureRequest,
+    page: ReceiptOcrPageEvidence,
+    signal?: AbortSignal,
+  ): Promise<ReceiptPageEvidence> {
+    const stored = this.#fileStore.read(capture.storageKey);
+    const ai = await verifyReceiptWithAi(
+      this.#getAiProvider(),
+      this.#maxRetries,
+      page.text,
+      {
+        mimeType: stored.mimeType,
+        bytes: stored.bytes,
+        ...(capture.originalName ? { fileName: capture.originalName } : {}),
+      },
+      signal,
+    );
+
+    return {
+      ...page,
+      ai: {
+        interpretation: ai.value,
+        attempts: ai.attempts,
+      },
+    };
+  }
+
+  private getAiOcrProvider(): MultimodalAiOcrProvider {
     this.#aiOcrProvider ??= new MultimodalAiOcrProvider(this.#getAiProvider(), this.#maxRetries);
     return this.#aiOcrProvider;
   }
