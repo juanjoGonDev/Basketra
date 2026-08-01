@@ -86,10 +86,6 @@ $$('[data-nav]').forEach(element => element.addEventListener('click', event => {
   navigate(element.dataset.nav);
 }));
 
-function prepareSettingsView() {
-  $('.view[data-view="settings"] .privacy-card')?.remove();
-}
-
 function scheduleAutomaticAi(text) {
   if (aiState.timer) clearTimeout(aiState.timer);
   aiState.controller?.abort();
@@ -174,7 +170,6 @@ async function loadAiConfiguration() {
 }
 
 async function initialize() {
-  prepareSettingsView();
   navigate(location.hash.slice(1) || 'home');
   bindAiControls();
   $('#run-demo-comparison').addEventListener('click', event => void runDemoComparison(event.currentTarget));
