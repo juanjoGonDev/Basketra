@@ -24,7 +24,9 @@ Exported backups and evidence copies are outside Basketra's local retention cont
 
 ## External providers
 
-External AI calls may disclose submitted operation content to the configured provider. Use a provider you trust, prefer local or VPN endpoints, and review its retention policy. A provider running on the Raspberry host should be reached from Docker through the private host gateway, not exposed publicly. Basketra does not log complete receipt content or AI responses.
+External AI calls may disclose submitted operation content to the configured provider. When receipt verification is enabled, Basketra sends the original validated JPEG, PNG, or PDF capture together with the OCR text for that same page. It does not silently downgrade to text-only verification: a provider without the required image or PDF capability causes an explicit recoverable page error.
+
+Use a provider you trust, prefer local or VPN endpoints, and review its retention policy. A provider running on the Raspberry host should be reached from Docker through the private host gateway, not exposed publicly. Basketra does not log complete receipt content, original attachment bytes, or AI responses.
 
 The Settings page may display the provider URL, model, capabilities, and last four masked credential characters. It never returns the full credential or process environment.
 

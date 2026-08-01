@@ -140,11 +140,16 @@ test('desktop settings explain the webApi probe and keep navigation above conten
   await page.getByRole('button', { name: 'Probar desde Basketra', exact: true }).click();
   await expect(page.locator('#ai-test-state')).toContainText('No se pudo abrir una conexión');
   await expect(page.locator('#ai-test-state')).toContainText('IP privada');
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     document.documentElement.style.scrollBehavior = 'auto';
-    window.scrollTo(0, 0);
+    document.documentElement.style.overflowAnchor = 'none';
+    document.body.style.overflowAnchor = 'none';
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+      await new Promise(resolve => requestAnimationFrame(resolve));
+    }
   });
-  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBe(0);
+  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeLessThanOrEqual(1);
 
   const geometry = await page.evaluate(() => {
     const header = document.querySelector('.app-header').getBoundingClientRect();

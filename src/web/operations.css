@@ -239,6 +239,13 @@ body:has(.view[data-view="settings"].active) main {
   content: "";
 }
 
+.receipt-progress__track[data-determinate="true"]::after {
+  left: 0;
+  width: var(--receipt-progress, 0%);
+  animation: none;
+  transition: width 180ms ease;
+}
+
 @keyframes receipt-progress-slide {
   0% { transform: translateX(0); }
   100% { transform: translateX(340%); }
@@ -246,6 +253,76 @@ body:has(.view[data-view="settings"].active) main {
 
 .receipt-progress__cancel {
   justify-self: start;
+}
+
+.capture-card__progress {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--border));
+  border-radius: 0.85rem;
+  background: var(--surface-soft);
+}
+
+.capture-card__progress-heading,
+.capture-card__progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.capture-card__progress-heading strong,
+.capture-card__progress-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.capture-card__progress-meta {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.capture-card__stage-track {
+  position: relative;
+  height: 0.5rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 14%, var(--surface));
+}
+
+.capture-card__stage-track::after {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: var(--capture-stage-progress, 0%);
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 180ms ease;
+  content: "";
+}
+
+.capture-card__partial,
+.capture-card__error {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+}
+
+.capture-card__error {
+  color: var(--danger);
+}
+
+.capture-card__page-actions {
+  display: grid;
+}
+
+.status-pill.error {
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  color: var(--danger);
 }
 
 .retailer-field {
@@ -296,7 +373,9 @@ body:has(.view[data-view="settings"].active) main {
   }
 
   .receipt-progress__heading,
-  .receipt-progress__meta {
+  .receipt-progress__meta,
+  .capture-card__progress-heading,
+  .capture-card__progress-meta {
     align-items: flex-start;
     flex-direction: column;
     gap: 0.25rem;
@@ -378,5 +457,11 @@ body:has(.view[data-view="settings"].active) main {
     width: 100%;
     animation: none;
     opacity: 0.72;
+  }
+
+  .receipt-progress__track[data-determinate="true"]::after,
+  .capture-card__stage-track::after {
+    opacity: 1;
+    transition: none;
   }
 }
