@@ -34,11 +34,16 @@ function contrastRatio(foreground, background) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-test('settings remain readable and unobscured on narrow light and dark mobile layouts', async ({ page }, testInfo) => {
-  for (const [colorScheme, viewport] of [
+test('settings remain readable and unobscured across light and dark responsive layouts', async ({ page }, testInfo) => {
+  const scenarios = [
     ['light', { width: 320, height: 700 }],
+    ['dark', { width: 360, height: 780 }],
+    ['light', { width: 390, height: 844 }],
     ['dark', { width: 430, height: 900 }],
-  ]) {
+    ['light', { width: 768, height: 1024 }],
+  ];
+
+  for (const [colorScheme, viewport] of scenarios) {
     await page.setViewportSize(viewport);
     await page.emulateMedia({ colorScheme });
     await page.goto('/#home');
@@ -56,14 +61,17 @@ test('settings remain readable and unobscured on narrow light and dark mobile la
     });
     expect(contrastRatio(colors.foreground, colors.background)).toBeGreaterThanOrEqual(4.5);
 
-    const lastCard = page.locator('.operations-card').last();
-    await lastCard.scrollIntoViewIfNeeded();
-    const clearance = await lastCard.evaluate(element => {
+    await page.evaluate(() => {
+      document.documentElement.style.scrollBehavior = 'auto';
+      window.scrollTo(0, document.documentElement.scrollHeight);
+    });
+    const clearance = await page.locator('.operations-card').last().evaluate(element => {
       const card = element.getBoundingClientRect();
       const navigation = document.querySelector('.bottom-nav')?.getBoundingClientRect();
       return navigation ? navigation.top - card.bottom : 1;
     });
-    expect(clearance).toBeGreaterThanOrEqual(0);
+    expect(clearance).toBeGreaterThanOrEqual(8);
+
     await page.screenshot({
       path: testInfo.outputPath(`settings-${colorScheme}-${viewport.width}.png`),
       fullPage: true,
