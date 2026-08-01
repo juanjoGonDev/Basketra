@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { AiProviderError, type AiProvider, type AiStructuredInput } from './provider.ts';
 
 export type RuntimeSchema<T> = Readonly<{
@@ -16,9 +17,14 @@ export class StructuredAiExecutor {
 
   async execute<T>(input: Omit<AiStructuredInput, 'jsonSchema'> & Readonly<{ schema: RuntimeSchema<T> }>): Promise<Readonly<{ value: T; attempts: number }>> {
     let lastError: unknown;
+    const correlationId = input.correlationId ?? randomUUID();
     for (let attempt = 1; attempt <= this.maxRetries + 1; attempt += 1) {
       try {
-        const raw = await this.provider.executeStructured({ ...input, jsonSchema: input.schema.jsonSchema });
+        const raw = await this.provider.executeStructured({
+          ...input,
+          correlationId,
+          jsonSchema: input.schema.jsonSchema,
+        });
         return { value: input.schema.parse(raw), attempts: attempt };
       } catch (error) {
         lastError = error;
