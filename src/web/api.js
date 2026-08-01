@@ -105,6 +105,11 @@ async function loadLogCopyPayload(button, status) {
   })();
   try {
     return await logCopyState.loading;
+  } catch {
+    status.textContent = logCopyState.payload
+      ? 'No se pudieron actualizar los logs. La última copia preparada sigue disponible.'
+      : 'No se pudieron preparar los logs para copiar.';
+    return logCopyState.payload;
   } finally {
     logCopyState.loading = null;
     button.disabled = logCopyState.payload.length === 0;
