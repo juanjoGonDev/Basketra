@@ -50,7 +50,7 @@ export type ReceiptPageEvidence = Readonly<{
   }>;
 }>;
 
-type ReceiptOcrPageEvidence = Omit<ReceiptPageEvidence, 'ai'>;
+type ReceiptOcrPageEvidence = ReceiptPageEvidence;
 
 type QueuedPageTask<T> = {
   readonly task: () => Promise<T>;
