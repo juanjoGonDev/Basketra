@@ -9,6 +9,7 @@ import type { OcrProvider } from '../../src/ocr/provider.ts';
 import { ReceiptExtractionService } from '../../src/receipts/service.ts';
 
 const PNG_PREFIX = Uint8Array.from([0x89, 0x50, 0x4e, 0x47]);
+const REALISTIC_IMAGE_BYTES = 1_700_000;
 
 test('receipt service keeps two OCR slots while serializing AI verification', async () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-receipt-concurrency-'));
@@ -27,6 +28,7 @@ test('receipt service keeps two OCR slots while serializing AI verification', as
   let activeAi = 0;
   let maximumAi = 0;
   let aiCalls = 0;
+  const aiPayloadChars: number[] = [];
 
   const localOcr: OcrProvider = {
     name: 'controlled-local-ocr',
@@ -64,10 +66,11 @@ test('receipt service keeps two OCR slots while serializing AI verification', as
     async testConnection() {
       return { ok: true };
     },
-    async executeStructured() {
+    async executeStructured(input) {
       activeAi += 1;
       maximumAi = Math.max(maximumAi, activeAi);
       aiCalls += 1;
+      aiPayloadChars.push(JSON.stringify(input.content).length);
       const call = aiCalls;
       try {
         if (call === 1) await firstAiGate;
@@ -93,7 +96,11 @@ test('receipt service keeps two OCR slots while serializing AI verification', as
 
   try {
     const captures = [1, 2, 3].map((suffix) => {
-      const bytes = Buffer.concat([Buffer.from(PNG_PREFIX), Buffer.from([suffix])]);
+      const contentBytes = suffix === 1 ? REALISTIC_IMAGE_BYTES : 5;
+      const bytes = Buffer.concat([
+        Buffer.from(PNG_PREFIX),
+        Buffer.alloc(contentBytes - PNG_PREFIX.byteLength, suffix),
+      ]);
       return store.storeBase64({
         base64: bytes.toString('base64'),
         mimeType: 'image/png',
@@ -117,6 +124,7 @@ test('receipt service keeps two OCR slots while serializing AI verification', as
     assert.equal(aiCalls, 3);
     assert.equal(maximumAi, 1);
     assert.equal(maximumOcr, 2);
+    assert.ok(aiPayloadChars.some((length) => length > 2_000_000));
     service.dispose();
   } finally {
     rmSync(root, { recursive: true, force: true });
