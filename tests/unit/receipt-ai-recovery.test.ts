@@ -26,11 +26,11 @@ test('maps every stable AI failure to redacted actionable recovery', () => {
       { mimeType: 'image/png', hasOcrDraft: true },
     );
 
-    assert.equal(recovery.retryLabel, 'Reintentar con IA');
+    assert.equal(recovery.retryLabel, 'Reintentar imagen');
     assert.equal(recovery.manualLabel, 'Revisar manualmente');
     assert.equal(recovery.allowManualReview, true);
     assert.match(recovery.message, new RegExp(guidance, 'u'));
-    assert.match(recovery.message, /OCR local se conserva/u);
+    assert.match(recovery.message, /OCR de esta imagen se conserva localmente/u);
     assert.match(recovery.message, /no se considera un ticket estructurado válido/u);
     assert.doesNotMatch(recovery.message, /secret provider body/u);
     assert.doesNotMatch(recovery.message, /desactiva IA/u);
@@ -43,6 +43,7 @@ test('supports blank manual review when no OCR draft exists', () => {
     { mimeType: 'application/pdf', hasOcrDraft: false },
   );
 
+  assert.equal(recovery.retryLabel, 'Reintentar imagen');
   assert.equal(recovery.allowManualReview, true);
   assert.match(recovery.message, /PDF/u);
   assert.match(recovery.message, /entrada manual desde cero/u);
