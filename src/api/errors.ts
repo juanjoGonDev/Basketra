@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { AiProviderError } from '../ai/provider.ts';
 import { ValidationError } from '../domain/validation.ts';
 import { OcrError } from '../ocr/provider.ts';
 
@@ -79,8 +80,39 @@ function mapOcrError(error: OcrError): ApiError {
   }
 }
 
+function mapAiProviderError(error: AiProviderError): ApiError {
+  switch (error.code) {
+    case 'AI_ATTACHMENT_TOO_LARGE':
+      return new ApiError(413, error.code, 'El proveedor rechazó la imagen por tamaño; el OCR local se conserva');
+    case 'AI_ATTACHMENT_UPLOAD_FAILED':
+      return new ApiError(504, error.code, 'El proveedor no pudo preparar la imagen; el OCR local se conserva y puedes reintentar');
+    case 'AI_AUTHENTICATION_FAILED':
+      return new ApiError(502, error.code, 'El proveedor de IA rechazó sus credenciales');
+    case 'AI_IMAGE_CAPABILITY_UNAVAILABLE':
+      return new ApiError(422, error.code, 'El proveedor no tiene habilitada la verificación de imágenes');
+    case 'AI_PDF_CAPABILITY_UNAVAILABLE':
+      return new ApiError(422, error.code, 'El proveedor no tiene habilitada la verificación de PDF');
+    case 'AI_RATE_LIMITED':
+      return new ApiError(503, error.code, 'El proveedor de IA está limitando temporalmente las solicitudes');
+    case 'AI_REQUEST_REJECTED':
+      return new ApiError(422, error.code, 'El proveedor rechazó la solicitud multimodal o su formato estructurado');
+    case 'AI_TIMEOUT':
+      return new ApiError(504, error.code, 'El proveedor de IA tardó demasiado en responder');
+    case 'AI_UNREACHABLE':
+      return new ApiError(502, error.code, 'No se pudo conectar con el proveedor de IA');
+    case 'AI_EMPTY_RESPONSE':
+    case 'AI_INVALID_RESPONSE':
+      return new ApiError(502, error.code, 'El proveedor devolvió una respuesta vacía o no válida');
+    case 'AI_RESPONSE_TOO_LARGE':
+      return new ApiError(502, error.code, 'La respuesta del proveedor superó el límite permitido');
+    case 'AI_PROVIDER_FAILED':
+      return new ApiError(502, error.code, 'El proveedor de IA falló al procesar la imagen');
+  }
+}
+
 export function mapError(error: unknown): ApiError {
   if (error instanceof ApiError) return error;
+  if (error instanceof AiProviderError) return mapAiProviderError(error);
   if (error instanceof OcrError) return mapOcrError(error);
   if (error instanceof ValidationError || error instanceof RangeError) return new ApiError(400, 'VALIDATION_ERROR', error.message);
   if (error instanceof SyntaxError) return new ApiError(400, 'INVALID_JSON', 'Request body is not valid JSON');

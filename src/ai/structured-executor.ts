@@ -1,4 +1,5 @@
-import type { AiProvider, AiStructuredInput } from './provider.ts';
+import { randomUUID } from 'node:crypto';
+import { AiProviderError, type AiProvider, type AiStructuredInput } from './provider.ts';
 
 export type RuntimeSchema<T> = Readonly<{
   jsonSchema: Readonly<Record<string, unknown>>;
@@ -16,9 +17,14 @@ export class StructuredAiExecutor {
 
   async execute<T>(input: Omit<AiStructuredInput, 'jsonSchema'> & Readonly<{ schema: RuntimeSchema<T> }>): Promise<Readonly<{ value: T; attempts: number }>> {
     let lastError: unknown;
+    const correlationId = input.correlationId ?? randomUUID();
     for (let attempt = 1; attempt <= this.maxRetries + 1; attempt += 1) {
       try {
-        const raw = await this.provider.executeStructured({ ...input, jsonSchema: input.schema.jsonSchema });
+        const raw = await this.provider.executeStructured({
+          ...input,
+          correlationId,
+          jsonSchema: input.schema.jsonSchema,
+        });
         return { value: input.schema.parse(raw), attempts: attempt };
       } catch (error) {
         lastError = error;
@@ -30,6 +36,7 @@ export class StructuredAiExecutor {
 }
 
 function isRetryable(error: unknown): boolean {
+  if (error instanceof AiProviderError) return error.retryable;
   if (!(error instanceof Error)) return false;
   return !['AI_AUTHENTICATION_FAILED', 'AI_UNSUPPORTED_CAPABILITY', 'AI_INVALID_CONFIGURATION'].includes(error.message);
 }

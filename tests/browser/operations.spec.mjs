@@ -12,6 +12,22 @@ async function expectNoHorizontalOverflow(page) {
   expect(dimensions.page).toBeLessThanOrEqual(dimensions.viewport);
 }
 
+function configuredAiSettings() {
+  return {
+    configured: true,
+    status: 'configured',
+    missing: [],
+    baseUrl: 'http://host.docker.internal:3001/v1/',
+    model: 'gpt-5',
+    apiKeyMask: '***test',
+    image: true,
+    pdf: false,
+    loopbackWarning: false,
+    requiresContainerRecreate: true,
+    recommendedHostUrl: 'http://host.docker.internal:3001/v1/',
+  };
+}
+
 test.afterEach(async ({ page }, testInfo) => {
   if (page.isClosed()) return;
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -105,39 +121,70 @@ test('settings show live runtime, redacted copyable logs and downloadable import
   expect(failures).toEqual([]);
 });
 
+test('settings verify the managed-token image and strict JSON capability', async ({ page }) => {
+  let probeRequests = 0;
+  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(configuredAiSettings()),
+  }));
+  await page.route('**/api/v1/settings/ai-provider/test', route => {
+    probeRequests += 1;
+    expect(route.request().method()).toBe('POST');
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        connection: {
+          ok: true,
+          model: 'gpt-5',
+          imageStructuredOutput: true,
+        },
+      }),
+    });
+  });
+
+  await page.goto('/');
+  await navigate(page, 'Ajustes');
+  await expect(page.locator('#ai-provider-request')).toHaveText('POST http://host.docker.internal:3001/v1/chat/completions');
+  await expect(page.locator('#ai-provider-authorization')).toHaveText('Bearer con token gestionado');
+  await expect(page.getByText('imagen sintética sin datos personales')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Verificar imagen y JSON estricto', exact: true }).click();
+  await expect(page.locator('#ai-test-state')).toContainText('Capacidad verificada');
+  await expect(page.locator('#ai-test-state')).toContainText('adjunto de imagen');
+  await expect(page.locator('#ai-test-state')).toContainText('salida estructurada estricta');
+  expect(probeRequests).toBe(1);
+  await expectNoHorizontalOverflow(page);
+});
+
 test('desktop settings explain the webApi probe and keep navigation above content', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1664, height: 900 });
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
-    body: JSON.stringify({
-      configured: true,
-      status: 'configured',
-      missing: [],
-      baseUrl: 'http://host.docker.internal:3001/v1/',
-      model: 'gpt-5',
-      apiKeyMask: '***test',
-      image: true,
-      pdf: false,
-      loopbackWarning: false,
-      requiresContainerRecreate: true,
-      recommendedHostUrl: 'http://host.docker.internal:3001/v1/',
-    }),
+    body: JSON.stringify(configuredAiSettings()),
   }));
   await page.route('**/api/v1/settings/ai-provider/test', route => route.fulfill({
     status: 502,
     contentType: 'application/json',
-    body: JSON.stringify({ connection: { ok: false, code: 'AI_UNREACHABLE' } }),
+    body: JSON.stringify({
+      connection: {
+        ok: false,
+        code: 'AI_UNREACHABLE',
+        message: 'Provider unavailable',
+      },
+    }),
   }));
 
   await page.goto('/');
   await navigate(page, 'Ajustes');
-  await expect(page.locator('#ai-provider-request')).toHaveText('GET http://host.docker.internal:3001/v1/models');
-  await expect(page.locator('#ai-provider-authorization')).toHaveText('Bearer configurado');
+  await expect(page.locator('#ai-provider-request')).toHaveText('POST http://host.docker.internal:3001/v1/chat/completions');
+  await expect(page.locator('#ai-provider-authorization')).toHaveText('Bearer con token gestionado');
   await expect(page.locator('#ai-provider-network-note')).toContainText('apunta al host Docker de Basketra');
   await expect(page.locator('#ai-provider-network-note')).toContainText('HOST=0.0.0.0');
 
-  await page.getByRole('button', { name: 'Probar desde Basketra', exact: true }).click();
+  await page.getByRole('button', { name: 'Verificar imagen y JSON estricto', exact: true }).click();
   await expect(page.locator('#ai-test-state')).toContainText('No se pudo abrir una conexión');
   await expect(page.locator('#ai-test-state')).toContainText('IP privada');
   await page.evaluate(async () => {
@@ -195,7 +242,6 @@ test('private-route heartbeat recovers after VPN connectivity returns without a 
   failHeartbeat = false;
   await expect(page.locator('#connection-state')).toContainText('Conectado', { timeout: 6000 });
   await expect(page.locator('#connection-state')).toHaveAttribute('data-ok', 'true');
-
   await page.waitForTimeout(1700);
   await navigate(page, 'Ajustes');
   await page.getByRole('button', { name: 'Actualizar logs', exact: true }).click();

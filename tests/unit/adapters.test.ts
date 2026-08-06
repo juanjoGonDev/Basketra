@@ -107,25 +107,38 @@ test('structured AI execution validates locally and bounds retries', async () =>
 test('OpenAI-compatible provider sends strict schema and handles failures', async () => {
   const requests: Request[] = [];
   const mockFetch: typeof fetch = async (input, init) => {
-    requests.push(new Request(input, init));
-    return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    const request = new Request(input, init);
+    requests.push(request);
+    const body = JSON.parse(await request.clone().text()) as { response_format?: { json_schema?: { name?: string } } };
+    const content = body.response_format?.json_schema?.name === 'basketra_provider_capability'
+      ? '{"accepted":true}'
+      : '{"ok":true}';
+    return new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
   };
   const provider = new OpenAiCompatibleProvider({ baseUrl: new URL('http://localhost:8080/v1'), apiKey: 'secret', model: 'test-model', timeoutMs: 1000 }, mockFetch);
   assert.equal((await provider.getCapabilities()).structuredOutput, true);
-  assert.deepEqual(await provider.testConnection(), { ok: true, model: 'test-model' });
+  assert.deepEqual(await provider.testConnection(), {
+    ok: true,
+    model: 'test-model',
+    imageStructuredOutput: true,
+  });
   const value = await provider.executeStructured({ operation: 'test', schemaName: 'result', systemPrompt: 'x', content: 'y', jsonSchema: { type: 'object' } });
   assert.deepEqual(value, { ok: true });
-  assert.equal(requests[0]?.url, 'http://localhost:8080/v1/models');
+  assert.equal(requests[0]?.url, 'http://localhost:8080/v1/chat/completions');
   assert.equal(requests[1]?.url, 'http://localhost:8080/v1/chat/completions');
-  assert.equal(requests[1]?.headers.get('authorization'), 'Bearer secret');
+  assert.equal(requests[0]?.headers.get('authorization'), 'Bearer secret');
   const posted = JSON.parse(await requests[1]!.clone().text()) as { response_format: { json_schema: { strict: boolean } } };
   assert.equal(posted.response_format.json_schema.strict, true);
   provider.dispose();
 
   const failed = new OpenAiCompatibleProvider({ baseUrl: new URL('http://localhost/v1/'), model: 'x', timeoutMs: 100 }, async () => new Response('', { status: 503 }));
-  assert.deepEqual(await failed.testConnection(), { ok: false });
-  await assert.rejects(() => failed.executeStructured({ operation: 'x', schemaName: 'x', systemPrompt: 'x', content: 'x', jsonSchema: {} }), /AI_HTTP_503/);
+  await assert.rejects(() => failed.testConnection(), /AI_PROVIDER_FAILED/);
+  await assert.rejects(() => failed.executeStructured({ operation: 'x', schemaName: 'x', systemPrompt: 'x', content: 'x', jsonSchema: {} }), /AI_PROVIDER_FAILED/);
   const auth = new OpenAiCompatibleProvider({ baseUrl: new URL('http://localhost/v1/'), model: 'x', timeoutMs: 100 }, async () => new Response('', { status: 401 }));
+  await assert.rejects(() => auth.testConnection(), /AUTHENTICATION/);
   await assert.rejects(() => auth.executeStructured({ operation: 'x', schemaName: 'x', systemPrompt: 'x', content: 'x', jsonSchema: {} }), /AUTHENTICATION/);
   const empty = new OpenAiCompatibleProvider({ baseUrl: new URL('http://localhost/v1/'), model: 'x', timeoutMs: 100 }, async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }));
   await assert.rejects(() => empty.executeStructured({ operation: 'x', schemaName: 'x', systemPrompt: 'x', content: 'x', jsonSchema: {} }), /EMPTY/);

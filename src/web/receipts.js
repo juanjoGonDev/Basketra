@@ -1,15 +1,18 @@
 import { api, setBusy } from './api.js';
+import { buildReceiptAiRecovery } from './receipt-ai-recovery.js';
 import { loadCaptures, saveCaptures } from './state.js';
 import { captureItem, euroInputToMinor, minorToEuroInput, receiptReview } from './ui.js';
 
 const PAGE_CONCURRENCY = 2;
 const ACTIVE_PAGE_STATUSES = new Set(['preparing', 'ocr', 'ai']);
+const REVIEWABLE_PAGE_STATUSES = new Set(['completed', 'manual']);
 const PAGE_LABELS = {
   pending: 'Pendiente',
   preparing: 'Preparando imagen',
   ocr: 'OCR local',
   ai: 'Verificando con IA',
   completed: 'Completada',
+  manual: 'Revisión manual',
   error: 'Error',
   cancelled: 'Cancelada',
 };
@@ -30,6 +33,7 @@ const state = {
   processing: false,
   finalizing: false,
   verifyWithAi: false,
+  manualReviewRequired: false,
   assemblyController: null,
   progressVisible: false,
   progressStartedAt: 0,
@@ -74,6 +78,8 @@ function createPageState(previous = {}) {
     rawText: '',
     result: null,
     error: '',
+    errorCode: '',
+    recovery: null,
     ...previous,
     status: 'pending',
     startedAt: 0,
@@ -81,6 +87,8 @@ function createPageState(previous = {}) {
     rawText: '',
     result: null,
     error: '',
+    errorCode: '',
+    recovery: null,
   };
 }
 
@@ -109,6 +117,8 @@ function abortPageWork({ markCancelled = false } = {}) {
         page.status = 'cancelled';
         page.elapsedMs = page.startedAt ? Date.now() - page.startedAt : page.elapsedMs;
         page.error = '';
+        page.errorCode = '';
+        page.recovery = null;
       }
     }
   }
@@ -117,6 +127,7 @@ function abortPageWork({ markCancelled = false } = {}) {
 function invalidateExtraction() {
   abortPageWork();
   state.processing = false;
+  state.manualReviewRequired = false;
   state.extraction = null;
   state.items = [];
   state.originalItems = [];
@@ -206,16 +217,27 @@ function renderCaptureProgress(card, capture, index) {
     actions.className = 'capture-card__page-actions';
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = active ? 'button secondary' : 'button secondary';
+    button.className = 'button secondary';
     button.dataset.captureIndex = String(index);
     if (active) {
       button.dataset.captureAction = 'cancel-processing';
       button.textContent = 'Cancelar esta imagen';
     } else {
       button.dataset.captureAction = 'retry-processing';
-      button.textContent = 'Reintentar imagen';
+      button.textContent = page.recovery?.retryLabel || 'Reintentar imagen';
     }
     actions.append(button);
+
+    if (page.status === 'error' && page.recovery?.allowManualReview) {
+      const manualButton = document.createElement('button');
+      manualButton.type = 'button';
+      manualButton.className = 'button secondary';
+      manualButton.dataset.captureIndex = String(index);
+      manualButton.dataset.captureAction = 'manual-review';
+      manualButton.textContent = page.recovery.manualLabel;
+      actions.append(manualButton);
+    }
+
     section.append(actions);
   }
 
@@ -228,6 +250,7 @@ function renderCaptureProgress(card, capture, index) {
 
 function pageStatusClass(status) {
   if (status === 'completed') return 'success';
+  if (status === 'manual') return 'warning';
   if (status === 'error') return 'error';
   if (status === 'cancelled') return 'warning';
   return '';
@@ -237,7 +260,7 @@ function pageStageValue(status) {
   if (status === 'preparing' || status === 'pending' || status === 'cancelled' || status === 'error') return 0;
   if (status === 'ocr') return 1;
   if (status === 'ai') return 2;
-  if (status === 'completed') return 3;
+  if (status === 'completed' || status === 'manual') return 3;
   return 0;
 }
 
@@ -247,6 +270,7 @@ function pageStageDescription(page) {
   if (page.status === 'ocr') return 'Reconociendo el texto localmente';
   if (page.status === 'ai') return 'Corrigiendo el OCR y reconstruyendo líneas';
   if (page.status === 'completed') return 'OCR y revisión de esta imagen terminados';
+  if (page.status === 'manual') return 'OCR conservado; cantidades e importes requieren revisión manual';
   if (page.status === 'cancelled') return 'Esta imagen no se incluirá hasta reintentar';
   if (page.status === 'error') return 'La captura y el OCR parcial se conservan';
   return '';
@@ -255,6 +279,9 @@ function pageStageDescription(page) {
 function pagePartialText(page) {
   if (page.status === 'error') return page.error || 'No se pudo procesar esta imagen.';
   const itemCount = page.result?.final?.items?.length;
+  if (page.status === 'manual' && Number.isSafeInteger(itemCount)) {
+    return `${itemCount} ${itemCount === 1 ? 'línea OCR pendiente' : 'líneas OCR pendientes'} de revisión manual`;
+  }
   if (Number.isSafeInteger(itemCount)) {
     return `${itemCount} ${itemCount === 1 ? 'línea estructurada' : 'líneas estructuradas'}`;
   }
@@ -262,6 +289,7 @@ function pagePartialText(page) {
     const lines = page.rawText.split(/\r?\n/u).filter(line => line.trim()).length;
     return `${lines} ${lines === 1 ? 'línea OCR conservada' : 'líneas OCR conservadas'}`;
   }
+  if (page.status === 'manual') return 'Entrada manual pendiente; la captura original se conserva';
   return '';
 }
 
@@ -358,6 +386,7 @@ function handleCaptureAction(event) {
   if (action === 'delete') deleteCapture(index);
   if (action === 'cancel-processing') cancelCaptureProcessing(index);
   if (action === 'retry-processing') retryCaptureProcessing(index);
+  if (action === 'manual-review') useManualReview(index);
 }
 
 function requestExtraction(captures, verifyWithAi, signal) {
@@ -506,11 +535,12 @@ function updateGlobalProgress() {
   progress.hidden = false;
   const pages = state.captures.map(capture => state.pageStates.get(captureKey(capture)) ?? createPageState());
   const total = pages.length;
-  const completed = pages.filter(page => page.status === 'completed').length;
+  const completed = pages.filter(page => REVIEWABLE_PAGE_STATUSES.has(page.status)).length;
   const active = pages.filter(page => ACTIVE_PAGE_STATUSES.has(page.status)).length;
   const pending = pages.filter(page => page.status === 'pending').length;
   const failed = pages.filter(page => page.status === 'error').length;
   const cancelled = pages.filter(page => page.status === 'cancelled').length;
+  const manual = pages.filter(page => page.status === 'manual').length;
   const stage = state.finalizing
     ? 'Combinando páginas y eliminando solapamientos'
     : `${completed} de ${total} imágenes completadas`;
@@ -521,6 +551,7 @@ function updateGlobalProgress() {
     pending ? `${pending} pendientes` : '',
     failed ? `${failed} con error` : '',
     cancelled ? `${cancelled} canceladas` : '',
+    manual ? `${manual} en revisión manual` : '',
   ].filter(Boolean).join(' · ') || (state.finalizing ? 'Preparando la revisión conjunta' : 'Sin tareas pendientes');
   const track = $('#receipt-progress-track');
   track.setAttribute('aria-valuemin', '0');
@@ -538,6 +569,7 @@ function resetPagesForProcessing() {
   state.items = [];
   state.originalItems = [];
   state.originalText = '';
+  state.manualReviewRequired = false;
   state.retailerCandidates.clear();
   $('#receipt-review').hidden = true;
   $('#confirm-receipt').hidden = true;
@@ -614,6 +646,8 @@ async function processCapture(capture, entry, signal) {
   page.startedAt = Date.now();
   page.elapsedMs = 0;
   page.error = '';
+  page.errorCode = '';
+  page.recovery = null;
   persistAndRenderCaptures();
 
   try {
@@ -641,6 +675,8 @@ async function processCapture(capture, entry, signal) {
     page.status = 'completed';
     page.elapsedMs = Date.now() - page.startedAt;
     page.error = '';
+    page.errorCode = '';
+    page.recovery = null;
     applyRetailerCandidate(
       page.result?.final?.retailerName
       || page.result?.ai?.interpretation?.retailerName
@@ -652,9 +688,16 @@ async function processCapture(capture, entry, signal) {
     if (error.name === 'AbortError') {
       page.status = 'cancelled';
       page.error = '';
+      page.errorCode = '';
+      page.recovery = null;
     } else {
       page.status = 'error';
-      page.error = pageErrorMessage(error, capture);
+      page.errorCode = typeof error.code === 'string' ? error.code : '';
+      page.recovery = buildReceiptAiRecovery(error, {
+        mimeType: capture.mimeType,
+        hasOcrDraft: Boolean(page.rawText || page.result),
+      });
+      page.error = page.recovery.message;
     }
   } finally {
     if (isCurrentPageEntry(page, entry)) persistAndRenderCaptures();
@@ -663,16 +706,6 @@ async function processCapture(capture, entry, signal) {
 
 function isCurrentPageEntry(page, entry) {
   return entry.token === state.runToken && page.version === entry.version;
-}
-
-function pageErrorMessage(error, capture) {
-  if (error.code === 'AI_NOT_CONFIGURED' && capture.mimeType === 'application/pdf') {
-    return 'Este PDF necesita un proveedor compatible o revisión manual.';
-  }
-  if (String(error.code || '').startsWith('AI_')) {
-    return `${error.message}. El OCR de esta imagen se conserva; corrige la conexión, desactiva IA o reintenta.`;
-  }
-  return `${error.message}. Reintenta esta imagen o retírala del borrador.`;
 }
 
 function cancelCaptureProcessing(index) {
@@ -689,6 +722,8 @@ function cancelCaptureProcessing(index) {
   page.status = 'cancelled';
   page.elapsedMs = page.startedAt ? Date.now() - page.startedAt : page.elapsedMs;
   page.error = '';
+  page.errorCode = '';
+  page.recovery = null;
   persistAndRenderCaptures();
   $('#receipt-state').textContent = `Imagen ${index + 1} cancelada. Las demás continúan y el OCR parcial se conserva.`;
   pumpPageQueue();
@@ -708,29 +743,34 @@ function retryCaptureProcessing(index) {
   state.verifyWithAi = state.aiConfigured && $('#verify-receipt-ai').checked;
   state.processing = true;
   setBusy($('#extract-receipt'), true);
-  if (!state.progressVisible) startReceiptProgress();
+  if (!state.progressTimer) startReceiptProgress();
   enqueueCapture(capture, state.verifyWithAi);
   persistAndRenderCaptures();
-  $('#receipt-state').textContent = `Reintentando la imagen ${index + 1}.`;
+  $('#receipt-state').textContent = `Reintentando la imagen ${index + 1} con ${state.verifyWithAi ? 'IA' : 'OCR local'}.`;
+  pumpPageQueue();
+}
+
+function useManualReview(index) {
+  const capture = state.captures[index];
+  if (!capture) return;
+  const page = state.pageStates.get(captureKey(capture));
+  if (!page || page.status !== 'error' || !page.recovery?.allowManualReview) return;
+  page.version += 1;
+  page.status = 'manual';
+  page.error = '';
+  page.errorCode = '';
+  page.recovery = null;
+  state.manualReviewRequired = true;
+  state.processing = true;
+  setBusy($('#extract-receipt'), true);
+  if (!state.progressTimer) startReceiptProgress();
+  persistAndRenderCaptures();
+  $('#receipt-state').textContent = `Imagen ${index + 1} enviada a revisión manual. El OCR es sólo un borrador: valida todas las líneas y el total antes de confirmar.`;
   pumpPageQueue();
 }
 
 function cancelReceiptExtraction() {
-  const activeToken = state.runToken;
-  state.pageQueue = state.pageQueue.filter(entry => entry.token !== activeToken);
-  for (const task of state.activePageTasks.values()) {
-    if (task.token === activeToken) task.controller.abort();
-  }
-  state.assemblyController?.abort();
-  for (const page of state.pageStates.values()) {
-    if (page.status === 'pending' || ACTIVE_PAGE_STATUSES.has(page.status)) {
-      page.version += 1;
-      page.status = 'cancelled';
-      page.elapsedMs = page.startedAt ? Date.now() - page.startedAt : page.elapsedMs;
-      page.error = '';
-    }
-  }
-  state.runToken += 1;
+  abortPageWork({ markCancelled: true });
   state.processing = false;
   state.finalizing = false;
   setBusy($('#extract-receipt'), false);
@@ -746,7 +786,7 @@ async function finishCurrentRunWhenIdle() {
   if (currentActive || currentPending) return;
 
   const pages = state.captures.map(capture => state.pageStates.get(captureKey(capture)));
-  if (pages.every(page => page?.status === 'completed')) {
+  if (pages.every(page => page && REVIEWABLE_PAGE_STATUSES.has(page.status))) {
     await assembleCompletedPages(state.runToken);
     return;
   }
@@ -757,7 +797,7 @@ async function finishCurrentRunWhenIdle() {
   updateGlobalProgress();
   const failed = pages.filter(page => page?.status === 'error').length;
   const cancelled = pages.filter(page => page?.status === 'cancelled').length;
-  $('#receipt-state').textContent = `${failed} imágenes con error y ${cancelled} canceladas. Reintenta o retira esas imágenes para preparar la revisión.`;
+  $('#receipt-state').textContent = `${failed} imágenes con error y ${cancelled} canceladas. Reintenta, revisa manualmente o retira esas imágenes para preparar la revisión.`;
 }
 
 async function assembleCompletedPages(token) {
@@ -780,9 +820,16 @@ async function assembleCompletedPages(token) {
       .trim();
     applyExtraction(result.extraction, rawOriginalText || result.extraction.originalText || '');
     const articleCount = result.extraction.final.articleCount;
-    $('#receipt-state').textContent = articleCount === undefined
-      ? 'Todas las imágenes están combinadas. Revisa las líneas, cantidades y total antes de confirmar.'
-      : `Todas las imágenes están combinadas. El ticket indica ${articleCount} artículos; revisa las líneas y el total.`;
+    const hasManualPages = state.captures.some(capture => (
+      state.pageStates.get(captureKey(capture))?.status === 'manual'
+    ));
+    if (hasManualPages) {
+      $('#receipt-state').textContent = 'Revisión manual preparada. Corrige cantidades e importes y pulsa “Validar líneas” antes de confirmar.';
+    } else {
+      $('#receipt-state').textContent = articleCount === undefined
+        ? 'Todas las imágenes están combinadas. Revisa las líneas, cantidades y total antes de confirmar.'
+        : `Todas las imágenes están combinadas. El ticket indica ${articleCount} artículos; revisa las líneas y el total.`;
+    }
   } catch (error) {
     if (error.name !== 'AbortError' && token === state.runToken) {
       $('#receipt-state').textContent = `${error.message}. Las páginas completadas se conservan; vuelve a procesar para combinar.`;
@@ -901,6 +948,7 @@ async function validateRows() {
       body: JSON.stringify({ declaredTotalMinor, items }),
     });
     state.items = items;
+    state.manualReviewRequired = false;
     renderReview(items.map((_, index) => validation.lines[index]?.validation || {}), validation.total);
     $('#receipt-state').textContent = validation.total.valid
       ? 'Líneas y total validados.'
@@ -1020,13 +1068,17 @@ function selectRetailerSuggestion(event) {
 
 function allCapturesCompleted() {
   return state.captures.length > 0 && state.captures.every(capture => (
-    state.pageStates.get(captureKey(capture))?.status === 'completed'
+    REVIEWABLE_PAGE_STATUSES.has(state.pageStates.get(captureKey(capture))?.status)
   ));
 }
 
 async function confirmReceipt() {
   if (!allCapturesCompleted() || state.processing || state.finalizing) {
     $('#receipt-state').textContent = 'Completa, reintenta o retira todas las imágenes antes de confirmar el ticket.';
+    return;
+  }
+  if (state.manualReviewRequired) {
+    $('#receipt-state').textContent = 'El OCR manual es sólo un borrador. Pulsa “Validar líneas” y corrige cualquier diferencia antes de confirmar.';
     return;
   }
   let items;
@@ -1091,6 +1143,7 @@ async function confirmReceipt() {
     state.originalItems = [];
     state.originalText = '';
     state.processing = false;
+    state.manualReviewRequired = false;
     state.progressVisible = false;
     persistAndRenderCaptures();
     $('#receipt-progress').hidden = true;

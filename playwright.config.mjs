@@ -1,3 +1,4 @@
+import './tests/browser/register-coverage-loader.mjs';
 import { defineConfig, devices } from '@playwright/test';
 
 const temporaryDirectory = process.env.CI
@@ -11,7 +12,11 @@ export default defineConfig({
   retries: 0,
   timeout: 30_000,
   expect: { timeout: 5_000 },
-  reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
+  reporter: [
+    ['list'],
+    ['html', { outputFolder: 'playwright-report', open: 'never' }],
+    ['./tests/browser/coverage-reporter.mjs'],
+  ],
   use: {
     baseURL: 'http://127.0.0.1:4173',
     trace: 'on',
