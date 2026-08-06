@@ -77,17 +77,6 @@ function offsetLine(offsets, offset) {
   return low + 1;
 }
 
-function firstExecutableOffset(source, offsets, line) {
-  const start = offsets[line - 1];
-  const end = offsets[line] - 1;
-  if (start === undefined || end < start) return undefined;
-  const text = source.slice(start, end);
-  const trimmed = text.trim();
-  if (!trimmed || /^(?:\/\/|\/\*|\*|\*\/)/u.test(trimmed)) return undefined;
-  const first = text.search(/\S/u);
-  return first < 0 ? undefined : start + first;
-}
-
 function effectiveCount(ranges, offset) {
   const containing = [...ranges.values()].filter(range => (
     range.startOffset <= offset && offset < range.endOffset
@@ -99,13 +88,29 @@ function effectiveCount(ranges, offset) {
     .map(range => range.count));
 }
 
+function lineCoverageCount(source, offsets, ranges, line) {
+  const start = offsets[line - 1];
+  const end = offsets[line] - 1;
+  if (start === undefined || end < start) return undefined;
+  const text = source.slice(start, end);
+  const trimmed = text.trim();
+  if (!trimmed || /^(?:\/\/|\/\*|\*|\*\/)/u.test(trimmed)) return undefined;
+
+  const counts = [];
+  for (let localOffset = 0; localOffset < text.length; localOffset += 1) {
+    const character = text[localOffset];
+    if (!/[\p{L}\p{N}_$'"`]/u.test(character)) continue;
+    const count = effectiveCount(ranges, start + localOffset);
+    if (count !== undefined) counts.push(count);
+  }
+  return counts.length === 0 ? undefined : Math.max(...counts);
+}
+
 function normalizedRecord(aggregate, changed) {
   const offsets = lineOffsets(aggregate.source);
   const lines = new Map();
   for (const line of changed) {
-    const offset = firstExecutableOffset(aggregate.source, offsets, line);
-    if (offset === undefined) continue;
-    const count = effectiveCount(aggregate.ranges, offset);
+    const count = lineCoverageCount(aggregate.source, offsets, aggregate.ranges, line);
     if (count !== undefined) lines.set(line, count);
   }
 
