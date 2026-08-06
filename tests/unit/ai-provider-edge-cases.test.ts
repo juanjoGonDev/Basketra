@@ -168,7 +168,12 @@ test('provider distinguishes empty, malformed, aborted, timed out and unreachabl
     }
     signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
   })) as typeof fetch, { timeoutMs: 5 });
-  await expectProviderError(timedOut, 'AI_TIMEOUT', { retryable: true });
+  const keepAlive = setTimeout(() => {}, 100);
+  try {
+    await expectProviderError(timedOut, 'AI_TIMEOUT', { retryable: true });
+  } finally {
+    clearTimeout(keepAlive);
+  }
 
   const unreachable = provider((async () => {
     throw new TypeError('private network detail');
