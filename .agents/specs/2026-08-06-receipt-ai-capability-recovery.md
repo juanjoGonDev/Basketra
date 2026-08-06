@@ -6,15 +6,16 @@ Complete Basketra PR #14 after the merged webApi attachment fix. Use SDD and TDD
 
 ## Evidence
 
-- webApi now requires attachment readiness and has passed a live image attachment smoke test.
-- Basketra already preserves local OCR before entering AI verification.
+- webApi requires attachment readiness and has passed a live image attachment smoke test.
+- Basketra preserves local OCR before entering AI verification.
 - OCR text alone is not a trustworthy structured receipt: quantities, unit prices, discounts, taxes, totals, and column relationships require AI verification or explicit human review.
-- The current receipt error copy incorrectly suggests disabling AI as a normal recovery path.
-- The current provider diagnostic now sends a bounded synthetic image and strict JSON Schema through the canonical provider transport, but exact-head CI is red because `src/web/operations.js` lacks its final newline.
+- The previous receipt error copy incorrectly suggested disabling AI as a normal recovery path.
+- The provider diagnostic now sends a bounded synthetic image and strict JSON Schema through the canonical provider transport.
+- The receipt UI and service worker load the dedicated recovery owner through the production gateway, covered by an integration regression test.
 
 ## Decision
 
-1. Keep the canonical synthetic image plus strict JSON Schema capability probe. It must test authentication, model routing, image input, strict structured output, parsing, timeout, cancellation, correlation, and stable redacted errors without automatic retries.
+1. Keep the canonical synthetic image plus strict JSON Schema capability probe. It tests authentication, model routing, image input, strict structured output, parsing, timeout, cancellation, correlation, and stable redacted errors without automatic retries.
 2. Never treat raw OCR as an automatically valid receipt after AI failure.
 3. Preserve OCR and captures after AI failure and expose two explicit actions:
    - retry the same page with AI;
@@ -25,14 +26,15 @@ Complete Basketra PR #14 after the merged webApi attachment fix. Use SDD and TDD
 
 ## Acceptance criteria
 
-- No receipt failure message recommends disabling AI as if OCR were a valid structured result.
-- Every recognized `AI_*` failure has deterministic redacted guidance and a retry-with-AI action.
-- AI failures expose an explicit manual-review action without marking OCR as verified.
-- A manual-review page is a terminal processing state, but receipt confirmation remains blocked until explicit validation succeeds.
-- Retry, cancellation, multiple pages, one AI slot, OCR preservation, and normal successful AI verification remain unchanged.
-- Provider diagnostics distinguish configured state from proven image-plus-strict-schema capability.
-- Tests are written before behavior, cover all recovery mappings and browser recovery flows, and focused changed logic reaches 100% line/function/branch coverage using Node's native coverage metrics.
-- Formatting, lint, types, dead code, dependency boundaries, unit, integration, E2E, browser, security, build, container smoke, AMD64, ARM64, CodeQL, and visual evidence pass on the exact final head.
+- [x] No receipt failure message recommends disabling AI as if OCR were a valid structured result.
+- [x] Every recognized `AI_*` failure has deterministic redacted guidance and a retry-with-AI action.
+- [x] AI failures expose an explicit manual-review action without marking OCR as verified.
+- [x] A manual-review page is a terminal processing state, but receipt confirmation remains blocked until explicit validation succeeds.
+- [x] Retry, cancellation, multiple pages, one AI slot, OCR preservation, and normal successful AI verification remain unchanged.
+- [x] Provider diagnostics distinguish configured state from proven image-plus-strict-schema capability.
+- [x] Tests cover recovery mappings, provider transport, gateway delivery, API behavior and the browser recovery workflow.
+- [x] Domain logic and the dedicated recovery owner reach 100% line/function/branch coverage using Node's native coverage metrics.
+- [ ] Formatting, lint, types, dead code, dependency boundaries, unit, integration, E2E, browser, security, build, resource budgets, container smoke, AMD64, ARM64, CodeQL, and visual evidence pass on the exact final head.
 
 ## Security and privacy
 
@@ -41,10 +43,17 @@ Complete Basketra PR #14 after the merged webApi attachment fix. Use SDD and TDD
 - Correlation identifiers remain bounded metadata and are never authorization input.
 - Raspberry validation must confirm `AGENTA_CAPTURE_CONTENT=false` and a managed webApi Bearer token before processing real receipts.
 
+## Tests
+
+- Unit tests cover every stable recovery mapping, malformed/future errors, provider classifications, retryability, correlation, response limits and the strict capability probe.
+- Integration tests cover the canonical OpenAI-compatible multimodal request and direct delivery of the recovery browser module with security headers.
+- Browser tests cover AI failure, OCR preservation, redaction, retry availability, explicit manual review, blocked import before validation, validation and confirmed import.
+- Existing cancellation, concurrency, multi-page, local OCR, API, storage, backup, security and responsive flows remain blocking.
+
 ## External validation and rollback
 
 Repository completion does not close production. Authenticated Basketra → webApi → ChatGPT and Raspberry one-/three-image validation require explicit deployment approval. Record the previous immutable image digest and exact rollback commands before promotion. Code rollback is a focused revert; there is no schema or data migration.
 
 ## Status
 
-Implementation in progress on existing PR #14.
+Repository implementation is complete on existing PR #14. Exact-head CI is pending. Authenticated live-provider and Raspberry validation remain approval-gated external work.
