@@ -770,23 +770,7 @@ function useManualReview(index) {
 }
 
 function cancelReceiptExtraction() {
-  const activeToken = state.runToken;
-  state.pageQueue = state.pageQueue.filter(entry => entry.token !== activeToken);
-  for (const task of state.activePageTasks.values()) {
-    if (task.token === activeToken) task.controller.abort();
-  }
-  state.assemblyController?.abort();
-  for (const page of state.pageStates.values()) {
-    if (page.status === 'pending' || ACTIVE_PAGE_STATUSES.has(page.status)) {
-      page.version += 1;
-      page.status = 'cancelled';
-      page.elapsedMs = page.startedAt ? Date.now() - page.startedAt : page.elapsedMs;
-      page.error = '';
-      page.errorCode = '';
-      page.recovery = null;
-    }
-  }
-  state.runToken += 1;
+  abortPageWork({ markCancelled: true });
   state.processing = false;
   state.finalizing = false;
   setBusy($('#extract-receipt'), false);
