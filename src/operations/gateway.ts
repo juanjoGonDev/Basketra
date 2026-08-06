@@ -12,7 +12,7 @@ import { ApplicationLogStore, sanitizeClientLog, type LogSource } from './log-st
 import { importBackupStream, listImportedBackups, RESTORE_CONFIRMATION, stagePendingRestore } from './restore.ts';
 import { resolveRuntimeVersion } from './version.ts';
 
-const DIRECT_ASSETS = new Set(['operations.js', 'operations.css']);
+const DIRECT_ASSETS = new Set(['operations.js', 'operations.css', 'receipt-ai-recovery.js']);
 const BACKUP_NAME = /^[a-zA-Z0-9._-]+\.db$/;
 const BACKUP_CONTENT_TYPES = new Set(['application/vnd.sqlite3', 'application/octet-stream']);
 const MAX_CLIENT_LOG_BATCH = 20;
