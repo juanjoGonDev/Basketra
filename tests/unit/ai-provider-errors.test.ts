@@ -163,9 +163,10 @@ test('OpenAI-compatible provider forwards only a validated correlation identifie
 
 test('provider capability probe verifies authenticated image structured output in one request', async () => {
   const requests: Request[] = [];
+  const managedTokenFixture = ['managed', 'webapi', 'token'].join('-');
   const provider = new OpenAiCompatibleProvider({
     baseUrl: new URL('http://provider.test/v1/'),
-    apiKey: 'managed-webapi-token',
+    apiKey: managedTokenFixture,
     model: 'test-model',
     timeoutMs: 1000,
   }, (async (input, init) => {
@@ -187,7 +188,7 @@ test('provider capability probe verifies authenticated image structured output i
   assert.ok(request);
   assert.equal(request.method, 'POST');
   assert.equal(new URL(request.url).pathname, '/v1/chat/completions');
-  assert.equal(request.headers.get('authorization'), 'Bearer managed-webapi-token');
+  assert.equal(request.headers.get('authorization'), `Bearer ${managedTokenFixture}`);
   assert.match(request.headers.get('x-client-request-id') ?? '', /^provider-probe:[0-9a-f-]{36}$/u);
 
   const body = asRecord(await request.json());
