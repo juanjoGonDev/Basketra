@@ -55,6 +55,18 @@ function executorProvider(executeStructured: AiProvider['executeStructured']): A
   };
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  assert.equal(typeof value, 'object');
+  assert.notEqual(value, null);
+  assert.equal(Array.isArray(value), false);
+  return value as Record<string, unknown>;
+}
+
+function asArray(value: unknown): unknown[] {
+  assert.ok(Array.isArray(value));
+  return value;
+}
+
 test('OpenAI-compatible provider classifies attachment rejection without leaking its body', async () => {
   const provider = providerWithResponse(413, JSON.stringify({
     error: {
@@ -147,6 +159,71 @@ test('OpenAI-compatible provider forwards only a validated correlation identifie
 
   assert.equal(requests[0]?.headers.get('x-client-request-id'), 'receipt:abc-123');
   assert.equal(requests[1]?.headers.get('x-client-request-id'), null);
+});
+
+test('provider capability probe verifies authenticated image structured output in one request', async () => {
+  const requests: Request[] = [];
+  const provider = new OpenAiCompatibleProvider({
+    baseUrl: new URL('http://provider.test/v1/'),
+    apiKey: 'managed-webapi-token',
+    model: 'test-model',
+    timeoutMs: 1000,
+  }, (async (input, init) => {
+    requests.push(new Request(input, init));
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: '{"accepted":true}' } }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch);
+
+  const result = await provider.testConnection();
+
+  assert.deepEqual(result, {
+    ok: true,
+    model: 'test-model',
+    imageStructuredOutput: true,
+  });
+  assert.equal(requests.length, 1);
+  const request = requests[0];
+  assert.ok(request);
+  assert.equal(request.method, 'POST');
+  assert.equal(new URL(request.url).pathname, '/v1/chat/completions');
+  assert.equal(request.headers.get('authorization'), 'Bearer managed-webapi-token');
+  assert.match(request.headers.get('x-client-request-id') ?? '', /^provider-probe:[0-9a-f-]{36}$/u);
+
+  const body = asRecord(await request.json());
+  assert.equal(body['model'], 'test-model');
+  const messages = asArray(body['messages']);
+  assert.equal(messages.length, 2);
+  const userMessage = asRecord(messages[1]);
+  const content = asArray(userMessage['content']);
+  const imagePart = asRecord(content[1]);
+  const image = asRecord(imagePart['image_url']);
+  assert.equal(imagePart['type'], 'image_url');
+  assert.match(String(image['url']), /^data:image\/png;base64,/u);
+
+  const responseFormat = asRecord(body['response_format']);
+  const schemaEnvelope = asRecord(responseFormat['json_schema']);
+  const schema = asRecord(schemaEnvelope['schema']);
+  const properties = asRecord(schema['properties']);
+  const accepted = asRecord(properties['accepted']);
+  assert.equal(responseFormat['type'], 'json_schema');
+  assert.equal(schemaEnvelope['strict'], true);
+  assert.deepEqual(accepted['enum'], [true]);
+});
+
+test('provider capability probe rejects a response that did not satisfy the probe contract', async () => {
+  const provider = new OpenAiCompatibleProvider({
+    baseUrl: new URL('http://provider.test/v1/'),
+    model: 'test-model',
+    timeoutMs: 1000,
+  }, (async () => new Response(JSON.stringify({
+    choices: [{ message: { content: '{"accepted":false}' } }],
+  }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch);
+
+  await assert.rejects(
+    () => provider.testConnection(),
+    (error: unknown) => error instanceof AiProviderError && error.code === 'AI_INVALID_RESPONSE',
+  );
 });
 
 test('structured executor does not retry deterministic provider rejection', async () => {
