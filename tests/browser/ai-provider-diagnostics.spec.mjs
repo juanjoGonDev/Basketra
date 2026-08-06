@@ -54,7 +54,7 @@ test('settings render remote, invalid, host, loopback and missing provider state
   current = settings({ configured: false, status: 'missing', missing: ['BASKETRA_AI_BASE_URL', 'BASKETRA_AI_MODEL'], baseUrl: undefined, model: undefined });
   await page.reload();
   await navigate(page, 'Ajustes');
-  await expect(page.locator('#ai-configuration-status')).toHaveText('Configuración incompleta');
+  await expect(page.locator('#ai-configuration-status')).toHaveText('Configuración no cargada');
   await expect(page.locator('#ai-configuration-detail')).toContainText('BASKETRA_AI_BASE_URL, BASKETRA_AI_MODEL');
   await expect(page.getByRole('button', { name: 'Verificar imagen y JSON estricto', exact: true })).toBeDisabled();
 });
@@ -113,6 +113,7 @@ test('provider diagnostic renders every stable recovery message and 200-level ne
   successfulHttp = true;
   providerCode = 'AI_INVALID_RESPONSE';
   await button.click();
-  await expect(state).toContainText('no respetó el esquema estricto');
-  await expect(state).toContainText('POST http://192.168.1.20:3001/v1/chat/completions');
+  await expect(state).toHaveText('El proveedor respondió sin confirmar la capacidad multimodal estructurada.');
+  await expect(button).toBeEnabled();
+  await expect(state).not.toContainText('detalle privado');
 });
