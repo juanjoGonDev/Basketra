@@ -3,6 +3,8 @@ import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { AiProviderError, OpenAiCompatibleProvider } from '../ai/provider.ts';
+import { mapError } from '../api/errors.ts';
 import type { AppConfig } from '../infrastructure/config.ts';
 import { BasketraServer } from '../api/server.ts';
 import { DEFAULT_DATABASE_STORAGE_LIMITS } from '../infrastructure/database.ts';
@@ -51,10 +53,6 @@ function safeBackupName(value: string): string {
 
 function headerValue(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? '' : value ?? '';
-}
-
-function ensureTrailingSlash(url: URL): URL {
-  return new URL(url.pathname.endsWith('/') ? url.href : `${url.href}/`);
 }
 
 function isContainerRuntime(): boolean {
@@ -270,29 +268,44 @@ export class OperationsGateway {
       }, requestId);
       return;
     }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(new Error('AI_TIMEOUT')), this.config.aiTimeoutMs);
-    timer.unref();
+
+    const provider = new OpenAiCompatibleProvider({
+      baseUrl: new URL(this.config.aiBaseUrl!),
+      ...(this.config.aiApiKey ? { apiKey: this.config.aiApiKey } : {}),
+      model: this.config.aiModel!,
+      timeoutMs: this.config.aiTimeoutMs,
+      capabilities: {
+        image: this.config.aiImageCapability,
+        pdf: this.config.aiPdfCapability,
+      },
+    });
+
     try {
-      const baseUrl = ensureTrailingSlash(new URL(this.config.aiBaseUrl!));
-      const result = await fetch(new URL('models', baseUrl), {
-        headers: this.config.aiApiKey ? { authorization: `Bearer ${this.config.aiApiKey}` } : {},
-        signal: controller.signal,
-      });
-      if (!result.ok) {
-        const code = result.status === 401 || result.status === 403 ? 'AI_AUTHENTICATION_FAILED' : `AI_HTTP_${result.status}`;
-        this.#logStore.append({ source: 'server', level: 'warn', event: 'ai.connection_failed', requestId, status: result.status, code });
-        this.json(response, 502, { connection: { ok: false, code, status: result.status } }, requestId);
-        return;
-      }
-      this.#logStore.append({ source: 'server', level: 'info', event: 'ai.connection_ok', requestId });
-      this.json(response, 200, { connection: { ok: true, model: this.config.aiModel } }, requestId);
+      const connection = await provider.testConnection();
+      this.#logStore.append({ source: 'server', level: 'info', event: 'ai.capability_probe_ok', requestId });
+      this.json(response, 200, { connection }, requestId);
     } catch (error) {
-      const code = error instanceof Error && error.message === 'AI_TIMEOUT' ? 'AI_TIMEOUT' : 'AI_UNREACHABLE';
-      this.#logStore.append({ source: 'server', level: 'warn', event: 'ai.connection_failed', requestId, code });
-      this.json(response, 502, { connection: { ok: false, code } }, requestId);
+      const mapped = error instanceof AiProviderError
+        ? mapError(error)
+        : mapError(new AiProviderError('AI_UNREACHABLE', { retryable: true }));
+      this.#logStore.append({
+        source: 'server',
+        level: 'warn',
+        event: 'ai.capability_probe_failed',
+        requestId,
+        status: mapped.status,
+        code: mapped.code,
+      });
+      this.json(response, mapped.status, {
+        connection: {
+          ok: false,
+          code: mapped.code,
+          status: mapped.status,
+          message: mapped.message,
+        },
+      }, requestId);
     } finally {
-      clearTimeout(timer);
+      provider.dispose();
     }
   }
 
