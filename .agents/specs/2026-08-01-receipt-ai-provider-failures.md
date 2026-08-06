@@ -6,7 +6,8 @@ Production receipt-page verification returned generic HTTP 500 `INTERNAL_ERROR` 
 
 ## Requirements
 
-- Keep local OCR evidence and the existing explicit retry-without-AI path intact.
+- Keep local OCR evidence and explicit retry-with-AI or manual-review recovery intact.
+- Never treat OCR text alone as an automatically valid structured receipt.
 - Convert provider transport, HTTP, capability, response-size, empty-response and invalid-JSON failures into stable `AI_*` codes.
 - Never expose or log the provider response body, receipt content, credentials, headers, URLs, filenames or filesystem paths.
 - Mark only transient failures as retryable; deterministic 4xx, capability and authentication failures must not consume retry attempts.
@@ -32,7 +33,8 @@ Production receipt-page verification returned generic HTTP 500 `INTERNAL_ERROR` 
 ## Acceptance criteria
 
 - A failed `/api/v1/receipts/extract` AI phase returns its stable `AI_*` code instead of `INTERNAL_ERROR`.
-- The existing receipt UI displays the actionable provider message and states that local OCR is preserved, allowing the user to disable AI and retry the page.
+- The receipt UI displays redacted code-specific guidance, preserves OCR evidence, and offers retry or explicit manual review.
+- Manual review identifies OCR-derived rows as unverified and requires row/total validation before import.
 - Provider error bodies remain absent from thrown errors, API responses and tests.
 - Non-retryable provider errors execute exactly once even when the configured retry count is greater than zero.
 - Transient provider failures retry only within the configured finite bound.
