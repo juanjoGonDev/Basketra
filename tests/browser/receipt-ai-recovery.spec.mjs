@@ -134,7 +134,9 @@ test('AI failure preserves OCR but requires explicit manual validation before im
   await page.getByRole('button', { name: 'Confirmar e importar', exact: true }).click();
   await expect(page.locator('#receipt-state')).toContainText('Pulsa “Validar líneas”');
 
-  await page.getByRole('button', { name: 'Validar líneas', exact: true }).click();
+  const validateButton = page.locator('#review-receipt');
+  await expect(validateButton).toHaveAccessibleName('Validar líneas e importes');
+  await validateButton.click();
   await expect(page.locator('#receipt-state')).toHaveText('Líneas y total validados.');
 
   await page.getByRole('button', { name: 'Confirmar e importar', exact: true }).click();
