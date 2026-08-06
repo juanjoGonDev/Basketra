@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { rmSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import type { AppConfig } from '../../src/infrastructure/config.ts';
 import { BasketraDatabase } from '../../src/infrastructure/database.ts';
 import { OperationsGateway } from '../../src/operations/gateway.ts';
@@ -71,6 +73,70 @@ test('operations gateway distinguishes missing and loopback AI configuration',as
   }finally{
     if(previousContainer===undefined)delete process.env['BASKETRA_CONTAINER'];
     else process.env['BASKETRA_CONTAINER']=previousContainer;
+    rmSync(directory,{recursive:true,force:true});
+  }
+});
+
+test('operations gateway verifies image structured output through the canonical provider',async()=>{
+  const directory=`.test-tmp/gateway-ai-probe-${randomUUID()}`;
+  const requests:Array<Readonly<{method:string;url:string;authorization?:string;correlation?:string;body:Record<string,unknown>}>>=[];
+  const providerServer=createServer(async(request,response)=>{
+    const chunks:Uint8Array[]=[];
+    for await(const chunk of request){
+      chunks.push(typeof chunk==='string'?Buffer.from(chunk):chunk);
+    }
+    requests.push({
+      method:request.method??'',
+      url:request.url??'',
+      ...(request.headers.authorization?{authorization:request.headers.authorization}:{}),
+      ...(typeof request.headers['x-client-request-id']==='string'?{correlation:request.headers['x-client-request-id']}:{}),
+      body:JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string,unknown>,
+    });
+    response.writeHead(200,{'content-type':'application/json'});
+    response.end(JSON.stringify({choices:[{message:{content:'{"accepted":true}'}}]}));
+  });
+  await new Promise<void>((resolve,reject)=>{
+    providerServer.once('error',reject);
+    providerServer.listen(0,'0.0.0.0',()=>{
+      providerServer.off('error',reject);
+      resolve();
+    });
+  });
+  const providerPort=(providerServer.address() as AddressInfo).port;
+  const managedToken=['managed','webapi','token'].join('-');
+  const gateway=new OperationsGateway(config(directory,{
+    aiBaseUrl:`http://127.0.0.2:${providerPort}/v1/`,
+    aiModel:'gpt-5',
+    aiApiKey:managedToken,
+  }));
+  try{
+    await gateway.listen();
+    const base=`http://127.0.0.1:${gateway.address().port}`;
+    const response=await fetch(`${base}/api/v1/settings/ai-provider/test`,{method:'POST'});
+    assert.equal(response.status,200);
+    assert.deepEqual((await json(response))['connection'],{
+      ok:true,
+      model:'gpt-5',
+      imageStructuredOutput:true,
+    });
+    assert.equal(requests.length,1);
+    const providerRequest=requests[0];
+    assert.ok(providerRequest);
+    assert.equal(providerRequest.method,'POST');
+    assert.equal(providerRequest.url,'/v1/chat/completions');
+    assert.equal(providerRequest.authorization,`Bearer ${managedToken}`);
+    assert.match(providerRequest.correlation??'',/^provider-probe:[0-9a-f-]{36}$/u);
+    const messages=providerRequest.body['messages'] as Array<Record<string,unknown>>;
+    const content=messages[1]?.['content'] as Array<Record<string,unknown>>;
+    const imageUrl=(content[1]?.['image_url'] as Record<string,unknown>)['url'];
+    assert.match(String(imageUrl),/^data:image\/png;base64,/u);
+    const responseFormat=providerRequest.body['response_format'] as Record<string,unknown>;
+    const schemaEnvelope=responseFormat['json_schema'] as Record<string,unknown>;
+    assert.equal(responseFormat['type'],'json_schema');
+    assert.equal(schemaEnvelope['strict'],true);
+  }finally{
+    await gateway.close();
+    await new Promise<void>((resolve,reject)=>providerServer.close(error=>error?reject(error):resolve()));
     rmSync(directory,{recursive:true,force:true});
   }
 });
