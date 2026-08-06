@@ -3,6 +3,10 @@ import test from 'node:test';
 
 type Listener = (event: Record<string, unknown>) => void;
 
+function requestAddress(request: RequestInfo | URL): string {
+  return request instanceof Request ? request.url : String(request);
+}
+
 test('service worker installs the complete shell, cleans old caches and handles every fetch path', async () => {
   const listeners = new Map<string, Listener>();
   const addedShells: string[][] = [];
@@ -19,7 +23,7 @@ test('service worker installs the complete shell, cleans old caches and handles 
       addedShells.push([...shell]);
     },
     async put(request: RequestInfo | URL) {
-      cacheWrites.push(String(request));
+      cacheWrites.push(requestAddress(request));
     },
   };
   const fakeSelf = {
@@ -48,7 +52,7 @@ test('service worker installs the complete shell, cleans old caches and handles 
       return true;
     },
     async match(request: RequestInfo | URL) {
-      cachedRequests.push(String(request));
+      cachedRequests.push(requestAddress(request));
       return matchImplementation(request);
     },
   };
@@ -116,14 +120,14 @@ test('service worker installs the complete shell, cleans old caches and handles 
 
     responseWork = undefined;
     fetchImplementation = async () => { throw new TypeError('offline'); };
-    matchImplementation = async request => String(request).includes('cached.js')
+    matchImplementation = async request => requestAddress(request).includes('cached.js')
       ? new Response('cached', { status: 200 })
       : undefined;
     fetchListener({ request: new Request('http://basketra.test/cached.js'), respondWith });
     assert.equal(await (await responseWork)?.text(), 'cached');
 
     responseWork = undefined;
-    matchImplementation = async request => String(request) === '/index.html'
+    matchImplementation = async request => requestAddress(request) === '/index.html'
       ? new Response('fallback', { status: 200 })
       : undefined;
     fetchListener({ request: new Request('http://basketra.test/unknown-route'), respondWith });
