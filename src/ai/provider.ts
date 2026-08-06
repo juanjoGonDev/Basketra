@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 export type AiCapabilities = Readonly<{
   structuredOutput: boolean;
   jsonObject: boolean;
@@ -85,9 +87,15 @@ export type AiStructuredInput = Readonly<{
   signal?: AbortSignal;
 }>;
 
+export type AiProviderConnectionResult = Readonly<{
+  ok: boolean;
+  model?: string;
+  imageStructuredOutput?: boolean;
+}>;
+
 export interface AiProvider {
   getCapabilities(): Promise<AiCapabilities>;
-  testConnection(signal?: AbortSignal): Promise<Readonly<{ ok: boolean; model?: string }>>;
+  testConnection(signal?: AbortSignal): Promise<AiProviderConnectionResult>;
   executeStructured(input: AiStructuredInput): Promise<unknown>;
   dispose(): void;
 }
@@ -103,6 +111,16 @@ const DEFAULT_CAPABILITIES: AiCapabilities = {
 export const DEFAULT_AI_MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_PROVIDER_ERROR_BYTES = 8 * 1024;
 const CORRELATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/u;
+const PROVIDER_PROBE_PNG_DATA_URL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAbklEQVR42u3QQQ0AMAgAMdTgX9C8MA17LITQS85Ao5YXAAAAAAAAAAAAAAAAAAAAAIDnTmbrAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAID/ANMDAAAAAAAAAAAAAAAAAAAAFnYBKLlvSc5qfWIAAAAASUVORK5CYII=';
+const PROVIDER_PROBE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['accepted'],
+  properties: {
+    accepted: { type: 'boolean', enum: [true] },
+  },
+} as const;
 const PROVIDER_ATTACHMENT_UPLOAD_CODES = new Set([
   'attachment_upload_failed',
   'composer_not_ready',
@@ -233,12 +251,38 @@ export class OpenAiCompatibleProvider implements AiProvider {
     return { ...DEFAULT_CAPABILITIES, ...this.config.capabilities };
   }
 
-  async testConnection(signal?: AbortSignal): Promise<Readonly<{ ok: boolean; model?: string }>> {
-    const response = await this.fetchImplementation(new URL('models', ensureTrailingSlash(this.config.baseUrl)), {
-      headers: this.headers(),
+  async testConnection(signal?: AbortSignal): Promise<AiProviderConnectionResult> {
+    const result = await this.executeStructured({
+      operation: 'provider-capability-probe',
+      systemPrompt: 'Inspect the attached synthetic image. Return only the requested JSON object with accepted set to true.',
+      content: [
+        {
+          type: 'text',
+          text: 'This is a synthetic Basketra provider capability probe. Confirm that the image attachment and strict structured output path completed.',
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url: PROVIDER_PROBE_PNG_DATA_URL,
+            detail: 'low',
+          },
+        },
+      ],
+      schemaName: 'basketra_provider_capability',
+      jsonSchema: PROVIDER_PROBE_SCHEMA,
+      correlationId: `provider-probe:${randomUUID()}`,
       ...(signal ? { signal } : {}),
     });
-    return response.ok ? { ok: true, model: this.config.model } : { ok: false };
+
+    if (!isSuccessfulProviderProbe(result)) {
+      throw new AiProviderError('AI_INVALID_RESPONSE');
+    }
+
+    return {
+      ok: true,
+      model: this.config.model,
+      imageStructuredOutput: true,
+    };
   }
 
   async executeStructured(input: AiStructuredInput): Promise<unknown> {
@@ -297,6 +341,15 @@ export class OpenAiCompatibleProvider implements AiProvider {
         : {}),
     };
   }
+}
+
+function isSuccessfulProviderProbe(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return Object.keys(record).length === 1 && record['accepted'] === true;
 }
 
 function mapProviderHttpError(status: number, metadata?: ProviderErrorMetadata): AiProviderError {
