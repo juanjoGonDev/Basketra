@@ -1,10 +1,8 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
-import v8ToIstanbul from 'v8-to-istanbul';
+import { resolve } from 'node:path';
 import {
   changedCoverageLines,
   checkChangedCoverage,
-  coverageRoot,
   ensureCoverageCommit,
   resolveCoverageBaseSha,
 } from './diff-coverage-core.mjs';
@@ -16,97 +14,122 @@ const SOURCE_BY_PATHNAME = new Map([
 ]);
 const includes = [...SOURCE_BY_PATHNAME.values()];
 
-function locationKey(location) {
-  return [
-    location.start.line,
-    location.start.column,
-    location.end.line,
-    location.end.column,
-  ].join(':');
-}
-
-function emptyAggregate() {
+function emptyAggregate(file) {
   return {
-    statements: new Map(),
+    source: readFileSync(resolve(file), 'utf8'),
+    ranges: new Map(),
     functions: new Map(),
     branches: new Map(),
   };
 }
 
-function addIstanbulRecord(aggregate, record) {
-  for (const [id, location] of Object.entries(record.statementMap)) {
-    const key = locationKey(location);
-    const previous = aggregate.statements.get(key) || { location, count: 0 };
-    previous.count += Number(record.s[id] || 0);
-    aggregate.statements.set(key, previous);
-  }
+function rangeKey(range) {
+  return `${range.startOffset}:${range.endOffset}`;
+}
 
-  for (const [id, metadata] of Object.entries(record.fnMap)) {
-    const location = metadata.decl || metadata.loc;
-    const key = `${metadata.name}:${locationKey(location)}`;
-    const previous = aggregate.functions.get(key) || {
-      name: metadata.name,
-      location,
+function addRange(target, range, count) {
+  const key = rangeKey(range);
+  const previous = target.get(key) || {
+    startOffset: range.startOffset,
+    endOffset: range.endOffset,
+    count: 0,
+  };
+  previous.count += Number(count || 0);
+  target.set(key, previous);
+}
+
+function addV8Entry(aggregate, entry) {
+  for (const functionCoverage of entry.functions) {
+    if (!Array.isArray(functionCoverage.ranges) || functionCoverage.ranges.length === 0) continue;
+    const root = functionCoverage.ranges[0];
+    const functionKey = `${functionCoverage.functionName || '<anonymous>'}:${rangeKey(root)}`;
+    const previous = aggregate.functions.get(functionKey) || {
+      name: functionCoverage.functionName || '<anonymous>',
+      startOffset: root.startOffset,
+      endOffset: root.endOffset,
       count: 0,
     };
-    previous.count += Number(record.f[id] || 0);
-    aggregate.functions.set(key, previous);
-  }
+    previous.count += Number(root.count || 0);
+    aggregate.functions.set(functionKey, previous);
 
-  for (const [id, metadata] of Object.entries(record.branchMap)) {
-    const counts = record.b[id] || [];
-    metadata.locations.forEach((location, index) => {
-      const key = `${metadata.type}:${locationKey(location)}:${index}`;
-      const previous = aggregate.branches.get(key) || {
-        location,
-        id: key,
-        count: 0,
-      };
-      previous.count += Number(counts[index] || 0);
-      aggregate.branches.set(key, previous);
-    });
+    for (const range of functionCoverage.ranges) addRange(aggregate.ranges, range, range.count);
+    for (const range of functionCoverage.ranges.slice(1)) addRange(aggregate.branches, range, range.count);
   }
 }
 
-function normalizedRecord(aggregate) {
-  const statementsByLine = new Map();
-  for (const statement of aggregate.statements.values()) {
-    const line = statement.location.start.line;
-    const counts = statementsByLine.get(line) || [];
-    counts.push(statement.count);
-    statementsByLine.set(line, counts);
+function lineOffsets(source) {
+  const offsets = [0];
+  for (let index = 0; index < source.length; index += 1) {
+    if (source[index] === '\n') offsets.push(index + 1);
   }
-
-  return {
-    lines: new Map([...statementsByLine].map(([line, counts]) => [line, Math.min(...counts)])),
-    functions: [...aggregate.functions.values()].map(entry => ({
-      name: entry.name,
-      line: entry.location.start.line,
-      count: entry.count,
-    })),
-    branches: [...aggregate.branches.values()].map(entry => ({
-      line: entry.location.start.line,
-      id: entry.id,
-      count: entry.count,
-    })),
-  };
+  offsets.push(source.length + 1);
+  return offsets;
 }
 
-async function convertEntry(entry, file) {
-  const sourcePath = resolve(coverageRoot, file);
-  const converter = v8ToIstanbul(
-    sourcePath,
-    0,
-    typeof entry.source === 'string' ? { source: entry.source } : undefined,
-  );
-  await converter.load();
-  converter.applyCoverage(entry.functions);
-  const converted = converter.toIstanbul();
-  const record = converted[sourcePath]
-    || converted[relative(coverageRoot, sourcePath)]
-    || Object.values(converted)[0];
-  if (!record) throw new Error(`Chromium coverage could not be converted for ${file}`);
-  return record;
+function offsetLine(offsets, offset) {
+  let low = 0;
+  let high = offsets.length - 1;
+  while (low + 1 < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (offsets[middle] <= offset) low = middle;
+    else high = middle;
+  }
+  return low + 1;
+}
+
+function firstExecutableOffset(source, offsets, line) {
+  const start = offsets[line - 1];
+  const end = offsets[line] - 1;
+  if (start === undefined || end < start) return undefined;
+  const text = source.slice(start, end);
+  const trimmed = text.trim();
+  if (!trimmed || /^(?:\/\/|\/\*|\*|\*\/)/u.test(trimmed)) return undefined;
+  const first = text.search(/\S/u);
+  return first < 0 ? undefined : start + first;
+}
+
+function effectiveCount(ranges, offset) {
+  const containing = [...ranges.values()].filter(range => (
+    range.startOffset <= offset && offset < range.endOffset
+  ));
+  if (containing.length === 0) return undefined;
+  const smallestSpan = Math.min(...containing.map(range => range.endOffset - range.startOffset));
+  return Math.min(...containing
+    .filter(range => range.endOffset - range.startOffset === smallestSpan)
+    .map(range => range.count));
+}
+
+function normalizedRecord(aggregate, changed) {
+  const offsets = lineOffsets(aggregate.source);
+  const lines = new Map();
+  for (const line of changed) {
+    const offset = firstExecutableOffset(aggregate.source, offsets, line);
+    if (offset === undefined) continue;
+    const count = effectiveCount(aggregate.ranges, offset);
+    if (count !== undefined) lines.set(line, count);
+  }
+
+  const functions = [...aggregate.functions.values()].map(entry => ({
+    name: entry.name,
+    line: offsetLine(offsets, entry.startOffset),
+    count: entry.count,
+  }));
+
+  const branches = [];
+  for (const entry of aggregate.branches.values()) {
+    const startLine = offsetLine(offsets, entry.startOffset);
+    const endLine = offsetLine(offsets, Math.max(entry.startOffset, entry.endOffset - 1));
+    for (const line of changed) {
+      if (line < startLine || line > endLine) continue;
+      branches.push({
+        line,
+        id: `${entry.startOffset}:${entry.endOffset}`,
+        count: entry.count,
+      });
+    }
+  }
+
+  return { lines, functions, branches };
 }
 
 if (!existsSync(COVERAGE_DIRECTORY)) {
@@ -116,7 +139,7 @@ if (!existsSync(COVERAGE_DIRECTORY)) {
 const baseSha = resolveCoverageBaseSha();
 ensureCoverageCommit(baseSha);
 const changes = changedCoverageLines(baseSha, includes);
-const aggregates = new Map(includes.map(file => [file, emptyAggregate()]));
+const aggregates = new Map(includes.map(file => [file, emptyAggregate(file)]));
 let entryCount = 0;
 
 for (const name of readdirSync(COVERAGE_DIRECTORY).filter(value => value.endsWith('.json'))) {
@@ -126,11 +149,14 @@ for (const name of readdirSync(COVERAGE_DIRECTORY).filter(value => value.endsWit
     if (!entry || typeof entry.url !== 'string' || !Array.isArray(entry.functions)) continue;
     const file = SOURCE_BY_PATHNAME.get(new URL(entry.url).pathname);
     if (!file) continue;
-    addIstanbulRecord(aggregates.get(file), await convertEntry(entry, file));
+    addV8Entry(aggregates.get(file), entry);
     entryCount += 1;
   }
 }
 
 if (entryCount === 0) throw new Error('No Chromium coverage entries were recorded for the changed UI modules');
-const records = new Map([...aggregates].map(([file, aggregate]) => [file, normalizedRecord(aggregate)]));
+const records = new Map([...aggregates].map(([file, aggregate]) => [
+  file,
+  normalizedRecord(aggregate, changes.get(file) || new Set()),
+]));
 checkChangedCoverage(changes, records, 'Browser changed-code');
