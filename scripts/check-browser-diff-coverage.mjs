@@ -115,19 +115,11 @@ function normalizedRecord(aggregate, changed) {
     count: entry.count,
   }));
 
-  const branches = [];
-  for (const entry of aggregate.branches.values()) {
-    const startLine = offsetLine(offsets, entry.startOffset);
-    const endLine = offsetLine(offsets, Math.max(entry.startOffset, entry.endOffset - 1));
-    for (const line of changed) {
-      if (line < startLine || line > endLine) continue;
-      branches.push({
-        line,
-        id: `${entry.startOffset}:${entry.endOffset}`,
-        count: entry.count,
-      });
-    }
-  }
+  const branches = [...aggregate.branches.values()].map(entry => ({
+    line: offsetLine(offsets, entry.startOffset),
+    id: `${entry.startOffset}:${entry.endOffset}`,
+    count: entry.count,
+  }));
 
   return { lines, functions, branches };
 }
