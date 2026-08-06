@@ -3,7 +3,7 @@ import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AiProviderError, OpenAiCompatibleProvider } from '../ai/provider.ts';
+import { OpenAiCompatibleProvider } from '../ai/provider.ts';
 import { mapError } from '../api/errors.ts';
 import type { AppConfig } from '../infrastructure/config.ts';
 import { BasketraServer } from '../api/server.ts';
@@ -285,9 +285,7 @@ export class OperationsGateway {
       this.#logStore.append({ source: 'server', level: 'info', event: 'ai.capability_probe_ok', requestId });
       this.json(response, 200, { connection }, requestId);
     } catch (error) {
-      const mapped = error instanceof AiProviderError
-        ? mapError(error)
-        : mapError(new AiProviderError('AI_UNREACHABLE', { retryable: true }));
+      const mapped = mapError(error);
       this.#logStore.append({
         source: 'server',
         level: 'warn',
