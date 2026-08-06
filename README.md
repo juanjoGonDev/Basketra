@@ -170,7 +170,7 @@ Settings exposes operational state without revealing process environment or arbi
 - deployed semantic version and immutable revision;
 - server start time and a live uptime counter derived locally from that timestamp;
 - RSS memory snapshot;
-- AI configuration state, loopback-in-container warning, and an explicit connection test;
+- AI configuration state, loopback-in-container warning, and an explicit synthetic-image plus strict-JSON capability probe;
 - bounded structured client and server application events;
 - portable backup creation, optional direct download, validated import, and staged restore.
 
@@ -203,13 +203,17 @@ For a provider listening on the Raspberry host at port 3001:
 
 ```dotenv
 BASKETRA_AI_BASE_URL=http://host.docker.internal:3001/v1/
-BASKETRA_AI_API_KEY=<rotated-provider-key>
+BASKETRA_AI_API_KEY=<managed-webapi-token>
 BASKETRA_AI_MODEL=default
 BASKETRA_AI_TIMEOUT_MS=30000
 BASKETRA_AI_MAX_RETRIES=1
 BASKETRA_AI_IMAGE_CAPABILITY=true
 BASKETRA_AI_PDF_CAPABILITY=false
 ```
+
+When the provider is webApi, create a database-backed managed token from webApi `/admin` and copy its one-time value into `BASKETRA_AI_API_KEY`. The removed webApi `API_KEY` environment variable is not supported and must not be recreated. Basketra masks the configured token in Settings and never sends it to the browser.
+
+The Settings action executes one bounded `POST /v1/chat/completions` request through Basketra's canonical provider client. It attaches a synthetic PNG with no receipt or user data, requires strict JSON Schema output, validates the parsed result, and does not retry. A successful `GET /v1/models` response is not treated as proof that authentication, image attachment, composer readiness, model routing, or Structured Outputs work together.
 
 `127.0.0.1` inside the Basketra container refers to Basketra itself, not to the Raspberry host. `compose.raspberry.yml` maps `host.docker.internal` to Docker's host gateway. After changing `.env`, validate and recreate the service so Docker injects the new values:
 
@@ -218,7 +222,7 @@ docker compose -f compose.raspberry.yml config --quiet
 docker compose -f compose.raspberry.yml up -d --force-recreate basketra
 ```
 
-Settings distinguishes configuration that is missing, loaded with an invalid container-loopback address, unreachable, rejected by authentication, or reachable. The browser never receives the provider key; it may display only the last four masked characters. Provider URLs are administrative environment configuration, never request input. Structured results are validated locally before use.
+Settings distinguishes configuration that is missing, loaded with an invalid container-loopback address, unreachable, rejected by authentication, rejected while preparing an attachment, or unable to satisfy strict structured output. The browser never receives the provider key; it may display only the last four masked characters. Provider URLs are administrative environment configuration, never request input. Structured results are validated locally before use.
 
 The only accepted deployment resource names are `BASKETRA_BIND_ADDRESS`, `BASKETRA_MEMORY_LIMIT`, and `BASKETRA_CPU_LIMIT`. The aliases `BASKETRA_BIND_IP`, `BASKETRA_MEM_LIMIT`, and `BASKETRA_CPUS` are not read. `BASKETRA_AUTH_TOKEN` was removed and must not be restored.
 
