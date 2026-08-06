@@ -75,6 +75,10 @@ export function aggregateInheritedRangeCount(runs, candidate) {
   return runs.reduce((total, ranges) => total + inheritedRangeCount(ranges, candidate), 0);
 }
 
+export function requiresBrowserDiffCoverage(changes) {
+  return changes.size > 0;
+}
+
 function lineOffsets(source) {
   const offsets = [0];
   for (let index = 0; index < source.length; index += 1) {
@@ -147,13 +151,18 @@ function normalizedRecord(aggregate, changed) {
 }
 
 function main() {
+  const baseSha = resolveCoverageBaseSha();
+  ensureCoverageCommit(baseSha);
+  const changes = changedCoverageLines(baseSha, includes);
+  if (!requiresBrowserDiffCoverage(changes)) {
+    console.log('No browser production changes matched the changed-code coverage paths.');
+    return;
+  }
+
   if (!existsSync(COVERAGE_DIRECTORY)) {
     throw new Error('Browser coverage directory is missing; run Playwright through coverage-fixture.mjs first');
   }
 
-  const baseSha = resolveCoverageBaseSha();
-  ensureCoverageCommit(baseSha);
-  const changes = changedCoverageLines(baseSha, includes);
   const aggregates = new Map(includes.map(file => [file, emptyAggregate(file)]));
   let entryCount = 0;
 
