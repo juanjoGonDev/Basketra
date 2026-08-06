@@ -20,7 +20,7 @@ function settings(overrides = {}) {
   };
 }
 
-test('settings normalize provider URLs and explain loopback configuration without leaking tokens', async ({ page }) => {
+test('settings render remote, invalid, host, loopback and missing provider states', async ({ page }) => {
   let current = settings();
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
@@ -34,39 +34,46 @@ test('settings normalize provider URLs and explain loopback configuration withou
   await expect(page.locator('#ai-provider-authorization')).toHaveText('Sin cabecera Authorization');
   await expect(page.locator('#ai-configuration-status')).toHaveText('Configuración cargada');
 
-  current = settings({
-    baseUrl: 'not a valid absolute URL',
-    apiKeyMask: '***safe',
-  });
+  current = settings({ baseUrl: 'not a valid absolute URL', apiKeyMask: '***safe' });
   await page.reload();
   await navigate(page, 'Ajustes');
   await expect(page.locator('#ai-provider-request')).toHaveText('POST not a valid absolute URL/chat/completions');
   await expect(page.locator('#ai-provider-authorization')).toHaveText('Bearer con token gestionado');
 
-  current = settings({
-    baseUrl: 'http://127.0.0.1:3001/v1/',
-    loopbackWarning: true,
-  });
+  current = settings({ baseUrl: 'http://host.docker.internal:3001/v1/' });
+  await page.reload();
+  await navigate(page, 'Ajustes');
+  await expect(page.locator('#ai-configuration-detail')).toContainText('host.docker.internal');
+
+  current = settings({ baseUrl: 'http://127.0.0.1:3001/v1/', loopbackWarning: true });
   await page.reload();
   await navigate(page, 'Ajustes');
   await expect(page.locator('#ai-configuration-status')).toHaveText('Configurado con dirección incorrecta para Docker');
   await expect(page.locator('#ai-configuration-status')).toHaveAttribute('data-state', 'warning');
-  await expect(page.locator('#ai-configuration-detail')).not.toContainText('token');
+
+  current = settings({ configured: false, status: 'missing', missing: ['BASKETRA_AI_BASE_URL', 'BASKETRA_AI_MODEL'], baseUrl: undefined, model: undefined });
+  await page.reload();
+  await navigate(page, 'Ajustes');
+  await expect(page.locator('#ai-configuration-status')).toHaveText('Configuración incompleta');
+  await expect(page.locator('#ai-configuration-detail')).toContainText('BASKETRA_AI_BASE_URL, BASKETRA_AI_MODEL');
+  await expect(page.getByRole('button', { name: 'Verificar imagen y JSON estricto', exact: true })).toBeDisabled();
 });
 
-test('provider diagnostic renders every stable recovery message and the bounded fallback', async ({ page }) => {
+test('provider diagnostic renders every stable recovery message and 200-level negative capability', async ({ page }) => {
   let providerCode = 'AI_LOOPBACK_CONTAINER';
+  let successfulHttp = false;
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify(settings()),
   }));
   await page.route('**/api/v1/settings/ai-provider/test', route => route.fulfill({
-    status: 502,
+    status: successfulHttp ? 200 : 502,
     contentType: 'application/json',
     body: JSON.stringify({
       connection: {
         ok: false,
+        imageStructuredOutput: false,
         code: providerCode,
         message: providerCode === 'AI_UNKNOWN'
           ? 'Fallo controlado del diagnóstico'
@@ -102,5 +109,10 @@ test('provider diagnostic renders every stable recovery message and the bounded 
     await expect(button).toBeEnabled();
     await expect(state).not.toContainText('detalle privado');
   }
+
+  successfulHttp = true;
+  providerCode = 'AI_INVALID_RESPONSE';
+  await button.click();
+  await expect(state).toContainText('no respetó el esquema estricto');
   await expect(state).toContainText('POST http://192.168.1.20:3001/v1/chat/completions');
 });
