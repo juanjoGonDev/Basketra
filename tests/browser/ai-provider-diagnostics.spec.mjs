@@ -45,6 +45,13 @@ test('settings render remote, invalid, host, loopback and missing provider state
   await navigate(page, 'Ajustes');
   await expect(page.locator('#ai-configuration-detail')).toContainText('host.docker.internal');
 
+  current = settings({ baseUrl: 'http://127.0.0.1:3001/v1/', loopbackWarning: true });
+  await page.reload();
+  await navigate(page, 'Ajustes');
+  await expect(page.locator('#ai-configuration-status')).toHaveText('Configurado con dirección incorrecta para Docker');
+  await expect(page.locator('#ai-configuration-status')).toHaveAttribute('data-state', 'warning');
+  await expect(page.locator('#ai-configuration-detail')).not.toContainText('token');
+
   current = settings({
     baseUrl: 'http://127.0.0.1:3001/v1/',
     apiKeyMask: '***safe',
@@ -52,8 +59,6 @@ test('settings render remote, invalid, host, loopback and missing provider state
   });
   await page.reload();
   await navigate(page, 'Ajustes');
-  await expect(page.locator('#ai-configuration-status')).toHaveText('Configurado con dirección incorrecta para Docker');
-  await expect(page.locator('#ai-configuration-status')).toHaveAttribute('data-state', 'warning');
   await expect(page.locator('#ai-configuration-detail')).toContainText('token ***safe');
 
   current = settings({ configured: false, status: 'missing', missing: ['BASKETRA_AI_BASE_URL', 'BASKETRA_AI_MODEL'], baseUrl: undefined, model: undefined });
