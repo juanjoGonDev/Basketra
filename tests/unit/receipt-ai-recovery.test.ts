@@ -73,12 +73,15 @@ test('keeps non-AI failures on the normal image retry path', () => {
   assert.equal(recovery.message, 'El OCR local agotó el tiempo. Reintenta esta imagen o retírala del borrador.');
 });
 
-test('handles malformed errors without exposing arbitrary values', () => {
-  const recovery = buildReceiptAiRecovery(null, {
+test('handles malformed errors and omitted options without exposing arbitrary values', () => {
+  const malformed = buildReceiptAiRecovery(null, {
     mimeType: 'image/png',
     hasOcrDraft: false,
   });
+  const omittedOptions = buildReceiptAiRecovery({ code: 42, message: 99 });
 
-  assert.equal(recovery.allowManualReview, false);
-  assert.equal(recovery.message, 'No se pudo procesar esta imagen. Reintenta esta imagen o retírala del borrador.');
+  assert.equal(malformed.allowManualReview, false);
+  assert.equal(malformed.message, 'No se pudo procesar esta imagen. Reintenta esta imagen o retírala del borrador.');
+  assert.equal(omittedOptions.allowManualReview, false);
+  assert.equal(omittedOptions.message, 'No se pudo procesar esta imagen. Reintenta esta imagen o retírala del borrador.');
 });
