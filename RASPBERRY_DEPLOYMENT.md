@@ -69,13 +69,15 @@ Inside the Basketra container, `127.0.0.1` means the Basketra container itself. 
 
 ```dotenv
 BASKETRA_AI_BASE_URL=http://host.docker.internal:3001/v1/
-BASKETRA_AI_API_KEY=<rotated-provider-key>
+BASKETRA_AI_API_KEY=<managed-webapi-token>
 BASKETRA_AI_MODEL=default
 BASKETRA_AI_TIMEOUT_MS=30000
 BASKETRA_AI_MAX_RETRIES=1
 BASKETRA_AI_IMAGE_CAPABILITY=true
 BASKETRA_AI_PDF_CAPABILITY=false
 ```
+
+For webApi, create a database-backed managed token in webApi `/admin` and copy the one-time token value into `BASKETRA_AI_API_KEY`. The removed webApi `API_KEY` environment variable is not a valid credential and must not be restored. Do not paste the managed token into chat, screenshots, shell history, logs, or this runbook.
 
 The provider itself must listen on an address reachable from Docker's bridge, not exclusively on host loopback, and its firewall must allow only the required local bridge/private source. Do not publish the provider to the public Internet.
 
@@ -87,7 +89,9 @@ docker compose -f compose.raspberry.yml up -d --force-recreate basketra
 docker compose -f compose.raspberry.yml ps
 ```
 
-Do not use `docker inspect` formats that dump the full environment. The Basketra Settings page shows whether configuration is missing, loaded with a Docker-loopback error, unreachable, rejected by authentication, or reachable. It returns only the provider URL, model, capabilities, and an optional last-four mask; it never returns the key.
+Do not use `docker inspect` formats that dump the full environment. The Basketra Settings page shows whether configuration is missing, loaded with a Docker-loopback error, unreachable, rejected by authentication, rejected while preparing an image, or unable to satisfy strict structured output. It returns only the provider URL, model, capabilities, and an optional last-four mask; it never returns the token.
+
+The Settings verification action performs one manual, bounded `POST /v1/chat/completions` request through Basketra's canonical provider client. It sends a synthetic PNG without receipt or user data, requires strict JSON Schema output, validates the parsed result, and does not retry. A successful `GET /v1/models` call does not prove that the managed token, image attachment, composer readiness, selected model, and Structured Outputs work together.
 
 After a credential has appeared in chat, screenshots, shell history, or logs, revoke and replace it before restarting the service.
 
@@ -112,7 +116,7 @@ docker image inspect ghcr.io/juanjogondev/basketra:stable \
 docker compose -f compose.raspberry.yml images
 ```
 
-Each trusted main publication receives one semantic version. The first release is `1.0.0`; later releases increment only the patch component. The same version is embedded in the application, OCI labels, immutable numeric image tag, and GitHub release. A workflow rerun for the same commit reuses the assigned version.
+Each trusted main publication receives one semantic version. The first release is `1.0.0`; later releases increment only the patch component. The same version is embedded in the application, OCI labels, immutable numeric image tag, and GitHub release. A workflow rerun for the same commit reuses its assigned version.
 
 ## Start Basketra
 
