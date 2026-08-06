@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   aggregateInheritedRangeCount,
   inheritedRangeCount,
+  requiresBrowserDiffCoverage,
 } from '../../scripts/check-browser-diff-coverage.mjs';
 import { coverageBaseShaFromEvent } from '../../scripts/diff-coverage-core.mjs';
 
@@ -46,6 +47,16 @@ test('returns zero when no recorded range owns the candidate', () => {
   const outside = { startOffset: 120, endOffset: 140, count: 0 };
 
   assert.equal(inheritedRangeCount([root], outside), 0);
+});
+
+test('skips browser diff coverage when no tracked browser module changed', () => {
+  assert.equal(requiresBrowserDiffCoverage(new Map()), false);
+});
+
+test('requires browser diff coverage when a tracked browser module changed', () => {
+  assert.equal(requiresBrowserDiffCoverage(new Map([
+    ['src/web/receipts.js', new Set([10])],
+  ])), true);
 });
 
 test('uses the pull-request base before any push metadata', () => {
