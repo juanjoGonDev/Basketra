@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   changedCoverageLines,
   checkChangedCoverage,
@@ -17,9 +18,7 @@ const includes = [...SOURCE_BY_PATHNAME.values()];
 function emptyAggregate(file) {
   return {
     source: readFileSync(resolve(file), 'utf8'),
-    ranges: new Map(),
     functions: new Map(),
-    branches: new Map(),
   };
 }
 
@@ -27,34 +26,53 @@ function rangeKey(range) {
   return `${range.startOffset}:${range.endOffset}`;
 }
 
-function addRange(target, range, count) {
-  const key = rangeKey(range);
-  const previous = target.get(key) || {
+function normalizedRanges(ranges) {
+  return ranges.map(range => ({
     startOffset: range.startOffset,
     endOffset: range.endOffset,
-    count: 0,
-  };
-  previous.count += Number(count || 0);
-  target.set(key, previous);
+    count: Number(range.count || 0),
+  }));
 }
 
 function addV8Entry(aggregate, entry) {
   for (const functionCoverage of entry.functions) {
     if (!Array.isArray(functionCoverage.ranges) || functionCoverage.ranges.length === 0) continue;
-    const root = functionCoverage.ranges[0];
+    const ranges = normalizedRanges(functionCoverage.ranges);
+    const root = ranges[0];
     const functionKey = `${functionCoverage.functionName || '<anonymous>'}:${rangeKey(root)}`;
-    const previous = aggregate.functions.get(functionKey) || {
+    const current = aggregate.functions.get(functionKey) || {
       name: functionCoverage.functionName || '<anonymous>',
       startOffset: root.startOffset,
       endOffset: root.endOffset,
       count: 0,
+      runs: [],
+      branches: new Map(),
     };
-    previous.count += Number(root.count || 0);
-    aggregate.functions.set(functionKey, previous);
-
-    for (const range of functionCoverage.ranges) addRange(aggregate.ranges, range, range.count);
-    for (const range of functionCoverage.ranges.slice(1)) addRange(aggregate.branches, range, range.count);
+    current.count += root.count;
+    current.runs.push(ranges);
+    for (const range of ranges.slice(1)) current.branches.set(rangeKey(range), range);
+    aggregate.functions.set(functionKey, current);
   }
+}
+
+export function inheritedRangeCount(ranges, candidate) {
+  const exact = ranges.find(range => (
+    range.startOffset === candidate.startOffset && range.endOffset === candidate.endOffset
+  ));
+  if (exact) return exact.count;
+
+  const containing = ranges.filter(range => (
+    range.startOffset <= candidate.startOffset && candidate.endOffset <= range.endOffset
+  ));
+  if (containing.length === 0) return 0;
+  const smallestSpan = Math.min(...containing.map(range => range.endOffset - range.startOffset));
+  return Math.min(...containing
+    .filter(range => range.endOffset - range.startOffset === smallestSpan)
+    .map(range => range.count));
+}
+
+export function aggregateInheritedRangeCount(runs, candidate) {
+  return runs.reduce((total, ranges) => total + inheritedRangeCount(ranges, candidate), 0);
 }
 
 function lineOffsets(source) {
@@ -77,27 +95,38 @@ function offsetLine(offsets, offset) {
   return low + 1;
 }
 
-function lineCoverageCount(source, offsets, ranges, line) {
+function executableOffset(source, offsets, line) {
   const start = offsets[line - 1];
   const end = offsets[line] - 1;
   if (start === undefined || end < start) return undefined;
   const text = source.slice(start, end);
   const trimmed = text.trim();
   if (!trimmed || /^(?:\/\/|\/\*|\*|\*\/)/u.test(trimmed)) return undefined;
+  const first = text.search(/\S/u);
+  return first < 0 ? undefined : start + first;
+}
 
-  const containing = [...ranges.values()].filter(range => (
-    range.startOffset <= start && end <= range.endOffset
+function functionAtOffset(functions, offset) {
+  const containing = [...functions.values()].filter(entry => (
+    entry.startOffset <= offset && offset < entry.endOffset
   ));
   if (containing.length === 0) return undefined;
-  return Math.max(...containing.map(range => range.count));
+  const smallestSpan = Math.min(...containing.map(entry => entry.endOffset - entry.startOffset));
+  return containing.find(entry => entry.endOffset - entry.startOffset === smallestSpan);
 }
 
 function normalizedRecord(aggregate, changed) {
   const offsets = lineOffsets(aggregate.source);
   const lines = new Map();
   for (const line of changed) {
-    const count = lineCoverageCount(aggregate.source, offsets, aggregate.ranges, line);
-    if (count !== undefined) lines.set(line, count);
+    const offset = executableOffset(aggregate.source, offsets, line);
+    if (offset === undefined) continue;
+    const owner = functionAtOffset(aggregate.functions, offset);
+    if (!owner) continue;
+    lines.set(line, aggregateInheritedRangeCount(owner.runs, {
+      startOffset: offset,
+      endOffset: offset + 1,
+    }));
   }
 
   const functions = [...aggregate.functions.values()].map(entry => ({
@@ -106,40 +135,47 @@ function normalizedRecord(aggregate, changed) {
     count: entry.count,
   }));
 
-  const branches = [...aggregate.branches.values()].map(entry => ({
-    line: offsetLine(offsets, entry.startOffset),
-    id: `${entry.startOffset}:${entry.endOffset}`,
-    count: entry.count,
-  }));
+  const branches = [...aggregate.functions.values()].flatMap(entry => (
+    [...entry.branches.values()].map(branch => ({
+      line: offsetLine(offsets, branch.startOffset),
+      id: `${branch.startOffset}:${branch.endOffset}`,
+      count: aggregateInheritedRangeCount(entry.runs, branch),
+    }))
+  ));
 
   return { lines, functions, branches };
 }
 
-if (!existsSync(COVERAGE_DIRECTORY)) {
-  throw new Error('Browser coverage directory is missing; run Playwright through coverage-fixture.mjs first');
-}
-
-const baseSha = resolveCoverageBaseSha();
-ensureCoverageCommit(baseSha);
-const changes = changedCoverageLines(baseSha, includes);
-const aggregates = new Map(includes.map(file => [file, emptyAggregate(file)]));
-let entryCount = 0;
-
-for (const name of readdirSync(COVERAGE_DIRECTORY).filter(value => value.endsWith('.json'))) {
-  const entries = JSON.parse(readFileSync(resolve(COVERAGE_DIRECTORY, name), 'utf8'));
-  if (!Array.isArray(entries)) throw new Error(`Invalid browser coverage payload: ${name}`);
-  for (const entry of entries) {
-    if (!entry || typeof entry.url !== 'string' || !Array.isArray(entry.functions)) continue;
-    const file = SOURCE_BY_PATHNAME.get(new URL(entry.url).pathname);
-    if (!file) continue;
-    addV8Entry(aggregates.get(file), entry);
-    entryCount += 1;
+function main() {
+  if (!existsSync(COVERAGE_DIRECTORY)) {
+    throw new Error('Browser coverage directory is missing; run Playwright through coverage-fixture.mjs first');
   }
+
+  const baseSha = resolveCoverageBaseSha();
+  ensureCoverageCommit(baseSha);
+  const changes = changedCoverageLines(baseSha, includes);
+  const aggregates = new Map(includes.map(file => [file, emptyAggregate(file)]));
+  let entryCount = 0;
+
+  for (const name of readdirSync(COVERAGE_DIRECTORY).filter(value => value.endsWith('.json'))) {
+    const entries = JSON.parse(readFileSync(resolve(COVERAGE_DIRECTORY, name), 'utf8'));
+    if (!Array.isArray(entries)) throw new Error(`Invalid browser coverage payload: ${name}`);
+    for (const entry of entries) {
+      if (!entry || typeof entry.url !== 'string' || !Array.isArray(entry.functions)) continue;
+      const file = SOURCE_BY_PATHNAME.get(new URL(entry.url).pathname);
+      if (!file) continue;
+      addV8Entry(aggregates.get(file), entry);
+      entryCount += 1;
+    }
+  }
+
+  if (entryCount === 0) throw new Error('No Chromium coverage entries were recorded for the changed UI modules');
+  const records = new Map([...aggregates].map(([file, aggregate]) => [
+    file,
+    normalizedRecord(aggregate, changes.get(file) || new Set()),
+  ]));
+  checkChangedCoverage(changes, records, 'Browser changed-code');
 }
 
-if (entryCount === 0) throw new Error('No Chromium coverage entries were recorded for the changed UI modules');
-const records = new Map([...aggregates].map(([file, aggregate]) => [
-  file,
-  normalizedRecord(aggregate, changes.get(file) || new Set()),
-]));
-checkChangedCoverage(changes, records, 'Browser changed-code');
+const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : '';
+if (import.meta.url === invokedPath) main();
