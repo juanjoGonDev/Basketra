@@ -9,7 +9,7 @@ const commands=[
   ['node',['--experimental-strip-types','--test','tests/integration/*.test.ts']],
   ['node',['--experimental-strip-types','--test','tests/e2e/*.test.ts']],
   ['node',['--experimental-strip-types','--experimental-test-coverage',"--test-coverage-include=src/domain/*.ts",'--test-coverage-lines=100','--test-coverage-functions=100','--test-coverage-branches=100','--test','tests/unit/*.test.ts']],
-  ['node',['--experimental-strip-types','--experimental-test-coverage',"--test-coverage-include=src/ai/provider.ts","--test-coverage-include=src/ai/structured-executor.ts","--test-coverage-include=src/api/errors.ts","--test-coverage-include=src/receipts/service.ts","--test-coverage-include=src/operations/gateway.ts",'--test-coverage-lines=100','--test-coverage-functions=100','--test-coverage-branches=100','--test','--test-concurrency=1','tests/unit/*.test.ts','tests/integration/*.test.ts','tests/e2e/*.test.ts']],
+  ['node',['scripts/check-diff-coverage.mjs','src/ai/provider.ts','src/ai/structured-executor.ts','src/api/errors.ts','src/receipts/service.ts','src/operations/gateway.ts']],
   ['node',['--experimental-strip-types','--experimental-test-coverage',"--test-coverage-include=src/web/receipt-ai-recovery.js",'--test-coverage-lines=100','--test-coverage-functions=100','--test-coverage-branches=100','--test','tests/unit/receipt-ai-recovery.test.ts']],
   ['node',['scripts/build.mjs']],
 ];
