@@ -19,6 +19,7 @@
     "test:integration": "node --experimental-strip-types --test tests/integration/*.test.ts",
     "test:e2e": "node --experimental-strip-types --test tests/e2e/*.test.ts",
     "test:coverage": "node --experimental-strip-types --experimental-test-coverage --test-coverage-include='src/domain/*.ts' --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/unit/*.test.ts",
+    "test:coverage:receipt-ai-backend": "node --experimental-strip-types --experimental-test-coverage --test-coverage-include='src/ai/provider.ts' --test-coverage-include='src/ai/structured-executor.ts' --test-coverage-include='src/api/errors.ts' --test-coverage-include='src/receipts/service.ts' --test-coverage-include='src/operations/gateway.ts' --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test --test-concurrency=1 tests/unit/*.test.ts tests/integration/*.test.ts tests/e2e/*.test.ts",
     "test:coverage:receipt-ai-recovery": "node --experimental-strip-types --experimental-test-coverage --test-coverage-include='src/web/receipt-ai-recovery.js' --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/unit/receipt-ai-recovery.test.ts",
     "build": "node scripts/build.mjs",
     "docker:build": "docker build -t basketra:local .",
