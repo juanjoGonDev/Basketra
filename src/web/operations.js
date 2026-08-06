@@ -172,9 +172,9 @@ function providerProbeUrl(settings) {
   try {
     const baseUrl = new URL(settings.baseUrl);
     if (!baseUrl.pathname.endsWith('/')) baseUrl.pathname += '/';
-    return new URL('models', baseUrl).href;
+    return new URL('chat/completions', baseUrl).href;
   } catch {
-    return `${settings.baseUrl.replace(/\/?$/, '/') }models`;
+    return `${settings.baseUrl.replace(/\/?$/, '/')}chat/completions`;
   }
 }
 
@@ -205,8 +205,8 @@ function renderAiSettings(settings) {
   const request = $('#ai-provider-request');
   const authorization = $('#ai-provider-authorization');
   const note = $('#ai-provider-network-note');
-  request.textContent = settings.configured ? `GET ${providerProbeUrl(settings)}` : 'Pendiente de configuración';
-  authorization.textContent = settings.apiKeyMask ? 'Bearer configurado' : 'Sin cabecera Authorization';
+  request.textContent = settings.configured ? `POST ${providerProbeUrl(settings)}` : 'Pendiente de configuración';
+  authorization.textContent = settings.apiKeyMask ? 'Bearer con token gestionado' : 'Sin cabecera Authorization';
   note.textContent = settings.configured ? providerNetworkGuidance(settings) : '';
   if (!settings.configured) {
     status.textContent = 'Configuración no cargada';
@@ -219,12 +219,12 @@ function renderAiSettings(settings) {
   if (settings.loopbackWarning) {
     status.textContent = 'Configurado con dirección incorrecta para Docker';
     status.dataset.state = 'warning';
-    detail.textContent = `${settings.model} · ${settings.baseUrl}${settings.apiKeyMask ? ` · clave ${settings.apiKeyMask}` : ''}`;
+    detail.textContent = `${settings.model} · ${settings.baseUrl}${settings.apiKeyMask ? ` · token ${settings.apiKeyMask}` : ''}`;
     return;
   }
   status.textContent = 'Configuración cargada';
   status.dataset.state = 'ok';
-  detail.textContent = `${settings.model} · ${settings.baseUrl}${settings.apiKeyMask ? ` · clave ${settings.apiKeyMask}` : ''}`;
+  detail.textContent = `${settings.model} · ${settings.baseUrl}${settings.apiKeyMask ? ` · token ${settings.apiKeyMask}` : ''}`;
 }
 
 async function loadRuntime() {
@@ -463,21 +463,28 @@ async function testAiProvider() {
   const stateElement = $('#ai-test-state');
   const probe = providerProbeUrl(state.aiSettings);
   button.disabled = true;
-  stateElement.textContent = `Enviando GET ${probe} desde el contenedor Basketra…`;
+  stateElement.textContent = `Enviando una imagen sintética a POST ${probe} y validando el esquema estricto…`;
   try {
     const result = await requestJson('/api/v1/settings/ai-provider/test', { method: 'POST' });
-    stateElement.textContent = result.connection.ok
-      ? `Conexión correcta: GET ${probe} respondió y el proveedor aceptó la autenticación.`
-      : result.connection.code;
+    stateElement.textContent = result.connection.ok && result.connection.imageStructuredOutput
+      ? `Capacidad verificada: autenticación, modelo, adjunto de imagen y salida estructurada estricta funcionan en ${probe}.`
+      : 'El proveedor respondió sin confirmar la capacidad multimodal estructurada.';
   } catch (error) {
     const messages = {
       AI_LOOPBACK_CONTAINER: providerNetworkGuidance(state.aiSettings),
       AI_UNREACHABLE: `No se pudo abrir una conexión con ${probe}. ${providerNetworkGuidance(state.aiSettings)}`,
-      AI_AUTHENTICATION_FAILED: 'webApi respondió, pero rechazó la clave. BASKETRA_AI_API_KEY debe coincidir exactamente con API_KEY.',
-      AI_TIMEOUT: `El proveedor no respondió dentro del tiempo configurado al solicitar ${probe}.`,
-      AI_HTTP_404: `El host respondió, pero ${probe} no existe. Para webApi la URL base debe terminar en /v1/.`,
+      AI_AUTHENTICATION_FAILED: 'webApi respondió, pero rechazó el token. Crea un token gestionado en /admin y copia su valor completo en BASKETRA_AI_API_KEY.',
+      AI_TIMEOUT: `La prueba multimodal no terminó dentro del tiempo configurado al solicitar ${probe}.`,
+      AI_ATTACHMENT_TOO_LARGE: 'El proveedor rechazó incluso la imagen sintética mínima por tamaño. Revisa los límites del proveedor.',
+      AI_ATTACHMENT_UPLOAD_FAILED: 'El proveedor no pudo preparar la imagen sintética en el compositor. Revisa el estado del navegador de webApi.',
+      AI_REQUEST_REJECTED: 'El proveedor rechazó la imagen o el esquema estricto. Revisa el modelo configurado y el contrato OpenAI-compatible.',
+      AI_RATE_LIMITED: 'El proveedor está limitando solicitudes. Espera y vuelve a ejecutar la prueba manualmente.',
+      AI_INVALID_RESPONSE: 'El proveedor respondió, pero no respetó el esquema estricto de la prueba.',
+      AI_EMPTY_RESPONSE: 'El proveedor completó la petición sin devolver contenido estructurado.',
+      AI_RESPONSE_TOO_LARGE: 'La respuesta de la prueba superó el límite configurado.',
+      AI_PROVIDER_FAILED: 'El proveedor falló al procesar la imagen sintética.',
     };
-    stateElement.textContent = messages[error.code] || `${error.message}. Solicitud probada: GET ${probe}.`;
+    stateElement.textContent = messages[error.code] || `${error.message}. Solicitud probada: POST ${probe}.`;
   } finally {
     button.disabled = false;
     await loadLogs();
@@ -512,8 +519,9 @@ function installOperationsUi() {
         <div><dt>Comprobación real</dt><dd id="ai-provider-request">Cargando…</dd></div>
         <div><dt>Autorización</dt><dd id="ai-provider-authorization">Cargando…</dd></div>
       </dl>
+      <p>La prueba envía una imagen sintética sin datos personales y exige una respuesta JSON conforme a un esquema estricto. Sólo se ejecuta al pulsar el botón.</p>
       <p id="ai-provider-network-note" class="operations-help"></p>
-      <button id="test-ai-provider" class="button secondary full" type="button">Probar desde Basketra</button>
+      <button id="test-ai-provider" class="button secondary full" type="button">Verificar imagen y JSON estricto</button>
       <p id="ai-test-state" class="inline-status" role="status"></p>
     </section>
     <section class="surface operations-card" aria-labelledby="logs-title">
