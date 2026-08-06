@@ -9,13 +9,15 @@ import { FileStore } from '../../src/infrastructure/files.ts';
 import type { OcrProvider } from '../../src/ocr/provider.ts';
 import { ReceiptExtractionService } from '../../src/receipts/service.ts';
 
-const PDF_BYTES = Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF');
+function pdfBytes(index: number): Buffer {
+  return Buffer.from(`%PDF-1.4\n% fixture ${index}\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF`);
+}
 
 test('PDF OCR reuses one multimodal provider and serializes work through the canonical AI queue', async () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-pdf-ai-queue-'));
   const store = new FileStore(join(root, 'files'), join(root, 'tmp'), 1024 * 1024);
   const captures = [1, 2].map(index => store.storeBase64({
-    base64: PDF_BYTES.toString('base64'),
+    base64: pdfBytes(index).toString('base64'),
     mimeType: 'application/pdf',
     originalName: `receipt-${index}.pdf`,
   }));
