@@ -120,19 +120,31 @@ function closeSwipeRows(root, except) {
   });
 }
 
-function openSwipeRow(root, row) {
-  closeSwipeRows(root, row);
-  const width = Math.min(SWIPE_REVEAL_MAX_PX, Math.max(112, row.clientWidth * 0.42));
-  row.dataset.swipeOpen = 'true';
-  row.dataset.swipeDeleteArmed = 'false';
-  setSwipeOffset(row, -width);
-  setActionsAccessible(row, true);
+function resolveCurrentSwipeRow(root, row) {
+  if (row.isConnected) return row;
+  const id = row.dataset.swipeId;
+  const kind = row.dataset.swipeKind;
+  if (!id || !kind) return row;
+  return [...root.querySelectorAll('[data-swipe-row]')].find(candidate => (
+    candidate.dataset.swipeId === id && candidate.dataset.swipeKind === kind
+  )) || row;
 }
 
-function dispatchSwipeAction(row, action) {
-  row.dispatchEvent(new CustomEvent('basketra:swipe-action', {
+function openSwipeRow(root, row) {
+  const currentRow = resolveCurrentSwipeRow(root, row);
+  closeSwipeRows(root, currentRow);
+  const width = Math.min(SWIPE_REVEAL_MAX_PX, Math.max(112, currentRow.clientWidth * 0.42));
+  currentRow.dataset.swipeOpen = 'true';
+  currentRow.dataset.swipeDeleteArmed = 'false';
+  setSwipeOffset(currentRow, -width);
+  setActionsAccessible(currentRow, true);
+}
+
+function dispatchSwipeAction(root, row, action) {
+  const currentRow = resolveCurrentSwipeRow(root, row);
+  currentRow.dispatchEvent(new CustomEvent('basketra:swipe-action', {
     bubbles: true,
-    detail: { action, id: row.dataset.swipeId, kind: row.dataset.swipeKind },
+    detail: { action, id: currentRow.dataset.swipeId, kind: currentRow.dataset.swipeKind },
   }));
 }
 
@@ -200,7 +212,7 @@ export function bindSwipeActions(root = document) {
     const ratio = Math.abs(effectiveOffset) / Math.max(row.clientWidth, 1);
     if (effectiveOffset > 0 && ratio >= SWIPE_START_COMMIT_RATIO && row.dataset.swipeStartAction) {
       closeSwipeRow(row);
-      dispatchSwipeAction(row, row.dataset.swipeStartAction);
+      dispatchSwipeAction(root, row, row.dataset.swipeStartAction);
       return;
     }
     if (effectiveOffset < 0 && ratio >= SWIPE_END_COMMIT_RATIO && row.dataset.swipeEndAction) {
@@ -208,7 +220,7 @@ export function bindSwipeActions(root = document) {
       row.dataset.swipeDeleteArmed = 'true';
       setSwipeOffset(row, -row.clientWidth);
       const delay = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 150;
-      setTimeout(() => dispatchSwipeAction(row, row.dataset.swipeEndAction), delay);
+      setTimeout(() => dispatchSwipeAction(root, row, row.dataset.swipeEndAction), delay);
       return;
     }
     if (effectiveOffset < 0 && ratio >= SWIPE_REVEAL_RATIO && swipeActions(row)) {
