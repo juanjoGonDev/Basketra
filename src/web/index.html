@@ -28,79 +28,56 @@
         <h1>Organiza la compra sin perder tiempo.</h1>
         <p>Prepara la lista, fotografía tickets y conserva las evidencias en tu propia Raspberry Pi.</p>
         <div class="hero__actions">
-          <button class="button primary" data-nav="lists"><span data-icon="list"></span>Ir a mi lista</button>
+          <button class="button primary" data-nav="lists"><span data-icon="list"></span>Ir a mis listas</button>
           <button class="button secondary" data-nav="scan"><span data-icon="camera"></span>Fotografiar ticket</button>
         </div>
       </div>
       <div class="dashboard-grid">
-        <button class="dashboard-card" data-nav="lists"><span data-icon="plus"></span><strong>Añadir productos</strong><small>Crea listas y prepara la compra.</small></button>
+        <button class="dashboard-card" data-nav="lists"><span data-icon="plus"></span><strong>Preparar la compra</strong><small>Listas compartidas en tiempo real.</small></button>
         <button class="dashboard-card" data-nav="scan"><span data-icon="receipt"></span><strong>Importar ticket</strong><small>Cámara, galería o PDF.</small></button>
         <button class="dashboard-card" data-nav="prices"><span data-icon="prices"></span><strong>Comparar planes</strong><small>Decisiones con evidencia.</small></button>
       </div>
     </section>
 
     <section class="view" data-view="lists">
-      <div class="page-header"><div><p class="eyebrow">Compra activa</p><h1>Lista de la compra</h1><p>Desliza a la derecha para completar. A la izquierda, un gesto corto descubre editar y eliminar; si continúas hasta el umbral rojo, se elimina al soltar y puedes deshacerlo.</p></div></div>
-
-      <section class="surface list-manager" aria-labelledby="list-manager-title">
-        <div class="panel-heading"><span class="section-icon" data-icon="list"></span><div><p class="eyebrow">Mis listas</p><h2 id="list-manager-title">Selecciona o crea una</h2></div></div>
-        <label class="field"><span>Lista activa</span><select id="list-select"><option value="">Cargando…</option></select></label>
-        <div class="list-actions">
-          <button id="rename-list" class="button secondary" type="button"><span data-icon="edit"></span>Renombrar</button>
-          <button id="delete-list" class="button danger-outline" type="button"><span data-icon="trash"></span>Eliminar</button>
+      <div id="lists-overview" class="lists-screen">
+        <div class="page-header list-page-header">
+          <div><p class="eyebrow">Listas</p><h1>¿Qué compra preparas?</h1><p>Ambos móviles comparten estas listas. Abre una para comprar o crea otra para una ocasión distinta.</p></div>
+          <button id="open-create-list" class="button primary" type="button"><span data-icon="plus"></span>Nueva lista</button>
         </div>
-        <form id="new-list-form" class="inline-form">
-          <label class="field grow"><span>Nueva lista</span><input id="new-list-name" maxlength="80" placeholder="Ej. Compra semanal" required></label>
-          <button class="button secondary" type="submit"><span data-icon="plus"></span>Crear</button>
-        </form>
-        <form id="rename-list-form" class="inline-form" hidden>
-          <label class="field grow"><span>Nuevo nombre</span><input id="rename-list-name" maxlength="80" required></label>
-          <div class="inline-actions">
-            <button class="button primary" type="submit">Guardar</button>
-            <button id="cancel-rename-list" class="button secondary" type="button">Cancelar</button>
-          </div>
-        </form>
+        <div id="list-cards" class="list-overview-grid" aria-live="polite"></div>
         <p id="list-state" class="inline-status" role="status"></p>
-      </section>
+      </div>
 
-      <form id="item-form" class="surface composer">
-        <div class="panel-heading"><span class="section-icon" data-icon="cart"></span><div><p class="eyebrow">Producto</p><h2 id="item-form-title">¿Qué necesitas?</h2></div></div>
-        <label class="field"><span>Producto</span><input id="item-text" autocomplete="off" maxlength="240" placeholder="Leche entera 1 L" required></label>
-        <div id="suggestions" class="suggestions" role="listbox" aria-label="Sugerencias de producto"></div>
-        <div class="quantity-row">
-          <label class="field"><span>Cantidad</span><input id="item-quantity" type="number" min="1" max="100000" value="1" inputmode="numeric" required></label>
-          <label class="field"><span>Unidad</span><select id="item-unit"><option value="">Cargando…</option></select></label>
-        </div>
-        <div class="preference-list">
-          <label class="switch-row"><span><strong>Producto exacto</strong><small>No cambiar marca o formato.</small></span><input id="exact-required" type="checkbox" aria-label="Producto exacto"><span class="switch"></span></label>
-          <label class="switch-row"><span><strong>Permitir alternativas</strong><small>Aceptar sustituciones equivalentes.</small></span><input id="substitution-allowed" type="checkbox" aria-label="Permitir sustituciones" checked><span class="switch"></span></label>
-        </div>
-        <div class="form-actions">
-          <button id="add-item" class="button primary" type="submit"><span data-icon="plus"></span><span id="item-submit-label">Añadir a la lista</span></button>
-          <button id="cancel-item-edit" class="button secondary" type="button" hidden>Cancelar edición</button>
-        </div>
-        <p id="item-state" class="inline-status" role="status"></p>
-      </form>
+      <div id="list-detail" class="lists-screen list-detail" hidden>
+        <header class="list-detail-header">
+          <button id="back-to-lists" class="icon-button" type="button" aria-label="Volver a mis listas"><span data-icon="chevronLeft"></span></button>
+          <div class="list-detail-title"><p class="eyebrow">Lista compartida</p><h1 id="active-list-title">Lista</h1></div>
+          <span id="realtime-state" class="realtime-chip" role="status" data-state="connecting"><span class="realtime-dot" aria-hidden="true"></span><span>Conectando</span></span>
+          <button id="list-menu" class="icon-button" type="button" aria-label="Gestionar lista" aria-expanded="false"><span data-icon="more"></span></button>
+          <div id="list-menu-panel" class="popover-menu" hidden>
+            <button id="rename-list" type="button"><span data-icon="edit"></span>Renombrar</button>
+            <button id="delete-list" class="danger-text" type="button"><span data-icon="trash"></span>Eliminar lista</button>
+          </div>
+        </header>
 
-      <section class="content-section" aria-labelledby="pending-title">
-        <div class="section-header"><div><p class="eyebrow">Pendientes</p><h2 id="pending-title">Por comprar</h2></div><span id="pending-count" class="count-badge">0</span></div>
-        <ul id="pending-items" class="item-list" aria-live="polite"></ul>
-      </section>
-
-      <section id="completed-section" class="content-section" aria-labelledby="completed-title" hidden>
-        <div class="section-header"><div><p class="eyebrow">Completados</p><h2 id="completed-title">Ya en la cesta</h2></div><span id="completed-count" class="count-badge">0</span></div>
-        <ul id="completed-items" class="item-list" aria-live="polite"></ul>
-      </section>
-
-      <details class="surface ai-card">
-        <summary><span data-icon="sparkles"></span><span><strong>Asistencia IA opcional</strong><small>Analiza texto sólo cuando la necesites.</small></span></summary>
-        <div class="details-body">
-          <label class="field"><span>Modo</span><select id="ai-mode"><option value="disabled">Desactivada</option><option value="manual">Manual</option><option value="automatic">Automática tras pausa</option></select></label>
-          <button id="analyze-ai" class="button secondary full" type="button"><span data-icon="sparkles"></span>Analizar texto</button>
-          <span id="ai-state" class="inline-status" role="status"></span>
-          <div id="ai-proposals" class="proposal-panel" hidden></div>
+        <div class="list-primary-actions">
+          <button id="open-item-dialog" class="button primary" type="button"><span data-icon="plus"></span>Añadir producto</button>
+          <span id="item-state" class="inline-status" role="status"></span>
         </div>
-      </details>
+
+        <section class="content-section" aria-labelledby="pending-title">
+          <div class="section-header"><div><p class="eyebrow">Pendientes</p><h2 id="pending-title">Por comprar</h2></div><span id="pending-count" class="count-badge">0</span></div>
+          <div id="pending-items" class="category-groups" aria-live="polite"></div>
+        </section>
+
+        <section id="completed-section" class="content-section completed-section" aria-labelledby="completed-title" hidden>
+          <div class="section-header"><div><p class="eyebrow">Completados</p><h2 id="completed-title">Ya en la cesta</h2></div><span id="completed-count" class="count-badge">0</span></div>
+          <div id="completed-items" class="category-groups" aria-live="polite"></div>
+        </section>
+
+        <button id="open-ai-assistant" class="floating-ai-action" type="button"><span data-icon="sparkles"></span><span>IA</span></button>
+      </div>
     </section>
 
     <section class="view" data-view="scan">
@@ -144,6 +121,117 @@
     </section>
   </main>
 
+  <dialog id="create-list-dialog" class="sheet-dialog" aria-labelledby="create-list-title">
+    <form id="new-list-form" class="dialog-content">
+      <div class="dialog-header"><div><p class="eyebrow">Nueva lista</p><h2 id="create-list-title">Ponle un nombre</h2></div><button class="icon-button" type="button" data-close-dialog="create-list-dialog" aria-label="Cerrar"><span data-icon="close"></span></button></div>
+      <label class="field"><span>Nombre</span><input id="new-list-name" maxlength="80" autocomplete="off" placeholder="Ej. Compra semanal" required></label>
+      <div class="dialog-actions"><button class="button secondary" type="button" data-close-dialog="create-list-dialog">Cancelar</button><button class="button primary" type="submit"><span data-icon="plus"></span>Crear lista</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="rename-list-dialog" class="sheet-dialog" aria-labelledby="rename-list-title">
+    <form id="rename-list-form" class="dialog-content">
+      <div class="dialog-header"><div><p class="eyebrow">Lista</p><h2 id="rename-list-title">Renombrar lista</h2></div><button class="icon-button" type="button" data-close-dialog="rename-list-dialog" aria-label="Cerrar"><span data-icon="close"></span></button></div>
+      <label class="field"><span>Nombre</span><input id="rename-list-name" maxlength="80" required></label>
+      <div class="dialog-actions"><button class="button secondary" type="button" data-close-dialog="rename-list-dialog">Cancelar</button><button class="button primary" type="submit">Guardar</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="item-dialog" class="sheet-dialog item-sheet" aria-labelledby="item-form-title">
+    <form id="item-form" class="dialog-content">
+      <div class="dialog-header"><div><p class="eyebrow">Producto</p><h2 id="item-form-title">Añadir producto</h2></div><button id="close-item-dialog" class="icon-button" type="button" aria-label="Cerrar"><span data-icon="close"></span></button></div>
+      <label class="field"><span>Producto</span><input id="item-text" autocomplete="off" maxlength="240" placeholder="Leche" required></label>
+      <div id="suggestions" class="suggestions" role="listbox" aria-label="Productos guardados"></div>
+      <div id="linked-product" class="linked-product" hidden><span><strong id="linked-product-name"></strong><small>Producto global reutilizable</small></span><button id="edit-global-product" class="button secondary" type="button">Editar ficha</button></div>
+      <div class="quantity-row">
+        <label class="field"><span>Cantidad</span><input id="item-quantity" type="number" min="1" max="100000" value="1" inputmode="numeric" required></label>
+        <label class="field"><span>Unidad</span><select id="item-unit"><option value="">Cargando…</option></select></label>
+      </div>
+
+      <details id="item-advanced" class="progressive-options">
+        <summary>Más opciones</summary>
+        <div class="details-body">
+          <div class="preference-list">
+            <label class="switch-row"><span><strong>Producto exacto</strong><small>No cambiar marca o formato.</small></span><input id="exact-required" type="checkbox" aria-label="Producto exacto"><span class="switch"></span></label>
+            <label class="switch-row"><span><strong>Permitir alternativas</strong><small>Aceptar sustituciones equivalentes.</small></span><input id="substitution-allowed" type="checkbox" aria-label="Permitir sustituciones" checked><span class="switch"></span></label>
+          </div>
+
+          <fieldset class="flow-group">
+            <legend>Foto de producto o precio</legend>
+            <p class="field-help">La IA sólo propone lo que detecta. Revisas todo antes de guardar.</p>
+            <div class="capture-actions compact-captures">
+              <label class="capture-action"><span data-icon="camera"></span><strong>Hacer foto</strong><input id="product-camera" type="file" accept="image/jpeg,image/png" capture="environment"></label>
+              <label class="capture-action"><span data-icon="image"></span><strong>Galería</strong><input id="product-gallery" type="file" accept="image/jpeg,image/png"></label>
+            </div>
+            <p id="product-photo-state" class="inline-status" role="status"></p>
+          </fieldset>
+
+          <section id="product-proposal" class="proposal-editor" hidden aria-labelledby="product-proposal-title">
+            <div class="section-header"><div><p class="eyebrow">Propuesta editable</p><h3 id="product-proposal-title">Datos detectados</h3></div><span id="product-confidence" class="status-pill"></span></div>
+            <label class="field"><span>Nombre global</span><input id="proposal-canonical-name" maxlength="160"></label>
+            <label class="field"><span>Formato / variante</span><input id="proposal-variant-name" maxlength="160"></label>
+            <div class="quantity-row"><label class="field"><span>Marca</span><input id="proposal-brand" maxlength="120"></label><label class="field"><span>EAN/GTIN</span><input id="proposal-ean" maxlength="14" inputmode="numeric"></label></div>
+            <label class="field"><span>Categoría</span><select id="proposal-category"><option value="">Sin categoría</option></select></label>
+            <label class="field"><span>Descripción</span><textarea id="proposal-description" maxlength="500" rows="2"></textarea></label>
+            <div class="quantity-row"><label class="field"><span>Precio (€)</span><input id="proposal-price" inputmode="decimal" placeholder="0,00"></label><label class="field"><span>Comercio</span><input id="proposal-retailer" maxlength="160" autocomplete="off"></label></div>
+            <div id="proposal-warnings" class="warning-list" role="status"></div>
+          </section>
+
+          <fieldset class="flow-group">
+            <legend>Tienda física opcional</legend>
+            <p class="field-help">Puedes elegir una tienda guardada sin compartir tu posición.</p>
+            <label class="field"><span>Tienda</span><select id="store-select"><option value="">Sin tienda física</option></select></label>
+            <button id="use-current-location" class="button secondary full" type="button"><span data-icon="location"></span>Usar mi ubicación para sugerir tienda</button>
+            <button id="find-nearby-stores" class="button secondary full" type="button" hidden>Buscar tiendas cercanas con OpenStreetMap</button>
+            <p id="location-state" class="inline-status" role="status"></p>
+            <div id="nearby-stores" class="suggestions" aria-live="polite"></div>
+            <small id="osm-attribution" hidden>© OpenStreetMap contributors</small>
+          </fieldset>
+        </div>
+      </details>
+
+      <div class="form-actions"><button id="cancel-item-edit" class="button secondary" type="button">Cancelar</button><button id="add-item" class="button primary" type="submit"><span data-icon="plus"></span><span id="item-submit-label">Añadir</span></button></div>
+      <p id="item-dialog-state" class="inline-status" role="status"></p>
+    </form>
+  </dialog>
+
+  <dialog id="global-product-dialog" class="sheet-dialog" aria-labelledby="global-product-title">
+    <form id="global-product-form" class="dialog-content">
+      <div class="dialog-header"><div><p class="eyebrow">Catálogo global</p><h2 id="global-product-title">Editar producto reutilizable</h2></div><button class="icon-button" type="button" data-close-dialog="global-product-dialog" aria-label="Cerrar"><span data-icon="close"></span></button></div>
+      <label class="field"><span>Nombre canónico</span><input id="global-canonical-name" maxlength="160" required></label>
+      <label class="field"><span>Variante</span><input id="global-variant-name" maxlength="160" required></label>
+      <div class="quantity-row"><label class="field"><span>Marca</span><input id="global-brand" maxlength="120"></label><label class="field"><span>EAN/GTIN</span><input id="global-ean" maxlength="14" inputmode="numeric"></label></div>
+      <label class="field"><span>Categoría</span><select id="global-category"><option value="">Sin categoría</option></select></label>
+      <label class="field"><span>Descripción</span><textarea id="global-description" maxlength="500" rows="3"></textarea></label>
+      <label class="field"><span>Alias, uno por línea</span><textarea id="global-aliases" rows="3" maxlength="1000"></textarea></label>
+      <p id="global-product-state" class="inline-status" role="status"></p>
+      <div class="dialog-actions"><button class="button secondary" type="button" data-close-dialog="global-product-dialog">Cancelar</button><button class="button primary" type="submit">Guardar ficha global</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="ai-assistant-dialog" class="sheet-dialog" aria-labelledby="ai-assistant-title">
+    <div class="dialog-content">
+      <div class="dialog-header"><div><p class="eyebrow">Asistencia opcional</p><h2 id="ai-assistant-title">Añadir con IA</h2></div><button class="icon-button" type="button" data-close-dialog="ai-assistant-dialog" aria-label="Cerrar"><span data-icon="close"></span></button></div>
+      <label class="field"><span>Describe lo que necesitas</span><textarea id="ai-text" maxlength="2000" placeholder="Leche, pan integral y dos paquetes de arroz"></textarea></label>
+      <div class="capture-actions compact-captures">
+        <label class="capture-action"><span data-icon="camera"></span><strong>Foto</strong><input id="ai-product-camera" type="file" accept="image/jpeg,image/png" capture="environment"></label>
+        <label class="capture-action"><span data-icon="image"></span><strong>Galería</strong><input id="ai-product-gallery" type="file" accept="image/jpeg,image/png"></label>
+      </div>
+      <button id="analyze-ai" class="button primary full" type="button"><span data-icon="sparkles"></span>Preparar propuesta</button>
+      <span id="ai-state" class="inline-status" role="status"></span>
+      <form id="ai-proposals" class="proposal-panel" hidden></form>
+    </div>
+  </dialog>
+
+  <dialog id="conflict-dialog" class="sheet-dialog" aria-labelledby="conflict-title">
+    <div class="dialog-content">
+      <div class="dialog-header"><div><p class="eyebrow">Cambio simultáneo</p><h2 id="conflict-title">Este producto cambió en el otro móvil</h2></div><button class="icon-button" type="button" data-close-dialog="conflict-dialog" aria-label="Cerrar"><span data-icon="close"></span></button></div>
+      <p>Compara tu edición con la versión más reciente antes de decidir.</p>
+      <div id="conflict-fields" class="conflict-grid"></div>
+      <div class="dialog-actions"><button id="use-latest-conflict" class="button secondary" type="button">Usar última versión</button><button id="use-my-conflict" class="button primary" type="button">Usar mis cambios</button></div>
+    </div>
+  </dialog>
+
   <dialog id="delete-list-dialog" class="confirm-dialog" aria-labelledby="delete-list-title">
     <div class="dialog-content">
       <span class="dialog-icon" data-icon="alert"></span>
@@ -169,7 +257,7 @@
 
   <nav class="bottom-nav" aria-label="Navegación principal">
     <button data-nav="home" aria-current="page"><span data-icon="home"></span><span>Inicio</span></button>
-    <button data-nav="lists"><span data-icon="list"></span><span>Lista</span></button>
+    <button data-nav="lists"><span data-icon="list"></span><span>Listas</span></button>
     <button data-nav="scan"><span data-icon="camera"></span><span>Tickets</span></button>
     <button data-nav="prices"><span data-icon="prices"></span><span>Planes</span></button>
     <button data-nav="settings"><span data-icon="settings"></span><span>Ajustes</span></button>
