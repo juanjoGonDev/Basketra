@@ -279,12 +279,16 @@ export class OperationsGateway {
         pdf: this.config.aiPdfCapability,
       },
     });
+    const controller = new AbortController();
+    const onClosed = () => controller.abort(new Error('CLIENT_DISCONNECTED'));
+    response.once('close', onClosed);
 
     try {
-      const connection = await provider.testConnection();
+      const connection = await provider.testConnection(controller.signal);
       this.#logStore.append({ source: 'server', level: 'info', event: 'ai.capability_probe_ok', requestId });
       this.json(response, 200, { connection }, requestId);
     } catch (error) {
+      if (controller.signal.aborted) return;
       const mapped = mapError(error);
       this.#logStore.append({
         source: 'server',
@@ -303,6 +307,7 @@ export class OperationsGateway {
         },
       }, requestId);
     } finally {
+      response.off('close', onClosed);
       provider.dispose();
     }
   }
