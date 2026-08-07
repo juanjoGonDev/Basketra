@@ -16,7 +16,7 @@
     "deadcode": "node scripts/deadcode.mjs",
     "deps:check": "node scripts/deps-check.mjs",
     "test": "node --experimental-strip-types --test tests/unit/*.test.ts",
-    "test:integration": "node --experimental-strip-types --test tests/integration/*.test.ts",
+    "test:integration": "node --experimental-strip-types --test --test-concurrency=1 tests/integration/*.test.ts",
     "test:e2e": "node --experimental-strip-types --test tests/e2e/*.test.ts",
     "test:coverage": "node --experimental-strip-types --experimental-test-coverage --test-coverage-include='src/domain/*.ts' --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/unit/*.test.ts",
     "test:coverage:receipt-ai-backend": "node scripts/check-diff-coverage.mjs src/ai/provider.ts src/ai/structured-executor.ts src/api/errors.ts src/receipts/service.ts src/operations/gateway.ts",
