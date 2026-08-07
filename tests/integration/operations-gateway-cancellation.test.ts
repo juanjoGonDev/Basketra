@@ -18,6 +18,7 @@ function config(dataDir: string, overrides: Partial<AppConfig> = {}): AppConfig 
     aiMaxRetries: 0,
     aiImageCapability: true,
     aiPdfCapability: false,
+    overpassBaseUrl: 'http://127.0.0.1:9/api/',
     idleHibernateAfterMs: 0,
     idleExitAfterMs: 0,
     ...overrides,
@@ -58,13 +59,13 @@ test('operations gateway cancels the provider probe when its inbound request is 
     });
   });
 
-  const providerPort = (providerServer.address() as AddressInfo).port;
-  const gateway = new OperationsGateway(config(directory, {
-    aiBaseUrl: `http://127.0.0.2:${providerPort}/v1/`,
-    aiModel: 'gpt-5',
-  }));
-
+  let gateway: OperationsGateway | undefined;
   try {
+    const providerPort = (providerServer.address() as AddressInfo).port;
+    gateway = new OperationsGateway(config(directory, {
+      aiBaseUrl: `http://127.0.0.2:${providerPort}/v1/`,
+      aiModel: 'gpt-5',
+    }));
     await gateway.listen();
     const clientRequest = request({
       host: '127.0.0.1',
@@ -72,6 +73,7 @@ test('operations gateway cancels the provider probe when its inbound request is 
       path: '/api/v1/settings/ai-provider/test',
       method: 'POST',
       headers: { 'content-length': '1' },
+      agent: false,
     });
     clientRequest.on('error', () => {});
     clientRequest.flushHeaders();
@@ -81,7 +83,7 @@ test('operations gateway cancels the provider probe when its inbound request is 
     await bounded(providerClosed, 'provider probe was not cancelled after the inbound request aborted');
     assert.equal(clientRequest.destroyed, true);
   } finally {
-    await gateway.close();
+    if (gateway) await gateway.close();
     await new Promise<void>((resolve, reject) => providerServer.close(error => error ? reject(error) : resolve()));
     rmSync(directory, { recursive: true, force: true });
   }
