@@ -22,12 +22,11 @@ const input: AiStructuredInput = {
 
 function provider(
   fetchImplementation: typeof fetch,
-  options: Readonly<{ timeoutMs?: number; apiKey?: string }> = {},
+  options: Readonly<{ apiKey?: string }> = {},
 ): OpenAiCompatibleProvider {
   return new OpenAiCompatibleProvider({
     baseUrl: new URL('http://provider.test/v1'),
     model: 'test-model',
-    timeoutMs: options.timeoutMs ?? 1_000,
     ...(options.apiKey ? { apiKey: options.apiKey } : {}),
   }, fetchImplementation);
 }
@@ -135,7 +134,7 @@ test('provider maps every HTTP status family without leaking response bodies', a
   }
 });
 
-test('provider distinguishes empty, malformed, aborted, timed out and unreachable responses', async () => {
+test('provider distinguishes empty, malformed, aborted and unreachable responses', async () => {
   await expectProviderError(responseProvider(200, null), 'AI_EMPTY_RESPONSE', { retryable: true });
   await expectProviderError(
     responseProvider(200, '{"choices":[]}'),
@@ -160,25 +159,27 @@ test('provider distinguishes empty, malformed, aborted, timed out and unreachabl
     (error: unknown) => error instanceof DOMException && error.name === 'AbortError',
   );
 
-  const timedOut = provider((async (_url, init) => await new Promise<Response>((_resolve, reject) => {
-    const signal = init?.signal;
-    if (signal?.aborted) {
-      reject(new DOMException('aborted', 'AbortError'));
-      return;
-    }
-    signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
-  })) as typeof fetch, { timeoutMs: 5 });
-  const keepAlive = setTimeout(() => {}, 100);
-  try {
-    await expectProviderError(timedOut, 'AI_TIMEOUT', { retryable: true });
-  } finally {
-    clearTimeout(keepAlive);
-  }
-
   const unreachable = provider((async () => {
     throw new TypeError('private network detail');
   }) as typeof fetch);
   await expectProviderError(unreachable, 'AI_UNREACHABLE', { retryable: true });
+});
+
+test('provider forwards only caller cancellation and synthesizes no deadline signal', async () => {
+  const signals: Array<AbortSignal | null | undefined> = [];
+  const candidate = provider((async (_url, init) => {
+    signals.push(init?.signal);
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: '{"value":"ok"}' } }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch);
+
+  await candidate.executeStructured(input);
+  const controller = new AbortController();
+  await candidate.executeStructured({ ...input, signal: controller.signal });
+
+  assert.equal(signals[0], undefined);
+  assert.equal(signals[1], controller.signal);
 });
 
 test('provider capability probe rejects non-object and non-exact contracts', async () => {
