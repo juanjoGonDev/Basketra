@@ -95,7 +95,9 @@ async function swipe(page, locator, direction, { long = false } = {}) {
   const anchorBox = await anchor.count() ? await stableBoundingBox(anchor) : null;
   const startBox = anchorBox || box;
   const startX = direction === 'left'
-    ? startBox.x + startBox.width * (receiptLine ? 0.98 : 0.8)
+    ? receiptLine
+      ? box.x + box.width * 0.45
+      : startBox.x + startBox.width * 0.8
     : startBox.x + startBox.width * 0.2;
   const shortLeftRatio = receiptLine ? 0.17 : 0.34;
   const distance = box.width * (long ? 0.72 : direction === 'right' ? 0.46 : shortLeftRatio);
