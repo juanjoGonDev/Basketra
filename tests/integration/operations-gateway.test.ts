@@ -16,7 +16,6 @@ function config(dataDir:string,overrides:Partial<AppConfig>={}):AppConfig{
     dataDir,
     tempDir:`${dataDir}/tmp`,
     maxBodyBytes:8*1024*1024,
-    aiTimeoutMs:1000,
     aiMaxRetries:0,
     aiImageCapability:true,
     aiPdfCapability:false,

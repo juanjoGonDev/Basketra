@@ -1,7 +1,7 @@
 const RECOVERY_GUIDANCE = Object.freeze({
   AI_AUTHENTICATION_FAILED: 'webApi rechazó el token gestionado. Crea o habilita un token en /admin, actualiza BASKETRA_AI_API_KEY y recrea Basketra antes de reintentar.',
   AI_UNREACHABLE: 'No hay conectividad con el proveedor. Revisa la dirección privada, el puerto, la VPN o el firewall antes de reintentar.',
-  AI_TIMEOUT: 'La verificación agotó el tiempo de espera. Comprueba webApi y vuelve a reintentar con IA.',
+  AI_TIMEOUT: 'webApi o el proveedor agotó su propio tiempo de espera. Basketra no impone un límite de tiempo a la verificación.',
   AI_RATE_LIMITED: 'El proveedor alcanzó su límite de solicitudes. Espera y reintenta con IA más tarde.',
   AI_ATTACHMENT_TOO_LARGE: 'El proveedor rechazó el tamaño del adjunto. Reduce, recorta o divide la captura antes de reintentar.',
   AI_ATTACHMENT_UPLOAD_FAILED: 'webApi no pudo preparar el adjunto en su sesión de navegador. Repara o renueva esa sesión antes de reintentar.',

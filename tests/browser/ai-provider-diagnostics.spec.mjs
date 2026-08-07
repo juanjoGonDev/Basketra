@@ -100,7 +100,7 @@ test('provider diagnostic renders every stable recovery message and 200-level ne
     ['AI_LOOPBACK_CONTAINER', 'La prueba sale desde el contenedor Basketra'],
     ['AI_UNREACHABLE', 'No se pudo abrir una conexión'],
     ['AI_AUTHENTICATION_FAILED', 'token gestionado'],
-    ['AI_TIMEOUT', 'no terminó dentro del tiempo configurado'],
+    ['AI_TIMEOUT', 'Basketra no impone un límite de tiempo'],
     ['AI_ATTACHMENT_TOO_LARGE', 'imagen sintética mínima por tamaño'],
     ['AI_ATTACHMENT_UPLOAD_FAILED', 'preparar la imagen sintética en el compositor'],
     ['AI_REQUEST_REJECTED', 'rechazó la imagen o el esquema estricto'],

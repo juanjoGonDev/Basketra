@@ -156,7 +156,7 @@ export class OperationsGateway {
         return this.json(response, 200, this.aiSettings(), requestId);
       }
       if (request.method === 'POST' && url.pathname === '/api/v1/settings/ai-provider/test') {
-        return await this.testAiProvider(response, requestId);
+        return await this.testAiProvider(request, response, requestId);
       }
       if (request.method === 'GET' && url.pathname === '/api/v1/logs') {
         return this.readLogs(response, url, requestId);
@@ -249,7 +249,7 @@ export class OperationsGateway {
     };
   }
 
-  private async testAiProvider(response: ServerResponse, requestId: string): Promise<void> {
+  private async testAiProvider(request: IncomingMessage, response: ServerResponse, requestId: string): Promise<void> {
     const settings = this.aiSettings();
     if (settings['configured'] !== true) {
       this.json(response, 503, {
@@ -273,18 +273,21 @@ export class OperationsGateway {
       baseUrl: new URL(this.config.aiBaseUrl!),
       ...(this.config.aiApiKey ? { apiKey: this.config.aiApiKey } : {}),
       model: this.config.aiModel!,
-      timeoutMs: this.config.aiTimeoutMs,
       capabilities: {
         image: this.config.aiImageCapability,
         pdf: this.config.aiPdfCapability,
       },
     });
+    const controller = new AbortController();
+    const onAborted = () => controller.abort(new Error('REQUEST_ABORTED'));
+    request.once('aborted', onAborted);
 
     try {
-      const connection = await provider.testConnection();
+      const connection = await provider.testConnection(controller.signal);
       this.#logStore.append({ source: 'server', level: 'info', event: 'ai.capability_probe_ok', requestId });
       this.json(response, 200, { connection }, requestId);
     } catch (error) {
+      if (controller.signal.aborted) return;
       const mapped = mapError(error);
       this.#logStore.append({
         source: 'server',
@@ -303,6 +306,7 @@ export class OperationsGateway {
         },
       }, requestId);
     } finally {
+      request.off('aborted', onAborted);
       provider.dispose();
     }
   }
