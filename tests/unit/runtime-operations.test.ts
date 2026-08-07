@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { BasketraDatabase } from '../../src/infrastructure/database.ts';
+import { BasketraDatabase, CURRENT_SCHEMA_VERSION } from '../../src/infrastructure/database.ts';
 import { ApplicationLogStore, sanitizeClientLog } from '../../src/operations/log-store.ts';
 import { applyPendingRestore, importBackupStream, stagePendingRestore } from '../../src/operations/restore.ts';
 import { resolveRuntimeVersion } from '../../src/operations/version.ts';
@@ -91,7 +91,7 @@ test('validated streamed backups are applied only through an explicit pending re
 
     const sourceBytes=readFileSync(sourcePath);
     const imported=await importBackupStream(directory,'portable.db',chunks(sourceBytes),8*1024*1024);
-    assert.equal(imported.schemaVersion,3);
+    assert.equal(imported.schemaVersion,CURRENT_SCHEMA_VERSION);
     assert.equal(imported.bytes,sourceBytes.byteLength);
     await assert.rejects(stagePendingRestore(directory,{
       importedName:imported.name,

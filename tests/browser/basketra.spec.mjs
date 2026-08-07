@@ -22,7 +22,8 @@ function monitorRuntime(page, { allowOfflineErrors = false, allowServiceUnavaila
 }
 
 function navigate(page, name) {
-  return page.locator('.bottom-nav').getByRole('button', { name, exact: true }).click();
+  const accessibleName = name === 'Lista' ? 'Listas' : name;
+  return page.locator('.bottom-nav').getByRole('button', { name: accessibleName, exact: true }).click();
 }
 
 function productInput(page) {
@@ -37,6 +38,26 @@ async function setSwitch(page, label, checked) {
   else await expect(input).not.toBeChecked();
 }
 
+function isListDetailRead(response) {
+  if (response.request().method() !== 'GET') return false;
+  const { pathname } = new URL(response.url());
+  return /^\/api\/v1\/shopping-lists\/[^/]+$/u.test(pathname);
+}
+
+async function actAndWaitForListReads(page, minimumReads, action) {
+  let reads = 0;
+  const onResponse = response => {
+    if (isListDetailRead(response)) reads += 1;
+  };
+  page.on('response', onResponse);
+  try {
+    await action();
+    await expect.poll(() => reads).toBeGreaterThanOrEqual(minimumReads);
+  } finally {
+    page.off('response', onResponse);
+  }
+}
+
 async function gotoApp(page, options) {
   const failures = monitorRuntime(page, options);
   await page.goto('/');
@@ -46,30 +67,54 @@ async function gotoApp(page, options) {
 }
 
 async function createList(page, name) {
-  await navigate(page, 'Lista');
-  await page.getByLabel('Nueva lista', { exact: true }).fill(name);
-  await page.getByRole('button', { name: 'Crear', exact: true }).click();
-  await expect(page.locator('#list-select')).toContainText(name);
+  await navigate(page, 'Listas');
+  await page.getByRole('button', { name: 'Nueva lista', exact: true }).click();
+  const dialog = page.locator('#create-list-dialog');
+  await dialog.getByLabel('Nombre', { exact: true }).fill(name);
+  await dialog.getByRole('button', { name: 'Crear lista', exact: true }).click();
+  await expect(page.locator('#active-list-title')).toHaveText(name);
+}
+
+async function openProductDialog(page) {
+  if (await page.locator('#item-dialog').evaluate(dialog => dialog.open)) return;
+  await page.getByRole('button', { name: 'Añadir producto', exact: true }).click();
+  await expect(page.locator('#item-dialog')).toHaveAttribute('open', '');
 }
 
 async function addProduct(page, { name, quantity = '1', unit = 'unit', exact = false, substitutions = true }) {
+  await openProductDialog(page);
+  const dialog = page.locator('#item-dialog');
   await productInput(page).fill(name);
-  await page.getByLabel('Cantidad', { exact: true }).fill(quantity);
+  await dialog.getByLabel('Cantidad', { exact: true }).fill(quantity);
   await page.locator('#item-unit').selectOption(unit);
+  if (!(await page.locator('#item-advanced').evaluate(details => details.open))) {
+    await page.locator('#item-advanced summary').click();
+  }
   await setSwitch(page, 'Producto exacto', exact);
   await setSwitch(page, 'Permitir sustituciones', substitutions);
-  await page.getByRole('button', { name: 'Añadir a la lista', exact: true }).click();
+  await actAndWaitForListReads(page, 2, () => dialog.getByRole('button', { name: 'Añadir', exact: true }).click());
   await expect(page.locator('#pending-items')).toContainText(name);
 }
 
+async function stableBoundingBox(locator) {
+  let box = null;
+  await expect.poll(async () => {
+    box = await locator.boundingBox();
+    return box !== null;
+  }).toBe(true);
+  return box;
+}
+
 async function swipe(page, locator, direction, { long = false } = {}) {
-  await locator.scrollIntoViewIfNeeded();
-  const box = await locator.boundingBox();
-  expect(box).not.toBeNull();
-  const startX = direction === 'left' ? box.x + box.width * 0.72 : box.x + box.width * 0.35;
+  await expect(locator).toBeVisible();
+  await locator.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
+  const box = await stableBoundingBox(locator);
+  const anchor = locator.locator('.list-row__content').first();
+  const anchorBox = await stableBoundingBox(anchor);
+  const startX = direction === 'left' ? anchorBox.x + anchorBox.width * 0.8 : anchorBox.x + anchorBox.width * 0.2;
   const distance = box.width * (long ? 0.72 : direction === 'right' ? 0.46 : 0.34);
   const endX = direction === 'left' ? startX - distance : startX + distance;
-  const y = box.y + Math.min(box.height / 2, 42);
+  const y = anchorBox.y + anchorBox.height / 2;
   await page.mouse.move(startX, y);
   await page.mouse.down();
   await page.mouse.move(endX, y, { steps: 14 });
@@ -111,7 +156,7 @@ test('mobile PWA loads with private-network messaging and touch-safe navigation'
   await expect(page.locator('.bottom-nav button')).toHaveCount(5);
   const heights = await page.locator('button:visible').evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().height));
   expect(heights.every(height => height >= 44)).toBeTruthy();
-  for (const destination of ['Inicio', 'Lista', 'Tickets', 'Planes', 'Ajustes']) {
+  for (const destination of ['Inicio', 'Listas', 'Tickets', 'Planes', 'Ajustes']) {
     await navigate(page, destination);
     await expectNoHorizontalOverflow(page);
   }
@@ -123,16 +168,19 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   const failures = await gotoApp(page);
   await createList(page, 'Compra E2E');
 
+  await page.locator('#list-menu').click();
   await page.getByRole('button', { name: 'Renombrar', exact: true }).click();
-  await page.getByLabel('Nuevo nombre', { exact: true }).fill('Compra completa');
-  await page.getByRole('button', { name: 'Guardar', exact: true }).click();
-  await expect(page.locator('#list-select')).toContainText('Compra completa');
+  const renameDialog = page.locator('#rename-list-dialog');
+  await renameDialog.getByLabel('Nombre', { exact: true }).fill('Compra completa');
+  await renameDialog.getByRole('button', { name: 'Guardar', exact: true }).click();
+  await expect(page.locator('#active-list-title')).toHaveText('Compra completa');
 
   await addProduct(page, { name: 'Leche entera 1 L', quantity: '2', unit: 'l', exact: true, substitutions: false });
   await addProduct(page, { name: 'Arroz 1 kg', quantity: '1', unit: 'kg' });
 
-  const milkRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Leche entera 1 L' });
-  await page.getByRole('button', { name: 'Aumentar cantidad de Leche entera 1 L' }).click();
+  let milkRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Leche entera 1 L' });
+  await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Aumentar cantidad de Leche entera 1 L' }).click());
+  milkRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Leche entera 1 L' });
   await expect(milkRow.locator('.quantity-chip')).toHaveText('3');
 
   await swipe(page, milkRow, 'left');
@@ -142,25 +190,24 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await page.screenshot({ path: testInfo.outputPath('swipe-reveal.png') });
   await page.getByRole('button', { name: 'Editar Leche entera 1 L' }).click();
   await productInput(page).fill('Leche semidesnatada 1 L');
-  await page.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+  await actAndWaitForListReads(page, 2, () => page.locator('#item-dialog').getByRole('button', { name: 'Guardar cambios', exact: true }).click());
   await expect(page.locator('#pending-items')).toContainText('Leche semidesnatada 1 L');
 
-  const riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
+  let riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
   await swipe(page, riceRow, 'right');
-  await expect(page.locator('#completed-items')).toContainText('Arroz 1 kg');
-  await page.getByRole('button', { name: 'Devolver Arroz 1 kg a pendientes' }).click();
+  await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Devolver Arroz 1 kg a pendientes' }).click());
   await expect(page.locator('#pending-items')).toContainText('Arroz 1 kg');
 
-  await page.getByRole('button', { name: 'Subir Arroz 1 kg' }).click();
+  await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Subir Arroz 1 kg' }).click());
   await expect(page.locator('#pending-items [data-swipe-kind="shopping-item"]').first()).toContainText('Arroz 1 kg');
 
-  const returnedRice = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
-  await swipe(page, returnedRice, 'left', { long: true });
+  riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
+  await swipe(page, riceRow, 'left', { long: true });
   await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
   await expect(page.locator('#toast-message')).toHaveText('Producto eliminado');
   await expect(page.getByRole('button', { name: 'Deshacer' })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('swipe-delete.png') });
-  await page.getByRole('button', { name: 'Deshacer' }).click();
+  await actAndWaitForListReads(page, 2, () => page.getByRole('button', { name: 'Deshacer' }).click());
   await expect(page.locator('#pending-items')).toContainText('Arroz 1 kg');
 
   const restoredRice = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
@@ -168,18 +215,22 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await expect(restoredRice).toHaveAttribute('data-swipe-open', 'true');
   await page.keyboard.press('Escape');
   await expect(restoredRice).toHaveAttribute('data-swipe-open', 'false');
-  await swipe(page, restoredRice, 'left', { long: true });
+  await page.getByRole('button', { name: 'Mostrar acciones de Arroz 1 kg' }).click();
+  await page.getByRole('button', { name: 'Eliminar Arroz 1 kg' }).click();
+  await page.locator('#delete-item-dialog').getByRole('button', { name: 'Eliminar producto', exact: true }).click();
   await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
 
   await page.reload();
-  await navigate(page, 'Lista');
-  await expect(page.locator('#list-select')).toContainText('Compra completa');
+  await navigate(page, 'Listas');
+  await page.locator('[data-list-action="open"]').filter({ hasText: 'Compra completa' }).click();
+  await expect(page.locator('#active-list-title')).toHaveText('Compra completa');
   await expect(page.locator('#pending-items')).toContainText('Leche semidesnatada 1 L');
   await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
 
-  await page.getByRole('button', { name: 'Eliminar', exact: true }).click();
+  await page.locator('#list-menu').click();
   await page.getByRole('button', { name: 'Eliminar lista', exact: true }).click();
-  await expect(page.locator('#list-select')).toContainText('Todavía no hay listas');
+  await page.locator('#delete-list-dialog').getByRole('button', { name: 'Eliminar lista', exact: true }).click();
+  await expect(page.locator('#list-cards')).toContainText('Tu primera lista empieza aquí');
   await expectNoHorizontalOverflow(page);
   expect(failures).toEqual([]);
 });
@@ -193,16 +244,17 @@ test('local suggestions ignore stale responses and never require AI', async ({ p
   });
   await page.goto('/');
   await createList(page, 'Suggestions E2E');
+  await openProductDialog(page);
   await productInput(page).fill('le');
   await page.waitForTimeout(220);
   await productInput(page).fill('lech');
-  await expect(page.getByRole('option', { name: 'Leche nueva 1 L' })).toBeVisible();
+  await expect(page.getByRole('option', { name: /Leche nueva 1 L/ })).toBeVisible();
   await page.waitForTimeout(500);
   await expect(page.getByText('Old stale result')).toHaveCount(0);
   expect(failures).toEqual([]);
 });
 
-test('local OCR creates editable euro rows with progressive swipe and imports without AI', async ({ page }, testInfo) => {
+test('local OCR creates editable euro rows with accessible row actions and imports without AI', async ({ page }, testInfo) => {
   const failures = await gotoApp(page);
   await navigate(page, 'Tickets');
 
@@ -237,7 +289,7 @@ test('local OCR creates editable euro rows with progressive swipe and imports wi
 
   const firstLineShell = page.locator('[data-swipe-kind="receipt-line"]').first();
   const firstLine = firstLineShell.locator('.receipt-item');
-  await swipe(page, firstLineShell, 'left');
+  await page.getByRole('button', { name: 'Mostrar acciones de la línea 1' }).click();
   await expect(firstLineShell).toHaveAttribute('data-swipe-open', 'true');
   await expect(page.getByRole('button', { name: 'Editar línea 1' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Eliminar línea 1' })).toBeVisible();
@@ -255,7 +307,9 @@ test('local OCR creates editable euro rows with progressive swipe and imports wi
   await manualLine.locator('[data-field="lineTotalEuro"]').fill('0.20');
 
   const manualLineShell = page.locator('[data-swipe-kind="receipt-line"]').last();
-  await swipe(page, manualLineShell, 'left', { long: true });
+  await page.getByRole('button', { name: 'Mostrar acciones de la línea 2' }).click();
+  await expect(manualLineShell).toHaveAttribute('data-swipe-open', 'true');
+  await page.getByRole('button', { name: 'Eliminar línea 2' }).click();
   await expect(page.locator('.receipt-item')).toHaveCount(1);
   await expect(page.locator('#toast-message')).toHaveText('Línea eliminada');
   await expect(page.getByRole('button', { name: 'Deshacer' })).toBeVisible();
@@ -321,12 +375,18 @@ test('comparison renders all deterministic plans in euros', async ({ page }) => 
 test('AI unavailability is recoverable and does not overwrite list input', async ({ page }) => {
   const failures = await gotoApp(page, { allowServiceUnavailable: true });
   await createList(page, 'AI E2E');
+  await openProductDialog(page);
   await productInput(page).fill('pan integral');
-  await page.locator('.ai-card summary').click();
-  await expect(page.locator('#ai-mode')).toBeVisible();
-  await page.locator('#ai-mode').selectOption('manual');
-  await page.getByRole('button', { name: 'Analizar texto', exact: true }).click();
-  await expect(page.locator('#ai-state')).toContainText('Proveedor IA no disponible');
+  await page.locator('#item-dialog').getByRole('button', { name: 'Cancelar', exact: true }).click();
+
+  await page.locator('#open-ai-assistant').click();
+  const aiDialog = page.locator('#ai-assistant-dialog');
+  await aiDialog.getByLabel('Describe lo que necesitas', { exact: true }).fill('pan integral');
+  await aiDialog.getByRole('button', { name: 'Preparar propuesta', exact: true }).click();
+  await expect(page.locator('#ai-state')).toContainText(/La IA no está configurada|Proveedor IA no disponible/);
+  await aiDialog.getByRole('button', { name: 'Cerrar', exact: true }).click();
+
+  await openProductDialog(page);
   await expect(productInput(page)).toHaveValue('pan integral');
   expect(failures).toEqual([]);
 });

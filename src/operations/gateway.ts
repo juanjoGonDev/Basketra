@@ -62,12 +62,14 @@ function isContainerRuntime(): boolean {
 function safeResponseHeaders(headers: Record<string, string | string[] | undefined>): Record<string, string> {
   const allowed = new Set([
     'cache-control',
+    'connection',
     'content-disposition',
     'content-length',
     'content-security-policy',
     'content-type',
     'permissions-policy',
     'referrer-policy',
+    'x-accel-buffering',
     'x-content-type-options',
     'x-frame-options',
     'x-request-id',
@@ -431,6 +433,9 @@ export class OperationsGateway {
       const headers = safeResponseHeaders(upstreamResponse.headers);
       response.writeHead(status, headers);
       upstreamResponse.pipe(response);
+      response.once('close', () => {
+        if (!upstreamResponse.destroyed) upstreamResponse.destroy();
+      });
       if (status >= 400) {
         this.#logStore.append({
           source: 'server',
@@ -443,6 +448,9 @@ export class OperationsGateway {
           durationMs: Date.now() - started,
         });
       }
+    });
+    response.once('close', () => {
+      if (!upstream.destroyed) upstream.destroy();
     });
     upstream.on('error', () => {
       this.#logStore.append({
@@ -489,7 +497,7 @@ export class OperationsGateway {
     response.setHeader('x-content-type-options', 'nosniff');
     response.setHeader('x-frame-options', 'DENY');
     response.setHeader('referrer-policy', 'no-referrer');
-    response.setHeader('permissions-policy', 'camera=(self), microphone=(), geolocation=()');
+    response.setHeader('permissions-policy', 'camera=(self), microphone=(), geolocation=(self)');
     response.setHeader('content-security-policy', "default-src 'self'; connect-src 'self'; img-src 'self' blob: data:; style-src 'self'; script-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
   }
 

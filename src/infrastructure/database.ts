@@ -1,23 +1,26 @@
 import { DatabaseSync } from 'node:sqlite';
 import { copyFileSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
+import type { GeoPointMicrodegrees } from '../domain/location.ts';
+import type { Unit } from '../domain/units.ts';
+import { CatalogRepository } from './catalog-repository.ts';
+import { COLLABORATION_MIGRATIONS } from './collaboration-schema.ts';
 import { createId } from './ids.ts';
+import { ShoppingRepository } from './shopping-repository.ts';
 
-export type ShoppingListRecord = Readonly<{ id: string; name: string; createdAt: string; updatedAt: string }>;
-export type ShoppingListItemRecord = Readonly<{
-  id: string;
-  listId: string;
-  text: string;
-  quantityMinor: number;
-  unit: string;
-  exactRequired: boolean;
-  substitutionAllowed: boolean;
-  completed: boolean;
-  completedAt?: string;
-  position: number;
-  createdAt: string;
-  updatedAt: string;
-}>;
+export type {
+  PriceObservationRecord,
+  ProductCategoryRecord,
+  ProductSuggestionRecord,
+  ProductVariantRecord,
+  StoreRecord,
+} from './catalog-repository.ts';
+export {
+  ShoppingConflictError,
+  type ShoppingListItemRecord,
+  type ShoppingListRecord,
+  type ShoppingListSummaryRecord,
+} from './shopping-repository.ts';
 
 export type RetailerSuggestion = Readonly<{
   id: string;
@@ -78,7 +81,7 @@ export const DEFAULT_DATABASE_STORAGE_LIMITS = Object.freeze({
   manualBackupRetention: Object.freeze({ maxCount: 5, maxBytes: 768 * 1024 * 1024 }),
 });
 
-const MIGRATIONS: readonly MigrationDefinition[] = [
+const BASE_MIGRATIONS: readonly MigrationDefinition[] = [
   {
     version: 1,
     kind: 'safe',
@@ -133,42 +136,15 @@ const MIGRATIONS: readonly MigrationDefinition[] = [
   },
 ] as const;
 
+const MIGRATIONS: readonly MigrationDefinition[] = [...BASE_MIGRATIONS, ...COLLABORATION_MIGRATIONS];
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
 
 const DESTRUCTIVE_SQL = /\b(?:DROP\s+(?:TABLE|INDEX|VIEW|TRIGGER)|ALTER\s+TABLE\s+\S+\s+DROP\s+COLUMN|DELETE\s+FROM|TRUNCATE)\b/i;
 
-type ShoppingListItemRow = Omit<ShoppingListItemRecord, 'exactRequired' | 'substitutionAllowed' | 'completed' | 'completedAt'> & {
-  exactRequired: number;
-  substitutionAllowed: number;
-  completed: number;
-  completedAt: string | null;
-};
-
 type BackupEntry = Readonly<{ name: string; path: string; bytes: number; mtimeMs: number }>;
-
-function now(): string {
-  return new Date().toISOString();
-}
 
 function escapeLikePrefix(value: string): string {
   return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
-}
-
-function mapShoppingListItem(row: ShoppingListItemRow): ShoppingListItemRecord {
-  return {
-    id: row.id,
-    listId: row.listId,
-    text: row.text,
-    quantityMinor: row.quantityMinor,
-    unit: row.unit,
-    exactRequired: row.exactRequired === 1,
-    substitutionAllowed: row.substitutionAllowed === 1,
-    completed: row.completed === 1,
-    ...(row.completedAt ? { completedAt: row.completedAt } : {}),
-    position: row.position,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
 }
 
 function assertPositiveInteger(value: number, name: string): number {
@@ -298,6 +274,8 @@ export class BasketraDatabase {
   readonly #maxWalBytes: number;
   readonly #migrationBackupRetention: BackupRetentionPolicy;
   readonly #manualBackupRetention: BackupRetentionPolicy;
+  readonly #shopping: ShoppingRepository;
+  readonly #catalog: CatalogRepository;
   readonly path: string;
 
   constructor(path: string, options: BasketraDatabaseOptions = {}) {
@@ -321,6 +299,8 @@ export class BasketraDatabase {
       this.#database.close();
       throw error;
     }
+    this.#shopping = new ShoppingRepository(this.#database, this.#clock);
+    this.#catalog = new CatalogRepository(this.#database, this.#clock);
   }
 
   private configureStorageLimits(): void {
@@ -428,49 +408,42 @@ export class BasketraDatabase {
     }
   }
 
-  createShoppingList(name: string): ShoppingListRecord {
-    const id = createId('list');
-    const timestamp = now();
-    this.#database.prepare('INSERT INTO shopping_lists(id, name, created_at, updated_at) VALUES (?, ?, ?, ?)').run(id, name, timestamp, timestamp);
-    return { id, name, createdAt: timestamp, updatedAt: timestamp };
+  createShoppingList(name: string) {
+    return this.#shopping.createList(name);
   }
 
-  listShoppingLists(): ShoppingListRecord[] {
-    return this.#database.prepare('SELECT id, name, created_at AS createdAt, updated_at AS updatedAt FROM shopping_lists ORDER BY updated_at DESC, id').all() as ShoppingListRecord[];
+  listShoppingLists() {
+    return this.#shopping.listLists();
   }
 
-  getShoppingList(id: string): Readonly<{ list: ShoppingListRecord; items: ShoppingListItemRecord[] }> | undefined {
-    const list = this.#database.prepare('SELECT id, name, created_at AS createdAt, updated_at AS updatedAt FROM shopping_lists WHERE id = ?').get(id) as ShoppingListRecord | undefined;
-    if (!list) return undefined;
-    const rows = this.#database.prepare(`SELECT id, list_id AS listId, text, quantity_minor AS quantityMinor, unit, exact_required AS exactRequired, substitution_allowed AS substitutionAllowed, completed, completed_at AS completedAt, position, created_at AS createdAt, updated_at AS updatedAt FROM shopping_list_items WHERE list_id = ? ORDER BY position, id`).all(id) as ShoppingListItemRow[];
-    return { list, items: rows.map(mapShoppingListItem) };
+  getShoppingList(id: string) {
+    return this.#shopping.getList(id);
   }
 
-  updateShoppingList(id: string, name: string): ShoppingListRecord | undefined {
-    const timestamp = now();
-    const result = this.#database.prepare('UPDATE shopping_lists SET name = ?, updated_at = ? WHERE id = ?').run(name, timestamp, id);
-    if (Number(result.changes) === 0) return undefined;
-    return this.#database.prepare('SELECT id, name, created_at AS createdAt, updated_at AS updatedAt FROM shopping_lists WHERE id = ?').get(id) as ShoppingListRecord;
+  updateShoppingList(id: string, name: string, expectedVersion: number) {
+    return this.#shopping.updateList(id, name, expectedVersion);
   }
 
-  deleteShoppingList(id: string): boolean {
-    const result = this.#database.prepare('DELETE FROM shopping_lists WHERE id = ?').run(id);
-    return Number(result.changes) > 0;
+  deleteShoppingList(id: string, expectedVersion: number): boolean {
+    return this.#shopping.deleteList(id, expectedVersion);
   }
 
-  addShoppingListItem(input: Readonly<{ listId: string; text: string; quantityMinor: number; unit: string; exactRequired: boolean; substitutionAllowed: boolean }>): ShoppingListItemRecord {
-    this.assertShoppingListExists(input.listId);
-    const position = Number((this.#database.prepare('SELECT COALESCE(MAX(position), -1) + 1 AS position FROM shopping_list_items WHERE list_id = ?').get(input.listId) as { position: number }).position);
-    const id = createId('item');
-    const timestamp = now();
-    this.#database.prepare(`INSERT INTO shopping_list_items(id, list_id, text, quantity_minor, unit, exact_required, substitution_allowed, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, input.listId, input.text, input.quantityMinor, input.unit, input.exactRequired ? 1 : 0, input.substitutionAllowed ? 1 : 0, position, timestamp, timestamp);
-    this.touchShoppingList(input.listId, timestamp);
-    return { id, listId: input.listId, text: input.text, quantityMinor: input.quantityMinor, unit: input.unit, exactRequired: input.exactRequired, substitutionAllowed: input.substitutionAllowed, completed: false, position, createdAt: timestamp, updatedAt: timestamp };
+  addShoppingListItem(input: Readonly<{
+    listId: string;
+    text: string;
+    quantityMinor: number;
+    unit: string;
+    exactRequired: boolean;
+    substitutionAllowed: boolean;
+    productVariantId?: string;
+  }>) {
+    return this.#shopping.addItem(input);
   }
 
   updateShoppingListItem(input: Readonly<{
     listId: string;
     itemId: string;
+    expectedVersion: number;
     text?: string;
     quantityMinor?: number;
     quantityDelta?: number;
@@ -478,110 +451,110 @@ export class BasketraDatabase {
     exactRequired?: boolean;
     substitutionAllowed?: boolean;
     completed?: boolean;
-  }>): ShoppingListItemRecord {
-    this.#database.exec('BEGIN IMMEDIATE');
-    try {
-      this.assertShoppingListExists(input.listId);
-      const existing = this.getShoppingListItem(input.listId, input.itemId);
-      if (!existing) throw new Error('SHOPPING_LIST_ITEM_NOT_FOUND');
-      if (input.quantityMinor !== undefined && input.quantityDelta !== undefined) {
-        throw new RangeError('quantityMinor and quantityDelta cannot be combined');
-      }
-      const quantityMinor = input.quantityDelta === undefined
-        ? input.quantityMinor ?? existing.quantityMinor
-        : existing.quantityMinor + input.quantityDelta;
-      if (!Number.isSafeInteger(quantityMinor) || quantityMinor <= 0 || quantityMinor > 100_000) {
-        throw new RangeError('Shopping list item quantity is outside allowed limits');
-      }
-      const timestamp = now();
-      const completed = input.completed ?? existing.completed;
-      const completedAt = completed
-        ? existing.completed && existing.completedAt ? existing.completedAt : timestamp
-        : null;
-      this.#database.prepare(`UPDATE shopping_list_items SET text = ?, quantity_minor = ?, unit = ?, exact_required = ?, substitution_allowed = ?, completed = ?, completed_at = ?, updated_at = ? WHERE id = ? AND list_id = ?`).run(
-        input.text ?? existing.text,
-        quantityMinor,
-        input.unit ?? existing.unit,
-        (input.exactRequired ?? existing.exactRequired) ? 1 : 0,
-        (input.substitutionAllowed ?? existing.substitutionAllowed) ? 1 : 0,
-        completed ? 1 : 0,
-        completedAt,
-        timestamp,
-        input.itemId,
-        input.listId,
-      );
-      this.touchShoppingList(input.listId, timestamp);
-      const updated = this.getShoppingListItem(input.listId, input.itemId);
-      if (!updated) throw new Error('SHOPPING_LIST_ITEM_NOT_FOUND');
-      this.#database.exec('COMMIT');
-      return updated;
-    } catch (error) {
-      this.#database.exec('ROLLBACK');
-      throw error;
-    }
+    productVariantId?: string | null;
+  }>) {
+    return this.#shopping.updateItem(input);
   }
 
-  deleteShoppingListItem(listId: string, itemId: string): void {
-    this.#database.exec('BEGIN IMMEDIATE');
-    try {
-      this.assertShoppingListExists(listId);
-      const result = this.#database.prepare('DELETE FROM shopping_list_items WHERE id = ? AND list_id = ?').run(itemId, listId);
-      if (Number(result.changes) === 0) throw new Error('SHOPPING_LIST_ITEM_NOT_FOUND');
-      this.normalizeShoppingListPositions(listId);
-      this.touchShoppingList(listId, now());
-      this.#database.exec('COMMIT');
-    } catch (error) {
-      this.#database.exec('ROLLBACK');
-      throw error;
-    }
+  deleteShoppingListItem(listId: string, itemId: string, expectedVersion: number): void {
+    this.#shopping.deleteItem(listId, itemId, expectedVersion);
   }
 
-  reorderShoppingListItems(listId: string, itemIds: readonly string[]): ShoppingListItemRecord[] {
-    this.#database.exec('BEGIN IMMEDIATE');
-    try {
-      this.assertShoppingListExists(listId);
-      const currentIds = (this.#database.prepare('SELECT id FROM shopping_list_items WHERE list_id = ? ORDER BY position, id').all(listId) as Array<{ id: string }>).map((row) => row.id);
-      const uniqueIds = new Set(itemIds);
-      if (itemIds.length !== currentIds.length || uniqueIds.size !== itemIds.length || currentIds.some((id) => !uniqueIds.has(id))) {
-        throw new RangeError('Item order must contain every current item exactly once');
-      }
-      const statement = this.#database.prepare('UPDATE shopping_list_items SET position = ?, updated_at = ? WHERE id = ? AND list_id = ?');
-      const timestamp = now();
-      itemIds.forEach((itemId, position) => statement.run(position, timestamp, itemId, listId));
-      this.touchShoppingList(listId, timestamp);
-      this.#database.exec('COMMIT');
-      return this.getShoppingList(listId)?.items ?? [];
-    } catch (error) {
-      this.#database.exec('ROLLBACK');
-      throw error;
-    }
+  reorderShoppingListItems(listId: string, itemIds: readonly string[], expectedListVersion: number) {
+    return this.#shopping.reorderItems(listId, itemIds, expectedListVersion);
   }
 
-  private assertShoppingListExists(listId: string): void {
-    if (!this.#database.prepare('SELECT 1 FROM shopping_lists WHERE id = ?').get(listId)) {
-      throw new Error('SHOPPING_LIST_NOT_FOUND');
-    }
+  getShoppingListVersion(listId: string): number | undefined {
+    return this.#shopping.listVersion(listId);
   }
 
-  private getShoppingListItem(listId: string, itemId: string): ShoppingListItemRecord | undefined {
-    const row = this.#database.prepare(`SELECT id, list_id AS listId, text, quantity_minor AS quantityMinor, unit, exact_required AS exactRequired, substitution_allowed AS substitutionAllowed, completed, completed_at AS completedAt, position, created_at AS createdAt, updated_at AS updatedAt FROM shopping_list_items WHERE list_id = ? AND id = ?`).get(listId, itemId) as ShoppingListItemRow | undefined;
-    return row ? mapShoppingListItem(row) : undefined;
+  listCategories() {
+    return this.#catalog.listCategories();
   }
 
-  private normalizeShoppingListPositions(listId: string): void {
-    const ids = (this.#database.prepare('SELECT id FROM shopping_list_items WHERE list_id = ? ORDER BY position, id').all(listId) as Array<{ id: string }>).map((row) => row.id);
-    const statement = this.#database.prepare('UPDATE shopping_list_items SET position = ? WHERE id = ? AND list_id = ?');
-    ids.forEach((id, position) => statement.run(position, id, listId));
+  getOrCreateCategory(name: string, description?: string) {
+    return this.#catalog.getOrCreateCategory(name, description);
   }
 
-  private touchShoppingList(listId: string, timestamp: string): void {
-    this.#database.prepare('UPDATE shopping_lists SET updated_at = ? WHERE id = ?').run(timestamp, listId);
+  updateCategory(id: string, input: Readonly<{ name: string; description?: string | null }>) {
+    return this.#catalog.updateCategory(id, input);
   }
 
-  searchProducts(query: string, limit: number): Array<Readonly<{ id: string; name: string; source: string }>> {
-    const normalized = query.trim().replace(/["*:^()]/g, ' ');
-    if (!normalized) return [];
-    return this.#database.prepare(`SELECT entity_id AS id, name, 'catalog' AS source FROM product_search WHERE product_search MATCH ? ORDER BY bm25(product_search) LIMIT ?`).all(`${normalized}*`, limit) as Array<Readonly<{ id: string; name: string; source: string }>>;
+  searchProducts(query: string, limit: number) {
+    return this.#catalog.searchProducts(query, limit);
+  }
+
+  getProductVariant(id: string) {
+    return this.#catalog.getProductVariant(id);
+  }
+
+  createProduct(input: Readonly<{
+    canonicalName: string;
+    variantName?: string;
+    categoryId?: string;
+    description?: string;
+    brand?: string;
+    ean?: string;
+    packageMinor?: number;
+    packageUnit?: string;
+    aliases?: readonly string[];
+  }>) {
+    return this.#catalog.createProduct(input);
+  }
+
+  updateProduct(input: Readonly<{
+    variantId: string;
+    canonicalName: string;
+    variantName: string;
+    categoryId?: string | null;
+    description?: string | null;
+    brand?: string | null;
+    ean?: string | null;
+    packageMinor?: number | null;
+    packageUnit?: string | null;
+    aliases?: readonly string[];
+  }>) {
+    return this.#catalog.updateProduct(input);
+  }
+
+  listStores(origin?: GeoPointMicrodegrees, maximumDistanceMeters?: number, limit?: number) {
+    return this.#catalog.listStores(origin, maximumDistanceMeters, limit);
+  }
+
+  saveStore(input: Readonly<{
+    retailerName: string;
+    name: string;
+    region?: string;
+    address?: string;
+    latitudeMicrodegrees?: number;
+    longitudeMicrodegrees?: number;
+    osmType?: 'node' | 'way' | 'relation';
+    osmId?: string;
+  }>) {
+    return this.#catalog.saveStore(input);
+  }
+
+  confirmPriceObservation(input: Readonly<{
+    productVariantId: string;
+    retailerName: string;
+    storeId?: string;
+    priceMinor: number;
+    packageNumerator: number;
+    packageDenominator: number;
+    packageUnit: Unit;
+    observedAt: string;
+    confidence: number;
+    evidence: Readonly<{
+      sourceType: 'product-photo' | 'manual' | 'receipt';
+      sourceReference: string;
+      contentHash?: string;
+    }>;
+  }>) {
+    return this.#catalog.confirmPriceObservation(input);
+  }
+
+  listPriceObservations(productVariantId: string) {
+    return this.#catalog.listPriceObservations(productVariantId);
   }
 
   searchRetailers(query: string, limit: number): RetailerSuggestion[] {
@@ -614,31 +587,19 @@ export class BasketraDatabase {
   }
 
   seedProduct(input: Readonly<{ name: string; brand?: string; aliases?: readonly string[] }>): string {
-    const productId = createId('product');
-    const variantId = createId('variant');
-    const timestamp = now();
-    this.#database.exec('BEGIN IMMEDIATE');
-    try {
-      this.#database.prepare('INSERT INTO canonical_products(id, name, created_at, updated_at) VALUES (?, ?, ?, ?)').run(productId, input.name, timestamp, timestamp);
-      this.#database.prepare('INSERT INTO product_variants(id, canonical_product_id, name, brand, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(variantId, productId, input.name, input.brand ?? null, timestamp, timestamp);
-      const aliases = input.aliases ?? [];
-      for (const alias of aliases) {
-        this.#database.prepare('INSERT INTO product_aliases(id, product_variant_id, alias, normalized_alias, source, user_confirmed, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)').run(createId('alias'), variantId, alias, alias.toLowerCase(), 'seed', timestamp);
-      }
-      this.#database.prepare('INSERT INTO product_search(entity_id, name, aliases) VALUES (?, ?, ?)').run(variantId, [input.brand, input.name].filter(Boolean).join(' '), aliases.join(' '));
-      this.#database.exec('COMMIT');
-      return variantId;
-    } catch (error) {
-      this.#database.exec('ROLLBACK');
-      throw error;
-    }
+    return this.#catalog.createProduct({
+      canonicalName: input.name,
+      variantName: input.name,
+      ...(input.brand ? { brand: input.brand } : {}),
+      ...(input.aliases ? { aliases: input.aliases } : {}),
+    }).id;
   }
 
   importReceipt(input: ReceiptImportInput): string {
     const existing = this.#database.prepare('SELECT id FROM receipts WHERE import_key = ?').get(input.importKey) as { id: string } | undefined;
     if (existing) return existing.id;
     const receiptId = createId('receipt');
-    const timestamp = now();
+    const timestamp = this.#clock().toISOString();
     this.#database.exec('BEGIN IMMEDIATE');
     try {
       let retailerId: string | null = null;
@@ -658,7 +619,7 @@ export class BasketraDatabase {
       for (const item of input.items) {
         const itemId = createId('receiptitem');
         itemIds.push(itemId);
-        this.#database.prepare(`INSERT INTO receipt_items(id, receipt_id, original_description, quantity, unit_price_minor, line_total_minor, discount_minor, status, confidence, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(itemId, receiptId, item.description, item.quantity, item.unitPriceMinor, item.lineTotalMinor, item.discountMinor ?? 0, item.status, item.confidence, timestamp);
+        this.#database.prepare('INSERT INTO receipt_items(id, receipt_id, original_description, quantity, unit_price_minor, line_total_minor, discount_minor, status, confidence, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(itemId, receiptId, item.description, item.quantity, item.unitPriceMinor, item.lineTotalMinor, item.discountMinor ?? 0, item.status, item.confidence, timestamp);
       }
       for (const correction of input.corrections ?? []) {
         const itemId = itemIds[correction.itemIndex];

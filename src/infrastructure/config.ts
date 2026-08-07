@@ -12,6 +12,7 @@ export type AppConfig = Readonly<{
   aiMaxRetries: number;
   aiImageCapability: boolean;
   aiPdfCapability: boolean;
+  overpassBaseUrl: string;
   idleHibernateAfterMs: number;
   idleExitAfterMs: number;
 }>;
@@ -36,6 +37,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
   const host = environment['BASKETRA_HOST']?.trim() || '127.0.0.1';
   const aiBaseUrl = environment['BASKETRA_AI_BASE_URL']?.trim() || undefined;
   if (aiBaseUrl) validateProviderBaseUrl(aiBaseUrl);
+  const overpassBaseUrl = environment['BASKETRA_OVERPASS_BASE_URL']?.trim() || 'https://overpass-api.de/api/';
+  validateOverpassBaseUrl(overpassBaseUrl);
   return {
     host,
     port: readInteger(environment, 'BASKETRA_PORT', 3000, 1),
@@ -48,15 +51,24 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     aiMaxRetries: readInteger(environment, 'BASKETRA_AI_MAX_RETRIES', 1, 0),
     aiImageCapability: readBoolean(environment, 'BASKETRA_AI_IMAGE_CAPABILITY', true),
     aiPdfCapability: readBoolean(environment, 'BASKETRA_AI_PDF_CAPABILITY', false),
+    overpassBaseUrl,
     idleHibernateAfterMs: readInteger(environment, 'BASKETRA_IDLE_HIBERNATE_AFTER_MS', 300_000, 0),
     idleExitAfterMs: readInteger(environment, 'IDLE_EXIT_AFTER_MS', 0, 0),
   };
 }
 
 export function validateProviderBaseUrl(input: string): URL {
+  return validateHttpBaseUrl(input, 'AI provider');
+}
+
+export function validateOverpassBaseUrl(input: string): URL {
+  return validateHttpBaseUrl(input, 'Overpass');
+}
+
+function validateHttpBaseUrl(input: string, label: string): URL {
   const url = new URL(input);
-  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('AI provider URL must use HTTP or HTTPS');
-  if (url.username || url.password) throw new Error('AI provider URL must not include credentials');
-  if (url.hash || url.search) throw new Error('AI provider URL must not include query or fragment');
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error(`${label} URL must use HTTP or HTTPS`);
+  if (url.username || url.password) throw new Error(`${label} URL must not include credentials`);
+  if (url.hash || url.search) throw new Error(`${label} URL must not include query or fragment`);
   return url;
 }

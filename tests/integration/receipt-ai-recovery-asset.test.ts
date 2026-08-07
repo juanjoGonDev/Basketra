@@ -17,6 +17,7 @@ function config(dataDir: string): AppConfig {
     aiMaxRetries: 0,
     aiImageCapability: true,
     aiPdfCapability: false,
+    overpassBaseUrl: 'http://127.0.0.1:9/api/',
     idleHibernateAfterMs: 0,
     idleExitAfterMs: 0,
   };

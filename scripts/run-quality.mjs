@@ -6,7 +6,7 @@ const commands=[
   ['node',['scripts/deadcode.mjs']],
   ['node',['scripts/deps-check.mjs']],
   ['node',['--experimental-strip-types','--test','tests/unit/*.test.ts']],
-  ['node',['--experimental-strip-types','--test','tests/integration/*.test.ts']],
+  ['node',['--experimental-strip-types','--test','--test-concurrency=1','tests/integration/*.test.ts']],
   ['node',['--experimental-strip-types','--test','tests/e2e/*.test.ts']],
   ['node',['--experimental-strip-types','--experimental-test-coverage',"--test-coverage-include=src/domain/*.ts",'--test-coverage-lines=100','--test-coverage-functions=100','--test-coverage-branches=100','--test','tests/unit/*.test.ts']],
   ['node',['scripts/check-diff-coverage.mjs','src/ai/provider.ts','src/ai/structured-executor.ts','src/api/errors.ts','src/receipts/service.ts','src/operations/gateway.ts']],

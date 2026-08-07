@@ -19,6 +19,7 @@ function config(dataDir:string,overrides:Partial<AppConfig>={}):AppConfig{
     aiMaxRetries:0,
     aiImageCapability:true,
     aiPdfCapability:false,
+    overpassBaseUrl:'http://127.0.0.1:9/api/',
     idleHibernateAfterMs:0,
     idleExitAfterMs:0,
     ...overrides,
@@ -96,7 +97,7 @@ test('operations gateway verifies image structured output through the canonical 
   });
   await new Promise<void>((resolve,reject)=>{
     providerServer.once('error',reject);
-    providerServer.listen(0,'0.0.0.0',()=>{
+    providerServer.listen(0,'0.0.0',()=>{
       providerServer.off('error',reject);
       resolve();
     });
