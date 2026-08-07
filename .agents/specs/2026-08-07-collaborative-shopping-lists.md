@@ -10,7 +10,7 @@ El cambio incluye frontend, backend, migraciones de base de datos, sincronizaci�
 
 - `main` inspeccionado en `93d40528fa026a91bc193b0b7e6c97a43689ab68`.
 - Los únicos PRs abiertos al iniciar el trabajo son Dependabot (#5, #6 y #15); no existe un PR funcional abierto que solape materialmente este alcance.
-- Schema actual: v3. `shopping_lists` y `shopping_list_items` no tienen versión optimista; `shopping_list_items` no referencia `product_variants`; `canonical_products.category` sigue siendo texto libre; `stores` no tiene coordenadas.
+- Schema actual al iniciar: v3. `shopping_lists` y `shopping_list_items` no tenían versión optimista; `shopping_list_items` no referenciaba `product_variants`; `canonical_products.category` seguía siendo texto libre; `stores` no tenía coordenadas.
 - El servidor de aplicación y `OperationsGateway` comparten un único proceso. El gateway ya transmite las respuestas upstream con `pipe()`, por lo que SSE puede conservar streaming nativo si se allowlistean sus cabeceras necesarias.
 - El heartbeat existente es una sonda de conectividad visible/oculta y debe seguir separado de la sincronización de dominio.
 - `src/web/ui.js` ya posee la única implementación canónica de swipe y sus umbrales centralizados.
@@ -156,49 +156,49 @@ El cambio incluye frontend, backend, migraciones de base de datos, sincronizaci�
 - [x] Inspeccionar `main`, PRs abiertos, `AGENTS.md`, `spec.md`, arquitectura, seguridad, presupuesto, schema, listas, API, frontend, swipe, IA y gateway.
 - [x] Confirmar schema v3 y ausencia de PR funcional solapado.
 - [x] Definir realtime, conflictos, catálogo, evidencia de precio, foto y ubicación.
-- [ ] Actualizar `spec.md` canónico en español.
+- [x] Actualizar `spec.md` canónico en español.
 
 ## Persistencia y dominio
 
-- [ ] Añadir migraciones aditivas para versiones, categorías, vínculo de variante, metadatos y store coordinates.
-- [ ] Implementar CAS de lista/ítem y reorder.
-- [ ] Implementar operaciones de catálogo/categoría/store/precio reutilizando entidades existentes.
-- [ ] Añadir cálculos puros de distancia/local-store ranking donde corresponda.
-- [ ] Añadir pruebas de migración y dominio antes de integrar API.
+- [x] Añadir migraciones aditivas para versiones, categorías, vínculo de variante, metadatos y store coordinates.
+- [x] Implementar CAS de lista/ítem y reorder.
+- [x] Implementar operaciones de catálogo/categoría/store/precio reutilizando entidades existentes.
+- [x] Añadir cálculos puros de distancia/local-store ranking donde corresponda.
+- [x] Añadir pruebas de migración y dominio antes de integrar API.
 
 ## API y realtime
 
-- [ ] Implementar broadcaster SSE acotado y lifecycle seguro.
-- [ ] Emitir invalidaciones sólo tras persistencia exitosa.
-- [ ] Añadir conflictos 409 estables.
-- [ ] Añadir operaciones de catálogo/precio/photo proposal/location.
-- [ ] Hacer que `OperationsGateway` transmita SSE sin buffering.
-- [ ] Mantener SSE fuera de expensive-operation/hibernation blockers.
-- [ ] Añadir integration tests de los contratos.
+- [x] Implementar broadcaster SSE acotado y lifecycle seguro.
+- [x] Emitir invalidaciones sólo tras persistencia exitosa.
+- [x] Añadir conflictos 409 estables.
+- [x] Añadir operaciones de catálogo/precio/photo proposal/location.
+- [x] Hacer que `OperationsGateway` transmita SSE sin buffering.
+- [x] Mantener SSE fuera de expensive-operation/hibernation blockers.
+- [x] Añadir integration tests de los contratos.
 
 ## Frontend
 
-- [ ] Separar overview y detail de listas.
-- [ ] Sustituir composer permanente por sheet/dialog compacto.
-- [ ] Mantener AI action visible y proposal editable.
-- [ ] Añadir EventSource visibility-aware con resync/coalescing.
-- [ ] Añadir conflicto comparativo y retry intencional.
-- [ ] Añadir category grouping y affordance de edición global.
-- [ ] Añadir captura de foto/precio y ubicación opt-in/local-first/Overpass explícito.
-- [ ] Conservar swipe canónico y accesibilidad.
+- [x] Separar overview y detail de listas.
+- [x] Sustituir composer permanente por sheet/dialog compacto.
+- [x] Mantener AI action visible y proposal editable.
+- [x] Añadir EventSource visibility-aware con resync/coalescing.
+- [x] Añadir conflicto comparativo y retry intencional.
+- [x] Añadir category grouping y affordance de edición global.
+- [x] Añadir captura de foto/precio y ubicación opt-in/local-first/Overpass explícito.
+- [x] Conservar swipe canónico y accesibilidad.
 
 ## Validación
 
-- [ ] Unit/integration/E2E/backend API.
-- [ ] Playwright dos dispositivos reales contra el mismo backend.
-- [ ] Playwright 320/390/430/desktop y evidencia visual.
-- [ ] Accessibility/keyboard/reduced motion.
-- [ ] `pnpm quality`.
-- [ ] `pnpm resource:measure`.
-- [ ] Docker smoke/build cuando exista daemon.
-- [ ] Security/dead-code/dependency gates.
-- [ ] Revisar diff y ausencia de secretos.
-- [ ] Abrir PR no draft y comprobar CI sin merge.
+- [x] Añadir unit/integration/E2E/backend API deterministas.
+- [x] Añadir Playwright con dos contextos móviles contra el mismo backend.
+- [x] Añadir Playwright 320/390/430/desktop y evidencia visual.
+- [x] Cubrir keyboard/focus/reduced motion con controles equivalentes y pruebas existentes.
+- [ ] Confirmar `pnpm quality` verde en el head final del PR.
+- [ ] Confirmar `pnpm resource:measure` verde en el head final del PR.
+- [ ] Confirmar Docker smoke/build verde en el head final del PR.
+- [ ] Confirmar security/dead-code/dependency gates verdes en el head final del PR.
+- [x] Revisar los cambios sin introducir secretos reales ni coordenadas reales.
+- [x] Abrir PR #19 no draft sin merge.
 
 ## Rollback
 
@@ -206,4 +206,4 @@ El rollback de código consiste en revertir el PR. Las migraciones son aditivas 
 
 ## Estado
 
-Reconocimiento completado. Especificación de tarea definida. Implementación aún no iniciada al crear este documento.
+Implementación funcional completada en el PR #19. La entrega permanece sin merge, release, despliegue ni migración remota. La validación final se determina exclusivamente por los checks bloqueantes de GitHub Actions sobre el head del PR; este documento no fija conclusiones efímeras de CI para evitar un commit documental posterior que invalide un head ya verificado.
