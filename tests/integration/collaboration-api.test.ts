@@ -6,6 +6,30 @@ import { tmpdir } from 'node:os';
 import { BasketraServer } from '../../src/api/server.ts';
 import type { AppConfig } from '../../src/infrastructure/config.ts';
 
+type JsonObject = Record<string, unknown>;
+
+function expectRecord(value: unknown): JsonObject {
+  assert.equal(typeof value, 'object');
+  assert.notEqual(value, null);
+  assert.equal(Array.isArray(value), false);
+  return value as JsonObject;
+}
+
+function expectArray(value: unknown): readonly unknown[] {
+  assert.ok(Array.isArray(value));
+  return value;
+}
+
+function expectString(value: unknown): string {
+  assert.equal(typeof value, 'string');
+  return value;
+}
+
+function expectNumber(value: unknown): number {
+  assert.equal(typeof value, 'number');
+  return value;
+}
+
 function createConfig(root: string): AppConfig {
   return {
     host: '127.0.0.1',
@@ -22,7 +46,7 @@ function createConfig(root: string): AppConfig {
   };
 }
 
-async function jsonRequest(baseUrl: string, path: string, init: RequestInit = {}): Promise<Readonly<{ response: Response; body: any }>> {
+async function jsonRequest(baseUrl: string, path: string, init: RequestInit = {}): Promise<Readonly<{ response: Response; body: JsonObject | undefined }>> {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
     headers: {
@@ -30,11 +54,17 @@ async function jsonRequest(baseUrl: string, path: string, init: RequestInit = {}
       ...(init.headers ?? {}),
     },
   });
-  const body = response.status === 204 ? undefined : await response.json();
-  return { response, body };
+  if (response.status === 204) return { response, body: undefined };
+  const parsed: unknown = await response.json();
+  return { response, body: expectRecord(parsed) };
 }
 
-async function readInvalidation(response: Response): Promise<Record<string, unknown>> {
+function requiredBody(body: JsonObject | undefined): JsonObject {
+  assert.ok(body);
+  return body;
+}
+
+async function readInvalidation(response: Response): Promise<JsonObject> {
   assert.ok(response.body);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -50,7 +80,8 @@ async function readInvalidation(response: Response): Promise<Record<string, unkn
         if (!block.includes('event: invalidate')) continue;
         const data = block.split('\n').find((line) => line.startsWith('data: '));
         if (!data) continue;
-        return JSON.parse(data.slice(6)) as Record<string, unknown>;
+        const parsed: unknown = JSON.parse(data.slice(6));
+        return expectRecord(parsed);
       }
     }
   } finally {
@@ -71,54 +102,67 @@ test('HTTP API exposes optimistic conflicts and minimal realtime invalidations',
       body: JSON.stringify({ name: 'Compra compartida' }),
     });
     assert.equal(createdList.response.status, 201);
-    const list = createdList.body.list as { id: string; version: number };
+    const list = expectRecord(requiredBody(createdList.body).list);
+    const listId = expectString(list.id);
+    const listVersion = expectNumber(list.version);
+    assert.ok(listVersion >= 1);
 
-    const createdItem = await jsonRequest(baseUrl, `/api/v1/shopping-lists/${encodeURIComponent(list.id)}/items`, {
+    const createdItem = await jsonRequest(baseUrl, `/api/v1/shopping-lists/${encodeURIComponent(listId)}/items`, {
       method: 'POST',
       body: JSON.stringify({ text: 'Leche', quantityMinor: 1, unit: 'unit', exactRequired: false, substitutionAllowed: true }),
     });
     assert.equal(createdItem.response.status, 201);
-    const item = createdItem.body.item as { id: string; version: number };
+    const item = expectRecord(requiredBody(createdItem.body).item);
+    const itemId = expectString(item.id);
+    const itemVersion = expectNumber(item.version);
 
     const realtime = await fetch(`${baseUrl}/api/v1/realtime`, { signal: realtimeAbort.signal });
     assert.equal(realtime.status, 200);
     assert.match(realtime.headers.get('content-type') ?? '', /^text\/event-stream/);
     const nextInvalidation = readInvalidation(realtime);
 
-    const updated = await jsonRequest(baseUrl, `/api/v1/shopping-lists/${encodeURIComponent(list.id)}/items/${encodeURIComponent(item.id)}`, {
+    const updated = await jsonRequest(baseUrl, `/api/v1/shopping-lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(itemId)}`, {
       method: 'PATCH',
-      body: JSON.stringify({ text: 'Leche entera', version: item.version }),
+      body: JSON.stringify({ text: 'Leche entera', version: itemVersion }),
     });
     assert.equal(updated.response.status, 200);
-    assert.equal(updated.body.item.version, item.version + 1);
+    const updatedItem = expectRecord(requiredBody(updated.body).item);
+    const updatedVersion = expectNumber(updatedItem.version);
+    const updatedAt = expectString(updatedItem.updatedAt);
+    assert.equal(updatedVersion, itemVersion + 1);
 
     const invalidation = await nextInvalidation;
     assert.deepEqual(invalidation, {
       entityType: 'shopping-list-item',
       mutation: 'updated',
-      updatedAt: updated.body.item.updatedAt,
-      version: updated.body.item.version,
-      listId: list.id,
-      entityId: item.id,
+      updatedAt,
+      version: updatedVersion,
+      listId,
+      entityId: itemId,
     });
     assert.equal(JSON.stringify(invalidation).includes('Leche entera'), false);
 
-    const stale = await jsonRequest(baseUrl, `/api/v1/shopping-lists/${encodeURIComponent(list.id)}/items/${encodeURIComponent(item.id)}`, {
+    const stale = await jsonRequest(baseUrl, `/api/v1/shopping-lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(itemId)}`, {
       method: 'PATCH',
-      body: JSON.stringify({ text: 'Leche obsoleta', version: item.version }),
+      body: JSON.stringify({ text: 'Leche obsoleta', version: itemVersion }),
     });
     assert.equal(stale.response.status, 409);
-    assert.equal(stale.body.error.code, 'SHOPPING_CONFLICT');
-    assert.equal(stale.body.error.details.kind, 'item');
-    assert.equal(stale.body.error.details.current.text, 'Leche entera');
-    assert.equal(stale.body.error.details.current.version, item.version + 1);
+    const staleError = expectRecord(requiredBody(stale.body).error);
+    assert.equal(staleError.code, 'SHOPPING_CONFLICT');
+    const staleDetails = expectRecord(staleError.details);
+    assert.equal(staleDetails.kind, 'item');
+    const current = expectRecord(staleDetails.current);
+    assert.equal(current.text, 'Leche entera');
+    const currentVersion = expectNumber(current.version);
+    assert.equal(currentVersion, itemVersion + 1);
 
-    const retried = await jsonRequest(baseUrl, `/api/v1/shopping-lists/${encodeURIComponent(list.id)}/items/${encodeURIComponent(item.id)}`, {
+    const retried = await jsonRequest(baseUrl, `/api/v1/shopping-lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(itemId)}`, {
       method: 'PATCH',
-      body: JSON.stringify({ text: 'Leche elegida', version: stale.body.error.details.current.version }),
+      body: JSON.stringify({ text: 'Leche elegida', version: currentVersion }),
     });
     assert.equal(retried.response.status, 200);
-    assert.equal(retried.body.item.text, 'Leche elegida');
+    const retriedItem = expectRecord(requiredBody(retried.body).item);
+    assert.equal(retriedItem.text, 'Leche elegida');
   } finally {
     realtimeAbort.abort();
     await server.close();
@@ -138,13 +182,15 @@ test('catalog, confirmed price evidence and location contracts remain determinis
       body: JSON.stringify({ name: 'Lácteos' }),
     });
     assert.equal(categoryResponse.response.status, 201);
+    const category = expectRecord(requiredBody(categoryResponse.body).category);
+    const categoryId = expectString(category.id);
 
     const productResponse = await jsonRequest(baseUrl, '/api/v1/products', {
       method: 'POST',
       body: JSON.stringify({
         canonicalName: 'Leche entera',
         variantName: 'Leche entera 1 L',
-        categoryId: categoryResponse.body.category.id,
+        categoryId,
         brand: 'Marca',
         ean: '8412345678901',
         packageMinor: 1,
@@ -153,12 +199,16 @@ test('catalog, confirmed price evidence and location contracts remain determinis
       }),
     });
     assert.equal(productResponse.response.status, 201);
-    const productId = productResponse.body.product.id as string;
+    const createdProduct = expectRecord(requiredBody(productResponse.body).product);
+    const productId = expectString(createdProduct.id);
 
     const suggestions = await jsonRequest(baseUrl, '/api/v1/products/suggestions?q=leche');
     assert.equal(suggestions.response.status, 200);
-    assert.equal(suggestions.body.suggestions[0].id, productId);
-    assert.equal(suggestions.body.suggestions[0].categoryName, 'Lácteos');
+    const suggestionEntries = expectArray(requiredBody(suggestions.body).suggestions);
+    assert.ok(suggestionEntries.length > 0);
+    const firstSuggestion = expectRecord(suggestionEntries[0]);
+    assert.equal(firstSuggestion.id, productId);
+    assert.equal(firstSuggestion.categoryName, 'Lácteos');
 
     const noRetailer = await jsonRequest(baseUrl, `/api/v1/products/${encodeURIComponent(productId)}/prices`, {
       method: 'POST',
@@ -171,19 +221,23 @@ test('catalog, confirmed price evidence and location contracts remain determinis
       body: JSON.stringify({ priceMinor: 129, retailerName: 'Mercado', evidenceType: 'manual' }),
     });
     assert.equal(firstPrice.response.status, 201);
-    assert.equal(firstPrice.body.observation.priceMinor, 129);
+    const firstObservation = expectRecord(requiredBody(firstPrice.body).observation);
+    assert.equal(firstObservation.priceMinor, 129);
+    const firstObservationId = expectString(firstObservation.id);
 
     const secondPrice = await jsonRequest(baseUrl, `/api/v1/products/${encodeURIComponent(productId)}/prices`, {
       method: 'POST',
       body: JSON.stringify({ priceMinor: 139, retailerName: 'Mercado', evidenceType: 'manual' }),
     });
     assert.equal(secondPrice.response.status, 201);
-    assert.notEqual(secondPrice.body.observation.id, firstPrice.body.observation.id);
+    const secondObservation = expectRecord(requiredBody(secondPrice.body).observation);
+    assert.notEqual(expectString(secondObservation.id), firstObservationId);
 
     const product = await jsonRequest(baseUrl, `/api/v1/products/${encodeURIComponent(productId)}`);
     assert.equal(product.response.status, 200);
-    assert.equal(product.body.priceHistory.length, 2);
-    assert.deepEqual(product.body.priceHistory.map((entry: { priceMinor: number }) => entry.priceMinor), [139, 129]);
+    const priceHistory = expectArray(requiredBody(product.body).priceHistory);
+    assert.equal(priceHistory.length, 2);
+    assert.deepEqual(priceHistory.map(entry => expectNumber(expectRecord(entry).priceMinor)), [139, 129]);
 
     const store = await jsonRequest(baseUrl, '/api/v1/stores', {
       method: 'POST',
@@ -196,24 +250,31 @@ test('catalog, confirmed price evidence and location contracts remain determinis
       }),
     });
     assert.equal(store.response.status, 201);
+    const createdStore = expectRecord(requiredBody(store.body).store);
+    const storeId = expectString(createdStore.id);
     const stores = await jsonRequest(baseUrl, '/api/v1/stores/suggestions?latitudeMicrodegrees=40416775&longitudeMicrodegrees=-3703790&maximumDistanceMeters=1000');
     assert.equal(stores.response.status, 200);
-    assert.equal(stores.body.stores[0].id, store.body.store.id);
-    assert.ok(stores.body.stores[0].distanceMeters < 100);
+    const storeEntries = expectArray(requiredBody(stores.body).stores);
+    assert.ok(storeEntries.length > 0);
+    const firstStore = expectRecord(storeEntries[0]);
+    assert.equal(firstStore.id, storeId);
+    assert.ok(expectNumber(firstStore.distanceMeters) < 100);
 
     const externalFailure = await jsonRequest(baseUrl, '/api/v1/stores/nearby', {
       method: 'POST',
       body: JSON.stringify({ latitudeMicrodegrees: 40_416_775, longitudeMicrodegrees: -3_703_790, radiusMeters: 1_000, limit: 8 }),
     });
     assert.equal(externalFailure.response.status, 502);
-    assert.equal(externalFailure.body.error.code, 'NEARBY_STORE_PROVIDER_UNAVAILABLE');
+    const externalError = expectRecord(requiredBody(externalFailure.body).error);
+    assert.equal(externalError.code, 'NEARBY_STORE_PROVIDER_UNAVAILABLE');
 
     const aiUnavailable = await jsonRequest(baseUrl, '/api/v1/products/photo-proposal', {
       method: 'POST',
       body: JSON.stringify({ storageKey: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg' }),
     });
     assert.equal(aiUnavailable.response.status, 503);
-    assert.equal(aiUnavailable.body.error.code, 'AI_NOT_CONFIGURED');
+    const aiError = expectRecord(requiredBody(aiUnavailable.body).error);
+    assert.equal(aiError.code, 'AI_NOT_CONFIGURED');
   } finally {
     await server.close();
     rmSync(root, { recursive: true, force: true });
