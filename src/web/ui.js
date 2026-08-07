@@ -158,15 +158,17 @@ export function bindSwipeActions(root = document) {
     const row = event.target.closest('[data-swipe-row]');
     if (!row || !swipeContent(row)) return;
     closeSwipeRows(root, row);
+    const width = Math.max(row.clientWidth, 1);
     gesture = {
       row,
+      width,
       pointerId: event.pointerId,
       x: event.clientX,
       y: event.clientY,
       horizontal: false,
       deltaX: 0,
       initialOffset: row.dataset.swipeOpen === 'true'
-        ? -Math.min(SWIPE_REVEAL_MAX_PX, Math.max(112, row.clientWidth * 0.42))
+        ? -Math.min(SWIPE_REVEAL_MAX_PX, Math.max(112, width * 0.42))
         : 0,
     };
   });
@@ -175,6 +177,12 @@ export function bindSwipeActions(root = document) {
     if (!gesture || event.pointerId !== gesture.pointerId) return;
     const deltaX = event.clientX - gesture.x;
     const deltaY = event.clientY - gesture.y;
+    const row = resolveCurrentSwipeRow(root, gesture.row);
+    if (!row.isConnected) {
+      gesture = undefined;
+      return;
+    }
+    gesture.row = row;
     if (!gesture.horizontal) {
       if (Math.abs(deltaX) < 8 && Math.abs(deltaY) < 8) return;
       if (Math.abs(deltaY) >= Math.abs(deltaX)) {
@@ -182,13 +190,16 @@ export function bindSwipeActions(root = document) {
         return;
       }
       gesture.horizontal = true;
-      gesture.row.classList.add('is-dragging');
-      gesture.row.setPointerCapture?.(event.pointerId);
+      row.classList.add('is-dragging');
+      try {
+        row.setPointerCapture?.(event.pointerId);
+      } catch {
+        // A realtime render can replace the pointerdown target before capture.
+      }
     }
     event.preventDefault();
     gesture.deltaX = deltaX;
-    const { row } = gesture;
-    const width = Math.max(row.clientWidth, 1);
+    const width = gesture.width;
     const minimum = row.dataset.swipeEndAction ? -width * 0.92 : -Math.min(SWIPE_REVEAL_MAX_PX, width * 0.42);
     const maximum = row.dataset.swipeStartAction ? width * 0.55 : 0;
     const offset = Math.max(minimum, Math.min(maximum, gesture.initialOffset + deltaX));
@@ -199,9 +210,12 @@ export function bindSwipeActions(root = document) {
 
   const finish = (event, cancelled = false) => {
     if (!gesture || event.pointerId !== gesture.pointerId) return;
-    const { row, deltaX, horizontal, initialOffset } = gesture;
+    const { row: gestureRow, width, deltaX, horizontal, initialOffset } = gesture;
     gesture = undefined;
-    row.classList.remove('is-dragging');
+    const row = resolveCurrentSwipeRow(root, gestureRow);
+    gestureRow.classList.remove('is-dragging');
+    if (row !== gestureRow) row.classList.remove('is-dragging');
+    if (!row.isConnected) return;
     if (!horizontal || cancelled) {
       if (initialOffset < 0) openSwipeRow(root, row);
       else closeSwipeRow(row);
@@ -209,7 +223,7 @@ export function bindSwipeActions(root = document) {
     }
 
     const effectiveOffset = initialOffset + deltaX;
-    const ratio = Math.abs(effectiveOffset) / Math.max(row.clientWidth, 1);
+    const ratio = Math.abs(effectiveOffset) / width;
     if (effectiveOffset > 0 && ratio >= SWIPE_START_COMMIT_RATIO && row.dataset.swipeStartAction) {
       closeSwipeRow(row);
       dispatchSwipeAction(root, row, row.dataset.swipeStartAction);
