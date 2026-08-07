@@ -65,6 +65,7 @@ const config = {
   aiMaxRetries: 0,
   aiImageCapability: true,
   aiPdfCapability: false,
+  overpassBaseUrl: 'http://127.0.0.1:9/api/',
   idleHibernateAfterMs: 20,
   idleExitAfterMs: 0,
 };
