@@ -89,11 +89,16 @@ async function swipe(page, locator, direction, { long = false } = {}) {
   await expect(locator).toBeVisible();
   await locator.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
   const box = await stableBoundingBox(locator);
+  const kind = await locator.getAttribute('data-swipe-kind');
+  const receiptLine = kind === 'receipt-line';
   const anchor = locator.locator('.list-row__content, .receipt-item legend > span:first-child').first();
   const anchorBox = await anchor.count() ? await stableBoundingBox(anchor) : null;
   const startBox = anchorBox || box;
-  const startX = direction === 'left' ? startBox.x + startBox.width * 0.8 : startBox.x + startBox.width * 0.2;
-  const distance = box.width * (long ? 0.72 : direction === 'right' ? 0.46 : 0.34);
+  const startX = direction === 'left'
+    ? startBox.x + startBox.width * (receiptLine ? 0.98 : 0.8)
+    : startBox.x + startBox.width * 0.2;
+  const shortLeftRatio = receiptLine ? 0.17 : 0.34;
+  const distance = box.width * (long ? 0.72 : direction === 'right' ? 0.46 : shortLeftRatio);
   const endX = direction === 'left' ? startX - distance : startX + distance;
   const y = startBox.y + startBox.height / 2;
   await page.mouse.move(startX, y);
@@ -286,7 +291,9 @@ test('local OCR creates editable euro rows with progressive swipe and imports wi
   await manualLine.locator('[data-field="lineTotalEuro"]').fill('0.20');
 
   const manualLineShell = page.locator('[data-swipe-kind="receipt-line"]').last();
-  await swipe(page, manualLineShell, 'left', { long: true });
+  await swipe(page, manualLineShell, 'left');
+  await expect(manualLineShell).toHaveAttribute('data-swipe-open', 'true');
+  await page.getByRole('button', { name: 'Eliminar línea 2' }).click();
   await expect(page.locator('.receipt-item')).toHaveCount(1);
   await expect(page.locator('#toast-message')).toHaveText('Línea eliminada');
   await expect(page.getByRole('button', { name: 'Deshacer' })).toBeVisible();
