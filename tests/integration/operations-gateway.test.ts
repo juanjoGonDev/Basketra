@@ -141,6 +141,49 @@ test('operations gateway verifies image structured output through the canonical 
   }
 });
 
+test('operations gateway cancels an in-flight AI probe when its client disconnects', { timeout: 5000 }, async()=>{
+  const directory=`.test-tmp/gateway-ai-cancel-${randomUUID()}`;
+  let markProviderStarted:()=>void=()=>{};
+  let markProviderClosed:()=>void=()=>{};
+  const providerStarted=new Promise<void>(resolve=>{markProviderStarted=resolve;});
+  const providerClosed=new Promise<void>(resolve=>{markProviderClosed=resolve;});
+  const providerServer=createServer((request,response)=>{
+    request.resume();
+    response.once('close',markProviderClosed);
+    markProviderStarted();
+  });
+  await new Promise<void>((resolve,reject)=>{
+    providerServer.once('error',reject);
+    providerServer.listen(0,'0.0.0',()=>{
+      providerServer.off('error',reject);
+      resolve();
+    });
+  });
+  const providerPort=(providerServer.address() as AddressInfo).port;
+  const gateway=new OperationsGateway(config(directory,{
+    aiBaseUrl:`http://127.0.0.2:${providerPort}/v1/`,
+    aiModel:'gpt-5',
+    aiTimeoutMs:0,
+  }));
+  try{
+    await gateway.listen();
+    const base=`http://127.0.0.1:${gateway.address().port}`;
+    const controller=new AbortController();
+    const probe=fetch(`${base}/api/v1/settings/ai-provider/test`,{method:'POST',signal:controller.signal});
+    await providerStarted;
+    controller.abort();
+    await assert.rejects(()=>probe);
+    await providerClosed;
+
+    const logs=await json(await fetch(`${base}/api/v1/logs?source=server&limit=20`));
+    assert.equal(JSON.stringify(logs).includes('ai.capability_probe_failed'),false);
+  }finally{
+    await gateway.close();
+    await new Promise<void>((resolve,reject)=>providerServer.close(error=>error?reject(error):resolve()));
+    rmSync(directory,{recursive:true,force:true});
+  }
+});
+
 test('operations gateway exposes redacted logs and downloadable portable backups',async()=>{
   const directory=`.test-tmp/gateway-backup-${randomUUID()}`;
   const gateway=new OperationsGateway(config(directory));
