@@ -7,8 +7,8 @@ export type RealtimeMutationType = typeof REALTIME_MUTATION_TYPES[number];
 export type RealtimeInvalidation = Readonly<{
   entityType: RealtimeEntityType;
   mutation: RealtimeMutationType;
-  version: number;
   updatedAt: string;
+  version?: number;
   listId?: string;
   entityId?: string;
 }>;
