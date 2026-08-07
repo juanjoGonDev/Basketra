@@ -47,7 +47,10 @@ export async function api(path, options = {}) {
       ? body.error.message
       : `HTTP ${response.status}`;
     const error = new Error(message);
-    if (typeof body === 'object' && body !== null) error.code = body.error?.code;
+    if (typeof body === 'object' && body !== null) {
+      error.code = body.error?.code;
+      error.details = body.error?.details;
+    }
     error.status = response.status;
     const requestId = response.headers.get('x-request-id') || (typeof body === 'object' && body !== null ? body.error?.requestId : undefined);
     emitApiLog({
@@ -64,6 +67,10 @@ export async function api(path, options = {}) {
   }
 
   return body;
+}
+
+export function realtimeEndpoint() {
+  return '/api/v1/realtime';
 }
 
 export function setBusy(element, busy) {
