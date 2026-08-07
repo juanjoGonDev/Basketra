@@ -18,12 +18,25 @@ export function runCommand(command, args, options = {}) {
   return options.capture ? String(result.stdout || '').trim() : '';
 }
 
+function isCommitSha(value) {
+  return typeof value === 'string' && /^[a-f0-9]{40}$/u.test(value) && !/^0{40}$/u.test(value);
+}
+
+export function coverageBaseShaFromEvent(event) {
+  const pullRequestBase = event?.pull_request?.base?.sha;
+  if (isCommitSha(pullRequestBase)) return pullRequestBase;
+
+  const pushBefore = event?.before;
+  if (isCommitSha(pushBefore)) return pushBefore;
+  return undefined;
+}
+
 export function resolveCoverageBaseSha() {
   if (process.env['BASKETRA_COVERAGE_BASE']) return process.env['BASKETRA_COVERAGE_BASE'];
   if (process.env['GITHUB_EVENT_PATH']) {
     const event = JSON.parse(readFileSync(process.env['GITHUB_EVENT_PATH'], 'utf8'));
-    const baseSha = event?.pull_request?.base?.sha;
-    if (typeof baseSha === 'string' && /^[a-f0-9]{40}$/u.test(baseSha)) return baseSha;
+    const eventBaseSha = coverageBaseShaFromEvent(event);
+    if (eventBaseSha) return eventBaseSha;
   }
   try {
     return runCommand('git', ['merge-base', 'main', 'HEAD'], { capture: true });

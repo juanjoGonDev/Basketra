@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { validateGhcrWorkflows } from './ghcr-workflow-policy.mjs';
+
 const failures = [];
 const textFiles = [];
 const ignoredDirectories = new Set(['.git', 'dist', 'node_modules', 'coverage', 'playwright-report', 'test-results']);
@@ -57,66 +59,8 @@ for (const name of readdirSync(workflowDirectory)) {
 }
 
 const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
-requireText(ci, [
-  'publish-image:',
-  "github.event_name == 'push'",
-  "github.ref == 'refs/heads/main'",
-  'packages: write',
-  'contents: write',
-  'linux/amd64,linux/arm64',
-  'Resolve deterministic patch release',
-  'release-version-policy.mjs',
-  'id: publish-sha',
-  'ghcr.io/juanjogondev/basketra:${{ github.sha }}',
-  'BASKETRA_VERSION=${{ steps.release-version.outputs.version }}',
-  'BASKETRA_REVISION=${{ github.sha }}',
-  'steps.publish-sha.outputs.digest',
-  "imagetools inspect --format '{{json .Manifest}}' \"$IMAGE:$GITHUB_SHA\"",
-  'node scripts/ghcr-manifest-policy.mjs candidate',
-  'docker pull --platform linux/amd64 "$IMAGE:$GITHUB_SHA"',
-  'org.opencontainers.image.revision',
-  'org.opencontainers.image.version',
-  'http://127.0.0.1:3001/readiness',
-  'http://127.0.0.1:3001/api/v1/runtime',
-  'docker inspect "$container" --format \'{{.State.ExitCode}}\'',
-  'id: promote',
-  'imagetools create --metadata-file stable-promotion.json --tag "$IMAGE:stable"',
-  'Promote verified digest to immutable version',
-  'Create or verify GitHub release',
-  'generate_release_notes: true',
-  'node scripts/ghcr-manifest-policy.mjs stable',
-  'selectGhcrVersionsForDeletion',
-  'GHCR_RETAIN_SHA_VERSIONS',
-  'Delete an unpromoted failed candidate',
-  '--memory-swap 192m',
-  'NODE_OPTIONS=--max-old-space-size=128',
-], 'CI publication or runtime contract');
-if (!/publish-image:[\s\S]*?needs:[\s\S]*?- quality[\s\S]*?- security[\s\S]*?- browser-e2e[\s\S]*?- container[\s\S]*?- container-smoke/.test(ci)) {
-  failures.push('GHCR publication must depend on every CI gate');
-}
-const publishJobIndex = ci.indexOf('  publish-image:');
-const contentsWriteMatches = [...ci.matchAll(/^\s+contents: write$/gm)];
-if (publishJobIndex < 0 || contentsWriteMatches.length !== 1 || (contentsWriteMatches[0]?.index ?? -1) < publishJobIndex) {
-  failures.push('Contents write permission must exist only in the trusted main publication job');
-}
-const publishIndex = ci.indexOf('- name: Publish immutable SHA candidate');
-const verifyCandidateIndex = ci.indexOf('- name: Verify published SHA tag and manifest');
-const smokeIndex = ci.indexOf('- name: Pull and smoke-test the exact published digest');
-const promoteIndex = ci.indexOf('- name: Promote verified digest to stable');
-const verifyStableIndex = ci.indexOf('- name: Verify stable is the validated manifest');
-const promoteVersionIndex = ci.indexOf('- name: Promote verified digest to immutable version');
-const releaseIndex = ci.indexOf('- name: Create or verify GitHub release');
-if (!(publishIndex >= 0 && publishIndex < verifyCandidateIndex && verifyCandidateIndex < smokeIndex && smokeIndex < promoteIndex && promoteIndex < verifyStableIndex && verifyStableIndex < promoteVersionIndex && promoteVersionIndex < releaseIndex)) {
-  failures.push('GHCR candidate, digest verification, smoke, stable/version promotion and release creation are out of order');
-}
-if (publishIndex >= 0 && verifyCandidateIndex >= 0 && ci.slice(publishIndex, verifyCandidateIndex).includes('basketra:stable')) {
-  failures.push('The build-push action must not publish stable before candidate verification');
-}
-if (/docker\/build-push-action@[\s\S]*?tags:\s*\|?[\s\S]*?basketra:stable/.test(ci.slice(publishIndex, verifyCandidateIndex))) {
-  failures.push('The initial Buildx publication must contain only the immutable SHA tag');
-}
-if (/CR_PAT|PERSONAL_ACCESS_TOKEN|GHCR_PAT/.test(ci)) failures.push('CI must use GITHUB_TOKEN rather than a personal access token');
-if (ci.includes('BASKETRA_AUTH_TOKEN')) failures.push('Obsolete application tokens must not appear in CI');
+const ghcrPublication = readFileSync('.github/workflows/publish-ghcr.yml', 'utf8');
+failures.push(...validateGhcrWorkflows(ci, ghcrPublication));
 
 function validateCompose(path, requiredControls) {
   const compose = readFileSync(path, 'utf8');
@@ -272,6 +216,7 @@ for (const requiredTest of [
   'tests/unit/ai-response-limits.test.ts',
   'tests/unit/ghcr-retention.test.ts',
   'tests/unit/ghcr-manifest-policy.test.ts',
+  'tests/unit/ghcr-workflow-policy.test.ts',
   'tests/unit/runtime-operations.test.ts',
   'tests/unit/release-version-policy.test.ts',
 ]) {
@@ -281,6 +226,7 @@ for (const requiredTest of [
 for (const requiredScript of [
   'scripts/ghcr-retention-policy.mjs',
   'scripts/ghcr-manifest-policy.mjs',
+  'scripts/ghcr-workflow-policy.mjs',
   'scripts/release-version-policy.mjs',
 ]) {
   if (!textFiles.includes(requiredScript)) failures.push(`Missing GHCR or release policy implementation: ${requiredScript}`);
