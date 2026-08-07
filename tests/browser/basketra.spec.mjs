@@ -80,10 +80,13 @@ async function swipe(page, locator, direction, { long = false } = {}) {
   await locator.scrollIntoViewIfNeeded();
   const box = await locator.boundingBox();
   expect(box).not.toBeNull();
-  const startX = direction === 'left' ? box.x + box.width * 0.72 : box.x + box.width * 0.35;
+  const content = locator.locator('.list-row__content').first();
+  const contentBox = await content.count() ? await content.boundingBox() : null;
+  const startBox = contentBox || box;
+  const startX = direction === 'left' ? startBox.x + startBox.width * 0.8 : startBox.x + startBox.width * 0.2;
   const distance = box.width * (long ? 0.72 : direction === 'right' ? 0.46 : 0.34);
   const endX = direction === 'left' ? startX - distance : startX + distance;
-  const y = box.y + Math.min(box.height / 2, 42);
+  const y = startBox.y + startBox.height / 2;
   await page.mouse.move(startX, y);
   await page.mouse.down();
   await page.mouse.move(endX, y, { steps: 14 });
