@@ -474,7 +474,7 @@ async function testAiProvider() {
       AI_LOOPBACK_CONTAINER: providerNetworkGuidance(state.aiSettings),
       AI_UNREACHABLE: `No se pudo abrir una conexión con ${probe}. ${providerNetworkGuidance(state.aiSettings)}`,
       AI_AUTHENTICATION_FAILED: 'webApi respondió, pero rechazó el token. Crea un token gestionado en /admin y copia su valor completo en BASKETRA_AI_API_KEY.',
-      AI_TIMEOUT: `La prueba multimodal no terminó dentro del tiempo configurado al solicitar ${probe}.`,
+      AI_TIMEOUT: `webApi o el proveedor agotó su propio tiempo de espera al procesar ${probe}. Basketra no aplica un deadline de inferencia por defecto.`,
       AI_ATTACHMENT_TOO_LARGE: 'El proveedor rechazó incluso la imagen sintética mínima por tamaño. Revisa los límites del proveedor.',
       AI_ATTACHMENT_UPLOAD_FAILED: 'El proveedor no pudo preparar la imagen sintética en el compositor. Revisa el estado del navegador de webApi.',
       AI_REQUEST_REJECTED: 'El proveedor rechazó la imagen o el esquema estricto. Revisa el modelo configurado y el contrato OpenAI-compatible.',
