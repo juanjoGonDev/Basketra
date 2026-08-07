@@ -288,11 +288,14 @@ export class OpenAiCompatibleProvider implements AiProvider {
   async executeStructured(input: AiStructuredInput): Promise<unknown> {
     const controller = new AbortController();
     let timedOut = false;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, this.config.timeoutMs);
-    timeout.unref();
+    let timeout: NodeJS.Timeout | undefined;
+    if (this.config.timeoutMs > 0) {
+      timeout = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, this.config.timeoutMs);
+      timeout.unref();
+    }
     const signal = input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
     try {
       const response = await this.fetchImplementation(new URL('chat/completions', ensureTrailingSlash(this.config.baseUrl)), {
@@ -327,7 +330,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
       if (error instanceof AiProviderError) throw error;
       throw new AiProviderError('AI_UNREACHABLE', { retryable: true });
     } finally {
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
     }
   }
 

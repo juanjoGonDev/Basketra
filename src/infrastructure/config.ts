@@ -46,7 +46,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     ...(aiBaseUrl ? { aiBaseUrl } : {}),
     ...(environment['BASKETRA_AI_API_KEY']?.trim() ? { aiApiKey: environment['BASKETRA_AI_API_KEY']!.trim() } : {}),
     ...(environment['BASKETRA_AI_MODEL']?.trim() ? { aiModel: environment['BASKETRA_AI_MODEL']!.trim() } : {}),
-    aiTimeoutMs: readInteger(environment, 'BASKETRA_AI_TIMEOUT_MS', 30_000, 1000),
+    aiTimeoutMs: readInteger(environment, 'BASKETRA_AI_TIMEOUT_MS', 0, 0),
     aiMaxRetries: readInteger(environment, 'BASKETRA_AI_MAX_RETRIES', 1, 0),
     aiImageCapability: readBoolean(environment, 'BASKETRA_AI_IMAGE_CAPABILITY', true),
     aiPdfCapability: readBoolean(environment, 'BASKETRA_AI_PDF_CAPABILITY', false),
