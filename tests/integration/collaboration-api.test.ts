@@ -1,12 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { BasketraServer } from '../../src/api/server.ts';
 import type { AppConfig } from '../../src/infrastructure/config.ts';
 
 type JsonObject = Record<string, unknown>;
+type TestResponse = Readonly<{
+  status: number;
+  headers: Readonly<{ get(name: string): string | null }>;
+}>;
+type JsonRequestInit = Readonly<{
+  method?: string;
+  body?: string;
+}>;
+type RealtimeConnection = Readonly<{
+  response: TestResponse;
+  stream: IncomingMessage;
+  close(): void;
+}>;
 
 function expectRecord(value: unknown): JsonObject {
   assert.equal(typeof value, 'object');
@@ -46,17 +60,63 @@ function createConfig(root: string): AppConfig {
   };
 }
 
-async function jsonRequest(baseUrl: string, path: string, init: RequestInit = {}): Promise<Readonly<{ response: Response; body: JsonObject | undefined }>> {
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...init,
+function testResponse(response: IncomingMessage): TestResponse {
+  return {
+    status: response.statusCode ?? 0,
     headers: {
-      ...(init.body ? { 'content-type': 'application/json' } : {}),
-      ...(init.headers ?? {}),
+      get(name: string): string | null {
+        const value = response.headers[name.toLowerCase()];
+        if (Array.isArray(value)) return value.join(', ');
+        return value ?? null;
+      },
     },
+  };
+}
+
+async function jsonRequest(baseUrl: string, path: string, init: JsonRequestInit = {}): Promise<Readonly<{ response: TestResponse; body: JsonObject | undefined }>> {
+  return await new Promise((resolvePromise, reject) => {
+    const request = httpRequest(new URL(path, baseUrl), {
+      method: init.method ?? 'GET',
+      agent: false,
+      headers: init.body ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(init.body) } : undefined,
+    }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+      response.once('error', reject);
+      response.once('end', () => {
+        try {
+          const normalizedResponse = testResponse(response);
+          if (normalizedResponse.status === 204) {
+            resolvePromise({ response: normalizedResponse, body: undefined });
+            return;
+          }
+          const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          resolvePromise({ response: normalizedResponse, body: expectRecord(parsed) });
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+    request.once('error', reject);
+    request.end(init.body);
   });
-  if (response.status === 204) return { response, body: undefined };
-  const parsed: unknown = await response.json();
-  return { response, body: expectRecord(parsed) };
+}
+
+async function openRealtime(baseUrl: string): Promise<RealtimeConnection> {
+  return await new Promise((resolvePromise, reject) => {
+    const request = httpRequest(new URL('/api/v1/realtime', baseUrl), { method: 'GET', agent: false }, (response) => {
+      resolvePromise({
+        response: testResponse(response),
+        stream: response,
+        close() {
+          response.destroy();
+          request.destroy();
+        },
+      });
+    });
+    request.once('error', reject);
+    request.end();
+  });
 }
 
 function requiredBody(body: JsonObject | undefined): JsonObject {
@@ -64,29 +124,46 @@ function requiredBody(body: JsonObject | undefined): JsonObject {
   return body;
 }
 
-async function readInvalidation(response: Response): Promise<JsonObject> {
-  assert.ok(response.body);
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  try {
-    for (;;) {
-      const chunk = await reader.read();
-      if (chunk.done) throw new Error('Realtime stream ended before invalidation');
-      buffer += decoder.decode(chunk.value, { stream: true });
-      const blocks = buffer.split('\n\n');
-      buffer = blocks.pop() ?? '';
-      for (const block of blocks) {
-        if (!block.includes('event: invalidate')) continue;
-        const data = block.split('\n').find((line) => line.startsWith('data: '));
-        if (!data) continue;
-        const parsed: unknown = JSON.parse(data.slice(6));
-        return expectRecord(parsed);
+async function readInvalidation(stream: IncomingMessage): Promise<JsonObject> {
+  return await new Promise((resolvePromise, reject) => {
+    const decoder = new TextDecoder();
+    let buffer = '';
+    const cleanup = () => {
+      stream.off('data', onData);
+      stream.off('end', onEnd);
+      stream.off('error', onError);
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const onEnd = () => {
+      cleanup();
+      reject(new Error('Realtime stream ended before invalidation'));
+    };
+    const onData = (chunk: Buffer) => {
+      try {
+        buffer += decoder.decode(chunk, { stream: true });
+        const blocks = buffer.split('\n\n');
+        buffer = blocks.pop() ?? '';
+        for (const block of blocks) {
+          if (!block.includes('event: invalidate')) continue;
+          const data = block.split('\n').find((line) => line.startsWith('data: '));
+          if (!data) continue;
+          const parsed: unknown = JSON.parse(data.slice(6));
+          cleanup();
+          resolvePromise(expectRecord(parsed));
+          return;
+        }
+      } catch (error) {
+        cleanup();
+        reject(error);
       }
-    }
-  } finally {
-    await reader.cancel();
-  }
+    };
+    stream.on('data', onData);
+    stream.once('end', onEnd);
+    stream.once('error', onError);
+  });
 }
 
 test('HTTP API exposes optimistic conflicts and minimal realtime invalidations', async () => {
@@ -95,7 +172,7 @@ test('HTTP API exposes optimistic conflicts and minimal realtime invalidations',
   await server.listen();
   const address = server.address();
   const baseUrl = `http://${address.host}:${address.port}`;
-  const realtimeAbort = new AbortController();
+  let realtime: RealtimeConnection | undefined;
   try {
     const createdList = await jsonRequest(baseUrl, '/api/v1/shopping-lists', {
       method: 'POST',
@@ -116,10 +193,10 @@ test('HTTP API exposes optimistic conflicts and minimal realtime invalidations',
     const itemId = expectString(item.id);
     const itemVersion = expectNumber(item.version);
 
-    const realtime = await fetch(`${baseUrl}/api/v1/realtime`, { signal: realtimeAbort.signal });
-    assert.equal(realtime.status, 200);
-    assert.match(realtime.headers.get('content-type') ?? '', /^text\/event-stream/);
-    const nextInvalidation = readInvalidation(realtime);
+    realtime = await openRealtime(baseUrl);
+    assert.equal(realtime.response.status, 200);
+    assert.match(realtime.response.headers.get('content-type') ?? '', /^text\/event-stream/);
+    const nextInvalidation = readInvalidation(realtime.stream);
 
     const updated = await jsonRequest(baseUrl, `/api/v1/shopping-lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(itemId)}`, {
       method: 'PATCH',
@@ -164,7 +241,7 @@ test('HTTP API exposes optimistic conflicts and minimal realtime invalidations',
     const retriedItem = expectRecord(requiredBody(retried.body).item);
     assert.equal(retriedItem.text, 'Leche elegida');
   } finally {
-    realtimeAbort.abort();
+    realtime?.close();
     await server.close();
     rmSync(root, { recursive: true, force: true });
   }
