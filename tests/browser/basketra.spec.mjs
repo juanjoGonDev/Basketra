@@ -77,6 +77,7 @@ async function addProduct(page, { name, quantity = '1', unit = 'unit', exact = f
 }
 
 async function swipe(page, locator, direction, { long = false } = {}) {
+  await expect(locator).toBeVisible();
   await locator.scrollIntoViewIfNeeded();
   const box = await locator.boundingBox();
   expect(box).not.toBeNull();
@@ -86,7 +87,7 @@ async function swipe(page, locator, direction, { long = false } = {}) {
   const startX = direction === 'left' ? startBox.x + startBox.width * 0.8 : startBox.x + startBox.width * 0.2;
   const distance = box.width * (long ? 0.72 : direction === 'right' ? 0.46 : 0.34);
   const endX = direction === 'left' ? startX - distance : startX + distance;
-  const y = startBox.y + startBox.height / 2;
+  const y = contentBox ? startBox.y + startBox.height / 2 : box.y + Math.min(box.height / 2, 42);
   await page.mouse.move(startX, y);
   await page.mouse.down();
   await page.mouse.move(endX, y, { steps: 14 });
