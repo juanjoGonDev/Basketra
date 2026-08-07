@@ -22,7 +22,8 @@ function monitorRuntime(page, { allowOfflineErrors = false, allowServiceUnavaila
 }
 
 function navigate(page, name) {
-  return page.locator('.bottom-nav').getByRole('button', { name, exact: true }).click();
+  const accessibleName = name === 'Lista' ? 'Listas' : name;
+  return page.locator('.bottom-nav').getByRole('button', { name: accessibleName, exact: true }).click();
 }
 
 function productInput(page) {
@@ -46,19 +47,32 @@ async function gotoApp(page, options) {
 }
 
 async function createList(page, name) {
-  await navigate(page, 'Lista');
-  await page.getByLabel('Nueva lista', { exact: true }).fill(name);
-  await page.getByRole('button', { name: 'Crear', exact: true }).click();
-  await expect(page.locator('#list-select')).toContainText(name);
+  await navigate(page, 'Listas');
+  await page.getByRole('button', { name: 'Nueva lista', exact: true }).click();
+  const dialog = page.locator('#create-list-dialog');
+  await dialog.getByLabel('Nombre', { exact: true }).fill(name);
+  await dialog.getByRole('button', { name: 'Crear lista', exact: true }).click();
+  await expect(page.locator('#active-list-title')).toHaveText(name);
+}
+
+async function openProductDialog(page) {
+  if (await page.locator('#item-dialog').evaluate(dialog => dialog.open)) return;
+  await page.getByRole('button', { name: 'Añadir producto', exact: true }).click();
+  await expect(page.locator('#item-dialog')).toHaveAttribute('open', '');
 }
 
 async function addProduct(page, { name, quantity = '1', unit = 'unit', exact = false, substitutions = true }) {
+  await openProductDialog(page);
+  const dialog = page.locator('#item-dialog');
   await productInput(page).fill(name);
-  await page.getByLabel('Cantidad', { exact: true }).fill(quantity);
+  await dialog.getByLabel('Cantidad', { exact: true }).fill(quantity);
   await page.locator('#item-unit').selectOption(unit);
+  if (!(await page.locator('#item-advanced').evaluate(details => details.open))) {
+    await page.locator('#item-advanced summary').click();
+  }
   await setSwitch(page, 'Producto exacto', exact);
   await setSwitch(page, 'Permitir sustituciones', substitutions);
-  await page.getByRole('button', { name: 'Añadir a la lista', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Añadir', exact: true }).click();
   await expect(page.locator('#pending-items')).toContainText(name);
 }
 
@@ -111,7 +125,7 @@ test('mobile PWA loads with private-network messaging and touch-safe navigation'
   await expect(page.locator('.bottom-nav button')).toHaveCount(5);
   const heights = await page.locator('button:visible').evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().height));
   expect(heights.every(height => height >= 44)).toBeTruthy();
-  for (const destination of ['Inicio', 'Lista', 'Tickets', 'Planes', 'Ajustes']) {
+  for (const destination of ['Inicio', 'Listas', 'Tickets', 'Planes', 'Ajustes']) {
     await navigate(page, destination);
     await expectNoHorizontalOverflow(page);
   }
@@ -123,10 +137,12 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   const failures = await gotoApp(page);
   await createList(page, 'Compra E2E');
 
+  await page.locator('#list-menu').click();
   await page.getByRole('button', { name: 'Renombrar', exact: true }).click();
-  await page.getByLabel('Nuevo nombre', { exact: true }).fill('Compra completa');
-  await page.getByRole('button', { name: 'Guardar', exact: true }).click();
-  await expect(page.locator('#list-select')).toContainText('Compra completa');
+  const renameDialog = page.locator('#rename-list-dialog');
+  await renameDialog.getByLabel('Nombre', { exact: true }).fill('Compra completa');
+  await renameDialog.getByRole('button', { name: 'Guardar', exact: true }).click();
+  await expect(page.locator('#active-list-title')).toHaveText('Compra completa');
 
   await addProduct(page, { name: 'Leche entera 1 L', quantity: '2', unit: 'l', exact: true, substitutions: false });
   await addProduct(page, { name: 'Arroz 1 kg', quantity: '1', unit: 'kg' });
@@ -142,7 +158,7 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await page.screenshot({ path: testInfo.outputPath('swipe-reveal.png') });
   await page.getByRole('button', { name: 'Editar Leche entera 1 L' }).click();
   await productInput(page).fill('Leche semidesnatada 1 L');
-  await page.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+  await page.locator('#item-dialog').getByRole('button', { name: 'Guardar cambios', exact: true }).click();
   await expect(page.locator('#pending-items')).toContainText('Leche semidesnatada 1 L');
 
   const riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
@@ -172,14 +188,16 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
 
   await page.reload();
-  await navigate(page, 'Lista');
-  await expect(page.locator('#list-select')).toContainText('Compra completa');
+  await navigate(page, 'Listas');
+  await page.locator('[data-list-action="open"]').filter({ hasText: 'Compra completa' }).click();
+  await expect(page.locator('#active-list-title')).toHaveText('Compra completa');
   await expect(page.locator('#pending-items')).toContainText('Leche semidesnatada 1 L');
   await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
 
-  await page.getByRole('button', { name: 'Eliminar', exact: true }).click();
+  await page.locator('#list-menu').click();
   await page.getByRole('button', { name: 'Eliminar lista', exact: true }).click();
-  await expect(page.locator('#list-select')).toContainText('Todavía no hay listas');
+  await page.locator('#delete-list-dialog').getByRole('button', { name: 'Eliminar lista', exact: true }).click();
+  await expect(page.locator('#list-cards')).toContainText('Tu primera lista empieza aquí');
   await expectNoHorizontalOverflow(page);
   expect(failures).toEqual([]);
 });
@@ -193,10 +211,11 @@ test('local suggestions ignore stale responses and never require AI', async ({ p
   });
   await page.goto('/');
   await createList(page, 'Suggestions E2E');
+  await openProductDialog(page);
   await productInput(page).fill('le');
   await page.waitForTimeout(220);
   await productInput(page).fill('lech');
-  await expect(page.getByRole('option', { name: 'Leche nueva 1 L' })).toBeVisible();
+  await expect(page.getByRole('option', { name: /Leche nueva 1 L/ })).toBeVisible();
   await page.waitForTimeout(500);
   await expect(page.getByText('Old stale result')).toHaveCount(0);
   expect(failures).toEqual([]);
@@ -321,12 +340,18 @@ test('comparison renders all deterministic plans in euros', async ({ page }) => 
 test('AI unavailability is recoverable and does not overwrite list input', async ({ page }) => {
   const failures = await gotoApp(page, { allowServiceUnavailable: true });
   await createList(page, 'AI E2E');
+  await openProductDialog(page);
   await productInput(page).fill('pan integral');
-  await page.locator('.ai-card summary').click();
-  await expect(page.locator('#ai-mode')).toBeVisible();
-  await page.locator('#ai-mode').selectOption('manual');
-  await page.getByRole('button', { name: 'Analizar texto', exact: true }).click();
-  await expect(page.locator('#ai-state')).toContainText('Proveedor IA no disponible');
+  await page.locator('#item-dialog').getByRole('button', { name: 'Cancelar', exact: true }).click();
+
+  await page.locator('#open-ai-assistant').click();
+  const aiDialog = page.locator('#ai-assistant-dialog');
+  await aiDialog.getByLabel('Describe lo que necesitas', { exact: true }).fill('pan integral');
+  await aiDialog.getByRole('button', { name: 'Preparar propuesta', exact: true }).click();
+  await expect(page.locator('#ai-state')).toContainText(/La IA no está configurada|Proveedor IA no disponible/);
+  await aiDialog.getByRole('button', { name: 'Cerrar', exact: true }).click();
+
+  await openProductDialog(page);
   await expect(productInput(page)).toHaveValue('pan integral');
   expect(failures).toEqual([]);
 });
