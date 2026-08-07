@@ -89,20 +89,12 @@ async function swipe(page, locator, direction, { long = false } = {}) {
   await expect(locator).toBeVisible();
   await locator.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
   const box = await stableBoundingBox(locator);
-  const kind = await locator.getAttribute('data-swipe-kind');
-  const receiptLine = kind === 'receipt-line';
-  const anchor = locator.locator('.list-row__content, .receipt-item legend > span:first-child').first();
-  const anchorBox = await anchor.count() ? await stableBoundingBox(anchor) : null;
-  const startBox = anchorBox || box;
-  const startX = direction === 'left'
-    ? receiptLine
-      ? box.x + box.width * 0.45
-      : startBox.x + startBox.width * 0.8
-    : startBox.x + startBox.width * 0.2;
-  const shortLeftRatio = receiptLine ? 0.17 : 0.34;
-  const distance = box.width * (long ? 0.72 : direction === 'right' ? 0.46 : shortLeftRatio);
+  const anchor = locator.locator('.list-row__content').first();
+  const anchorBox = await stableBoundingBox(anchor);
+  const startX = direction === 'left' ? anchorBox.x + anchorBox.width * 0.8 : anchorBox.x + anchorBox.width * 0.2;
+  const distance = box.width * (long ? 0.72 : direction === 'right' ? 0.46 : 0.34);
   const endX = direction === 'left' ? startX - distance : startX + distance;
-  const y = startBox.y + startBox.height / 2;
+  const y = anchorBox.y + anchorBox.height / 2;
   await page.mouse.move(startX, y);
   await page.mouse.down();
   await page.mouse.move(endX, y, { steps: 14 });
@@ -240,7 +232,7 @@ test('local suggestions ignore stale responses and never require AI', async ({ p
   expect(failures).toEqual([]);
 });
 
-test('local OCR creates editable euro rows with progressive swipe and imports without AI', async ({ page }, testInfo) => {
+test('local OCR creates editable euro rows with accessible row actions and imports without AI', async ({ page }, testInfo) => {
   const failures = await gotoApp(page);
   await navigate(page, 'Tickets');
 
@@ -275,7 +267,7 @@ test('local OCR creates editable euro rows with progressive swipe and imports wi
 
   const firstLineShell = page.locator('[data-swipe-kind="receipt-line"]').first();
   const firstLine = firstLineShell.locator('.receipt-item');
-  await swipe(page, firstLineShell, 'left');
+  await page.getByRole('button', { name: 'Mostrar acciones de la línea 1' }).click();
   await expect(firstLineShell).toHaveAttribute('data-swipe-open', 'true');
   await expect(page.getByRole('button', { name: 'Editar línea 1' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Eliminar línea 1' })).toBeVisible();
@@ -293,7 +285,7 @@ test('local OCR creates editable euro rows with progressive swipe and imports wi
   await manualLine.locator('[data-field="lineTotalEuro"]').fill('0.20');
 
   const manualLineShell = page.locator('[data-swipe-kind="receipt-line"]').last();
-  await swipe(page, manualLineShell, 'left');
+  await page.getByRole('button', { name: 'Mostrar acciones de la línea 2' }).click();
   await expect(manualLineShell).toHaveAttribute('data-swipe-open', 'true');
   await page.getByRole('button', { name: 'Eliminar línea 2' }).click();
   await expect(page.locator('.receipt-item')).toHaveCount(1);
