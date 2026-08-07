@@ -21,6 +21,7 @@ function config(dataDir: string, providerPort: number): AppConfig {
     aiMaxRetries: 0,
     aiImageCapability: true,
     aiPdfCapability: false,
+    overpassBaseUrl: 'http://127.0.0.1:9/api/',
     idleHibernateAfterMs: 0,
     idleExitAfterMs: 0,
   };
@@ -47,8 +48,9 @@ test('operations gateway returns a redacted stable failure when the real capabil
     });
   });
 
-  const gateway = new OperationsGateway(config(directory, (providerServer.address() as AddressInfo).port));
+  let gateway: OperationsGateway | undefined;
   try {
+    gateway = new OperationsGateway(config(directory, (providerServer.address() as AddressInfo).port));
     await gateway.listen();
     const baseUrl = `http://127.0.0.1:${gateway.address().port}`;
     const response = await fetch(`${baseUrl}/api/v1/settings/ai-provider/test`, { method: 'POST' });
@@ -64,7 +66,7 @@ test('operations gateway returns a redacted stable failure when the real capabil
     });
     assert.doesNotMatch(JSON.stringify(body), /private_upstream_code|receipt text|credentials|private paths/u);
   } finally {
-    await gateway.close();
+    if (gateway) await gateway.close();
     await new Promise<void>((resolve, reject) => providerServer.close(error => error ? reject(error) : resolve()));
     rmSync(directory, { recursive: true, force: true });
   }
