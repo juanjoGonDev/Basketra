@@ -680,7 +680,11 @@ function explicitEditPayload() {
     unit: $('#item-unit').value,
     exactRequired: $('#exact-required').checked,
     substitutionAllowed: $('#substitution-allowed').checked,
-    ...(model.selectedProductVariantId ? { productVariantId: model.selectedProductVariantId } : { productVariantId: null }),
+    ...(model.selectedProductVariantId
+      ? { productVariantId: model.selectedProductVariantId }
+      : model.editingItemId
+        ? { productVariantId: null }
+        : {}),
   };
 }
 
