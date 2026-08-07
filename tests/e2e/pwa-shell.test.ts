@@ -25,12 +25,14 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.match(html, /id="delete-list-dialog"/);
   assert.match(html, /id="pending-items"/);
   assert.match(html, /id="completed-items"/);
+  assert.match(html, /id="realtime-state"/);
+  assert.match(html, /id="open-ai-assistant"/);
+  assert.match(html, /id="verify-receipt-ai"/);
   assert.match(html, /id="receipt-camera"[^>]*accept="image\/jpeg,image\/png"[^>]*capture="environment"/);
   assert.match(html, /id="receipt-files"[^>]*application\/pdf/);
   assert.match(html, /id="capture-preview-dialog"/);
   assert.match(html, /Basketra no requiere token de aplicación/);
   assert.match(html, /id="run-demo-comparison"/);
-  assert.match(html, /id="ai-mode"/);
 
   assert.equal(manifest.name, 'Basketra');
   assert.equal(manifest.short_name, 'Basketra');
