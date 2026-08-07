@@ -76,13 +76,21 @@ async function addProduct(page, { name, quantity = '1', unit = 'unit', exact = f
   await expect(page.locator('#pending-items')).toContainText(name);
 }
 
+async function stableBoundingBox(locator) {
+  let box = null;
+  await expect.poll(async () => {
+    box = await locator.boundingBox();
+    return box !== null;
+  }).toBe(true);
+  return box;
+}
+
 async function swipe(page, locator, direction, { long = false } = {}) {
   await expect(locator).toBeVisible();
   await locator.scrollIntoViewIfNeeded();
-  const box = await locator.boundingBox();
-  expect(box).not.toBeNull();
+  const box = await stableBoundingBox(locator);
   const content = locator.locator('.list-row__content').first();
-  const contentBox = await content.count() ? await content.boundingBox() : null;
+  const contentBox = await content.count() ? await stableBoundingBox(content) : null;
   const startBox = contentBox || box;
   const startX = direction === 'left' ? startBox.x + startBox.width * 0.8 : startBox.x + startBox.width * 0.2;
   const distance = box.width * (long ? 0.72 : direction === 'right' ? 0.46 : 0.34);
