@@ -57,6 +57,17 @@ test('overpass lookup rejects unsafe configuration, bad bounds and provider fail
     radiusMeters: 1_000,
     limit: 8,
   }), /OVERPASS_UNAVAILABLE/);
+
+  const unreachable = new OverpassClient(new URL('https://example.test/api/'), async () => {
+    throw new TypeError('fetch failed');
+  });
+  await assert.rejects(() => unreachable.findNearbyStores({
+    latitudeMicrodegrees: 0,
+    longitudeMicrodegrees: 0,
+    radiusMeters: 1_000,
+    limit: 8,
+  }), /OVERPASS_UNAVAILABLE/);
+
   await assert.rejects(() => unavailable.findNearbyStores({
     latitudeMicrodegrees: 0,
     longitudeMicrodegrees: 0,
