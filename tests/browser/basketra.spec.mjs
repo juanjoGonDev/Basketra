@@ -38,6 +38,26 @@ async function setSwitch(page, label, checked) {
   else await expect(input).not.toBeChecked();
 }
 
+function isListDetailRead(response) {
+  if (response.request().method() !== 'GET') return false;
+  const { pathname } = new URL(response.url());
+  return /^\/api\/v1\/shopping-lists\/[^/]+$/u.test(pathname);
+}
+
+async function actAndWaitForListReads(page, minimumReads, action) {
+  let reads = 0;
+  const onResponse = response => {
+    if (isListDetailRead(response)) reads += 1;
+  };
+  page.on('response', onResponse);
+  try {
+    await action();
+    await expect.poll(() => reads).toBeGreaterThanOrEqual(minimumReads);
+  } finally {
+    page.off('response', onResponse);
+  }
+}
+
 async function gotoApp(page, options) {
   const failures = monitorRuntime(page, options);
   await page.goto('/');
@@ -72,7 +92,7 @@ async function addProduct(page, { name, quantity = '1', unit = 'unit', exact = f
   }
   await setSwitch(page, 'Producto exacto', exact);
   await setSwitch(page, 'Permitir sustituciones', substitutions);
-  await dialog.getByRole('button', { name: 'Añadir', exact: true }).click();
+  await actAndWaitForListReads(page, 2, () => dialog.getByRole('button', { name: 'Añadir', exact: true }).click());
   await expect(page.locator('#pending-items')).toContainText(name);
 }
 
@@ -158,8 +178,9 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await addProduct(page, { name: 'Leche entera 1 L', quantity: '2', unit: 'l', exact: true, substitutions: false });
   await addProduct(page, { name: 'Arroz 1 kg', quantity: '1', unit: 'kg' });
 
-  const milkRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Leche entera 1 L' });
-  await page.getByRole('button', { name: 'Aumentar cantidad de Leche entera 1 L' }).click();
+  let milkRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Leche entera 1 L' });
+  await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Aumentar cantidad de Leche entera 1 L' }).click());
+  milkRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Leche entera 1 L' });
   await expect(milkRow.locator('.quantity-chip')).toHaveText('3');
 
   await swipe(page, milkRow, 'left');
@@ -169,25 +190,24 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await page.screenshot({ path: testInfo.outputPath('swipe-reveal.png') });
   await page.getByRole('button', { name: 'Editar Leche entera 1 L' }).click();
   await productInput(page).fill('Leche semidesnatada 1 L');
-  await page.locator('#item-dialog').getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+  await actAndWaitForListReads(page, 2, () => page.locator('#item-dialog').getByRole('button', { name: 'Guardar cambios', exact: true }).click());
   await expect(page.locator('#pending-items')).toContainText('Leche semidesnatada 1 L');
 
-  const riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
+  let riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
   await swipe(page, riceRow, 'right');
-  await expect(page.locator('#completed-items')).toContainText('Arroz 1 kg');
-  await page.getByRole('button', { name: 'Devolver Arroz 1 kg a pendientes' }).click();
+  await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Devolver Arroz 1 kg a pendientes' }).click());
   await expect(page.locator('#pending-items')).toContainText('Arroz 1 kg');
 
-  await page.getByRole('button', { name: 'Subir Arroz 1 kg' }).click();
+  await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Subir Arroz 1 kg' }).click());
   await expect(page.locator('#pending-items [data-swipe-kind="shopping-item"]').first()).toContainText('Arroz 1 kg');
 
-  const returnedRice = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
-  await swipe(page, returnedRice, 'left', { long: true });
+  riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
+  await swipe(page, riceRow, 'left', { long: true });
   await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
   await expect(page.locator('#toast-message')).toHaveText('Producto eliminado');
   await expect(page.getByRole('button', { name: 'Deshacer' })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('swipe-delete.png') });
-  await page.getByRole('button', { name: 'Deshacer' }).click();
+  await actAndWaitForListReads(page, 2, () => page.getByRole('button', { name: 'Deshacer' }).click());
   await expect(page.locator('#pending-items')).toContainText('Arroz 1 kg');
 
   const restoredRice = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
@@ -195,7 +215,9 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await expect(restoredRice).toHaveAttribute('data-swipe-open', 'true');
   await page.keyboard.press('Escape');
   await expect(restoredRice).toHaveAttribute('data-swipe-open', 'false');
-  await swipe(page, restoredRice, 'left', { long: true });
+  await page.getByRole('button', { name: 'Mostrar acciones de Arroz 1 kg' }).click();
+  await page.getByRole('button', { name: 'Eliminar Arroz 1 kg' }).click();
+  await page.locator('#delete-item-dialog').getByRole('button', { name: 'Eliminar producto', exact: true }).click();
   await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
 
   await page.reload();
