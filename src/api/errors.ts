@@ -1,16 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import { AiProviderError } from '../ai/provider.ts';
 import { ValidationError } from '../domain/validation.ts';
+import { ShoppingConflictError } from '../infrastructure/database.ts';
 import { OcrError } from '../ocr/provider.ts';
 
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
-  constructor(status: number, code: string, message: string) {
+  readonly details?: unknown;
+  constructor(status: number, code: string, message: string, details?: unknown) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
+    if (details !== undefined) this.details = details;
   }
 }
 
@@ -83,9 +86,9 @@ function mapOcrError(error: OcrError): ApiError {
 function mapAiProviderError(error: AiProviderError): ApiError {
   switch (error.code) {
     case 'AI_ATTACHMENT_TOO_LARGE':
-      return new ApiError(413, error.code, 'El proveedor rechazó la imagen por tamaño; el OCR local se conserva');
+      return new ApiError(413, error.code, 'El proveedor rechazó la imagen por tamaño; el archivo se conserva');
     case 'AI_ATTACHMENT_UPLOAD_FAILED':
-      return new ApiError(504, error.code, 'El proveedor no pudo preparar la imagen; el OCR local se conserva y puedes reintentar');
+      return new ApiError(504, error.code, 'El proveedor no pudo preparar la imagen; el archivo se conserva y puedes reintentar');
     case 'AI_AUTHENTICATION_FAILED':
       return new ApiError(502, error.code, 'El proveedor de IA rechazó sus credenciales');
     case 'AI_IMAGE_CAPABILITY_UNAVAILABLE':
@@ -112,15 +115,28 @@ function mapAiProviderError(error: AiProviderError): ApiError {
 
 export function mapError(error: unknown): ApiError {
   if (error instanceof ApiError) return error;
+  if (error instanceof ShoppingConflictError) {
+    return new ApiError(409, 'SHOPPING_CONFLICT', 'La lista cambió en otro dispositivo', {
+      kind: error.kind,
+      current: error.current,
+    });
+  }
   if (error instanceof AiProviderError) return mapAiProviderError(error);
   if (error instanceof OcrError) return mapOcrError(error);
   if (error instanceof ValidationError || error instanceof RangeError) return new ApiError(400, 'VALIDATION_ERROR', error.message);
   if (error instanceof SyntaxError) return new ApiError(400, 'INVALID_JSON', 'Request body is not valid JSON');
-  if (error instanceof Error && error.message === 'SHOPPING_LIST_NOT_FOUND') {
-    return new ApiError(404, 'SHOPPING_LIST_NOT_FOUND', 'Shopping list was not found');
-  }
-  if (error instanceof Error && error.message === 'SHOPPING_LIST_ITEM_NOT_FOUND') {
-    return new ApiError(404, 'SHOPPING_LIST_ITEM_NOT_FOUND', 'Shopping list item was not found');
+  if (error instanceof Error) {
+    switch (error.message) {
+      case 'SHOPPING_LIST_NOT_FOUND': return new ApiError(404, 'SHOPPING_LIST_NOT_FOUND', 'Shopping list was not found');
+      case 'SHOPPING_LIST_ITEM_NOT_FOUND': return new ApiError(404, 'SHOPPING_LIST_ITEM_NOT_FOUND', 'Shopping list item was not found');
+      case 'PRODUCT_CATEGORY_NOT_FOUND': return new ApiError(404, 'PRODUCT_CATEGORY_NOT_FOUND', 'Product category was not found');
+      case 'PRODUCT_VARIANT_NOT_FOUND': return new ApiError(404, 'PRODUCT_VARIANT_NOT_FOUND', 'Product variant was not found');
+      case 'STORE_NOT_FOUND': return new ApiError(404, 'STORE_NOT_FOUND', 'Store was not found');
+      case 'REALTIME_CLIENT_LIMIT_REACHED': return new ApiError(503, 'REALTIME_CLIENT_LIMIT_REACHED', 'Realtime connection limit is temporarily reached');
+      case 'OVERPASS_UNAVAILABLE': return new ApiError(502, 'NEARBY_STORE_PROVIDER_UNAVAILABLE', 'No se pudo consultar OpenStreetMap en este momento');
+      case 'OVERPASS_RESPONSE_TOO_LARGE': return new ApiError(502, 'NEARBY_STORE_PROVIDER_RESPONSE_TOO_LARGE', 'La respuesta de OpenStreetMap superó el límite permitido');
+      case 'OVERPASS_INVALID_RESPONSE': return new ApiError(502, 'NEARBY_STORE_PROVIDER_INVALID_RESPONSE', 'OpenStreetMap devolvió una respuesta no válida');
+    }
   }
   const incidentId = reportUnexpectedError(error);
   return new ApiError(500, 'INTERNAL_ERROR', `An unexpected error occurred. Reference: ${incidentId}`);
