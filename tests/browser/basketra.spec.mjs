@@ -87,7 +87,6 @@ async function stableBoundingBox(locator) {
 
 async function swipe(page, locator, direction, { long = false } = {}) {
   await expect(locator).toBeVisible();
-  await locator.scrollIntoViewIfNeeded();
   const box = await stableBoundingBox(locator);
   const content = locator.locator('.list-row__content').first();
   const contentBox = await content.count() ? await stableBoundingBox(content) : null;
