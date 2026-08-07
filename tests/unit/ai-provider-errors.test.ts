@@ -32,7 +32,6 @@ function providerWithResponse(status: number, body: string): OpenAiCompatiblePro
   return new OpenAiCompatibleProvider({
     baseUrl: new URL('http://provider.test/v1/'),
     model: 'test-model',
-    timeoutMs: 1000,
   }, fetchImplementation);
 }
 
@@ -146,7 +145,6 @@ test('OpenAI-compatible provider forwards only a validated correlation identifie
   const provider = new OpenAiCompatibleProvider({
     baseUrl: new URL('http://provider.test/v1/'),
     model: 'test-model',
-    timeoutMs: 1000,
   }, (async (input, init) => {
     requests.push(new Request(input, init));
     return new Response(JSON.stringify({
@@ -168,7 +166,6 @@ test('provider capability probe verifies authenticated image structured output i
     baseUrl: new URL('http://provider.test/v1/'),
     apiKey: managedTokenFixture,
     model: 'test-model',
-    timeoutMs: 1000,
   }, (async (input, init) => {
     requests.push(new Request(input, init));
     return new Response(JSON.stringify({
@@ -216,7 +213,6 @@ test('provider capability probe rejects a response that did not satisfy the prob
   const provider = new OpenAiCompatibleProvider({
     baseUrl: new URL('http://provider.test/v1/'),
     model: 'test-model',
-    timeoutMs: 1000,
   }, (async () => new Response(JSON.stringify({
     choices: [{ message: { content: '{"accepted":false}' } }],
   }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch);
@@ -286,6 +282,11 @@ test('API error mapping keeps AI failures actionable instead of INTERNAL_ERROR',
   assert.equal(upload.status, 504);
   assert.equal(upload.code, 'AI_ATTACHMENT_UPLOAD_FAILED');
   assert.match(upload.message, /preparar la imagen/u);
+
+  const timeout = mapError(new AiProviderError('AI_TIMEOUT', { status: 504, retryable: true }));
+  assert.equal(timeout.status, 504);
+  assert.equal(timeout.code, 'AI_TIMEOUT');
+  assert.match(timeout.message, /proveedor/u);
 
   const failed = mapError(new AiProviderError('AI_PROVIDER_FAILED', { status: 500, retryable: true }));
   assert.equal(failed.status, 502);
