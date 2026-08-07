@@ -1,18 +1,11 @@
 import { api, setBusy } from './api.js';
 import { initLists } from './lists.js';
 import { initReceipts } from './receipts.js';
-import { loadAiMode, saveAiMode } from './state.js';
 import {
   bindSwipeActions,
   hydrateIcons,
   optimizationPlan,
-  proposalPanel,
 } from './ui.js';
-
-const aiState = {
-  controller: null,
-  timer: null,
-};
 
 const toastState = {
   timer: null,
@@ -22,8 +15,15 @@ const toastState = {
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 
+for (const element of $$('[data-icon="chevronLeft"]')) {
+  element.dataset.icon = 'chevronUp';
+  element.classList.add('icon-rotate-left');
+}
+for (const element of $$('[data-icon="location"]')) element.dataset.icon = 'store';
+
 hydrateIcons();
 bindSwipeActions(document);
+document.addEventListener('basketra:hydrate-icons', event => hydrateIcons(event.detail?.root || document));
 
 document.addEventListener('basketra:swipe-action', event => {
   if (event.detail?.kind !== 'shopping-item' || event.detail?.action !== 'complete') return;
@@ -76,6 +76,7 @@ function navigate(requestedView) {
     else element.removeAttribute('aria-current');
   });
   history.replaceState(null, '', `#${view}`);
+  document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view } }));
   resetDocumentScroll();
   $('#main').focus({ preventScroll: true });
   requestAnimationFrame(resetDocumentScroll);
@@ -85,53 +86,6 @@ $$('[data-nav]').forEach(element => element.addEventListener('click', event => {
   event.preventDefault();
   navigate(element.dataset.nav);
 }));
-
-function scheduleAutomaticAi(text) {
-  if (aiState.timer) clearTimeout(aiState.timer);
-  aiState.controller?.abort();
-  if ($('#ai-mode').value !== 'automatic' || text.length < 2) return;
-  aiState.timer = setTimeout(() => void analyzeWithAi(), 800);
-}
-
-async function analyzeWithAi() {
-  const text = $('#item-text').value.trim();
-  if (!text) {
-    $('#ai-state').textContent = 'Escribe primero un producto o una frase.';
-    return;
-  }
-  aiState.controller?.abort();
-  const controller = new AbortController();
-  aiState.controller = controller;
-  $('#ai-state').textContent = 'Analizando…';
-  $('#ai-proposals').hidden = true;
-  try {
-    const result = await api('/api/v1/ai/shopping-list-analysis', {
-      method: 'POST',
-      body: JSON.stringify({ text }),
-      signal: controller.signal,
-    });
-    if (controller.signal.aborted || $('#item-text').value.trim() !== text) return;
-    $('#ai-state').textContent = 'Propuesta lista para revisar';
-    $('#ai-proposals').hidden = false;
-    $('#ai-proposals').innerHTML = proposalPanel(result.proposal);
-  } catch (error) {
-    if (error.name !== 'AbortError') {
-      $('#ai-state').textContent = `Proveedor IA no disponible: ${error.message}`;
-    }
-  }
-}
-
-function bindAiControls() {
-  $('#ai-mode').value = loadAiMode();
-  $('#ai-mode').addEventListener('change', event => {
-    saveAiMode(event.target.value);
-    scheduleAutomaticAi($('#item-text').value.trim());
-  });
-  $('#analyze-ai').addEventListener('click', () => void analyzeWithAi());
-  document.addEventListener('basketra:item-text-changed', event => {
-    scheduleAutomaticAi(event.detail?.text || '');
-  });
-}
 
 async function runDemoComparison(button) {
   setBusy(button, true);
@@ -171,12 +125,11 @@ async function loadAiConfiguration() {
 
 async function initialize() {
   navigate(location.hash.slice(1) || 'home');
-  bindAiControls();
   $('#run-demo-comparison').addEventListener('click', event => void runDemoComparison(event.currentTarget));
   try {
     const metadata = await api('/api/v1/meta');
     const aiConfigured = await loadAiConfiguration();
-    await initLists({ metadata, toast });
+    await initLists({ metadata, toast, aiConfigured });
     initReceipts({ metadata, toast, aiConfigured });
   } catch (error) {
     $('#list-state').textContent = error.message;
