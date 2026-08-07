@@ -131,7 +131,7 @@ export class BasketraServer {
       if (request.method === 'GET' && url.pathname === '/api/v1/diagnostics') return this.json(response, 200, this.diagnostics());
       if (request.method === 'GET' && url.pathname === '/api/v1/meta') return this.json(response, 200, this.applicationMetadata());
       if (request.method === 'GET' && url.pathname === '/api/v1/settings/ai-provider') return this.json(response, 200, this.aiProviderSettings());
-      if (request.method === 'POST' && url.pathname === '/api/v1/settings/ai-provider/test') return await this.testAiProvider(response);
+      if (request.method === 'POST' && url.pathname === '/api/v1/settings/ai-provider/test') return await this.testAiProvider(request, response);
       if (request.method === 'POST' && url.pathname === '/api/v1/ai/shopping-list-analysis') return await this.analyzeShoppingList(request, response);
       if (request.method === 'GET' && url.pathname === '/api/v1/shopping-lists') return this.json(response, 200, { lists: this.#database.listShoppingLists() });
       if (request.method === 'POST' && url.pathname === '/api/v1/shopping-lists') return await this.createShoppingList(request, response);
@@ -206,18 +206,25 @@ export class BasketraServer {
     };
   }
 
-  private async testAiProvider(response: ServerResponse): Promise<void> {
+  private async testAiProvider(request: IncomingMessage, response: ServerResponse): Promise<void> {
     this.#activeExpensiveOperations += 1;
+    const controller = new AbortController();
+    const onAborted = () => controller.abort(new Error('REQUEST_ABORTED'));
+    request.once('aborted', onAborted);
     try {
-      const result = await this.getAiProvider().testConnection();
+      const result = await this.getAiProvider().testConnection(controller.signal);
       this.json(response, result.ok ? 200 : 502, { connection: result });
     } finally {
+      request.off('aborted', onAborted);
       this.#activeExpensiveOperations -= 1;
     }
   }
 
   private async analyzeShoppingList(request: IncomingMessage, response: ServerResponse): Promise<void> {
     this.#activeExpensiveOperations += 1;
+    const controller = new AbortController();
+    const onAborted = () => controller.abort(new Error('REQUEST_ABORTED'));
+    request.once('aborted', onAborted);
     try {
       const body = asRecord(await this.readJson(request));
       const text = asString(body['text'], '$.text', { min: 1, max: 2_000 });
@@ -267,9 +274,11 @@ export class BasketraServer {
         systemPrompt: 'Split the user request into grocery items. Return JSON only. Do not invent products or quantities.',
         content: text,
         schema,
+        signal: controller.signal,
       });
       this.json(response, 200, { proposal: result.value, attempts: result.attempts });
     } finally {
+      request.off('aborted', onAborted);
       this.#activeExpensiveOperations -= 1;
     }
   }
@@ -281,7 +290,6 @@ export class BasketraServer {
         baseUrl: new URL(this.config.aiBaseUrl),
         ...(this.config.aiApiKey ? { apiKey: this.config.aiApiKey } : {}),
         model: this.config.aiModel,
-        timeoutMs: this.config.aiTimeoutMs,
         capabilities: {
           image: this.config.aiImageCapability,
           pdf: this.config.aiPdfCapability,
