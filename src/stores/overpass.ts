@@ -49,15 +49,21 @@ export class OverpassClient {
       ');',
       `out center tags ${input.limit};`,
     ].join('');
-    const response = await this.#fetchImplementation(new URL('interpreter', ensureTrailingSlash(this.#baseUrl)), {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/x-www-form-urlencoded; charset=utf-8',
-        'user-agent': 'Basketra/1 nearby-store lookup',
-      },
-      body: new URLSearchParams({ data: query }),
-      ...(input.signal ? { signal: input.signal } : {}),
-    });
+    let response: Response;
+    try {
+      response = await this.#fetchImplementation(new URL('interpreter', ensureTrailingSlash(this.#baseUrl)), {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded; charset=utf-8',
+          'user-agent': 'Basketra/1 nearby-store lookup',
+        },
+        body: new URLSearchParams({ data: query }),
+        ...(input.signal ? { signal: input.signal } : {}),
+      });
+    } catch (error) {
+      input.signal?.throwIfAborted();
+      throw new Error('OVERPASS_UNAVAILABLE', { cause: error });
+    }
     if (!response.ok) throw new Error('OVERPASS_UNAVAILABLE');
     const body = await readBoundedJson(response, MAX_OVERPASS_RESPONSE_BYTES);
     return parseCandidates(body, input.limit);
