@@ -87,14 +87,15 @@ async function stableBoundingBox(locator) {
 
 async function swipe(page, locator, direction, { long = false } = {}) {
   await expect(locator).toBeVisible();
+  await locator.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
   const box = await stableBoundingBox(locator);
-  const content = locator.locator('.list-row__content').first();
-  const contentBox = await content.count() ? await stableBoundingBox(content) : null;
-  const startBox = contentBox || box;
+  const anchor = locator.locator('.list-row__content, .receipt-item legend > span:first-child').first();
+  const anchorBox = await anchor.count() ? await stableBoundingBox(anchor) : null;
+  const startBox = anchorBox || box;
   const startX = direction === 'left' ? startBox.x + startBox.width * 0.8 : startBox.x + startBox.width * 0.2;
   const distance = box.width * (long ? 0.72 : direction === 'right' ? 0.46 : 0.34);
   const endX = direction === 'left' ? startX - distance : startX + distance;
-  const y = contentBox ? startBox.y + startBox.height / 2 : box.y + Math.min(box.height / 2, 42);
+  const y = startBox.y + startBox.height / 2;
   await page.mouse.move(startX, y);
   await page.mouse.down();
   await page.mouse.move(endX, y, { steps: 14 });
