@@ -13,11 +13,12 @@ import { rational, UNIT_VALUES } from '../../src/domain/units.ts';
 
 const pngBase64 = Buffer.from(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x00])).toString('base64');
 
-test('configuration uses private defaults and ignores removed token configuration', () => {
-  const config = loadConfig({ BASKETRA_AUTH_TOKEN: 'legacy-token' });
+test('configuration uses private defaults and ignores removed token and AI timeout configuration', () => {
+  const config = loadConfig({ BASKETRA_AUTH_TOKEN: 'legacy-token', BASKETRA_AI_TIMEOUT_MS: 'not-an-integer' });
   assert.equal(config.host, '127.0.0.1');
   assert.equal(config.port, 3000);
   assert.equal('authToken' in config, false);
+  assert.equal('aiTimeoutMs' in config, false);
   assert.equal(validateProviderBaseUrl('http://10.0.0.2:8080/v1/').hostname, '10.0.0.2');
   assert.throws(() => validateProviderBaseUrl('ftp://example.com'), /HTTP/);
   assert.throws(() => validateProviderBaseUrl('https://user:pass@example.com'), /credentials/);
@@ -42,6 +43,7 @@ test('configuration uses private defaults and ignores removed token configuratio
   assert.equal(configured.port, 4000);
   assert.equal(configured.aiApiKey, 'key');
   assert.equal(configured.aiModel, 'model');
+  assert.equal('aiTimeoutMs' in configured, false);
   assert.deepEqual(UNIT_VALUES, ['g', 'kg', 'ml', 'l', 'unit', 'pack', 'roll', 'sheet', 'capsule', 'dose', 'wash', 'm']);
   assert.deepEqual(SUPPORTED_FILE_MIME_TYPES, ['image/jpeg', 'image/png', 'application/pdf']);
 });
@@ -118,7 +120,7 @@ test('OpenAI-compatible provider sends strict schema and handles failures', asyn
       headers: { 'content-type': 'application/json' },
     });
   };
-  const provider = new OpenAiCompatibleProvider({ baseUrl: new URL('http://localhost:8080/v1'), apiKey: 'secret', model: 'test-model', timeoutMs: 1000 }, mockFetch);
+  const provider = new OpenAiCompatibleProvider({ baseUrl: new URL('http://localhost:8080/v1'), apiKey: 'secret', model: 'test-model' }, mockFetch);
   assert.equal((await provider.getCapabilities()).structuredOutput, true);
   assert.deepEqual(await provider.testConnection(), {
     ok: true,
@@ -134,12 +136,12 @@ test('OpenAI-compatible provider sends strict schema and handles failures', asyn
   assert.equal(posted.response_format.json_schema.strict, true);
   provider.dispose();
 
-  const failed = new OpenAiCompatibleProvider({ baseUrl: new URL('http://localhost/v1/'), model: 'x', timeoutMs: 100 }, async () => new Response('', { status: 503 }));
+  const failed = new OpenAiCompatibleProvider({ baseUrl: new URL('http://localhost/v1/'), model: 'x' }, async () => new Response('', { status: 503 }));
   await assert.rejects(() => failed.testConnection(), /AI_PROVIDER_FAILED/);
   await assert.rejects(() => failed.executeStructured({ operation: 'x', schemaName: 'x', systemPrompt: 'x', content: 'x', jsonSchema: {} }), /AI_PROVIDER_FAILED/);
-  const auth = new OpenAiCompatibleProvider({ baseUrl: new URL('http://localhost/v1/'), model: 'x', timeoutMs: 100 }, async () => new Response('', { status: 401 }));
+  const auth = new OpenAiCompatibleProvider({ baseUrl: new URL('http://localhost/v1/'), model: 'x' }, async () => new Response('', { status: 401 }));
   await assert.rejects(() => auth.testConnection(), /AUTHENTICATION/);
   await assert.rejects(() => auth.executeStructured({ operation: 'x', schemaName: 'x', systemPrompt: 'x', content: 'x', jsonSchema: {} }), /AUTHENTICATION/);
-  const empty = new OpenAiCompatibleProvider({ baseUrl: new URL('http://localhost/v1/'), model: 'x', timeoutMs: 100 }, async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }));
+  const empty = new OpenAiCompatibleProvider({ baseUrl: new URL('http://localhost/v1/'), model: 'x' }, async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }));
   await assert.rejects(() => empty.executeStructured({ operation: 'x', schemaName: 'x', systemPrompt: 'x', content: 'x', jsonSchema: {} }), /EMPTY/);
 });

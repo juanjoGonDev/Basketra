@@ -71,6 +71,7 @@ test('HTTP confirmation persists an optional retailer and exposes bounded sugges
     aiMaxRetries: 1,
     aiImageCapability: true,
     aiPdfCapability: false,
+    overpassBaseUrl: 'http://127.0.0.1:9/api/',
     idleHibernateAfterMs: 0,
     idleExitAfterMs: 0,
   };

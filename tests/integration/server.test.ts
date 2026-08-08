@@ -32,6 +32,7 @@ test('HTTP API works without an application token and completes list and receipt
     aiMaxRetries: 1,
     aiImageCapability: true,
     aiPdfCapability: false,
+    overpassBaseUrl: 'http://127.0.0.1:9/api/',
     idleHibernateAfterMs: 10,
     idleExitAfterMs: 0,
   };
@@ -60,43 +61,91 @@ test('HTTP API works without an application token and completes list and receipt
 
     const created = await request(baseUrl, '/api/v1/shopping-lists', { method: 'POST', body: JSON.stringify({ name: 'Semanal' }) });
     assert.equal(created.status, 201);
-    const listId = (await json<{ list: { id: string } }>(created)).list.id;
+    const createdList = (await json<{ list: { id: string; version: number } }>(created)).list;
+    const listId = createdList.id;
+    let listVersion = createdList.version;
 
-    const renamed = await request(baseUrl, `/api/v1/shopping-lists/${listId}`, { method: 'PATCH', body: JSON.stringify({ name: 'Compra semanal' }) });
+    const renamed = await request(baseUrl, `/api/v1/shopping-lists/${listId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name: 'Compra semanal', version: listVersion }),
+    });
     assert.equal(renamed.status, 200);
-    assert.equal((await json<{ list: { name: string } }>(renamed)).list.name, 'Compra semanal');
+    const renamedList = (await json<{ list: { name: string; version: number } }>(renamed)).list;
+    assert.equal(renamedList.name, 'Compra semanal');
+    listVersion = renamedList.version;
 
-    const firstAdded = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items`, { method: 'POST', body: JSON.stringify({ text: 'Leche', quantityMinor: 2, unit: 'l', exactRequired: true, substitutionAllowed: false }) });
-    const firstItem = (await json<{ item: { id: string } }>(firstAdded)).item;
-    const secondAdded = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items`, { method: 'POST', body: JSON.stringify({ text: 'Arroz', quantityMinor: 1, unit: 'kg' }) });
-    const secondItem = (await json<{ item: { id: string } }>(secondAdded)).item;
+    const firstAdded = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items`, {
+      method: 'POST',
+      body: JSON.stringify({ text: 'Leche', quantityMinor: 2, unit: 'l', exactRequired: true, substitutionAllowed: false }),
+    });
+    const firstAddedBody = await json<{ item: { id: string; version: number }; listVersion: number }>(firstAdded);
+    const firstItem = firstAddedBody.item;
+    let firstItemVersion = firstItem.version;
+    listVersion = firstAddedBody.listVersion;
+
+    const secondAdded = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items`, {
+      method: 'POST',
+      body: JSON.stringify({ text: 'Arroz', quantityMinor: 1, unit: 'kg' }),
+    });
+    const secondAddedBody = await json<{ item: { id: string; version: number }; listVersion: number }>(secondAdded);
+    const secondItem = secondAddedBody.item;
+    let secondItemVersion = secondItem.version;
+    listVersion = secondAddedBody.listVersion;
     assert.equal(firstAdded.status, 201);
     assert.equal(secondAdded.status, 201);
 
-    const incremented = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items/${firstItem.id}`, { method: 'PATCH', body: JSON.stringify({ quantityDelta: 1 }) });
-    assert.equal((await json<{ item: { quantityMinor: number } }>(incremented)).item.quantityMinor, 3);
+    const incremented = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items/${firstItem.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ quantityDelta: 1, version: firstItemVersion }),
+    });
+    const incrementedBody = await json<{ item: { quantityMinor: number; version: number }; listVersion: number }>(incremented);
+    assert.equal(incrementedBody.item.quantityMinor, 3);
+    firstItemVersion = incrementedBody.item.version;
+    listVersion = incrementedBody.listVersion;
 
-    const completed = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items/${secondItem.id}`, { method: 'PATCH', body: JSON.stringify({ completed: true }) });
-    const completedItem = (await json<{ item: { completed: boolean; completedAt?: string } }>(completed)).item;
-    assert.equal(completedItem.completed, true);
-    assert.match(completedItem.completedAt ?? '', /^\d{4}-/);
+    const completed = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items/${secondItem.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ completed: true, version: secondItemVersion }),
+    });
+    const completedBody = await json<{ item: { completed: boolean; completedAt?: string; version: number }; listVersion: number }>(completed);
+    assert.equal(completedBody.item.completed, true);
+    assert.match(completedBody.item.completedAt ?? '', /^\d{4}-/);
+    secondItemVersion = completedBody.item.version;
+    listVersion = completedBody.listVersion;
 
-    const restored = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items/${secondItem.id}`, { method: 'PATCH', body: JSON.stringify({ completed: false }) });
-    const restoredItem = (await json<{ item: { completed: boolean; completedAt?: string } }>(restored)).item;
-    assert.equal(restoredItem.completed, false);
-    assert.equal('completedAt' in restoredItem, false);
+    const restored = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items/${secondItem.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ completed: false, version: secondItemVersion }),
+    });
+    const restoredBody = await json<{ item: { completed: boolean; completedAt?: string; version: number }; listVersion: number }>(restored);
+    assert.equal(restoredBody.item.completed, false);
+    assert.equal('completedAt' in restoredBody.item, false);
+    secondItemVersion = restoredBody.item.version;
+    listVersion = restoredBody.listVersion;
 
-    const reordered = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items/order`, { method: 'PUT', body: JSON.stringify({ itemIds: [secondItem.id, firstItem.id] }) });
-    assert.deepEqual((await json<{ items: Array<{ id: string; position: number }> }>(reordered)).items.map((item) => [item.id, item.position]), [[secondItem.id, 0], [firstItem.id, 1]]);
+    const reordered = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items/order`, {
+      method: 'PUT',
+      body: JSON.stringify({ itemIds: [secondItem.id, firstItem.id], listVersion }),
+    });
+    const reorderedBody = await json<{ list: { version: number }; items: Array<{ id: string; position: number }> }>(reordered);
+    assert.deepEqual(reorderedBody.items.map((item) => [item.id, item.position]), [[secondItem.id, 0], [firstItem.id, 1]]);
+    listVersion = reorderedBody.list.version;
 
-    const invalidOrder = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items/order`, { method: 'PUT', body: JSON.stringify({ itemIds: [firstItem.id] }) });
+    const invalidOrder = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items/order`, {
+      method: 'PUT',
+      body: JSON.stringify({ itemIds: [firstItem.id], listVersion }),
+    });
     assert.equal(invalidOrder.status, 400);
 
-    const deletedItem = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items/${secondItem.id}`, { method: 'DELETE' });
+    const deletedItem = await request(baseUrl, `/api/v1/shopping-lists/${listId}/items/${secondItem.id}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ version: secondItemVersion }),
+    });
     assert.equal(deletedItem.status, 204);
     const loaded = await request(baseUrl, `/api/v1/shopping-lists/${listId}`);
-    const loadedItems = (await json<{ items: Array<{ id: string; position: number }> }>(loaded)).items;
-    assert.deepEqual(loadedItems.map((item) => [item.id, item.position]), [[firstItem.id, 0]]);
+    const loadedList = await json<{ list: { version: number }; items: Array<{ id: string; position: number }> }>(loaded);
+    assert.deepEqual(loadedList.items.map((item) => [item.id, item.position]), [[firstItem.id, 0]]);
+    listVersion = loadedList.list.version;
     assert.equal((await request(baseUrl, '/api/v1/shopping-lists/missing')).status, 404);
 
     const invalidJson = await request(baseUrl, '/api/v1/shopping-lists', { method: 'POST', body: '{' });
@@ -155,7 +204,10 @@ test('HTTP API works without an application token and completes list and receipt
     }
     assert.equal((await request(baseUrl, '/does-not-exist')).status, 404);
 
-    const deletedList = await request(baseUrl, `/api/v1/shopping-lists/${listId}`, { method: 'DELETE' });
+    const deletedList = await request(baseUrl, `/api/v1/shopping-lists/${listId}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ version: listVersion }),
+    });
     assert.equal(deletedList.status, 204);
     assert.equal((await request(baseUrl, `/api/v1/shopping-lists/${listId}`)).status, 404);
 

@@ -16,8 +16,13 @@ import { OpenAiCompatibleProvider } from '../ai/provider.ts';
 import { StructuredAiExecutor, type RuntimeSchema } from '../ai/structured-executor.ts';
 import { ReceiptExtractionService } from '../receipts/service.ts';
 import { parseReceiptConfirmation } from '../receipts/import.ts';
+import { RealtimeHub, type RealtimeInvalidation } from '../realtime/hub.ts';
+import { proposeProductFromPhoto } from '../products/photo-proposal.ts';
+import { OverpassClient } from '../stores/overpass.ts';
 
 const STOCK_VALUES = ['in-stock', 'out-of-stock', 'unknown'] as const;
+const OSM_TYPES = ['node', 'way', 'relation'] as const;
+const PRICE_EVIDENCE_TYPES = ['manual', 'product-photo'] as const;
 const STATIC_ASSETS = new Set([
   'index.html',
   'app.js',
@@ -36,6 +41,7 @@ export type AppDiagnostics = Readonly<{
   ready: boolean;
   activeRequests: number;
   activeExpensiveOperations: number;
+  realtimeClients: number;
   hibernated: boolean;
   startedAt: string;
   lastActivityAt: string;
@@ -56,6 +62,9 @@ export class BasketraServer {
   readonly #database: BasketraDatabase;
   readonly #fileStore: FileStore;
   readonly #receiptExtractionService: ReceiptExtractionService;
+  readonly #realtime = new RealtimeHub(8);
+  readonly #realtimeResponses = new Set<ServerResponse>();
+  readonly #overpassClient: OverpassClient;
   readonly #startedAt = new Date().toISOString();
   readonly #publicDir: string;
   #ready = false;
@@ -71,6 +80,7 @@ export class BasketraServer {
     this.#database = new BasketraDatabase(join(config.dataDir, 'basketra.db'));
     this.#fileStore = new FileStore(join(config.dataDir, 'files'), config.tempDir, config.maxBodyBytes);
     this.#receiptExtractionService = new ReceiptExtractionService(this.#fileStore, () => this.getAiProvider(), config.aiMaxRetries);
+    this.#overpassClient = new OverpassClient(new URL(config.overpassBaseUrl));
     this.#publicDir = resolve(dirname(fileURLToPath(import.meta.url)), '../web');
     this.#server = createServer((request, response) => void this.handle(request, response));
   }
@@ -99,6 +109,7 @@ export class BasketraServer {
       ready: this.#ready,
       activeRequests: this.#activeRequests,
       activeExpensiveOperations: this.#activeExpensiveOperations,
+      realtimeClients: this.#realtime.clientCount,
       hibernated: this.#hibernated,
       startedAt: this.#startedAt,
       lastActivityAt: this.#lastActivityAt,
@@ -109,6 +120,8 @@ export class BasketraServer {
   async close(): Promise<void> {
     this.#ready = false;
     if (this.#hibernateTimer) clearTimeout(this.#hibernateTimer);
+    for (const response of [...this.#realtimeResponses]) response.end();
+    this.#realtimeResponses.clear();
     await new Promise<void>((resolvePromise, reject) => this.#server.close((error) => error ? reject(error) : resolvePromise()));
     this.#fileStore.cleanupTemporary();
     this.#receiptExtractionService.dispose();
@@ -118,20 +131,25 @@ export class BasketraServer {
   }
 
   private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    this.#activeRequests += 1;
-    this.#lastActivityAt = new Date().toISOString();
-    this.#hibernated = false;
-    this.scheduleHibernation();
     const requestId = randomUUID();
+    let countedRequest = false;
     try {
       this.applySecurityHeaders(response, requestId);
       const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
+      this.markActivity();
+      if (request.method === 'GET' && url.pathname === '/api/v1/realtime') {
+        this.openRealtime(request, response);
+        return;
+      }
+
+      this.#activeRequests += 1;
+      countedRequest = true;
       if (request.method === 'GET' && url.pathname === '/health') return this.json(response, 200, { status: 'ok' });
       if (request.method === 'GET' && url.pathname === '/readiness') return this.json(response, this.#ready ? 200 : 503, { ready: this.#ready });
       if (request.method === 'GET' && url.pathname === '/api/v1/diagnostics') return this.json(response, 200, this.diagnostics());
       if (request.method === 'GET' && url.pathname === '/api/v1/meta') return this.json(response, 200, this.applicationMetadata());
       if (request.method === 'GET' && url.pathname === '/api/v1/settings/ai-provider') return this.json(response, 200, this.aiProviderSettings());
-      if (request.method === 'POST' && url.pathname === '/api/v1/settings/ai-provider/test') return await this.testAiProvider(response);
+      if (request.method === 'POST' && url.pathname === '/api/v1/settings/ai-provider/test') return await this.testAiProvider(request, response);
       if (request.method === 'POST' && url.pathname === '/api/v1/ai/shopping-list-analysis') return await this.analyzeShoppingList(request, response);
       if (request.method === 'GET' && url.pathname === '/api/v1/shopping-lists') return this.json(response, 200, { lists: this.#database.listShoppingLists() });
       if (request.method === 'POST' && url.pathname === '/api/v1/shopping-lists') return await this.createShoppingList(request, response);
@@ -146,7 +164,7 @@ export class BasketraServer {
         const listId = decodePathSegment(itemMemberMatch[1]);
         const itemId = decodePathSegment(itemMemberMatch[2]);
         if (request.method === 'PATCH') return await this.updateShoppingListItem(request, response, listId, itemId);
-        if (request.method === 'DELETE') return this.deleteShoppingListItem(response, listId, itemId);
+        if (request.method === 'DELETE') return await this.deleteShoppingListItem(request, response, listId, itemId);
       }
 
       const itemCollectionMatch = /^\/api\/v1\/shopping-lists\/([^/]+)\/items$/.exec(url.pathname);
@@ -159,11 +177,33 @@ export class BasketraServer {
         const listId = decodePathSegment(listMatch[1]);
         if (request.method === 'GET') return this.getShoppingList(response, listId);
         if (request.method === 'PATCH') return await this.updateShoppingList(request, response, listId);
-        if (request.method === 'DELETE') return this.deleteShoppingList(response, listId);
+        if (request.method === 'DELETE') return await this.deleteShoppingList(request, response, listId);
       }
 
       if (request.method === 'GET' && url.pathname === '/api/v1/products/suggestions') return this.suggestProducts(response, url.searchParams);
+      if (request.method === 'POST' && url.pathname === '/api/v1/products/photo-proposal') return await this.proposeProductPhoto(request, response);
+      if (request.method === 'POST' && url.pathname === '/api/v1/products') return await this.createProduct(request, response);
+      const productPriceMatch = /^\/api\/v1\/products\/([^/]+)\/prices$/.exec(url.pathname);
+      if (request.method === 'POST' && productPriceMatch?.[1]) {
+        return await this.confirmProductPrice(request, response, decodePathSegment(productPriceMatch[1]));
+      }
+      const productMatch = /^\/api\/v1\/products\/([^/]+)$/.exec(url.pathname);
+      if (productMatch?.[1]) {
+        const variantId = decodePathSegment(productMatch[1]);
+        if (request.method === 'GET') return this.getProduct(response, variantId);
+        if (request.method === 'PATCH') return await this.updateProduct(request, response, variantId);
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/v1/categories') return this.json(response, 200, { categories: this.#database.listCategories() });
+      if (request.method === 'POST' && url.pathname === '/api/v1/categories') return await this.createCategory(request, response);
+      const categoryMatch = /^\/api\/v1\/categories\/([^/]+)$/.exec(url.pathname);
+      if (request.method === 'PATCH' && categoryMatch?.[1]) return await this.updateCategory(request, response, decodePathSegment(categoryMatch[1]));
+
+      if (request.method === 'GET' && url.pathname === '/api/v1/stores/suggestions') return this.suggestStores(response, url.searchParams);
+      if (request.method === 'POST' && url.pathname === '/api/v1/stores') return await this.saveStore(request, response);
+      if (request.method === 'POST' && url.pathname === '/api/v1/stores/nearby') return await this.findNearbyStores(request, response);
       if (request.method === 'GET' && url.pathname === '/api/v1/retailers/suggestions') return this.suggestRetailers(response, url.searchParams);
+
       if (request.method === 'POST' && url.pathname === '/api/v1/files') return await this.storeFile(request, response);
       const fileMatch = /^\/api\/v1\/files\/([^/]+)$/.exec(url.pathname);
       if (request.method === 'GET' && fileMatch?.[1]) return this.serveStoredFile(response, decodePathSegment(fileMatch[1]));
@@ -177,21 +217,77 @@ export class BasketraServer {
       throw new ApiError(404, 'NOT_FOUND', 'Endpoint was not found');
     } catch (error) {
       const mapped = mapError(error);
-      this.json(response, mapped.status, { error: { code: mapped.code, message: mapped.message, requestId } });
+      this.json(response, mapped.status, {
+        error: {
+          code: mapped.code,
+          message: mapped.message,
+          requestId,
+          ...(mapped.details === undefined ? {} : { details: mapped.details }),
+        },
+      });
     } finally {
-      this.#activeRequests -= 1;
+      if (countedRequest) this.#activeRequests -= 1;
     }
+  }
+
+  private markActivity(): void {
+    this.#lastActivityAt = new Date().toISOString();
+    this.#hibernated = false;
+    this.scheduleHibernation();
+  }
+
+  private openRealtime(request: IncomingMessage, response: ServerResponse): void {
+    let unsubscribe = () => {};
+    let closed = false;
+    const cleanup = () => {
+      if (closed) return;
+      closed = true;
+      unsubscribe();
+      this.#realtimeResponses.delete(response);
+      response.off('close', cleanup);
+      request.off('aborted', cleanup);
+    };
+    unsubscribe = this.#realtime.subscribe((event) => {
+      if (response.destroyed || response.writableEnded) {
+        cleanup();
+        return;
+      }
+      const accepted = response.write(`event: invalidate\ndata: ${JSON.stringify(event)}\n\n`);
+      if (!accepted) {
+        response.end();
+        cleanup();
+      }
+    });
+    this.#realtimeResponses.add(response);
+    response.once('close', cleanup);
+    request.once('aborted', cleanup);
+    response.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-store, no-cache, must-revalidate',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+    response.write('retry: 1500\n: connected\n\n');
+  }
+
+  private publishRealtime(event: Omit<RealtimeInvalidation, 'updatedAt'> & Readonly<{ updatedAt?: string }>): void {
+    this.#realtime.publish({ ...event, updatedAt: event.updatedAt ?? new Date().toISOString() });
   }
 
   private applicationMetadata(): Readonly<{
     units: typeof UNIT_VALUES;
     files: Readonly<{ mimeTypes: typeof SUPPORTED_FILE_MIME_TYPES; maxBytes: number }>;
+    location: Readonly<{ secureContextRequired: true; osmAttribution: string }>;
   }> {
     return {
       units: UNIT_VALUES,
       files: {
         mimeTypes: SUPPORTED_FILE_MIME_TYPES,
         maxBytes: this.#fileStore.maxBytes,
+      },
+      location: {
+        secureContextRequired: true,
+        osmAttribution: '© OpenStreetMap contributors',
       },
     };
   }
@@ -206,18 +302,25 @@ export class BasketraServer {
     };
   }
 
-  private async testAiProvider(response: ServerResponse): Promise<void> {
+  private async testAiProvider(request: IncomingMessage, response: ServerResponse): Promise<void> {
     this.#activeExpensiveOperations += 1;
+    const controller = new AbortController();
+    const onAborted = () => controller.abort(new Error('REQUEST_ABORTED'));
+    request.once('aborted', onAborted);
     try {
-      const result = await this.getAiProvider().testConnection();
+      const result = await this.getAiProvider().testConnection(controller.signal);
       this.json(response, result.ok ? 200 : 502, { connection: result });
     } finally {
+      request.off('aborted', onAborted);
       this.#activeExpensiveOperations -= 1;
     }
   }
 
   private async analyzeShoppingList(request: IncomingMessage, response: ServerResponse): Promise<void> {
     this.#activeExpensiveOperations += 1;
+    const controller = new AbortController();
+    const onAborted = () => controller.abort(new Error('REQUEST_ABORTED'));
+    request.once('aborted', onAborted);
     try {
       const body = asRecord(await this.readJson(request));
       const text = asString(body['text'], '$.text', { min: 1, max: 2_000 });
@@ -267,9 +370,11 @@ export class BasketraServer {
         systemPrompt: 'Split the user request into grocery items. Return JSON only. Do not invent products or quantities.',
         content: text,
         schema,
+        signal: controller.signal,
       });
       this.json(response, 200, { proposal: result.value, attempts: result.attempts });
     } finally {
+      request.off('aborted', onAborted);
       this.#activeExpensiveOperations -= 1;
     }
   }
@@ -281,7 +386,6 @@ export class BasketraServer {
         baseUrl: new URL(this.config.aiBaseUrl),
         ...(this.config.aiApiKey ? { apiKey: this.config.aiApiKey } : {}),
         model: this.config.aiModel,
-        timeoutMs: this.config.aiTimeoutMs,
         capabilities: {
           image: this.config.aiImageCapability,
           pdf: this.config.aiPdfCapability,
@@ -294,6 +398,7 @@ export class BasketraServer {
   private async createShoppingList(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const body = asRecord(await this.readJson(request));
     const list = this.#database.createShoppingList(asString(body['name'], '$.name', { min: 1, max: 80 }));
+    this.publishRealtime({ entityType: 'shopping-list', mutation: 'created', listId: list.id, entityId: list.id, version: list.version, updatedAt: list.updatedAt });
     this.json(response, 201, { list });
   }
 
@@ -305,18 +410,29 @@ export class BasketraServer {
 
   private async updateShoppingList(request: IncomingMessage, response: ServerResponse, id: string): Promise<void> {
     const body = asRecord(await this.readJson(request));
-    const list = this.#database.updateShoppingList(id, asString(body['name'], '$.name', { min: 1, max: 80 }));
+    const list = this.#database.updateShoppingList(
+      id,
+      asString(body['name'], '$.name', { min: 1, max: 80 }),
+      asSafeInteger(body['version'], '$.version', { min: 1 }),
+    );
     if (!list) throw new ApiError(404, 'SHOPPING_LIST_NOT_FOUND', 'Shopping list was not found');
+    this.publishRealtime({ entityType: 'shopping-list', mutation: 'updated', listId: id, entityId: id, version: list.version, updatedAt: list.updatedAt });
     this.json(response, 200, { list });
   }
 
-  private deleteShoppingList(response: ServerResponse, id: string): void {
-    if (!this.#database.deleteShoppingList(id)) throw new ApiError(404, 'SHOPPING_LIST_NOT_FOUND', 'Shopping list was not found');
+  private async deleteShoppingList(request: IncomingMessage, response: ServerResponse, id: string): Promise<void> {
+    const body = asRecord(await this.readJson(request));
+    const version = asSafeInteger(body['version'], '$.version', { min: 1 });
+    if (!this.#database.deleteShoppingList(id, version)) throw new ApiError(404, 'SHOPPING_LIST_NOT_FOUND', 'Shopping list was not found');
+    this.publishRealtime({ entityType: 'shopping-list', mutation: 'deleted', listId: id, entityId: id, version: version + 1 });
     this.empty(response);
   }
 
   private async addShoppingListItem(request: IncomingMessage, response: ServerResponse, listId: string): Promise<void> {
     const body = asRecord(await this.readJson(request));
+    const productVariantId = body['productVariantId'] === undefined
+      ? undefined
+      : asString(body['productVariantId'], '$.productVariantId', { min: 1, max: 128 });
     const item = this.#database.addShoppingListItem({
       listId,
       text: asString(body['text'], '$.text', { min: 1, max: 240 }),
@@ -324,8 +440,10 @@ export class BasketraServer {
       unit: asEnum(body['unit'] ?? 'unit', '$.unit', UNIT_VALUES),
       exactRequired: body['exactRequired'] === undefined ? false : asBoolean(body['exactRequired'], '$.exactRequired'),
       substitutionAllowed: body['substitutionAllowed'] === undefined ? true : asBoolean(body['substitutionAllowed'], '$.substitutionAllowed'),
+      ...(productVariantId ? { productVariantId } : {}),
     });
-    this.json(response, 201, { item });
+    this.publishRealtime({ entityType: 'shopping-list-item', mutation: 'created', listId, entityId: item.id, version: item.version, updatedAt: item.updatedAt });
+    this.json(response, 201, { item, listVersion: this.#database.getShoppingListVersion(listId) });
   }
 
   private async updateShoppingListItem(request: IncomingMessage, response: ServerResponse, listId: string, itemId: string): Promise<void> {
@@ -333,9 +451,13 @@ export class BasketraServer {
     if (body['quantityMinor'] !== undefined && body['quantityDelta'] !== undefined) {
       throw new ApiError(400, 'VALIDATION_ERROR', 'quantityMinor and quantityDelta cannot be combined');
     }
+    const hasMutableField = ['text', 'quantityMinor', 'quantityDelta', 'unit', 'exactRequired', 'substitutionAllowed', 'completed', 'productVariantId']
+      .some((field) => body[field] !== undefined);
+    if (!hasMutableField) throw new ApiError(400, 'VALIDATION_ERROR', 'At least one item field must be provided');
     const update = {
       listId,
       itemId,
+      expectedVersion: asSafeInteger(body['version'], '$.version', { min: 1 }),
       ...(body['text'] === undefined ? {} : { text: asString(body['text'], '$.text', { min: 1, max: 240 }) }),
       ...(body['quantityMinor'] === undefined ? {} : { quantityMinor: asSafeInteger(body['quantityMinor'], '$.quantityMinor', { min: 1, max: 100_000 }) }),
       ...(body['quantityDelta'] === undefined ? {} : { quantityDelta: asSafeInteger(body['quantityDelta'], '$.quantityDelta', { min: -99_999, max: 99_999 }) }),
@@ -343,22 +465,30 @@ export class BasketraServer {
       ...(body['exactRequired'] === undefined ? {} : { exactRequired: asBoolean(body['exactRequired'], '$.exactRequired') }),
       ...(body['substitutionAllowed'] === undefined ? {} : { substitutionAllowed: asBoolean(body['substitutionAllowed'], '$.substitutionAllowed') }),
       ...(body['completed'] === undefined ? {} : { completed: asBoolean(body['completed'], '$.completed') }),
+      ...(body['productVariantId'] === undefined
+        ? {}
+        : { productVariantId: body['productVariantId'] === null ? null : asString(body['productVariantId'], '$.productVariantId', { min: 1, max: 128 }) }),
     };
-    if (Object.keys(update).length === 2) throw new ApiError(400, 'VALIDATION_ERROR', 'At least one item field must be provided');
     const item = this.#database.updateShoppingListItem(update);
-    this.json(response, 200, { item });
+    this.publishRealtime({ entityType: 'shopping-list-item', mutation: 'updated', listId, entityId: item.id, version: item.version, updatedAt: item.updatedAt });
+    this.json(response, 200, { item, listVersion: this.#database.getShoppingListVersion(listId) });
   }
 
-  private deleteShoppingListItem(response: ServerResponse, listId: string, itemId: string): void {
-    this.#database.deleteShoppingListItem(listId, itemId);
+  private async deleteShoppingListItem(request: IncomingMessage, response: ServerResponse, listId: string, itemId: string): Promise<void> {
+    const body = asRecord(await this.readJson(request));
+    const version = asSafeInteger(body['version'], '$.version', { min: 1 });
+    this.#database.deleteShoppingListItem(listId, itemId, version);
+    this.publishRealtime({ entityType: 'shopping-list-item', mutation: 'deleted', listId, entityId: itemId, version: version + 1 });
     this.empty(response);
   }
 
   private async reorderShoppingListItems(request: IncomingMessage, response: ServerResponse, listId: string): Promise<void> {
     const body = asRecord(await this.readJson(request));
     const itemIds = asArray(body['itemIds'], '$.itemIds', 500).map((itemId, index) => asString(itemId, `$.itemIds[${index}]`, { min: 1, max: 128 }));
-    const items = this.#database.reorderShoppingListItems(listId, itemIds);
-    this.json(response, 200, { items });
+    const listVersion = asSafeInteger(body['listVersion'], '$.listVersion', { min: 1 });
+    const result = this.#database.reorderShoppingListItems(listId, itemIds, listVersion);
+    this.publishRealtime({ entityType: 'shopping-list', mutation: 'reordered', listId, entityId: listId, version: result.list.version, updatedAt: result.list.updatedAt });
+    this.json(response, 200, result);
   }
 
   private suggestProducts(response: ServerResponse, params: URLSearchParams): void {
@@ -366,6 +496,193 @@ export class BasketraServer {
     const limit = Math.min(20, Number(params.get('limit') ?? 8));
     if (!Number.isSafeInteger(limit) || limit < 1) throw new ApiError(400, 'VALIDATION_ERROR', 'Suggestion limit is invalid');
     this.json(response, 200, { suggestions: this.#database.searchProducts(query, limit) });
+  }
+
+  private async createCategory(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const body = asRecord(await this.readJson(request));
+    const category = this.#database.getOrCreateCategory(
+      asString(body['name'], '$.name', { min: 1, max: 120 }),
+      body['description'] === undefined ? undefined : asString(body['description'], '$.description', { max: 500 }),
+    );
+    this.publishRealtime({ entityType: 'category', mutation: 'created', entityId: category.id, updatedAt: category.updatedAt });
+    this.json(response, 201, { category });
+  }
+
+  private async updateCategory(request: IncomingMessage, response: ServerResponse, categoryId: string): Promise<void> {
+    const body = asRecord(await this.readJson(request));
+    const category = this.#database.updateCategory(categoryId, {
+      name: asString(body['name'], '$.name', { min: 1, max: 120 }),
+      ...(body['description'] === undefined
+        ? {}
+        : { description: body['description'] === null ? null : asString(body['description'], '$.description', { max: 500 }) }),
+    });
+    if (!category) throw new ApiError(404, 'PRODUCT_CATEGORY_NOT_FOUND', 'Product category was not found');
+    this.publishRealtime({ entityType: 'category', mutation: 'updated', entityId: category.id, updatedAt: category.updatedAt });
+    this.json(response, 200, { category });
+  }
+
+  private async createProduct(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const body = asRecord(await this.readJson(request));
+    const product = this.#database.createProduct({
+      canonicalName: asString(body['canonicalName'], '$.canonicalName', { min: 1, max: 160 }),
+      ...(body['variantName'] === undefined ? {} : { variantName: asString(body['variantName'], '$.variantName', { min: 1, max: 160 }) }),
+      ...(body['categoryId'] === undefined ? {} : { categoryId: asString(body['categoryId'], '$.categoryId', { min: 1, max: 128 }) }),
+      ...(body['description'] === undefined ? {} : { description: asString(body['description'], '$.description', { max: 500 }) }),
+      ...(body['brand'] === undefined ? {} : { brand: asString(body['brand'], '$.brand', { max: 120 }) }),
+      ...(body['ean'] === undefined ? {} : { ean: this.parseEan(body['ean'], '$.ean') }),
+      ...(body['packageMinor'] === undefined ? {} : { packageMinor: asSafeInteger(body['packageMinor'], '$.packageMinor', { min: 1, max: 100_000_000 }) }),
+      ...(body['packageUnit'] === undefined ? {} : { packageUnit: asEnum(body['packageUnit'], '$.packageUnit', UNIT_VALUES) }),
+      ...(body['aliases'] === undefined ? {} : { aliases: this.parseStringArray(body['aliases'], '$.aliases', 30, 160) }),
+    });
+    this.publishRealtime({ entityType: 'product', mutation: 'created', entityId: product.id, updatedAt: product.updatedAt });
+    this.json(response, 201, { product });
+  }
+
+  private getProduct(response: ServerResponse, variantId: string): void {
+    const product = this.#database.getProductVariant(variantId);
+    if (!product) throw new ApiError(404, 'PRODUCT_VARIANT_NOT_FOUND', 'Product variant was not found');
+    this.json(response, 200, { product, priceHistory: this.#database.listPriceObservations(variantId) });
+  }
+
+  private async updateProduct(request: IncomingMessage, response: ServerResponse, variantId: string): Promise<void> {
+    const body = asRecord(await this.readJson(request));
+    const product = this.#database.updateProduct({
+      variantId,
+      canonicalName: asString(body['canonicalName'], '$.canonicalName', { min: 1, max: 160 }),
+      variantName: asString(body['variantName'], '$.variantName', { min: 1, max: 160 }),
+      ...(body['categoryId'] === undefined ? {} : { categoryId: body['categoryId'] === null ? null : asString(body['categoryId'], '$.categoryId', { min: 1, max: 128 }) }),
+      ...(body['description'] === undefined ? {} : { description: body['description'] === null ? null : asString(body['description'], '$.description', { max: 500 }) }),
+      ...(body['brand'] === undefined ? {} : { brand: body['brand'] === null ? null : asString(body['brand'], '$.brand', { max: 120 }) }),
+      ...(body['ean'] === undefined ? {} : { ean: body['ean'] === null ? null : this.parseEan(body['ean'], '$.ean') }),
+      ...(body['packageMinor'] === undefined ? {} : { packageMinor: body['packageMinor'] === null ? null : asSafeInteger(body['packageMinor'], '$.packageMinor', { min: 1, max: 100_000_000 }) }),
+      ...(body['packageUnit'] === undefined ? {} : { packageUnit: body['packageUnit'] === null ? null : asEnum(body['packageUnit'], '$.packageUnit', UNIT_VALUES) }),
+      ...(body['aliases'] === undefined ? {} : { aliases: this.parseStringArray(body['aliases'], '$.aliases', 30, 160) }),
+    });
+    if (!product) throw new ApiError(404, 'PRODUCT_VARIANT_NOT_FOUND', 'Product variant was not found');
+    this.publishRealtime({ entityType: 'product', mutation: 'updated', entityId: product.id, updatedAt: product.updatedAt });
+    this.json(response, 200, { product });
+  }
+
+  private async proposeProductPhoto(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    this.#activeExpensiveOperations += 1;
+    const controller = new AbortController();
+    const onAborted = () => controller.abort(new Error('REQUEST_ABORTED'));
+    request.once('aborted', onAborted);
+    try {
+      const body = asRecord(await this.readJson(request));
+      const result = await proposeProductFromPhoto({
+        fileStore: this.#fileStore,
+        provider: this.getAiProvider(),
+        maxRetries: this.config.aiMaxRetries,
+        storageKey: asString(body['storageKey'], '$.storageKey', { min: 8, max: 160 }),
+        ...(body['contextText'] === undefined ? {} : { contextText: asString(body['contextText'], '$.contextText', { max: 500 }) }),
+        signal: controller.signal,
+      });
+      this.json(response, 200, result);
+    } finally {
+      request.off('aborted', onAborted);
+      this.#activeExpensiveOperations -= 1;
+    }
+  }
+
+  private async confirmProductPrice(request: IncomingMessage, response: ServerResponse, variantId: string): Promise<void> {
+    const body = asRecord(await this.readJson(request));
+    const product = this.#database.getProductVariant(variantId);
+    if (!product) throw new ApiError(404, 'PRODUCT_VARIANT_NOT_FOUND', 'Product variant was not found');
+    const evidenceType = asEnum(body['evidenceType'] ?? 'manual', '$.evidenceType', PRICE_EVIDENCE_TYPES);
+    let sourceReference = `manual:${randomUUID()}`;
+    let contentHash: string | undefined;
+    if (evidenceType === 'product-photo') {
+      const storageKey = asString(body['storageKey'], '$.storageKey', { min: 8, max: 160 });
+      const stored = this.#fileStore.read(storageKey);
+      if (stored.mimeType !== 'image/jpeg' && stored.mimeType !== 'image/png') throw new ApiError(415, 'PRICE_EVIDENCE_UNSUPPORTED', 'Price photo evidence must be JPEG or PNG');
+      sourceReference = storageKey;
+      contentHash = storageKey.split('.')[0];
+    }
+    const packageNumerator = asSafeInteger(body['packageNumerator'] ?? product.packageMinor ?? 1, '$.packageNumerator', { min: 1, max: 100_000_000 });
+    const packageDenominator = asSafeInteger(body['packageDenominator'] ?? 1, '$.packageDenominator', { min: 1, max: 100_000_000 });
+    const packageUnit = asEnum(body['packageUnit'] ?? product.packageUnit ?? 'unit', '$.packageUnit', UNIT_VALUES);
+    const observation = this.#database.confirmPriceObservation({
+      productVariantId: variantId,
+      retailerName: asString(body['retailerName'], '$.retailerName', { min: 1, max: 160 }),
+      ...(body['storeId'] === undefined ? {} : { storeId: asString(body['storeId'], '$.storeId', { min: 1, max: 128 }) }),
+      priceMinor: asSafeInteger(body['priceMinor'], '$.priceMinor', { min: 0, max: 100_000_000 }),
+      packageNumerator,
+      packageDenominator,
+      packageUnit,
+      observedAt: body['observedAt'] === undefined ? new Date().toISOString() : asString(body['observedAt'], '$.observedAt', { min: 20, max: 40 }),
+      confidence: this.parseConfidence(body['confidence'] ?? 1, '$.confidence'),
+      evidence: {
+        sourceType: evidenceType,
+        sourceReference,
+        ...(contentHash ? { contentHash } : {}),
+      },
+    });
+    this.publishRealtime({ entityType: 'price-observation', mutation: 'created', entityId: observation.id, updatedAt: observation.observedAt });
+    this.json(response, 201, { observation });
+  }
+
+  private suggestStores(response: ServerResponse, params: URLSearchParams): void {
+    const latitudeRaw = params.get('latitudeMicrodegrees');
+    const longitudeRaw = params.get('longitudeMicrodegrees');
+    if ((latitudeRaw === null) !== (longitudeRaw === null)) throw new ApiError(400, 'VALIDATION_ERROR', 'Both store coordinates are required');
+    const limit = Number(params.get('limit') ?? 8);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 20) throw new ApiError(400, 'VALIDATION_ERROR', 'Store limit is invalid');
+    if (latitudeRaw === null || longitudeRaw === null) {
+      return this.json(response, 200, { stores: this.#database.listStores(undefined, undefined, limit) });
+    }
+    const latitudeMicrodegrees = Number(latitudeRaw);
+    const longitudeMicrodegrees = Number(longitudeRaw);
+    const maximumDistanceMeters = Number(params.get('maximumDistanceMeters') ?? 2_000);
+    if (!Number.isSafeInteger(latitudeMicrodegrees) || !Number.isSafeInteger(longitudeMicrodegrees) || !Number.isSafeInteger(maximumDistanceMeters) || maximumDistanceMeters < 100 || maximumDistanceMeters > 20_000) {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'Store location filter is invalid');
+    }
+    this.json(response, 200, {
+      stores: this.#database.listStores({ latitudeMicrodegrees, longitudeMicrodegrees }, maximumDistanceMeters, limit),
+    });
+  }
+
+  private async saveStore(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const body = asRecord(await this.readJson(request));
+    const hasLatitude = body['latitudeMicrodegrees'] !== undefined;
+    const hasLongitude = body['longitudeMicrodegrees'] !== undefined;
+    if (hasLatitude !== hasLongitude) throw new ApiError(400, 'VALIDATION_ERROR', 'Both store coordinates are required');
+    const hasOsmType = body['osmType'] !== undefined;
+    const hasOsmId = body['osmId'] !== undefined;
+    if (hasOsmType !== hasOsmId) throw new ApiError(400, 'VALIDATION_ERROR', 'Both OSM identity fields are required');
+    const store = this.#database.saveStore({
+      retailerName: asString(body['retailerName'], '$.retailerName', { min: 1, max: 160 }),
+      name: asString(body['name'], '$.name', { min: 1, max: 160 }),
+      ...(body['region'] === undefined ? {} : { region: asString(body['region'], '$.region', { max: 160 }) }),
+      ...(body['address'] === undefined ? {} : { address: asString(body['address'], '$.address', { max: 240 }) }),
+      ...(hasLatitude ? { latitudeMicrodegrees: asSafeInteger(body['latitudeMicrodegrees'], '$.latitudeMicrodegrees', { min: -90_000_000, max: 90_000_000 }) } : {}),
+      ...(hasLongitude ? { longitudeMicrodegrees: asSafeInteger(body['longitudeMicrodegrees'], '$.longitudeMicrodegrees', { min: -180_000_000, max: 180_000_000 }) } : {}),
+      ...(hasOsmType ? { osmType: asEnum(body['osmType'], '$.osmType', OSM_TYPES) } : {}),
+      ...(hasOsmId ? { osmId: asString(body['osmId'], '$.osmId', { min: 1, max: 40 }) } : {}),
+    });
+    this.publishRealtime({ entityType: 'store', mutation: 'created', entityId: store.id });
+    this.json(response, 201, { store });
+  }
+
+  private async findNearbyStores(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    this.#activeExpensiveOperations += 1;
+    const controller = new AbortController();
+    const onAborted = () => controller.abort(new Error('REQUEST_ABORTED'));
+    request.once('aborted', onAborted);
+    try {
+      const body = asRecord(await this.readJson(request));
+      const candidates = await this.#overpassClient.findNearbyStores({
+        latitudeMicrodegrees: asSafeInteger(body['latitudeMicrodegrees'], '$.latitudeMicrodegrees', { min: -90_000_000, max: 90_000_000 }),
+        longitudeMicrodegrees: asSafeInteger(body['longitudeMicrodegrees'], '$.longitudeMicrodegrees', { min: -180_000_000, max: 180_000_000 }),
+        radiusMeters: asSafeInteger(body['radiusMeters'] ?? 1_500, '$.radiusMeters', { min: 100, max: 5_000 }),
+        limit: asSafeInteger(body['limit'] ?? 8, '$.limit', { min: 1, max: 20 }),
+        signal: controller.signal,
+      });
+      this.json(response, 200, { candidates, attribution: '© OpenStreetMap contributors' });
+    } finally {
+      request.off('aborted', onAborted);
+      this.#activeExpensiveOperations -= 1;
+    }
   }
 
   private suggestRetailers(response: ServerResponse, params: URLSearchParams): void {
@@ -524,6 +841,23 @@ export class BasketraServer {
     };
   }
 
+  private parseStringArray(value: unknown, path: string, maximumEntries: number, maximumLength: number): string[] {
+    return asArray(value, path, maximumEntries).map((entry, index) => asString(entry, `${path}[${index}]`, { min: 1, max: maximumLength }));
+  }
+
+  private parseEan(value: unknown, path: string): string {
+    const ean = asString(value, path, { min: 8, max: 14 });
+    if (!/^\d{8,14}$/u.test(ean)) throw new ApiError(400, 'VALIDATION_ERROR', 'EAN/GTIN must contain 8 to 14 digits');
+    return ean;
+  }
+
+  private parseConfidence(value: unknown, path: string): number {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+      throw new ApiError(400, 'VALIDATION_ERROR', `${path} must be between 0 and 1`);
+    }
+    return value;
+  }
+
   private async readJson(request: IncomingMessage): Promise<unknown> {
     const chunks: Uint8Array[] = [];
     let bytes = 0;
@@ -564,7 +898,7 @@ export class BasketraServer {
     response.setHeader('x-content-type-options', 'nosniff');
     response.setHeader('x-frame-options', 'DENY');
     response.setHeader('referrer-policy', 'no-referrer');
-    response.setHeader('permissions-policy', 'camera=(self), microphone=(), geolocation=()');
+    response.setHeader('permissions-policy', 'camera=(self), microphone=(), geolocation=(self)');
     response.setHeader('content-security-policy', "default-src 'self'; connect-src 'self'; img-src 'self' blob: data:; style-src 'self'; script-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
   }
 

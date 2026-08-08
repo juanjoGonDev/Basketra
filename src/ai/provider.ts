@@ -224,7 +224,6 @@ export class OpenAiCompatibleProvider implements AiProvider {
     baseUrl: URL;
     apiKey?: string;
     model: string;
-    timeoutMs: number;
     maxResponseBytes?: number;
     capabilities?: Partial<AiCapabilities>;
   }>;
@@ -236,7 +235,6 @@ export class OpenAiCompatibleProvider implements AiProvider {
       baseUrl: URL;
       apiKey?: string;
       model: string;
-      timeoutMs: number;
       maxResponseBytes?: number;
       capabilities?: Partial<AiCapabilities>;
     }>,
@@ -286,14 +284,6 @@ export class OpenAiCompatibleProvider implements AiProvider {
   }
 
   async executeStructured(input: AiStructuredInput): Promise<unknown> {
-    const controller = new AbortController();
-    let timedOut = false;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, this.config.timeoutMs);
-    timeout.unref();
-    const signal = input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
     try {
       const response = await this.fetchImplementation(new URL('chat/completions', ensureTrailingSlash(this.config.baseUrl)), {
         method: 'POST',
@@ -309,7 +299,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
             json_schema: { name: input.schemaName, strict: true, schema: input.jsonSchema },
           },
         }),
-        signal,
+        ...(input.signal ? { signal: input.signal } : {}),
       });
       if (!response.ok) {
         const metadata = await readProviderErrorMetadata(response);
@@ -323,11 +313,8 @@ export class OpenAiCompatibleProvider implements AiProvider {
       return parseProviderJson(content);
     } catch (error) {
       if (input.signal?.aborted) throw new DOMException('The AI operation was aborted', 'AbortError');
-      if (timedOut) throw new AiProviderError('AI_TIMEOUT', { retryable: true });
       if (error instanceof AiProviderError) throw error;
       throw new AiProviderError('AI_UNREACHABLE', { retryable: true });
-    } finally {
-      clearTimeout(timeout);
     }
   }
 
