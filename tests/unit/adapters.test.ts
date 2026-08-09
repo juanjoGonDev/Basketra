@@ -14,6 +14,13 @@ import { rational, UNIT_VALUES } from '../../src/domain/units.ts';
 const pngBase64 = Buffer.from(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x00])).toString('base64');
 const PROVIDER_PROBE_VISIBLE_TEXT = 'BASKETRA OCR 4821';
 
+function asRecord(value: unknown): Record<string, unknown> {
+  assert.equal(typeof value, 'object');
+  assert.notEqual(value, null);
+  assert.equal(Array.isArray(value), false);
+  return value as Record<string, unknown>;
+}
+
 test('configuration uses private defaults and ignores removed token and AI timeout configuration', () => {
   const config = loadConfig({ BASKETRA_AUTH_TOKEN: 'legacy-token', BASKETRA_AI_TIMEOUT_MS: 'not-an-integer' });
   assert.equal(config.host, '127.0.0.1');
@@ -149,15 +156,12 @@ test('OpenAI-compatible provider proves image OCR plus strict structured output'
   const userContent = probe.messages[1]?.content;
   assert.ok(Array.isArray(userContent));
   assert.equal(String(userContent[0]?.['text'] ?? '').includes(PROVIDER_PROBE_VISIBLE_TEXT), false);
-  const imagePart = userContent[1] as {
-    filename?: string;
-    image_url?: { url?: string; detail?: string };
-    type?: string;
-  };
-  assert.equal(imagePart.type, 'image_url');
-  assert.equal(imagePart.filename, 'test.png');
-  assert.equal(imagePart.image_url?.detail, 'high');
-  const dataUrl = imagePart.image_url?.url ?? '';
+  const imagePart = asRecord(userContent[1]);
+  assert.equal(imagePart['type'], 'image_url');
+  assert.equal(imagePart['filename'], 'test.png');
+  const imageUrl = asRecord(imagePart['image_url']);
+  assert.equal(imageUrl['detail'], 'high');
+  const dataUrl = String(imageUrl['url'] ?? '');
   assert.match(dataUrl, /^data:image\/png;base64,/u);
   const imageBytes = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64');
   assert.deepEqual([...imageBytes.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
