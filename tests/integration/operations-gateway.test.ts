@@ -9,6 +9,8 @@ import { BasketraDatabase } from '../../src/infrastructure/database.ts';
 import { OperationsGateway } from '../../src/operations/gateway.ts';
 import { applyPendingRestore } from '../../src/operations/restore.ts';
 
+const PROVIDER_PROBE_VISIBLE_TEXT='BASKETRA OCR 4821';
+
 function config(dataDir:string,overrides:Partial<AppConfig>={}):AppConfig{
   return {
     host:'127.0.0.1',
@@ -77,7 +79,7 @@ test('operations gateway distinguishes missing and loopback AI configuration',as
   }
 });
 
-test('operations gateway verifies image structured output through the canonical provider',async()=>{
+test('operations gateway verifies image OCR structured output through the canonical provider',async()=>{
   const directory=`.test-tmp/gateway-ai-probe-${randomUUID()}`;
   const requests:Array<Readonly<{method:string;url:string;authorization?:string;correlation?:string;body:Record<string,unknown>}>>=[];
   const providerServer=createServer(async(request,response)=>{
@@ -93,7 +95,7 @@ test('operations gateway verifies image structured output through the canonical 
       body:JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string,unknown>,
     });
     response.writeHead(200,{'content-type':'application/json'});
-    response.end(JSON.stringify({choices:[{message:{content:'{"accepted":true}'}}]}));
+    response.end(JSON.stringify({choices:[{message:{content:JSON.stringify({image:{format:'png',text:PROVIDER_PROBE_VISIBLE_TEXT}})}}]}));
   });
   await new Promise<void>((resolve,reject)=>{
     providerServer.once('error',reject);
@@ -127,13 +129,27 @@ test('operations gateway verifies image structured output through the canonical 
     assert.equal(providerRequest.authorization,`Bearer ${managedToken}`);
     assert.match(providerRequest.correlation??'',/^provider-probe:[0-9a-f-]{36}$/u);
     const messages=providerRequest.body['messages'] as Array<Record<string,unknown>>;
+    assert.equal(String(messages[0]?.['content']??'').includes(PROVIDER_PROBE_VISIBLE_TEXT),false);
     const content=messages[1]?.['content'] as Array<Record<string,unknown>>;
+    assert.equal(String(content[0]?.['text']??'').includes(PROVIDER_PROBE_VISIBLE_TEXT),false);
+    assert.equal(content[1]?.['filename'],'test.png');
     const imageUrl=(content[1]?.['image_url'] as Record<string,unknown>)['url'];
     assert.match(String(imageUrl),/^data:image\/png;base64,/u);
+    const encoded=String(imageUrl).slice(String(imageUrl).indexOf(',')+1);
+    const imageBytes=Buffer.from(encoded,'base64');
+    assert.deepEqual([...imageBytes.subarray(0,8)],[137,80,78,71,13,10,26,10]);
+    assert.equal(imageBytes.readUInt32BE(16),600);
+    assert.equal(imageBytes.readUInt32BE(20),120);
     const responseFormat=providerRequest.body['response_format'] as Record<string,unknown>;
     const schemaEnvelope=responseFormat['json_schema'] as Record<string,unknown>;
+    const schema=schemaEnvelope['schema'] as Record<string,unknown>;
+    const imageSchema=(schema['properties'] as Record<string,unknown>)['image'] as Record<string,unknown>;
+    const imageProperties=imageSchema['properties'] as Record<string,unknown>;
     assert.equal(responseFormat['type'],'json_schema');
     assert.equal(schemaEnvelope['strict'],true);
+    assert.deepEqual(schema['required'],['image']);
+    assert.deepEqual(imageSchema['required'],['format','text']);
+    assert.deepEqual((imageProperties['format'] as Record<string,unknown>)['enum'],['png']);
   }finally{
     await gateway.close();
     await new Promise<void>((resolve,reject)=>providerServer.close(error=>error?reject(error):resolve()));

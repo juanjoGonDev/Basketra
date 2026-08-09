@@ -12,6 +12,14 @@ import { StructuredAiExecutor } from '../../src/ai/structured-executor.ts';
 import { rational, UNIT_VALUES } from '../../src/domain/units.ts';
 
 const pngBase64 = Buffer.from(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x00])).toString('base64');
+const PROVIDER_PROBE_VISIBLE_TEXT = 'BASKETRA OCR 4821';
+
+function asRecord(value: unknown): Record<string, unknown> {
+  assert.equal(typeof value, 'object');
+  assert.notEqual(value, null);
+  assert.equal(Array.isArray(value), false);
+  return value as Record<string, unknown>;
+}
 
 test('configuration uses private defaults and ignores removed token and AI timeout configuration', () => {
   const config = loadConfig({ BASKETRA_AUTH_TOKEN: 'legacy-token', BASKETRA_AI_TIMEOUT_MS: 'not-an-integer' });
@@ -106,14 +114,14 @@ test('structured AI execution validates locally and bounds retries', async () =>
   await assert.rejects(() => new StructuredAiExecutor(unknownProvider, 1).execute({ operation: 'test', schemaName: 'test', systemPrompt: 'x', content: 'x', schema: { jsonSchema: {}, parse() { return 1; } } }));
 });
 
-test('OpenAI-compatible provider sends strict schema and handles failures', async () => {
+test('OpenAI-compatible provider proves image OCR plus strict structured output', async () => {
   const requests: Request[] = [];
   const mockFetch: typeof fetch = async (input, init) => {
     const request = new Request(input, init);
     requests.push(request);
     const body = JSON.parse(await request.clone().text()) as { response_format?: { json_schema?: { name?: string } } };
     const content = body.response_format?.json_schema?.name === 'basketra_provider_capability'
-      ? '{"accepted":true}'
+      ? JSON.stringify({ image: { format: 'png', text: PROVIDER_PROBE_VISIBLE_TEXT } })
       : '{"ok":true}';
     return new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
       status: 200,
@@ -132,9 +140,65 @@ test('OpenAI-compatible provider sends strict schema and handles failures', asyn
   assert.equal(requests[0]?.url, 'http://localhost:8080/v1/chat/completions');
   assert.equal(requests[1]?.url, 'http://localhost:8080/v1/chat/completions');
   assert.equal(requests[0]?.headers.get('authorization'), 'Bearer secret');
-  const posted = JSON.parse(await requests[1]!.clone().text()) as { response_format: { json_schema: { strict: boolean } } };
-  assert.equal(posted.response_format.json_schema.strict, true);
+
+  const probe = JSON.parse(await requests[0]!.clone().text()) as {
+    messages: Array<{ content: string | Array<Record<string, unknown>> }>;
+    response_format: {
+      json_schema: {
+        strict: boolean;
+        schema: Record<string, unknown>;
+      };
+    };
+  };
+  const systemPrompt = probe.messages[0]?.content;
+  assert.equal(typeof systemPrompt, 'string');
+  assert.equal(String(systemPrompt).includes(PROVIDER_PROBE_VISIBLE_TEXT), false);
+  const userContent = probe.messages[1]?.content;
+  assert.ok(Array.isArray(userContent));
+  assert.equal(String(userContent[0]?.['text'] ?? '').includes(PROVIDER_PROBE_VISIBLE_TEXT), false);
+  const imagePart = asRecord(userContent[1]);
+  assert.equal(imagePart['type'], 'image_url');
+  assert.equal(imagePart['filename'], 'test.png');
+  const imageUrl = asRecord(imagePart['image_url']);
+  assert.equal(imageUrl['detail'], 'high');
+  const dataUrl = String(imageUrl['url'] ?? '');
+  assert.match(dataUrl, /^data:image\/png;base64,/u);
+  const imageBytes = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64');
+  assert.deepEqual([...imageBytes.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  assert.equal(imageBytes.readUInt32BE(16), 600);
+  assert.equal(imageBytes.readUInt32BE(20), 120);
+  assert.ok(imageBytes.byteLength > 500);
+
+  const schema = probe.response_format.json_schema.schema as {
+    required?: string[];
+    properties?: {
+      image?: {
+        required?: string[];
+        properties?: { format?: { enum?: string[] }; text?: { type?: string } };
+      };
+    };
+  };
+  assert.equal(probe.response_format.json_schema.strict, true);
+  assert.deepEqual(schema.required, ['image']);
+  assert.deepEqual(schema.properties?.image?.required, ['format', 'text']);
+  assert.deepEqual(schema.properties?.image?.properties?.format?.enum, ['png']);
+  assert.equal(schema.properties?.image?.properties?.text?.type, 'string');
   provider.dispose();
+
+  for (const invalid of [
+    { image: { format: 'png', text: 'WRONG TEXT' } },
+    { image: { format: 'jpg', text: PROVIDER_PROBE_VISIBLE_TEXT } },
+    { image: { format: 'png' } },
+  ]) {
+    const invalidProvider = new OpenAiCompatibleProvider(
+      { baseUrl: new URL('http://localhost/v1/'), model: 'x' },
+      async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(invalid) } }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    await assert.rejects(() => invalidProvider.testConnection(), /AI_INVALID_RESPONSE/);
+  }
 
   const failed = new OpenAiCompatibleProvider({ baseUrl: new URL('http://localhost/v1/'), model: 'x' }, async () => new Response('', { status: 503 }));
   await assert.rejects(() => failed.testConnection(), /AI_PROVIDER_FAILED/);
