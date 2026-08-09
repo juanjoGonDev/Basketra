@@ -10,7 +10,11 @@ export type AiCapabilities = Readonly<{
 
 export type AiMessageContentPart =
   | Readonly<{ type: 'text'; text: string }>
-  | Readonly<{ type: 'image_url'; image_url: Readonly<{ url: string; detail?: 'auto' | 'low' | 'high' }> }>
+  | Readonly<{
+      type: 'image_url';
+      filename?: string;
+      image_url: Readonly<{ url: string; detail?: 'auto' | 'low' | 'high' }>;
+    }>
   | Readonly<{ type: 'file'; file: Readonly<{ filename: string; file_data: string }> }>;
 
 export type AiMessageContent = string | readonly AiMessageContentPart[];
@@ -61,6 +65,7 @@ export function buildAiAttachmentContentPart(
     if (!capabilities.image) throw new AiProviderError('AI_IMAGE_CAPABILITY_UNAVAILABLE');
     return {
       type: 'image_url',
+      ...(input.fileName?.trim() ? { filename: input.fileName.trim() } : {}),
       image_url: {
         url: `data:${input.mimeType};base64,${Buffer.from(input.bytes).toString('base64')}`,
         detail: 'high',
@@ -111,14 +116,25 @@ const DEFAULT_CAPABILITIES: AiCapabilities = {
 export const DEFAULT_AI_MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_PROVIDER_ERROR_BYTES = 8 * 1024;
 const CORRELATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/u;
+const PROVIDER_PROBE_FILENAME = 'test.png';
+const PROVIDER_PROBE_FORMAT = 'png';
+const PROVIDER_PROBE_TEXT = 'BASKETRA OCR 4821';
 const PROVIDER_PROBE_PNG_DATA_URL =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAbklEQVR42u3QQQ0AMAgAMdTgX9C8MA17LITQS85Ao5YXAAAAAAAAAAAAAAAAAAAAAIDnTmbrAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAID/ANMDAAAAAAAAAAAAAAAAAAAAFnYBKLlvSc5qfWIAAAAASUVORK5CYII=';
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAlgAAAB4CAIAAAChNxuUAAACxUlEQVR42u3dQW7DIBBA0bjy/a9Mt02kWiIMMMB7uy6a2pj0ywLZrxcAAAAAAAAAABzi+vi5lGJQANi5fNdb+36MCAAnE0IAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAhBAAKtxJjuO6rq9/t5TS6TBaPrnqjKr+UMtBPv9uy1V4PqOcn5xz5iSZZjln+6zrO2wyzBrJfv/rZl0Fd4QAIIQAIIQAIIQA8K8752HN2jzSot8elllHFXgYzx8VePorzpwVp9msw0jytQqcDMP2vgV+B4ftuXNHCABCCABCCABCCABd3Ibgr5bV5sC/22LWI07MnE5Xod9Oon6bKba3xG6RJf5fuSMEACEEACEEACEEgAmW3CyT8xkuszbakH/WYei++79hJN0RAoAQAoAQAoAQAkC8pJtlqlaMc75MZ9gaeL9TWHHdftgxr/iumQ3MmpM5X5SWc9ugO0IAEEIAEEIAEEIAyC7pZplhu0WGLS9XveOm5RQCN3GsuH5eNc79LmjgzNnPsO9Rv210w3bzJRl2d4QAIIQAIIQAIIQAsJXbEERJshbtbVBfD86Kxzxrt1fOeRV4fQOfOmR3jDtCABBCABBCABBCAMhlh9cwVT1sot+K8bD3LgUe1bDn3axov/0g/U5hxTd2JRF4QQOfhnPaNXJHCMDRhBAAIQQAIQSAA30un1rHBmDz8r1vHXJHCMDRhBAAIQQAIQQAIQQAIQQAIQQAIQQAIQQAIQQAIQQAIQQAIQQAIQQAIQQAIQQAIQQAIQQAIQQAIQQAIQQAIQQAIQQAIQQAAAAAAAAAAABgjl9sZ1DQc3tlbgAAAABJRU5ErkJggg==';
 const PROVIDER_PROBE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['accepted'],
+  required: ['image'],
   properties: {
-    accepted: { type: 'boolean', enum: [true] },
+    image: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['format', 'text'],
+      properties: {
+        format: { type: 'string', enum: [PROVIDER_PROBE_FORMAT] },
+        text: { type: 'string' },
+      },
+    },
   },
 } as const;
 const PROVIDER_ATTACHMENT_UPLOAD_CODES = new Set([
@@ -252,17 +268,19 @@ export class OpenAiCompatibleProvider implements AiProvider {
   async testConnection(signal?: AbortSignal): Promise<AiProviderConnectionResult> {
     const result = await this.executeStructured({
       operation: 'provider-capability-probe',
-      systemPrompt: 'Inspect the attached synthetic image. Return only the requested JSON object with accepted set to true.',
+      systemPrompt:
+        'Read the visible text from the attached image. Return only the requested JSON structure. The format field must describe the attached image format and the text field must contain the exact visible text, preserving spaces and case.',
       content: [
         {
           type: 'text',
-          text: 'This is a synthetic Basketra provider capability probe. Confirm that the image attachment and strict structured output path completed.',
+          text: 'Read the attached image. Do not infer its text from the filename, prompt, or metadata.',
         },
         {
           type: 'image_url',
+          filename: PROVIDER_PROBE_FILENAME,
           image_url: {
             url: PROVIDER_PROBE_PNG_DATA_URL,
-            detail: 'low',
+            detail: 'high',
           },
         },
       ],
@@ -336,7 +354,18 @@ function isSuccessfulProviderProbe(value: unknown): boolean {
   }
 
   const record = value as Record<string, unknown>;
-  return Object.keys(record).length === 1 && record['accepted'] === true;
+  if (Object.keys(record).length !== 1) return false;
+  const image = record['image'];
+  if (typeof image !== 'object' || image === null || Array.isArray(image)) {
+    return false;
+  }
+
+  const imageRecord = image as Record<string, unknown>;
+  return (
+    Object.keys(imageRecord).length === 2 &&
+    imageRecord['format'] === PROVIDER_PROBE_FORMAT &&
+    imageRecord['text'] === PROVIDER_PROBE_TEXT
+  );
 }
 
 function mapProviderHttpError(status: number, metadata?: ProviderErrorMetadata): AiProviderError {
