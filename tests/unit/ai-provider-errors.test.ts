@@ -9,6 +9,8 @@ import {
 } from '../../src/ai/provider.ts';
 import { StructuredAiExecutor } from '../../src/ai/structured-executor.ts';
 
+const PROVIDER_PROBE_VISIBLE_TEXT = 'BASKETRA OCR 4821';
+
 const structuredInput: AiStructuredInput = {
   operation: 'test-operation',
   systemPrompt: 'Return JSON only.',
@@ -159,7 +161,7 @@ test('OpenAI-compatible provider forwards only a validated correlation identifie
   assert.equal(requests[1]?.headers.get('x-client-request-id'), null);
 });
 
-test('provider capability probe verifies authenticated image structured output in one request', async () => {
+test('provider capability probe verifies authenticated image OCR structured output in one request', async () => {
   const requests: Request[] = [];
   const managedTokenFixture = ['managed', 'webapi', 'token'].join('-');
   const provider = new OpenAiCompatibleProvider({
@@ -169,7 +171,13 @@ test('provider capability probe verifies authenticated image structured output i
   }, (async (input, init) => {
     requests.push(new Request(input, init));
     return new Response(JSON.stringify({
-      choices: [{ message: { content: '{"accepted":true}' } }],
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            image: { format: 'png', text: PROVIDER_PROBE_VISIBLE_TEXT },
+          }),
+        },
+      }],
     }), { status: 200, headers: { 'content-type': 'application/json' } });
   }) as typeof fetch);
 
@@ -192,21 +200,30 @@ test('provider capability probe verifies authenticated image structured output i
   assert.equal(body['model'], 'test-model');
   const messages = asArray(body['messages']);
   assert.equal(messages.length, 2);
+  assert.equal(String(asRecord(messages[0])['content']).includes(PROVIDER_PROBE_VISIBLE_TEXT), false);
   const userMessage = asRecord(messages[1]);
   const content = asArray(userMessage['content']);
+  assert.equal(String(asRecord(content[0])['text']).includes(PROVIDER_PROBE_VISIBLE_TEXT), false);
   const imagePart = asRecord(content[1]);
   const image = asRecord(imagePart['image_url']);
   assert.equal(imagePart['type'], 'image_url');
+  assert.equal(imagePart['filename'], 'test.png');
   assert.match(String(image['url']), /^data:image\/png;base64,/u);
 
   const responseFormat = asRecord(body['response_format']);
   const schemaEnvelope = asRecord(responseFormat['json_schema']);
   const schema = asRecord(schemaEnvelope['schema']);
   const properties = asRecord(schema['properties']);
-  const accepted = asRecord(properties['accepted']);
+  const imageSchema = asRecord(properties['image']);
+  const imageProperties = asRecord(imageSchema['properties']);
+  const format = asRecord(imageProperties['format']);
+  const text = asRecord(imageProperties['text']);
   assert.equal(responseFormat['type'], 'json_schema');
   assert.equal(schemaEnvelope['strict'], true);
-  assert.deepEqual(accepted['enum'], [true]);
+  assert.deepEqual(schema['required'], ['image']);
+  assert.deepEqual(imageSchema['required'], ['format', 'text']);
+  assert.deepEqual(format['enum'], ['png']);
+  assert.equal(text['type'], 'string');
 });
 
 test('provider capability probe rejects a response that did not satisfy the probe contract', async () => {
@@ -214,7 +231,13 @@ test('provider capability probe rejects a response that did not satisfy the prob
     baseUrl: new URL('http://provider.test/v1/'),
     model: 'test-model',
   }, (async () => new Response(JSON.stringify({
-    choices: [{ message: { content: '{"accepted":false}' } }],
+    choices: [{
+      message: {
+        content: JSON.stringify({
+          image: { format: 'png', text: 'WRONG OCR TEXT' },
+        }),
+      },
+    }],
   }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch);
 
   await assert.rejects(
