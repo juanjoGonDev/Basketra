@@ -65,7 +65,6 @@ export function buildAiAttachmentContentPart(
     if (!capabilities.image) throw new AiProviderError('AI_IMAGE_CAPABILITY_UNAVAILABLE');
     return {
       type: 'image_url',
-      ...(input.fileName?.trim() ? { filename: input.fileName.trim() } : {}),
       image_url: {
         url: `data:${input.mimeType};base64,${Buffer.from(input.bytes).toString('base64')}`,
         detail: 'high',
