@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 export type AiCapabilities = Readonly<{
   structuredOutput: boolean;
@@ -118,8 +119,7 @@ const CORRELATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/u;
 const PROVIDER_PROBE_FILENAME = 'test.png';
 const PROVIDER_PROBE_FORMAT = 'png';
 const PROVIDER_PROBE_TEXT = 'BASKETRA OCR 4821';
-const PROVIDER_PROBE_PNG_DATA_URL =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAlgAAAB4CAIAAAChNxuUAAACdUlEQVR42u3dwXKDIABF0dLx/3+Z7rMgVUAfcs6+hIjJHadMKLXWHwDY1a9LAIAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAoAQAsAVR9RsSimX/7bWOumF5o3cfqGPoXqm0R65xxIjh9wbIR+ckPt53gqGrMKK30g917nn7XsiBAAhBAAhBAAhBIBbHcmTm7c9JGTkgXqmMXDO7aEGXqsl7o3M5Q65n5e4zqdm9YIVPPW3A3fGeSIEACEEACEEACEEgFsdLsGilv4dB3jfhy5k88htXwWZb98TIQAIIQAIIQAIIQB8F71ZJvNwmfbr3jbngf8Sd/DQpHuD1e+6eR+62743nnqDnggBQAgBQAgBQAgBINcuxzANHDlkzk8daZR5b4Qc8ETCCs5zarkzD/+yO8YTIQAIIQAIIQAIIQA4hmlZK+41cDVYawVfsA/FZ8ETIQAIIQAIIQAIIQB82vQYpqcmOW/OPXsNQt7CQK/fOzPvEJ+ekQfeG1bw8oVtD/XUC4UvmSdCALYmhAAIIQAIIQBsqPihAQA8EQKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEAKAEALA//0B9Kgm1pfgDKQAAAAASUVORK5CYII=';
+const PROVIDER_PROBE_PNG_URL = new URL('./fixtures/provider-probe.png', import.meta.url);
 const PROVIDER_PROBE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -156,6 +156,11 @@ type ProviderErrorMetadata = Readonly<{
 function assertPositiveInteger(value: number, name: string): number {
   if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`${name} must be a positive safe integer`);
   return value;
+}
+
+function buildProviderProbePngDataUrl(): string {
+  const bytes = readFileSync(PROVIDER_PROBE_PNG_URL);
+  return `data:image/png;base64,${bytes.toString('base64')}`;
 }
 
 async function readResponseText(response: Response, maxBytes: number): Promise<string> {
@@ -278,7 +283,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
           type: 'image_url',
           filename: PROVIDER_PROBE_FILENAME,
           image_url: {
-            url: PROVIDER_PROBE_PNG_DATA_URL,
+            url: buildProviderProbePngDataUrl(),
             detail: 'high',
           },
         },
