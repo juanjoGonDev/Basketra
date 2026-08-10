@@ -3,10 +3,9 @@ FROM node:22.23.1-alpine3.24 AS build
 WORKDIR /app
 RUN npm install --global --ignore-scripts typescript@5.8.3
 COPY package.json tsconfig.json tsconfig.build.json ./
+COPY scripts/build.mjs ./scripts/build.mjs
 COPY src ./src
-RUN tsc --noEmit && tsc -p tsconfig.build.json \
-    && cp -R src/web dist/web \
-    && cp package.json dist/package.json
+RUN node scripts/build.mjs
 
 FROM node:22.23.1-alpine3.24 AS runtime
 ARG BASKETRA_VERSION=0.0.0-dev
