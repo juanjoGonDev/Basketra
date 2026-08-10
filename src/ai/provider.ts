@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 export type AiCapabilities = Readonly<{
   structuredOutput: boolean;
@@ -119,7 +120,9 @@ const CORRELATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/u;
 const PROVIDER_PROBE_FILENAME = 'test.png';
 const PROVIDER_PROBE_FORMAT = 'png';
 const PROVIDER_PROBE_TEXT = 'BASKETRA OCR 4821';
-const PROVIDER_PROBE_PNG_URL = new URL('./fixtures/provider-probe.png', import.meta.url);
+const PROVIDER_PROBE_PNG_PATH = fileURLToPath(
+  new URL('./fixtures/provider-probe.png', import.meta.url),
+);
 const PROVIDER_PROBE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -159,8 +162,8 @@ function assertPositiveInteger(value: number, name: string): number {
 }
 
 function buildProviderProbePngDataUrl(): string {
-  const bytes = readFileSync(PROVIDER_PROBE_PNG_URL);
-  return `data:image/png;base64,${bytes.toString('base64')}`;
+  const bytes = readFileSync(PROVIDER_PROBE_PNG_PATH);
+  return `data:image/png;base64,${Buffer.from(bytes).toString('base64')}`;
 }
 
 async function readResponseText(response: Response, maxBytes: number): Promise<string> {
