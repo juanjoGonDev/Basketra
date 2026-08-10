@@ -152,6 +152,7 @@ test('operations gateway cancels the provider probe when its inbound request is 
     assert.equal(clientRequest.destroyed, true);
   } finally {
     if (gateway) await gateway.close();
+    providerServer.closeAllConnections();
     await new Promise<void>((resolve, reject) => providerServer.close(error => error ? reject(error) : resolve()));
     rmSync(directory, { recursive: true, force: true });
   }
