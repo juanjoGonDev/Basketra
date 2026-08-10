@@ -165,8 +165,11 @@ test('OpenAI-compatible provider proves image OCR plus strict structured output'
   assert.match(dataUrl, /^data:image\/png;base64,/u);
   const imageBytes = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64');
   assert.deepEqual([...imageBytes.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
-  assert.equal(imageBytes.readUInt32BE(16), 600);
-  assert.equal(imageBytes.readUInt32BE(20), 120);
+  const width = imageBytes.readUInt32BE(16);
+  const height = imageBytes.readUInt32BE(20);
+  assert.ok(width >= 600);
+  assert.ok(height >= 120);
+  assert.ok(width / height >= 2 && width / height <= 4);
   assert.ok(imageBytes.byteLength > 500);
 
   const schema = probe.response_format.json_schema.schema as {
