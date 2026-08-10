@@ -32,7 +32,6 @@ async function bounded<T>(promise: Promise<T>, label: string): Promise<T> {
       promise,
       new Promise<never>((_resolve, reject) => {
         timeout = setTimeout(() => reject(new Error(label)), 2_000);
-        timeout.unref();
       }),
     ]);
   } finally {
