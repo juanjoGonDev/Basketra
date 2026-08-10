@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { inflateSync } from 'node:zlib';
 import {
@@ -7,8 +8,9 @@ import {
 } from '../../src/ai/provider.ts';
 
 const EXPECTED_PROBE_TEXT = 'BASKETRA OCR 4821';
+const PROBE_FIXTURE_URL = new URL('../../src/ai/fixtures/provider-probe.png', import.meta.url);
 
-test('provider OCR probe sends a decodable RGB PNG', async () => {
+test('provider OCR probe sends the checked-in RGB PNG fixture', async () => {
   let requestBody: unknown;
   const provider = new OpenAiCompatibleProvider(
     {
@@ -38,18 +40,25 @@ test('provider OCR probe sends a decodable RGB PNG', async () => {
 
   const body = asRecord(requestBody);
   const messages = asArray(body['messages']);
+  const systemMessage = asRecord(messages[0]);
   const userMessage = asRecord(messages[1]);
   const content = asArray(userMessage['content']);
+  assert.equal(String(systemMessage['content']).includes(EXPECTED_PROBE_TEXT), false);
+  assert.equal(String(asRecord(content[0])['text']).includes(EXPECTED_PROBE_TEXT), false);
+
   const imagePart = asRecord(content[1]);
   assert.equal(imagePart['filename'], 'test.png');
   const image = asRecord(imagePart['image_url']);
+  assert.equal(image['detail'], 'high');
   const dataUrl = String(image['url']);
   assert.match(dataUrl, /^data:image\/png;base64,/u);
 
-  const png = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64');
-  assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  const transmittedPng = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64');
+  const fixturePng = readFileSync(PROBE_FIXTURE_URL);
+  assert.deepEqual(transmittedPng, fixturePng);
+  assert.deepEqual([...transmittedPng.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
 
-  const { height, idat, width } = readPngChunks(png);
+  const { height, idat, width } = readPngChunks(transmittedPng);
   assert.equal(width, 600);
   assert.equal(height, 120);
   const scanlines = inflateSync(Buffer.concat(idat));
