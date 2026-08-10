@@ -32,7 +32,6 @@ async function bounded<T>(promise: Promise<T>, label: string): Promise<T> {
       promise,
       new Promise<never>((_resolve, reject) => {
         timeout = setTimeout(() => reject(new Error(label)), 2_000);
-        timeout.unref();
       }),
     ]);
   } finally {
@@ -115,8 +114,9 @@ test('operations gateway cancels the provider probe when its inbound request is 
   let markProviderClosed: (() => void) | undefined;
   const providerStarted = new Promise<void>((resolve) => { markProviderStarted = resolve; });
   const providerClosed = new Promise<void>((resolve) => { markProviderClosed = resolve; });
-  const providerServer = createServer((_providerRequest, providerResponse) => {
-    markProviderStarted?.();
+  const providerServer = createServer((providerRequest, providerResponse) => {
+    providerRequest.resume();
+    providerRequest.once('end', () => markProviderStarted?.());
     providerResponse.once('close', () => markProviderClosed?.());
   });
 
@@ -147,12 +147,13 @@ test('operations gateway cancels the provider probe when its inbound request is 
     clientRequest.on('error', () => {});
     clientRequest.flushHeaders();
 
-    await bounded(providerStarted, 'provider probe did not start');
+    await bounded(providerStarted, 'provider probe did not finish uploading');
     clientRequest.destroy();
     await bounded(providerClosed, 'provider probe was not cancelled after the inbound request aborted');
     assert.equal(clientRequest.destroyed, true);
   } finally {
     if (gateway) await gateway.close();
+    providerServer.closeAllConnections();
     await new Promise<void>((resolve, reject) => providerServer.close(error => error ? reject(error) : resolve()));
     rmSync(directory, { recursive: true, force: true });
   }

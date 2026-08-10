@@ -4,6 +4,7 @@ rmSync('dist',{recursive:true,force:true});
 mkdirSync('dist',{recursive:true});
 execFileSync('tsc',['--noEmit'],{stdio:'inherit'});
 execFileSync('tsc',['-p','tsconfig.build.json'],{stdio:'inherit'});
+cpSync('src/ai/fixtures','dist/ai/fixtures',{recursive:true});
 cpSync('src/web','dist/web',{recursive:true});
 cpSync('package.json','dist/package.json');
 writeFileSync('dist/BUILD_INFO.json',JSON.stringify({node:process.version,builtAt:new Date().toISOString(),runtime:'compiled-javascript'},null,2)+'\n');

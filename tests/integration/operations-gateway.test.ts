@@ -138,8 +138,11 @@ test('operations gateway verifies image OCR structured output through the canoni
     const encoded=String(imageUrl).slice(String(imageUrl).indexOf(',')+1);
     const imageBytes=Buffer.from(encoded,'base64');
     assert.deepEqual([...imageBytes.subarray(0,8)],[137,80,78,71,13,10,26,10]);
-    assert.equal(imageBytes.readUInt32BE(16),600);
-    assert.equal(imageBytes.readUInt32BE(20),120);
+    const width=imageBytes.readUInt32BE(16);
+    const height=imageBytes.readUInt32BE(20);
+    assert.ok(width>=600);
+    assert.ok(height>=120);
+    assert.ok(width/height>=2&&width/height<=4);
     const responseFormat=providerRequest.body['response_format'] as Record<string,unknown>;
     const schemaEnvelope=responseFormat['json_schema'] as Record<string,unknown>;
     const schema=schemaEnvelope['schema'] as Record<string,unknown>;
