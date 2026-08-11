@@ -8,6 +8,7 @@ import type { AppConfig } from '../../src/infrastructure/config.ts';
 import { BasketraDatabase } from '../../src/infrastructure/database.ts';
 import { OperationsGateway } from '../../src/operations/gateway.ts';
 import { applyPendingRestore } from '../../src/operations/restore.ts';
+import { readJpegDimensions } from '../helpers/jpeg.ts';
 
 const PROVIDER_PROBE_VISIBLE_TEXT='BASKETRA OCR 4821';
 
@@ -95,7 +96,7 @@ test('operations gateway verifies image OCR structured output through the canoni
       body:JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string,unknown>,
     });
     response.writeHead(200,{'content-type':'application/json'});
-    response.end(JSON.stringify({choices:[{message:{content:JSON.stringify({image:{format:'png',text:PROVIDER_PROBE_VISIBLE_TEXT}})}}]}));
+    response.end(JSON.stringify({choices:[{message:{content:JSON.stringify({image:{format:'jpg',text:PROVIDER_PROBE_VISIBLE_TEXT}})}}]}));
   });
   await new Promise<void>((resolve,reject)=>{
     providerServer.once('error',reject);
@@ -132,14 +133,14 @@ test('operations gateway verifies image OCR structured output through the canoni
     assert.equal(String(messages[0]?.['content']??'').includes(PROVIDER_PROBE_VISIBLE_TEXT),false);
     const content=messages[1]?.['content'] as Array<Record<string,unknown>>;
     assert.equal(String(content[0]?.['text']??'').includes(PROVIDER_PROBE_VISIBLE_TEXT),false);
-    assert.equal(content[1]?.['filename'],'test.png');
+    assert.equal(content[1]?.['filename'],'test.jpg');
     const imageUrl=(content[1]?.['image_url'] as Record<string,unknown>)['url'];
-    assert.match(String(imageUrl),/^data:image\/png;base64,/u);
+    assert.match(String(imageUrl),/^data:image\/jpeg;base64,/u);
     const encoded=String(imageUrl).slice(String(imageUrl).indexOf(',')+1);
     const imageBytes=Buffer.from(encoded,'base64');
-    assert.deepEqual([...imageBytes.subarray(0,8)],[137,80,78,71,13,10,26,10]);
-    const width=imageBytes.readUInt32BE(16);
-    const height=imageBytes.readUInt32BE(20);
+    assert.deepEqual([...imageBytes.subarray(0,2)],[0xff,0xd8]);
+    assert.deepEqual([...imageBytes.subarray(-2)],[0xff,0xd9]);
+    const {height,width}=readJpegDimensions(imageBytes);
     assert.ok(width>=600);
     assert.ok(height>=120);
     assert.ok(width/height>=2&&width/height<=4);
@@ -152,7 +153,7 @@ test('operations gateway verifies image OCR structured output through the canoni
     assert.equal(schemaEnvelope['strict'],true);
     assert.deepEqual(schema['required'],['image']);
     assert.deepEqual(imageSchema['required'],['format','text']);
-    assert.deepEqual((imageProperties['format'] as Record<string,unknown>)['enum'],['png']);
+    assert.deepEqual((imageProperties['format'] as Record<string,unknown>)['enum'],['jpg']);
   }finally{
     await gateway.close();
     await new Promise<void>((resolve,reject)=>providerServer.close(error=>error?reject(error):resolve()));

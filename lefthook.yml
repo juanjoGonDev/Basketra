@@ -1,0 +1,17 @@
+pre-commit:
+  parallel: true
+  jobs:
+    - name: format-check
+      run: pnpm format:check
+
+    - name: lint
+      run: pnpm lint
+
+    - name: security
+      run: node scripts/security-scan.mjs
+
+pre-push:
+  parallel: false
+  jobs:
+    - name: quality
+      run: pnpm quality

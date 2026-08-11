@@ -1,16 +1,17 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { inflateSync } from 'node:zlib';
 import {
   AiProviderError,
   OpenAiCompatibleProvider,
 } from '../../src/ai/provider.ts';
+import { readJpegDimensions } from '../helpers/jpeg.ts';
 
 const EXPECTED_PROBE_TEXT = 'BASKETRA OCR 4821';
-const PROBE_FIXTURE_URL = new URL('../../src/ai/fixtures/provider-probe.png', import.meta.url);
+const PROBE_FIXTURE_URL = new URL('../../src/ai/fixtures/provider-probe.jpg', import.meta.url);
+const MAX_PROBE_BYTES = 256 * 1024;
 
-test('provider OCR probe sends the checked-in RGB PNG fixture', async () => {
+test('provider OCR probe sends the checked-in readable JPEG fixture', async () => {
   let requestBody: unknown;
   const provider = new OpenAiCompatibleProvider(
     {
@@ -25,7 +26,7 @@ test('provider OCR probe sends the checked-in RGB PNG fixture', async () => {
             {
               message: {
                 content: JSON.stringify({
-                  image: { format: 'png', text: EXPECTED_PROBE_TEXT },
+                  image: { format: 'jpg', text: EXPECTED_PROBE_TEXT },
                 }),
               },
             },
@@ -47,23 +48,23 @@ test('provider OCR probe sends the checked-in RGB PNG fixture', async () => {
   assert.equal(String(asRecord(content[0])['text']).includes(EXPECTED_PROBE_TEXT), false);
 
   const imagePart = asRecord(content[1]);
-  assert.equal(imagePart['filename'], 'test.png');
+  assert.equal(imagePart['filename'], 'test.jpg');
   const image = asRecord(imagePart['image_url']);
   assert.equal(image['detail'], 'high');
   const dataUrl = String(image['url']);
-  assert.match(dataUrl, /^data:image\/png;base64,/u);
+  assert.match(dataUrl, /^data:image\/jpeg;base64,/u);
 
-  const transmittedPng = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64');
-  const fixturePng = readFileSync(PROBE_FIXTURE_URL);
-  assert.deepEqual(transmittedPng, fixturePng);
-  assert.deepEqual([...transmittedPng.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  const transmittedJpeg = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64');
+  const fixtureJpeg = readFileSync(PROBE_FIXTURE_URL);
+  assert.deepEqual(transmittedJpeg, fixtureJpeg);
+  assert.ok(fixtureJpeg.byteLength <= MAX_PROBE_BYTES);
+  assert.deepEqual([...transmittedJpeg.subarray(0, 2)], [0xff, 0xd8]);
+  assert.deepEqual([...transmittedJpeg.subarray(-2)], [0xff, 0xd9]);
 
-  const { height, idat, width } = readPngChunks(transmittedPng);
+  const { height, width } = readJpegDimensions(transmittedJpeg);
   assert.ok(width >= 600);
   assert.ok(height >= 120);
   assert.ok(width / height >= 2 && width / height <= 4);
-  const scanlines = inflateSync(Buffer.concat(idat));
-  assert.equal(scanlines.byteLength, height * (1 + width * 3));
 });
 
 test('provider OCR probe rejects non-object nested image payloads', async () => {
@@ -103,42 +104,4 @@ function asRecord(value: unknown): Record<string, unknown> {
   assert.notEqual(value, null);
   assert.equal(Array.isArray(value), false);
   return value as Record<string, unknown>;
-}
-
-function readPngChunks(png: Buffer): Readonly<{
-  height: number;
-  idat: Buffer[];
-  width: number;
-}> {
-  const idat: Buffer[] = [];
-  let height = 0;
-  let width = 0;
-  let offset = 8;
-
-  while (offset + 12 <= png.byteLength) {
-    const length = png.readUInt32BE(offset);
-    const type = png.subarray(offset + 4, offset + 8).toString('ascii');
-    const dataStart = offset + 8;
-    const dataEnd = dataStart + length;
-    assert.ok(dataEnd + 4 <= png.byteLength);
-
-    if (type === 'IHDR') {
-      assert.equal(length, 13);
-      width = png.readUInt32BE(dataStart);
-      height = png.readUInt32BE(dataStart + 4);
-      assert.equal(png[dataStart + 8], 8);
-      assert.equal(png[dataStart + 9], 2);
-    } else if (type === 'IDAT') {
-      idat.push(png.subarray(dataStart, dataEnd));
-    } else if (type === 'IEND') {
-      break;
-    }
-
-    offset = dataEnd + 4;
-  }
-
-  assert.ok(width > 0);
-  assert.ok(height > 0);
-  assert.ok(idat.length > 0);
-  return { height, idat, width };
 }
