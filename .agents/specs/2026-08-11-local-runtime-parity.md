@@ -53,4 +53,4 @@ No merge, release, publication, deployment, or remote migration is authorized.
 
 ## Status
 
-Implementation in progress.
+Implementation and deterministic regression coverage are complete. Canonical PR CI on the exact branch head remains the delivery gate.
