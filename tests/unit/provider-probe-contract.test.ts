@@ -19,7 +19,9 @@ test('provider OCR probe sends the checked-in readable JPEG fixture', async () =
       model: 'test-model',
     },
     (async (input, init) => {
-      requestBody = await new Request(input, init).json();
+      const request = new Request(input, init);
+      if (request.method === 'GET') return new Response('{}', { status: 404 });
+      requestBody = await request.json();
       return new Response(
         JSON.stringify({
           choices: [
