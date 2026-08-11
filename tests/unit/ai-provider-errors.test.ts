@@ -148,7 +148,9 @@ test('OpenAI-compatible provider forwards only a validated correlation identifie
     baseUrl: new URL('http://provider.test/v1/'),
     model: 'test-model',
   }, (async (input, init) => {
-    requests.push(new Request(input, init));
+    const request = new Request(input, init);
+    if (request.method === 'GET') return new Response('{}', { status: 404 });
+    requests.push(request);
     return new Response(JSON.stringify({
       choices: [{ message: { content: '{"value":"ok"}' } }],
     }), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -161,7 +163,7 @@ test('OpenAI-compatible provider forwards only a validated correlation identifie
   assert.equal(requests[1]?.headers.get('x-client-request-id'), null);
 });
 
-test('provider capability probe verifies authenticated image OCR structured output in one request', async () => {
+test('provider capability probe verifies authenticated image OCR structured output in one model request', async () => {
   const requests: Request[] = [];
   const managedTokenFixture = ['managed', 'webapi', 'token'].join('-');
   const provider = new OpenAiCompatibleProvider({
@@ -169,7 +171,12 @@ test('provider capability probe verifies authenticated image OCR structured outp
     apiKey: managedTokenFixture,
     model: 'test-model',
   }, (async (input, init) => {
-    requests.push(new Request(input, init));
+    const request = new Request(input, init);
+    if (request.method === 'GET') {
+      assert.equal(request.headers.get('authorization'), `Bearer ${managedTokenFixture}`);
+      return new Response('{}', { status: 404 });
+    }
+    requests.push(request);
     return new Response(JSON.stringify({
       choices: [{
         message: {
