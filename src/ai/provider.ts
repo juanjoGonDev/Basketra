@@ -67,6 +67,8 @@ export function buildAiAttachmentContentPart(
     if (!capabilities.image) throw new AiProviderError('AI_IMAGE_CAPABILITY_UNAVAILABLE');
     return {
       type: 'image_url',
+      filename:
+        input.fileName?.trim() || (input.mimeType === 'image/jpeg' ? 'image.jpg' : 'image.png'),
       image_url: {
         url: `data:${input.mimeType};base64,${Buffer.from(input.bytes).toString('base64')}`,
         detail: 'high',
@@ -129,6 +131,7 @@ const DEFAULT_CAPABILITIES: AiCapabilities = {
 export const DEFAULT_AI_MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_PROVIDER_ERROR_BYTES = 8 * 1024;
 const MAX_RUNTIME_CAPABILITIES_BYTES = 32 * 1024;
+const MULTIPART_OVERHEAD_BYTES_PER_FILE = 1024;
 const CORRELATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/u;
 const PROVIDER_PROBE_FILENAME = 'test.jpg';
 const PROVIDER_PROBE_FORMAT = 'jpg';
@@ -167,6 +170,18 @@ const PROVIDER_REQUEST_REJECTION_CODES = new Set([
 type ProviderErrorMetadata = Readonly<{
   code?: string;
   type?: string;
+}>;
+
+type BinaryMultipartAttachment = Readonly<{
+  bytes: Buffer;
+  fileName: string;
+  mimeType: string;
+}>;
+
+type ProviderRequest = Readonly<{
+  body: BodyInit;
+  contentType?: string;
+  estimatedBytes: number;
 }>;
 
 function assertPositiveInteger(value: number, name: string): number {
@@ -325,28 +340,21 @@ export class OpenAiCompatibleProvider implements AiProvider {
     try {
       const runtimeCapabilities = await this.fetchRuntimeCapabilities(input.signal);
       assertContentWithinRuntimeCapabilities(input.content, runtimeCapabilities);
-      const requestBody = JSON.stringify({
-        model: this.config.model,
-        messages: [
-          { role: 'system', content: input.systemPrompt },
-          { role: 'user', content: input.content },
-        ],
-        response_format: {
-          type: 'json_schema',
-          json_schema: { name: input.schemaName, strict: true, schema: input.jsonSchema },
-        },
-      });
+      const providerRequest = buildProviderRequest(input, this.config.model);
       if (
         runtimeCapabilities !== undefined &&
-        Buffer.byteLength(requestBody, 'utf8') > runtimeCapabilities.requests.maxJsonBodyBytes
+        providerRequest.estimatedBytes > runtimeCapabilities.requests.maxJsonBodyBytes
       ) {
         throw new AiProviderError('AI_ATTACHMENT_TOO_LARGE', { status: 413 });
       }
 
       const response = await this.fetchImplementation(new URL('chat/completions', ensureTrailingSlash(this.config.baseUrl)), {
         method: 'POST',
-        headers: { ...this.headers(input.correlationId), 'content-type': 'application/json' },
-        body: requestBody,
+        headers: {
+          ...this.headers(input.correlationId),
+          ...(providerRequest.contentType ? { 'content-type': providerRequest.contentType } : {}),
+        },
+        body: providerRequest.body,
         ...(input.signal ? { signal: input.signal } : {}),
       });
       if (!response.ok) {
@@ -401,6 +409,107 @@ export class OpenAiCompatibleProvider implements AiProvider {
         : {}),
     };
   }
+}
+
+function buildProviderRequest(input: AiStructuredInput, model: string): ProviderRequest {
+  const extracted = extractBinaryAttachments(input.content);
+  const metadata = {
+    model,
+    messages: [
+      { role: 'system', content: input.systemPrompt },
+      { role: 'user', content: extracted.content },
+    ],
+    response_format: {
+      type: 'json_schema',
+      json_schema: { name: input.schemaName, strict: true, schema: input.jsonSchema },
+    },
+  };
+  const requestJson = JSON.stringify(metadata);
+
+  if (extracted.attachments.length === 0) {
+    return {
+      body: requestJson,
+      contentType: 'application/json',
+      estimatedBytes: Buffer.byteLength(requestJson, 'utf8'),
+    };
+  }
+
+  const form = new FormData();
+  form.set('request', requestJson);
+  let estimatedBytes = Buffer.byteLength(requestJson, 'utf8');
+  for (const attachment of extracted.attachments) {
+    form.append(
+      'files',
+      new Blob([Uint8Array.from(attachment.bytes)], { type: attachment.mimeType }),
+      attachment.fileName,
+    );
+    estimatedBytes += attachment.bytes.byteLength + MULTIPART_OVERHEAD_BYTES_PER_FILE;
+  }
+
+  return { body: form, estimatedBytes };
+}
+
+function extractBinaryAttachments(content: AiMessageContent): Readonly<{
+  attachments: readonly BinaryMultipartAttachment[];
+  content: AiMessageContent;
+}> {
+  if (typeof content === 'string') return { attachments: [], content };
+
+  const attachments: BinaryMultipartAttachment[] = [];
+  const metadataParts: AiMessageContentPart[] = [];
+  for (const [index, part] of content.entries()) {
+    if (part.type === 'text') {
+      metadataParts.push(part);
+      continue;
+    }
+
+    if (part.type === 'image_url') {
+      const decoded = decodeDataUrl(part.image_url.url);
+      if (decoded === undefined) {
+        metadataParts.push(part);
+        continue;
+      }
+      attachments.push({
+        bytes: decoded.bytes,
+        fileName: part.filename?.trim() || defaultFileName(decoded.mimeType, index),
+        mimeType: decoded.mimeType,
+      });
+      continue;
+    }
+
+    const decoded = decodeDataUrl(part.file.file_data);
+    if (decoded === undefined) {
+      metadataParts.push(part);
+      continue;
+    }
+    attachments.push({
+      bytes: decoded.bytes,
+      fileName: part.file.filename.trim() || defaultFileName(decoded.mimeType, index),
+      mimeType: decoded.mimeType,
+    });
+  }
+
+  return { attachments, content: metadataParts };
+}
+
+function decodeDataUrl(value: string): Readonly<{ bytes: Buffer; mimeType: string }> | undefined {
+  const match = /^data:([^;,]+);base64,([A-Za-z0-9+/]*={0,2})$/u.exec(value);
+  if (!match?.[1] || match[2] === undefined) return undefined;
+  return {
+    bytes: Buffer.from(match[2], 'base64'),
+    mimeType: match[1].trim().toLowerCase(),
+  };
+}
+
+function defaultFileName(mimeType: string, index: number): string {
+  const extension = mimeType === 'image/jpeg'
+    ? 'jpg'
+    : mimeType === 'image/png'
+      ? 'png'
+      : mimeType === 'application/pdf'
+        ? 'pdf'
+        : 'bin';
+  return `attachment-${index.toString()}.${extension}`;
 }
 
 function parseRuntimeCapabilities(value: string): AiProviderRuntimeCapabilities | undefined {
@@ -461,10 +570,7 @@ function assertContentWithinRuntimeCapabilities(
 }
 
 function readDataUrlBytes(value: string): number {
-  const marker = ';base64,';
-  const index = value.indexOf(marker);
-  if (!value.startsWith('data:') || index < 0) return 0;
-  return Buffer.from(value.slice(index + marker.length), 'base64').byteLength;
+  return decodeDataUrl(value)?.bytes.byteLength ?? 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
