@@ -174,7 +174,7 @@ test('provider capability probe verifies authenticated image OCR structured outp
       choices: [{
         message: {
           content: JSON.stringify({
-            image: { format: 'png', text: PROVIDER_PROBE_VISIBLE_TEXT },
+            image: { format: 'jpg', text: PROVIDER_PROBE_VISIBLE_TEXT },
           }),
         },
       }],
@@ -207,8 +207,8 @@ test('provider capability probe verifies authenticated image OCR structured outp
   const imagePart = asRecord(content[1]);
   const image = asRecord(imagePart['image_url']);
   assert.equal(imagePart['type'], 'image_url');
-  assert.equal(imagePart['filename'], 'test.png');
-  assert.match(String(image['url']), /^data:image\/png;base64,/u);
+  assert.equal(imagePart['filename'], 'test.jpg');
+  assert.match(String(image['url']), /^data:image\/jpeg;base64,/u);
 
   const responseFormat = asRecord(body['response_format']);
   const schemaEnvelope = asRecord(responseFormat['json_schema']);
@@ -222,7 +222,7 @@ test('provider capability probe verifies authenticated image OCR structured outp
   assert.equal(schemaEnvelope['strict'], true);
   assert.deepEqual(schema['required'], ['image']);
   assert.deepEqual(imageSchema['required'], ['format', 'text']);
-  assert.deepEqual(format['enum'], ['png']);
+  assert.deepEqual(format['enum'], ['jpg']);
   assert.equal(text['type'], 'string');
 });
 
@@ -234,7 +234,7 @@ test('provider capability probe rejects a response that did not satisfy the prob
     choices: [{
       message: {
         content: JSON.stringify({
-          image: { format: 'png', text: 'WRONG OCR TEXT' },
+          image: { format: 'jpg', text: 'WRONG OCR TEXT' },
         }),
       },
     }],
