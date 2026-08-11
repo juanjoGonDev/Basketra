@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 export type AiCapabilities = Readonly<{
   structuredOutput: boolean;
@@ -11,30 +11,33 @@ export type AiCapabilities = Readonly<{
 }>;
 
 export type AiMessageContentPart =
-  | Readonly<{ type: 'text'; text: string }>
+  | Readonly<{ type: "text"; text: string }>
   | Readonly<{
-      type: 'image_url';
+      type: "image_url";
       filename?: string;
-      image_url: Readonly<{ url: string; detail?: 'auto' | 'low' | 'high' }>;
+      image_url: Readonly<{ url: string; detail?: "auto" | "low" | "high" }>;
     }>
-  | Readonly<{ type: 'file'; file: Readonly<{ filename: string; file_data: string }> }>;
+  | Readonly<{
+      type: "file";
+      file: Readonly<{ filename: string; file_data: string }>;
+    }>;
 
 export type AiMessageContent = string | readonly AiMessageContentPart[];
 
 export type AiProviderErrorCode =
-  | 'AI_ATTACHMENT_TOO_LARGE'
-  | 'AI_ATTACHMENT_UPLOAD_FAILED'
-  | 'AI_AUTHENTICATION_FAILED'
-  | 'AI_EMPTY_RESPONSE'
-  | 'AI_IMAGE_CAPABILITY_UNAVAILABLE'
-  | 'AI_INVALID_RESPONSE'
-  | 'AI_PDF_CAPABILITY_UNAVAILABLE'
-  | 'AI_PROVIDER_FAILED'
-  | 'AI_RATE_LIMITED'
-  | 'AI_REQUEST_REJECTED'
-  | 'AI_RESPONSE_TOO_LARGE'
-  | 'AI_TIMEOUT'
-  | 'AI_UNREACHABLE';
+  | "AI_ATTACHMENT_TOO_LARGE"
+  | "AI_ATTACHMENT_UPLOAD_FAILED"
+  | "AI_AUTHENTICATION_FAILED"
+  | "AI_EMPTY_RESPONSE"
+  | "AI_IMAGE_CAPABILITY_UNAVAILABLE"
+  | "AI_INVALID_RESPONSE"
+  | "AI_PDF_CAPABILITY_UNAVAILABLE"
+  | "AI_PROVIDER_FAILED"
+  | "AI_RATE_LIMITED"
+  | "AI_REQUEST_REJECTED"
+  | "AI_RESPONSE_TOO_LARGE"
+  | "AI_TIMEOUT"
+  | "AI_UNREACHABLE";
 
 export class AiProviderError extends Error {
   readonly code: AiProviderErrorCode;
@@ -46,7 +49,7 @@ export class AiProviderError extends Error {
     options: Readonly<{ status?: number; retryable?: boolean }> = {},
   ) {
     super(code);
-    this.name = 'AiProviderError';
+    this.name = "AiProviderError";
     this.code = code;
     this.retryable = options.retryable ?? false;
     if (options.status !== undefined) this.status = options.status;
@@ -54,7 +57,7 @@ export class AiProviderError extends Error {
 }
 
 export type AiAttachmentInput = Readonly<{
-  mimeType: 'image/jpeg' | 'image/png' | 'application/pdf';
+  mimeType: "image/jpeg" | "image/png" | "application/pdf";
   bytes: Uint8Array;
   fileName?: string;
 }>;
@@ -63,22 +66,24 @@ export function buildAiAttachmentContentPart(
   input: AiAttachmentInput,
   capabilities: AiCapabilities,
 ): AiMessageContentPart {
-  if (input.mimeType === 'image/jpeg' || input.mimeType === 'image/png') {
-    if (!capabilities.image) throw new AiProviderError('AI_IMAGE_CAPABILITY_UNAVAILABLE');
+  if (input.mimeType === "image/jpeg" || input.mimeType === "image/png") {
+    if (!capabilities.image)
+      throw new AiProviderError("AI_IMAGE_CAPABILITY_UNAVAILABLE");
     return {
-      type: 'image_url',
+      type: "image_url",
       image_url: {
-        url: `data:${input.mimeType};base64,${Buffer.from(input.bytes).toString('base64')}`,
-        detail: 'high',
+        url: `data:${input.mimeType};base64,${Buffer.from(input.bytes).toString("base64")}`,
+        detail: "high",
       },
     };
   }
-  if (!capabilities.pdf) throw new AiProviderError('AI_PDF_CAPABILITY_UNAVAILABLE');
+  if (!capabilities.pdf)
+    throw new AiProviderError("AI_PDF_CAPABILITY_UNAVAILABLE");
   return {
-    type: 'file',
+    type: "file",
     file: {
-      filename: input.fileName?.trim() || 'receipt.pdf',
-      file_data: `data:application/pdf;base64,${Buffer.from(input.bytes).toString('base64')}`,
+      filename: input.fileName?.trim() || "receipt.pdf",
+      file_data: `data:application/pdf;base64,${Buffer.from(input.bytes).toString("base64")}`,
     },
   };
 }
@@ -117,38 +122,38 @@ const DEFAULT_CAPABILITIES: AiCapabilities = {
 export const DEFAULT_AI_MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_PROVIDER_ERROR_BYTES = 8 * 1024;
 const CORRELATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/u;
-const PROVIDER_PROBE_FILENAME = 'test.png';
-const PROVIDER_PROBE_FORMAT = 'png';
-const PROVIDER_PROBE_TEXT = 'BASKETRA OCR 4821';
+const PROVIDER_PROBE_FILENAME = "test.png";
+const PROVIDER_PROBE_FORMAT = "png";
+const PROVIDER_PROBE_TEXT = "BASKETRA OCR 4821";
 const PROVIDER_PROBE_PNG_PATH = fileURLToPath(
-  new URL('./fixtures/provider-probe.png', import.meta.url),
+  new URL("./fixtures/provider-probe.jpg", import.meta.url),
 );
 const PROVIDER_PROBE_SCHEMA = {
-  type: 'object',
+  type: "object",
   additionalProperties: false,
-  required: ['image'],
+  required: ["image"],
   properties: {
     image: {
-      type: 'object',
+      type: "object",
       additionalProperties: false,
-      required: ['format', 'text'],
+      required: ["format", "text"],
       properties: {
-        format: { type: 'string', enum: [PROVIDER_PROBE_FORMAT] },
-        text: { type: 'string' },
+        format: { type: "string", enum: [PROVIDER_PROBE_FORMAT] },
+        text: { type: "string" },
       },
     },
   },
 } as const;
 const PROVIDER_ATTACHMENT_UPLOAD_CODES = new Set([
-  'attachment_upload_failed',
-  'composer_not_ready',
-  'composer_queue_timeout',
+  "attachment_upload_failed",
+  "composer_not_ready",
+  "composer_queue_timeout",
 ]);
 const PROVIDER_REQUEST_REJECTION_CODES = new Set([
-  'attachment_input_invalid',
-  'attachment_input_not_found',
-  'attachment_upload_rejected',
-  'structured_output_streaming_unsupported',
+  "attachment_input_invalid",
+  "attachment_input_not_found",
+  "attachment_upload_rejected",
+  "structured_output_streaming_unsupported",
 ]);
 
 type ProviderErrorMetadata = Readonly<{
@@ -157,25 +162,29 @@ type ProviderErrorMetadata = Readonly<{
 }>;
 
 function assertPositiveInteger(value: number, name: string): number {
-  if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`${name} must be a positive safe integer`);
+  if (!Number.isSafeInteger(value) || value <= 0)
+    throw new RangeError(`${name} must be a positive safe integer`);
   return value;
 }
 
 function buildProviderProbePngDataUrl(): string {
   const bytes = readFileSync(PROVIDER_PROBE_PNG_PATH);
-  return `data:image/png;base64,${Buffer.from(bytes).toString('base64')}`;
+  return `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`;
 }
 
-async function readResponseText(response: Response, maxBytes: number): Promise<string> {
-  const declaredLength = response.headers.get('content-length');
+async function readResponseText(
+  response: Response,
+  maxBytes: number,
+): Promise<string> {
+  const declaredLength = response.headers.get("content-length");
   if (declaredLength !== null) {
     const parsedLength = Number(declaredLength);
     if (Number.isFinite(parsedLength) && parsedLength > maxBytes) {
-      throw new AiProviderError('AI_RESPONSE_TOO_LARGE');
+      throw new AiProviderError("AI_RESPONSE_TOO_LARGE");
     }
   }
 
-  if (!response.body) return '';
+  if (!response.body) return "";
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let bytes = 0;
@@ -185,22 +194,28 @@ async function readResponseText(response: Response, maxBytes: number): Promise<s
       if (result.done) break;
       bytes += result.value.byteLength;
       if (bytes > maxBytes) {
-        await reader.cancel('AI_RESPONSE_TOO_LARGE');
-        throw new AiProviderError('AI_RESPONSE_TOO_LARGE');
+        await reader.cancel("AI_RESPONSE_TOO_LARGE");
+        throw new AiProviderError("AI_RESPONSE_TOO_LARGE");
       }
       chunks.push(result.value);
     }
   } finally {
     reader.releaseLock();
   }
-  return Buffer.concat(chunks).toString('utf8');
+  return Buffer.concat(chunks).toString("utf8");
 }
 
-async function readProviderErrorMetadata(response: Response): Promise<ProviderErrorMetadata | undefined> {
-  const declaredLength = response.headers.get('content-length');
+async function readProviderErrorMetadata(
+  response: Response,
+): Promise<ProviderErrorMetadata | undefined> {
+  const declaredLength = response.headers.get("content-length");
   if (declaredLength !== null) {
     const parsedLength = Number(declaredLength);
-    if (Number.isFinite(parsedLength) && parsedLength > MAX_PROVIDER_ERROR_BYTES) return undefined;
+    if (
+      Number.isFinite(parsedLength) &&
+      parsedLength > MAX_PROVIDER_ERROR_BYTES
+    )
+      return undefined;
   }
   if (!response.body) return undefined;
 
@@ -213,7 +228,7 @@ async function readProviderErrorMetadata(response: Response): Promise<ProviderEr
       if (result.done) break;
       bytes += result.value.byteLength;
       if (bytes > MAX_PROVIDER_ERROR_BYTES) {
-        await reader.cancel('PROVIDER_ERROR_BODY_LIMIT');
+        await reader.cancel("PROVIDER_ERROR_BODY_LIMIT");
         return undefined;
       }
       chunks.push(result.value);
@@ -223,21 +238,27 @@ async function readProviderErrorMetadata(response: Response): Promise<ProviderEr
   }
 
   try {
-    const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined;
-    const error = (parsed as Record<string, unknown>)['error'];
-    if (typeof error !== 'object' || error === null || Array.isArray(error)) return undefined;
+    const parsed = JSON.parse(
+      Buffer.concat(chunks).toString("utf8"),
+    ) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+      return undefined;
+    const error = (parsed as Record<string, unknown>)["error"];
+    if (typeof error !== "object" || error === null || Array.isArray(error))
+      return undefined;
     const record = error as Record<string, unknown>;
-    const code = readBoundedProviderField(record['code']);
-    const type = readBoundedProviderField(record['type']);
-    return code || type ? { ...(code ? { code } : {}), ...(type ? { type } : {}) } : undefined;
+    const code = readBoundedProviderField(record["code"]);
+    const type = readBoundedProviderField(record["type"]);
+    return code || type
+      ? { ...(code ? { code } : {}), ...(type ? { type } : {}) }
+      : undefined;
   } catch {
     return undefined;
   }
 }
 
 function readBoundedProviderField(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
+  if (typeof value !== "string") return undefined;
   const normalized = value.trim().toLowerCase();
   return /^[a-z0-9_.-]{1,80}$/u.test(normalized) ? normalized : undefined;
 }
@@ -265,40 +286,45 @@ export class OpenAiCompatibleProvider implements AiProvider {
   ) {
     this.config = config;
     this.fetchImplementation = fetchImplementation;
-    this.#maxResponseBytes = assertPositiveInteger(config.maxResponseBytes ?? DEFAULT_AI_MAX_RESPONSE_BYTES, 'maxResponseBytes');
+    this.#maxResponseBytes = assertPositiveInteger(
+      config.maxResponseBytes ?? DEFAULT_AI_MAX_RESPONSE_BYTES,
+      "maxResponseBytes",
+    );
   }
 
   async getCapabilities(): Promise<AiCapabilities> {
     return { ...DEFAULT_CAPABILITIES, ...this.config.capabilities };
   }
 
-  async testConnection(signal?: AbortSignal): Promise<AiProviderConnectionResult> {
+  async testConnection(
+    signal?: AbortSignal,
+  ): Promise<AiProviderConnectionResult> {
     const result = await this.executeStructured({
-      operation: 'provider-capability-probe',
+      operation: "provider-capability-probe",
       systemPrompt:
-        'Read the visible text from the attached image. Return only the requested JSON structure. The format field must describe the attached image format and the text field must contain the exact visible text, preserving spaces and case.',
+        "Read the visible text from the attached image. Return only the requested JSON structure. The format field must describe the attached image format and the text field must contain the exact visible text, preserving spaces and case.",
       content: [
         {
-          type: 'text',
-          text: 'Read the attached image. Do not infer its text from the filename, prompt, or metadata.',
+          type: "text",
+          text: "Read the attached image. Do not infer its text from the filename, prompt, or metadata.",
         },
         {
-          type: 'image_url',
+          type: "image_url",
           filename: PROVIDER_PROBE_FILENAME,
           image_url: {
             url: buildProviderProbePngDataUrl(),
-            detail: 'high',
+            detail: "high",
           },
         },
       ],
-      schemaName: 'basketra_provider_capability',
+      schemaName: "basketra_provider_capability",
       jsonSchema: PROVIDER_PROBE_SCHEMA,
       correlationId: `provider-probe:${randomUUID()}`,
       ...(signal ? { signal } : {}),
     });
 
     if (!isSuccessfulProviderProbe(result)) {
-      throw new AiProviderError('AI_INVALID_RESPONSE');
+      throw new AiProviderError("AI_INVALID_RESPONSE");
     }
 
     return {
@@ -310,36 +336,54 @@ export class OpenAiCompatibleProvider implements AiProvider {
 
   async executeStructured(input: AiStructuredInput): Promise<unknown> {
     try {
-      const response = await this.fetchImplementation(new URL('chat/completions', ensureTrailingSlash(this.config.baseUrl)), {
-        method: 'POST',
-        headers: { ...this.headers(input.correlationId), 'content-type': 'application/json' },
-        body: JSON.stringify({
-          model: this.config.model,
-          messages: [
-            { role: 'system', content: input.systemPrompt },
-            { role: 'user', content: input.content },
-          ],
-          response_format: {
-            type: 'json_schema',
-            json_schema: { name: input.schemaName, strict: true, schema: input.jsonSchema },
+      const response = await this.fetchImplementation(
+        new URL("chat/completions", ensureTrailingSlash(this.config.baseUrl)),
+        {
+          method: "POST",
+          headers: {
+            ...this.headers(input.correlationId),
+            "content-type": "application/json",
           },
-        }),
-        ...(input.signal ? { signal: input.signal } : {}),
-      });
+          body: JSON.stringify({
+            model: this.config.model,
+            messages: [
+              { role: "system", content: input.systemPrompt },
+              { role: "user", content: input.content },
+            ],
+            response_format: {
+              type: "json_schema",
+              json_schema: {
+                name: input.schemaName,
+                strict: true,
+                schema: input.jsonSchema,
+              },
+            },
+          }),
+          ...(input.signal ? { signal: input.signal } : {}),
+        },
+      );
       if (!response.ok) {
         const metadata = await readProviderErrorMetadata(response);
         throw mapProviderHttpError(response.status, metadata);
       }
-      const responseText = await readResponseText(response, this.#maxResponseBytes);
-      if (!responseText) throw new AiProviderError('AI_EMPTY_RESPONSE', { retryable: true });
-      const body = parseProviderJson(responseText) as { choices?: Array<{ message?: { content?: string } }> };
+      const responseText = await readResponseText(
+        response,
+        this.#maxResponseBytes,
+      );
+      if (!responseText)
+        throw new AiProviderError("AI_EMPTY_RESPONSE", { retryable: true });
+      const body = parseProviderJson(responseText) as {
+        choices?: Array<{ message?: { content?: string } }>;
+      };
       const content = body.choices?.[0]?.message?.content;
-      if (!content) throw new AiProviderError('AI_EMPTY_RESPONSE', { retryable: true });
+      if (!content)
+        throw new AiProviderError("AI_EMPTY_RESPONSE", { retryable: true });
       return parseProviderJson(content);
     } catch (error) {
-      if (input.signal?.aborted) throw new DOMException('The AI operation was aborted', 'AbortError');
+      if (input.signal?.aborted)
+        throw new DOMException("The AI operation was aborted", "AbortError");
       if (error instanceof AiProviderError) throw error;
-      throw new AiProviderError('AI_UNREACHABLE', { retryable: true });
+      throw new AiProviderError("AI_UNREACHABLE", { retryable: true });
     }
   }
 
@@ -347,71 +391,79 @@ export class OpenAiCompatibleProvider implements AiProvider {
 
   private headers(correlationId?: string): Record<string, string> {
     return {
-      ...(this.config.apiKey ? { authorization: `Bearer ${this.config.apiKey}` } : {}),
+      ...(this.config.apiKey
+        ? { authorization: `Bearer ${this.config.apiKey}` }
+        : {}),
       ...(correlationId && CORRELATION_ID_PATTERN.test(correlationId)
-        ? { 'x-client-request-id': correlationId }
+        ? { "x-client-request-id": correlationId }
         : {}),
     };
   }
 }
 
 function isSuccessfulProviderProbe(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
   }
 
   const record = value as Record<string, unknown>;
   if (Object.keys(record).length !== 1) return false;
-  const image = record['image'];
-  if (typeof image !== 'object' || image === null || Array.isArray(image)) {
+  const image = record["image"];
+  if (typeof image !== "object" || image === null || Array.isArray(image)) {
     return false;
   }
 
   const imageRecord = image as Record<string, unknown>;
   return (
     Object.keys(imageRecord).length === 2 &&
-    imageRecord['format'] === PROVIDER_PROBE_FORMAT &&
-    imageRecord['text'] === PROVIDER_PROBE_TEXT
+    imageRecord["format"] === PROVIDER_PROBE_FORMAT &&
+    imageRecord["text"] === PROVIDER_PROBE_TEXT
   );
 }
 
-function mapProviderHttpError(status: number, metadata?: ProviderErrorMetadata): AiProviderError {
+function mapProviderHttpError(
+  status: number,
+  metadata?: ProviderErrorMetadata,
+): AiProviderError {
   const providerCode = metadata?.code ?? metadata?.type;
   if (providerCode && PROVIDER_ATTACHMENT_UPLOAD_CODES.has(providerCode)) {
-    return new AiProviderError('AI_ATTACHMENT_UPLOAD_FAILED', {
+    return new AiProviderError("AI_ATTACHMENT_UPLOAD_FAILED", {
       status,
       retryable: status === 503 || status === 504,
     });
   }
   if (providerCode && PROVIDER_REQUEST_REJECTION_CODES.has(providerCode)) {
-    return new AiProviderError('AI_REQUEST_REJECTED', { status });
+    return new AiProviderError("AI_REQUEST_REJECTED", { status });
   }
   if (status === 401 || status === 403) {
-    return new AiProviderError('AI_AUTHENTICATION_FAILED', { status });
+    return new AiProviderError("AI_AUTHENTICATION_FAILED", { status });
   }
   if (status === 408 || status === 504) {
-    return new AiProviderError('AI_TIMEOUT', { status, retryable: true });
+    return new AiProviderError("AI_TIMEOUT", { status, retryable: true });
   }
   if (status === 413) {
-    return new AiProviderError('AI_ATTACHMENT_TOO_LARGE', { status });
+    return new AiProviderError("AI_ATTACHMENT_TOO_LARGE", { status });
   }
   if (status === 429) {
-    return new AiProviderError('AI_RATE_LIMITED', { status, retryable: true });
+    return new AiProviderError("AI_RATE_LIMITED", { status, retryable: true });
   }
   if (status >= 500) {
-    return new AiProviderError('AI_PROVIDER_FAILED', { status, retryable: true });
+    return new AiProviderError("AI_PROVIDER_FAILED", {
+      status,
+      retryable: true,
+    });
   }
-  return new AiProviderError('AI_REQUEST_REJECTED', { status });
+  return new AiProviderError("AI_REQUEST_REJECTED", { status });
 }
 
 function parseProviderJson(value: string): unknown {
   try {
     return JSON.parse(value) as unknown;
   } catch {
-    throw new AiProviderError('AI_INVALID_RESPONSE', { retryable: true });
+    throw new AiProviderError("AI_INVALID_RESPONSE", { retryable: true });
   }
 }
 
 function ensureTrailingSlash(url: URL): URL {
-  return new URL(url.pathname.endsWith('/') ? url.href : `${url.href}/`);
+  return new URL(url.pathname.endsWith("/") ? url.href : `${url.href}/`);
 }

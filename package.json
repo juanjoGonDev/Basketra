@@ -32,5 +32,8 @@
   },
   "exports": {
     ".": "./src/public-api.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0"
   }
 }

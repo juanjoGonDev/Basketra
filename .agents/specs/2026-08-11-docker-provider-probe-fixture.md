@@ -7,7 +7,7 @@ Fix the deployed Basketra Settings AI provider check returning `500 INTERNAL_ERR
 ## Evidence
 
 - Production logs for release `1.0.10` show `ai.capability_probe_failed` with `status: 500`, `code: INTERNAL_ERROR`, and the client call fails in a few milliseconds.
-- `OpenAiCompatibleProvider.testConnection()` reads `./fixtures/provider-probe.png` synchronously before entering `executeStructured()`. A missing fixture therefore escapes as a raw filesystem error and is mapped by the gateway to `INTERNAL_ERROR` before any provider HTTP request is attempted.
+- `OpenAiCompatibleProvider.testConnection()` reads `./fixtures/provider-probe.jpg` synchronously before entering `executeStructured()`. A missing fixture therefore escapes as a raw filesystem error and is mapped by the gateway to `INTERNAL_ERROR` before any provider HTTP request is attempted.
 - `scripts/build.mjs` is the canonical production-artifact builder and copies `src/ai/fixtures` to `dist/ai/fixtures`.
 - `Dockerfile` currently reimplements the build sequence directly with `tsc`, copies only `src/web` and `package.json`, and therefore omits `dist/ai/fixtures` from the runtime image.
 
@@ -20,7 +20,7 @@ Fix the deployed Basketra Settings AI provider check returning `500 INTERNAL_ERR
 
 ## Acceptance
 
-- The Docker runtime image contains `dist/ai/fixtures/provider-probe.png` because it consumes the same artifact builder as local production builds.
+- The Docker runtime image contains `dist/ai/fixtures/provider-probe.jpg` because it consumes the same artifact builder as local production builds.
 - The Dockerfile has one canonical artifact assembly path through `node scripts/build.mjs`.
 - Regression coverage fails if Docker returns to the previous partial `tsc + src/web` assembly.
 - Existing quality, security, integration, browser, container smoke, and multi-platform container jobs pass on the exact PR head.
