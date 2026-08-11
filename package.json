@@ -27,13 +27,16 @@
     "docker:smoke": "node scripts/docker-smoke.mjs",
     "resource:measure": "node scripts/build.mjs && node --expose-gc scripts/resource-measure.mjs",
     "quality": "node scripts/run-quality.mjs",
-    "hook:pre-push": "node scripts/run-quality.mjs",
+    "postinstall": "node scripts/install-hooks.mjs",
+    "hook:pre-commit": "lefthook run pre-commit",
+    "hook:pre-push": "lefthook run pre-push",
     "test:browser": "playwright test"
   },
   "exports": {
     ".": "./src/public-api.ts"
   },
   "devDependencies": {
-    "@types/node": "^26.2.0"
+    "@types/node": "22.20.1",
+    "lefthook": "2.1.8"
   }
 }
