@@ -70,6 +70,7 @@ export function validateGhcrWorkflows(ci, publication) {
     'NODE_OPTIONS=--max-old-space-size=128',
   ], 'GHCR publication workflow', failures);
   forbidText(publication, [
+    'pull_request:',
     'workflow_run:',
     'github.event.workflow_run',
     'context.sha',
