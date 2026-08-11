@@ -4,18 +4,19 @@ Basketra requires SQLite FTS5 because migration 1 creates the canonical product-
 
 ## Native watch mode
 
-Use the repository runtime line, preferably Node 22.23.1:
+The repository pins Node 22.23.1 through Volta in `package.json`. With Volta enabled, commands executed from the repository use that canonical Node runtime instead of an older global installation.
 
 ```bash
+node --version
 corepack enable
 corepack prepare pnpm@10.15.0 --activate
 pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-`pnpm dev` runs a preflight before application startup. It rejects Node versions outside `>=22.16.0 <23` and probes FTS5 in an in-memory SQLite database. The probe does not touch Basketra data.
+`node --version` should report `v22.23.1` when Volta is active in the repository. `pnpm dev` then runs a second preflight before application startup: it rejects Node versions outside `>=22.16.0 <23` and probes FTS5 in an in-memory SQLite database. The probe does not touch Basketra data.
 
-If the host runtime is unsupported or lacks FTS5, use the Docker path instead of changing the schema or removing full-text search.
+If the host runtime is unsupported or lacks FTS5 even with the pinned Node runtime, use the Docker path instead of changing the schema or removing full-text search.
 
 ## Runtime-parity Docker mode
 
