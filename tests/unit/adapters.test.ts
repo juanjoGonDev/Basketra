@@ -10,6 +10,7 @@ import { ManualOfferProvider } from '../../src/offers/provider.ts';
 import { OpenAiCompatibleProvider, type AiProvider } from '../../src/ai/provider.ts';
 import { StructuredAiExecutor } from '../../src/ai/structured-executor.ts';
 import { rational, UNIT_VALUES } from '../../src/domain/units.ts';
+import { readJpegDimensions } from '../helpers/jpeg.ts';
 
 const pngBase64 = Buffer.from(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x00])).toString('base64');
 const PROVIDER_PROBE_VISIBLE_TEXT = 'BASKETRA OCR 4821';
@@ -121,7 +122,7 @@ test('OpenAI-compatible provider proves image OCR plus strict structured output'
     requests.push(request);
     const body = JSON.parse(await request.clone().text()) as { response_format?: { json_schema?: { name?: string } } };
     const content = body.response_format?.json_schema?.name === 'basketra_provider_capability'
-      ? JSON.stringify({ image: { format: 'png', text: PROVIDER_PROBE_VISIBLE_TEXT } })
+      ? JSON.stringify({ image: { format: 'jpg', text: PROVIDER_PROBE_VISIBLE_TEXT } })
       : '{"ok":true}';
     return new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
       status: 200,
@@ -158,15 +159,15 @@ test('OpenAI-compatible provider proves image OCR plus strict structured output'
   assert.equal(String(userContent[0]?.['text'] ?? '').includes(PROVIDER_PROBE_VISIBLE_TEXT), false);
   const imagePart = asRecord(userContent[1]);
   assert.equal(imagePart['type'], 'image_url');
-  assert.equal(imagePart['filename'], 'test.png');
+  assert.equal(imagePart['filename'], 'test.jpg');
   const imageUrl = asRecord(imagePart['image_url']);
   assert.equal(imageUrl['detail'], 'high');
   const dataUrl = String(imageUrl['url'] ?? '');
-  assert.match(dataUrl, /^data:image\/png;base64,/u);
+  assert.match(dataUrl, /^data:image\/jpeg;base64,/u);
   const imageBytes = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64');
-  assert.deepEqual([...imageBytes.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
-  const width = imageBytes.readUInt32BE(16);
-  const height = imageBytes.readUInt32BE(20);
+  assert.deepEqual([...imageBytes.subarray(0, 2)], [0xff, 0xd8]);
+  assert.deepEqual([...imageBytes.subarray(-2)], [0xff, 0xd9]);
+  const { height, width } = readJpegDimensions(imageBytes);
   assert.ok(width >= 600);
   assert.ok(height >= 120);
   assert.ok(width / height >= 2 && width / height <= 4);
@@ -184,14 +185,14 @@ test('OpenAI-compatible provider proves image OCR plus strict structured output'
   assert.equal(probe.response_format.json_schema.strict, true);
   assert.deepEqual(schema.required, ['image']);
   assert.deepEqual(schema.properties?.image?.required, ['format', 'text']);
-  assert.deepEqual(schema.properties?.image?.properties?.format?.enum, ['png']);
+  assert.deepEqual(schema.properties?.image?.properties?.format?.enum, ['jpg']);
   assert.equal(schema.properties?.image?.properties?.text?.type, 'string');
   provider.dispose();
 
   for (const invalid of [
-    { image: { format: 'png', text: 'WRONG TEXT' } },
-    { image: { format: 'jpg', text: PROVIDER_PROBE_VISIBLE_TEXT } },
-    { image: { format: 'png' } },
+    { image: { format: 'jpg', text: 'WRONG TEXT' } },
+    { image: { format: 'png', text: PROVIDER_PROBE_VISIBLE_TEXT } },
+    { image: { format: 'jpg' } },
   ]) {
     const invalidProvider = new OpenAiCompatibleProvider(
       { baseUrl: new URL('http://localhost/v1/'), model: 'x' },
