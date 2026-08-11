@@ -2,22 +2,26 @@
 
 ## Request
 
-Make the full Basketra flow reproducible on a developer workstation after local `pnpm dev` failed during database migration with `no such module: fts5` under Node 22.13.0. Provide a one-command Docker development path that uses the production-equivalent Node/SQLite/Tesseract runtime and gives a clear failure before startup when the host Node build is unsupported. Since the developer already uses Volta, pin the canonical local Node runtime through repository metadata as the preferred native-development path.
+Make the full Basketra flow reproducible on a developer workstation after local `pnpm dev` failed during database migration with `no such module: fts5` under Node 22.13.0. Provide a one-command Docker development path that uses the production-equivalent Node/SQLite/Tesseract runtime and gives a clear failure before startup when the host Node build is unsupported. Since the developer already uses Volta, pin the canonical local Node runtime through repository metadata as the preferred native-development path. Native `pnpm dev` must also consume the repository `.env` file on Windows instead of requiring manual shell-specific environment exports.
 
 ## Evidence
 
-- The repository declares Node `>=22.16.0 <23`, while the failing workstation is running Node 22.13.0.
+- The repository declares Node `>=22.16.0 <23`, while the failing workstation was running Node 22.13.0.
 - Product requirements and Docker runtime pin Node 22.23.1.
 - Migration 1 creates `product_search` using SQLite FTS5, so FTS5 is a required runtime capability rather than an optional test feature.
 - The production Docker image already runs Node 22.23.1 Alpine and validates the OCR runtime.
-- Local Compose already builds that Dockerfile and exposes the same application service, but package scripts do not provide a direct development command.
+- Local Compose already builds that Dockerfile and exposes the same application service, but package scripts did not provide a direct development command.
 - A containerized Basketra instance may need to reach a host-local webApi instance through `host.docker.internal` during the complete AI flow.
 - The developer already has Volta available locally, so an exact project-level Node pin avoids relying on whichever global Node version happens to be first on PATH.
+- `loadConfig()` reads only the effective process environment. The previous native `pnpm dev` invocation did not load `.env`, so provider variables present in that file were absent from the running process even though Docker Compose consumed the same file.
+- Node 22 supports native optional env-file loading, avoiding a dotenv dependency and shell-specific syntax on Windows.
 
 ## Decision
 
 - Keep `pnpm dev` as the native watch-mode path.
 - Pin Node `22.23.1` in `package.json` through the `volta.node` project setting. Keep `engines.node` as the supported compatibility range and `packageManager` as the canonical pnpm pin; do not duplicate pnpm ownership in Volta.
+- Make `pnpm dev` invoke Node with `--env-file-if-exists=.env` before starting watch mode. This keeps `.env` optional and preserves precedence for variables already supplied by the parent process.
+- Do not add dotenv or another runtime dependency; environment parsing remains owned by Node.
 - Add a `predev` runtime probe that fails early with an actionable message when the Node version is outside the supported range or the bundled SQLite build lacks FTS5.
 - Add `pnpm dev:docker` as the runtime-parity path. It builds and recreates the local Compose service in the foreground so logs remain visible while testing.
 - Add `pnpm dev:docker:down` for explicit cleanup while preserving the named data volume.
@@ -27,6 +31,8 @@ Make the full Basketra flow reproducible on a developer workstation after local 
 ## Acceptance
 
 - Entering the repository with Volta active selects Node 22.23.1 for native commands.
+- Native `pnpm dev` loads `.env` when present on Windows and Unix-like shells without a new dependency.
+- Process-level environment variables continue to override values from `.env`.
 - Native `pnpm dev` fails before application startup with a clear remediation when Node is outside the supported range or FTS5 is unavailable.
 - Supported Node builds pass the runtime probe without mutating persistent data.
 - `pnpm dev:docker` builds and starts Basketra through `compose.yml` with the pinned Docker runtime.
@@ -35,14 +41,14 @@ Make the full Basketra flow reproducible on a developer workstation after local 
 
 ## Checks
 
-- unit contract for the Volta Node pin, package scripts, and Docker host-gateway mapping
+- unit contract for the Volta Node pin, native `.env` loading, package scripts, and Docker host-gateway mapping
 - runtime probe on the CI Node runtime
 - `pnpm quality`
 - container smoke and PR CI on the exact branch head
 
 ## Risk
 
-The native runtime probe deliberately rejects unsupported local environments instead of allowing a later SQLite migration failure. The Volta pin is development-tooling metadata only and does not change the production runtime. The Docker host-gateway alias exposes only the host address from inside the container; it does not publish additional host ports or change Basketra's loopback bind.
+The native runtime probe deliberately rejects unsupported local environments instead of allowing a later SQLite migration failure. The Volta pin is development-tooling metadata only and does not change the production runtime. Loading `.env` changes native-development configuration from defaults to the explicitly supplied developer configuration; developers should restart `pnpm dev` after editing `.env`. The Docker host-gateway alias exposes only the host address from inside the container; it does not publish additional host ports or change Basketra's loopback bind.
 
 ## Rollback
 
@@ -56,4 +62,4 @@ No merge, release, publication, deployment, or remote migration is authorized.
 
 ## Status
 
-Implementation and deterministic regression coverage are complete, including the Volta Node pin. Canonical PR CI on the exact branch head remains the delivery gate.
+Implementation and deterministic regression coverage are complete, including the Volta Node pin and native `.env` loading. Canonical PR CI on the exact branch head remains the delivery gate.
