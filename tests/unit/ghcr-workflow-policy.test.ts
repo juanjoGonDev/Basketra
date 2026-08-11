@@ -24,8 +24,8 @@ test('rejects privileged publication from pull requests', () => {
     '  pull_request:\n    branches:',
   );
   const failures = validateGhcrWorkflows(ci, unsafePublication);
-  assert.ok(failures.some(value => value.includes('missing push:')));
-  assert.ok(failures.some(value => value.includes('forbidden pull_request:')));
+  assert.ok(failures.includes('GHCR publication workflow: missing top-level push trigger'));
+  assert.ok(failures.includes('GHCR publication workflow: forbidden top-level pull_request trigger'));
 });
 
 test('rejects the legacy workflow-run publication path', () => {
@@ -34,8 +34,8 @@ test('rejects the legacy workflow-run publication path', () => {
     '  workflow_run:\n    branches:',
   );
   const failures = validateGhcrWorkflows(ci, unsafePublication);
-  assert.ok(failures.some(value => value.includes('missing push:')));
-  assert.ok(failures.some(value => value.includes('forbidden workflow_run:')));
+  assert.ok(failures.includes('GHCR publication workflow: missing top-level push trigger'));
+  assert.ok(failures.includes('GHCR publication workflow: forbidden top-level workflow_run trigger'));
 });
 
 test('rejects candidate publication that bypasses the validated SHA alias', () => {
