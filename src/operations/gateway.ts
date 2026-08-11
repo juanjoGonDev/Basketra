@@ -5,9 +5,10 @@ import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { OpenAiCompatibleProvider } from '../ai/provider.ts';
 import { mapError } from '../api/errors.ts';
-import type { AppConfig } from '../infrastructure/config.ts';
 import { BasketraServer } from '../api/server.ts';
+import type { AppConfig } from '../infrastructure/config.ts';
 import { DEFAULT_DATABASE_STORAGE_LIMITS } from '../infrastructure/database.ts';
+import { AiProviderProbeStore, type AiProviderProbeTrigger } from './ai-provider-probe-store.ts';
 import { ApplicationLogStore, sanitizeClientLog, type LogSource } from './log-store.ts';
 import { importBackupStream, listImportedBackups, RESTORE_CONFIRMATION, stagePendingRestore } from './restore.ts';
 import { resolveRuntimeVersion } from './version.ts';
@@ -23,6 +24,20 @@ export type OperationsGatewayOptions = Readonly<{
   requestRestart?: () => void;
   clock?: () => Date;
 }>;
+
+type ProviderProbeOutcome =
+  | Readonly<{
+      ok: true;
+      status: 200;
+      connection: Readonly<{ ok: true; model?: string; imageStructuredOutput?: boolean }>;
+    }>
+  | Readonly<{
+      ok: false;
+      status: number;
+      code: string;
+      message: string;
+      missing?: readonly string[];
+    }>;
 
 function decodePathSegment(value: string): string {
   try {
@@ -87,6 +102,7 @@ export class OperationsGateway {
   readonly #inner: BasketraServer;
   readonly #server: Server;
   readonly #logStore: ApplicationLogStore;
+  readonly #probeStore: AiProviderProbeStore;
   readonly #startedAt: string;
   readonly #publicDir: string;
   readonly #requestRestart: (() => void) | undefined;
@@ -94,6 +110,8 @@ export class OperationsGateway {
   #innerPort = 0;
   #clientLogWindowStarted = 0;
   #clientLogCount = 0;
+  #startupProbeController?: AbortController;
+  #startupProbePromise?: Promise<void>;
 
   constructor(config: AppConfig, options: OperationsGatewayOptions = {}) {
     this.config = config;
@@ -102,6 +120,7 @@ export class OperationsGateway {
     this.#requestRestart = options.requestRestart;
     this.#inner = new BasketraServer({ ...config, host: '127.0.0.1', port: 0 });
     this.#logStore = new ApplicationLogStore(config.dataDir, { clock: this.#clock });
+    this.#probeStore = new AiProviderProbeStore(config.dataDir, this.#clock);
     this.#publicDir = resolve(dirname(fileURLToPath(import.meta.url)), '../web');
     this.#server = createServer((request, response) => void this.handle(request, response));
   }
@@ -124,6 +143,20 @@ export class OperationsGateway {
       event: 'server.started',
       code: runtime.version.replaceAll('.', '_').replaceAll('-', '_').toUpperCase(),
     });
+    this.#startupProbeController = new AbortController();
+    this.#startupProbePromise = this.runAiProviderProbe(
+      'startup',
+      this.#startupProbeController.signal,
+      randomUUID(),
+    ).then(() => undefined).catch((error: unknown) => {
+      if (this.#startupProbeController?.signal.aborted) return;
+      this.#logStore.append({
+        source: 'server',
+        level: 'warn',
+        event: 'ai.startup_probe_unexpected_failure',
+        code: error instanceof Error ? error.name.slice(0, 80).toUpperCase() : 'AI_PROVIDER_FAILED',
+      });
+    });
   }
 
   address(): Readonly<{ host: string; port: number }> {
@@ -133,7 +166,10 @@ export class OperationsGateway {
   }
 
   async close(): Promise<void> {
+    this.#startupProbeController?.abort();
+    await this.#startupProbePromise?.catch(() => undefined);
     await new Promise<void>((resolvePromise, reject) => this.#server.close((error) => error ? reject(error) : resolvePromise()));
+    this.#probeStore.close();
     await this.#inner.close();
   }
 
@@ -246,29 +282,68 @@ export class OperationsGateway {
       image: this.config.aiImageCapability,
       pdf: this.config.aiPdfCapability,
       loopbackWarning,
+      lastCheck: this.#probeStore.latest() ?? null,
       requiresContainerRecreate: true,
       recommendedHostUrl: 'http://host.docker.internal:3001/v1/',
     };
   }
 
   private async testAiProvider(request: IncomingMessage, response: ServerResponse, requestId: string): Promise<void> {
-    const settings = this.aiSettings();
-    if (settings['configured'] !== true) {
-      this.json(response, 503, {
-        connection: { ok: false, code: 'AI_NOT_CONFIGURED', missing: settings['missing'] },
-      }, requestId);
-      return;
-    }
-    if (settings['loopbackWarning'] === true) {
-      this.#logStore.append({ source: 'server', level: 'warn', event: 'ai.loopback_rejected', requestId, code: 'AI_LOOPBACK_CONTAINER' });
-      this.json(response, 502, {
+    const controller = new AbortController();
+    const onAborted = () => controller.abort(new Error('REQUEST_ABORTED'));
+    request.once('aborted', onAborted);
+
+    try {
+      const outcome = await this.runAiProviderProbe('manual', controller.signal, requestId);
+      if (controller.signal.aborted) return;
+      if (outcome.ok) {
+        this.json(response, 200, { connection: outcome.connection, lastCheck: this.#probeStore.latest() ?? null }, requestId);
+        return;
+      }
+      this.json(response, outcome.status, {
         connection: {
           ok: false,
-          code: 'AI_LOOPBACK_CONTAINER',
-          message: '127.0.0.1 points to the Basketra container; use host.docker.internal and recreate the container.',
+          code: outcome.code,
+          status: outcome.status,
+          message: outcome.message,
+          ...(outcome.missing ? { missing: outcome.missing } : {}),
         },
+        lastCheck: this.#probeStore.latest() ?? null,
       }, requestId);
-      return;
+    } finally {
+      request.off('aborted', onAborted);
+    }
+  }
+
+  private async runAiProviderProbe(
+    trigger: AiProviderProbeTrigger,
+    signal: AbortSignal | undefined,
+    requestId: string,
+  ): Promise<ProviderProbeOutcome> {
+    const started = Date.now();
+    const settings = this.aiSettings();
+    if (settings['configured'] !== true) {
+      const missing = Array.isArray(settings['missing'])
+        ? settings['missing'].filter((value): value is string => typeof value === 'string')
+        : [];
+      this.#probeStore.recordFailure(trigger, Date.now() - started, 'AI_NOT_CONFIGURED');
+      return {
+        ok: false,
+        status: 503,
+        code: 'AI_NOT_CONFIGURED',
+        message: 'AI provider is not configured',
+        missing,
+      };
+    }
+    if (settings['loopbackWarning'] === true) {
+      this.#probeStore.recordFailure(trigger, Date.now() - started, 'AI_LOOPBACK_CONTAINER');
+      this.#logStore.append({ source: 'server', level: 'warn', event: 'ai.loopback_rejected', requestId, code: 'AI_LOOPBACK_CONTAINER' });
+      return {
+        ok: false,
+        status: 502,
+        code: 'AI_LOOPBACK_CONTAINER',
+        message: '127.0.0.1 points to the Basketra container; use host.docker.internal and recreate the container.',
+      };
     }
 
     const provider = new OpenAiCompatibleProvider({
@@ -280,17 +355,29 @@ export class OperationsGateway {
         pdf: this.config.aiPdfCapability,
       },
     });
-    const controller = new AbortController();
-    const onAborted = () => controller.abort(new Error('REQUEST_ABORTED'));
-    request.once('aborted', onAborted);
 
     try {
-      const connection = await provider.testConnection(controller.signal);
-      this.#logStore.append({ source: 'server', level: 'info', event: 'ai.capability_probe_ok', requestId });
-      this.json(response, 200, { connection }, requestId);
+      const connection = await provider.testConnection(signal);
+      const successfulConnection = {
+        ok: true as const,
+        ...(connection.model ? { model: connection.model } : {}),
+        ...(connection.imageStructuredOutput === undefined
+          ? {}
+          : { imageStructuredOutput: connection.imageStructuredOutput }),
+      };
+      this.#probeStore.recordSuccess(trigger, Date.now() - started, successfulConnection);
+      this.#logStore.append({
+        source: 'server',
+        level: 'info',
+        event: 'ai.capability_probe_ok',
+        requestId,
+        code: trigger === 'startup' ? 'STARTUP' : 'MANUAL',
+      });
+      return { ok: true, status: 200, connection: successfulConnection };
     } catch (error) {
-      if (controller.signal.aborted) return;
+      if (signal?.aborted) throw error;
       const mapped = mapError(error);
+      this.#probeStore.recordFailure(trigger, Date.now() - started, mapped.code);
       this.#logStore.append({
         source: 'server',
         level: 'warn',
@@ -299,16 +386,13 @@ export class OperationsGateway {
         status: mapped.status,
         code: mapped.code,
       });
-      this.json(response, mapped.status, {
-        connection: {
-          ok: false,
-          code: mapped.code,
-          status: mapped.status,
-          message: mapped.message,
-        },
-      }, requestId);
+      return {
+        ok: false,
+        status: mapped.status,
+        code: mapped.code,
+        message: mapped.message,
+      };
     } finally {
-      request.off('aborted', onAborted);
       provider.dispose();
     }
   }

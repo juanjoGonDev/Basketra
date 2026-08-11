@@ -106,6 +106,18 @@ export interface AiProvider {
   dispose(): void;
 }
 
+export type AiProviderRuntimeCapabilities = Readonly<{
+  attachments: Readonly<{
+    maxCount: number;
+    maxFileBytes: number;
+    maxImageBytes: number;
+    maxSpreadsheetBytes: number;
+    maxUploadsPerThreeHours: number;
+  }>;
+  execution: Readonly<{ replyInactivityTimeoutMs: number }>;
+  requests: Readonly<{ maxJsonBodyBytes: number }>;
+}>;
+
 const DEFAULT_CAPABILITIES: AiCapabilities = {
   structuredOutput: true,
   jsonObject: true,
@@ -116,6 +128,7 @@ const DEFAULT_CAPABILITIES: AiCapabilities = {
 
 export const DEFAULT_AI_MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_PROVIDER_ERROR_BYTES = 8 * 1024;
+const MAX_RUNTIME_CAPABILITIES_BYTES = 32 * 1024;
 const CORRELATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/u;
 const PROVIDER_PROBE_FILENAME = 'test.jpg';
 const PROVIDER_PROBE_FORMAT = 'jpg';
@@ -310,20 +323,30 @@ export class OpenAiCompatibleProvider implements AiProvider {
 
   async executeStructured(input: AiStructuredInput): Promise<unknown> {
     try {
+      const runtimeCapabilities = await this.fetchRuntimeCapabilities(input.signal);
+      assertContentWithinRuntimeCapabilities(input.content, runtimeCapabilities);
+      const requestBody = JSON.stringify({
+        model: this.config.model,
+        messages: [
+          { role: 'system', content: input.systemPrompt },
+          { role: 'user', content: input.content },
+        ],
+        response_format: {
+          type: 'json_schema',
+          json_schema: { name: input.schemaName, strict: true, schema: input.jsonSchema },
+        },
+      });
+      if (
+        runtimeCapabilities !== undefined &&
+        Buffer.byteLength(requestBody, 'utf8') > runtimeCapabilities.requests.maxJsonBodyBytes
+      ) {
+        throw new AiProviderError('AI_ATTACHMENT_TOO_LARGE', { status: 413 });
+      }
+
       const response = await this.fetchImplementation(new URL('chat/completions', ensureTrailingSlash(this.config.baseUrl)), {
         method: 'POST',
         headers: { ...this.headers(input.correlationId), 'content-type': 'application/json' },
-        body: JSON.stringify({
-          model: this.config.model,
-          messages: [
-            { role: 'system', content: input.systemPrompt },
-            { role: 'user', content: input.content },
-          ],
-          response_format: {
-            type: 'json_schema',
-            json_schema: { name: input.schemaName, strict: true, schema: input.jsonSchema },
-          },
-        }),
+        body: requestBody,
         ...(input.signal ? { signal: input.signal } : {}),
       });
       if (!response.ok) {
@@ -345,6 +368,31 @@ export class OpenAiCompatibleProvider implements AiProvider {
 
   dispose(): void {}
 
+  private async fetchRuntimeCapabilities(signal?: AbortSignal): Promise<AiProviderRuntimeCapabilities | undefined> {
+    const response = await this.fetchImplementation(new URL('capabilities', ensureTrailingSlash(this.config.baseUrl)), {
+      method: 'GET',
+      headers: this.headers(),
+      ...(signal ? { signal } : {}),
+    });
+
+    if (response.status === 400 || response.status === 404 || response.status === 405) return undefined;
+    if (!response.ok) {
+      const metadata = await readProviderErrorMetadata(response);
+      throw mapProviderHttpError(response.status, metadata);
+    }
+
+    const declaredLength = Number(response.headers.get('content-length'));
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_RUNTIME_CAPABILITIES_BYTES) return undefined;
+
+    try {
+      const text = await readResponseText(response, MAX_RUNTIME_CAPABILITIES_BYTES);
+      return parseRuntimeCapabilities(text);
+    } catch (error) {
+      if (error instanceof AiProviderError && error.code === 'AI_RESPONSE_TOO_LARGE') return undefined;
+      throw error;
+    }
+  }
+
   private headers(correlationId?: string): Record<string, string> {
     return {
       ...(this.config.apiKey ? { authorization: `Bearer ${this.config.apiKey}` } : {}),
@@ -353,6 +401,79 @@ export class OpenAiCompatibleProvider implements AiProvider {
         : {}),
     };
   }
+}
+
+function parseRuntimeCapabilities(value: string): AiProviderRuntimeCapabilities | undefined {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!isRecord(parsed)) return undefined;
+    const attachments = parsed['attachments'];
+    const execution = parsed['execution'];
+    const requests = parsed['requests'];
+    if (!isRecord(attachments) || !isRecord(execution) || !isRecord(requests)) return undefined;
+
+    return {
+      attachments: {
+        maxCount: readPositiveInteger(attachments['maxCount']),
+        maxFileBytes: readPositiveInteger(attachments['maxFileBytes']),
+        maxImageBytes: readPositiveInteger(attachments['maxImageBytes']),
+        maxSpreadsheetBytes: readPositiveInteger(attachments['maxSpreadsheetBytes']),
+        maxUploadsPerThreeHours: readPositiveInteger(attachments['maxUploadsPerThreeHours']),
+      },
+      execution: {
+        replyInactivityTimeoutMs: readPositiveInteger(execution['replyInactivityTimeoutMs']),
+      },
+      requests: {
+        maxJsonBodyBytes: readPositiveInteger(requests['maxJsonBodyBytes']),
+      },
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function assertContentWithinRuntimeCapabilities(
+  content: AiMessageContent,
+  capabilities: AiProviderRuntimeCapabilities | undefined,
+): void {
+  if (capabilities === undefined || typeof content === 'string') return;
+
+  let attachmentCount = 0;
+  for (const part of content) {
+    if (part.type === 'image_url') {
+      attachmentCount += 1;
+      if (readDataUrlBytes(part.image_url.url) > capabilities.attachments.maxImageBytes) {
+        throw new AiProviderError('AI_ATTACHMENT_TOO_LARGE', { status: 413 });
+      }
+      continue;
+    }
+    if (part.type === 'file') {
+      attachmentCount += 1;
+      if (readDataUrlBytes(part.file.file_data) > capabilities.attachments.maxFileBytes) {
+        throw new AiProviderError('AI_ATTACHMENT_TOO_LARGE', { status: 413 });
+      }
+    }
+  }
+
+  if (attachmentCount > capabilities.attachments.maxCount) {
+    throw new AiProviderError('AI_ATTACHMENT_TOO_LARGE', { status: 413 });
+  }
+}
+
+function readDataUrlBytes(value: string): number {
+  const marker = ';base64,';
+  const index = value.indexOf(marker);
+  if (!value.startsWith('data:') || index < 0) return 0;
+  return Buffer.from(value.slice(index + marker.length), 'base64').byteLength;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readPositiveInteger(value: unknown): number {
+  if (!Number.isSafeInteger(value) || (value as number) <= 0) throw new RangeError('Capability must be a positive safe integer');
+  return value as number;
 }
 
 function isSuccessfulProviderProbe(value: unknown): boolean {

@@ -44,7 +44,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     port: readInteger(environment, 'BASKETRA_PORT', 3000, 1),
     dataDir: resolve(environment['BASKETRA_DATA_DIR']?.trim() || './data'),
     tempDir: resolve(environment['BASKETRA_TEMP_DIR']?.trim() || './tmp'),
-    maxBodyBytes: readInteger(environment, 'BASKETRA_MAX_BODY_BYTES', 8 * 1024 * 1024, 1024),
+    maxBodyBytes: readInteger(environment, 'BASKETRA_MAX_BODY_BYTES', 32 * 1024 * 1024, 1024),
     ...(aiBaseUrl ? { aiBaseUrl } : {}),
     ...(environment['BASKETRA_AI_API_KEY']?.trim() ? { aiApiKey: environment['BASKETRA_AI_API_KEY']!.trim() } : {}),
     ...(environment['BASKETRA_AI_MODEL']?.trim() ? { aiModel: environment['BASKETRA_AI_MODEL']!.trim() } : {}),
