@@ -17,7 +17,7 @@ The production evidence supplied by the operator shows the provider returning HT
 
 ## Decision
 
-- Add a repository-owned standard RGB PNG fixture at `src/ai/fixtures/provider-probe.jpg` containing visible text `BASKETRA OCR 4821`.
+- Add a repository-owned standard RGB PNG fixture at `src/ai/fixtures/provider-probe.png` containing visible text `BASKETRA OCR 4821`.
 - Keep `test.png` as the generic transmitted filename so the expected text is not leaked through metadata.
 - Load the fixture bytes from disk and build the `data:image/png;base64,...` value at runtime. Remove the large inline base64 literal from source.
 - Copy `src/ai/fixtures` into the compiled `dist/ai/fixtures` artifact during `pnpm build`, so source execution and production compiled execution resolve the same relative asset.
