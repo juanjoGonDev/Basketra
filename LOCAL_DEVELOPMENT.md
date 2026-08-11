@@ -6,6 +6,8 @@ Basketra requires SQLite FTS5 because migration 1 creates the canonical product-
 
 The repository pins Node 22.23.1 through Volta in `package.json`. With Volta enabled, commands executed from the repository use that canonical Node runtime instead of an older global installation.
 
+Create a local `.env` when provider or runtime overrides are needed. `pnpm dev` loads that file through Node's native `--env-file-if-exists=.env` support, so the same command works from Windows `cmd.exe`, PowerShell and Unix shells without shell-specific environment syntax or an additional dotenv dependency. Existing process environment variables keep precedence over values from `.env`.
+
 ```bash
 node --version
 corepack enable
@@ -14,7 +16,9 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-`node --version` should report `v22.23.1` when Volta is active in the repository. `pnpm dev` then runs a second preflight before application startup: it rejects Node versions outside `>=22.16.0 <23` and probes FTS5 in an in-memory SQLite database. The probe does not touch Basketra data.
+`node --version` should report `v22.23.1` when Volta is active in the repository. `pnpm dev` first runs a runtime preflight: it rejects Node versions outside `>=22.16.0 <23` and probes FTS5 in an in-memory SQLite database. The application process then starts in watch mode with `.env` loaded when the file exists. The probe does not touch Basketra data.
+
+Restart `pnpm dev` after changing `.env`; the application source watcher does not treat the environment file as application source.
 
 If the host runtime is unsupported or lacks FTS5 even with the pinned Node runtime, use the Docker path instead of changing the schema or removing full-text search.
 
