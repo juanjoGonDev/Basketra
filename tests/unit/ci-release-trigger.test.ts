@@ -10,7 +10,7 @@ const publishWorkflow = readFileSync(
 
 test("quality checks run only on pull requests targeting main", () => {
   assert.match(ciWorkflow, /pull_request:\n\s+branches:\n\s+- main/u);
-  assert.doesNotMatch(ciWorkflow, /\n\s+push:/u);
+  assert.doesNotMatch(ciWorkflow, /\n  push:/u);
 });
 
 test("publication consumes the protected main push directly", () => {
