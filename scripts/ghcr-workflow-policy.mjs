@@ -14,7 +14,7 @@ export function validateGhcrWorkflows(ci, publication) {
   const failures = [];
 
   requireText(ci, [
-    'pull_request:',
+    '\n  pull_request:',
     '- main',
     'permissions: read-all',
     'browser-e2e:',
@@ -30,7 +30,7 @@ export function validateGhcrWorkflows(ci, publication) {
   ], 'CI workflow', failures);
 
   requireText(publication, [
-    'push:',
+    '\n  push:',
     '- main',
     'permissions: read-all',
     'publish-image:',
@@ -70,8 +70,8 @@ export function validateGhcrWorkflows(ci, publication) {
     'NODE_OPTIONS=--max-old-space-size=128',
   ], 'GHCR publication workflow', failures);
   forbidText(publication, [
-    'pull_request:',
-    'workflow_run:',
+    '\n  pull_request:',
+    '\n  workflow_run:',
     'github.event.workflow_run',
     'context.sha',
     '$GITHUB_SHA',
