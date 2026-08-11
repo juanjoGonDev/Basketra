@@ -58,8 +58,8 @@ export class AiProviderProbeStore {
 
     if (!row || (row.status !== 'success' && row.status !== 'error')) return undefined;
     const metadata = parseMetadata(row.metadata_json);
-    const trigger = metadata.trigger === 'startup' ? 'startup' : 'manual';
-    const connection = parseConnection(metadata.connection);
+    const trigger = metadata['trigger'] === 'startup' ? 'startup' : 'manual';
+    const connection = parseConnection(metadata['connection']);
     return {
       checkedAt: row.created_at,
       durationMs: Math.max(0, Number(row.duration_ms) || 0),
