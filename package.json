@@ -7,6 +7,9 @@
   "engines": {
     "node": ">=22.16.0 <23"
   },
+  "volta": {
+    "node": "22.23.1"
+  },
   "scripts": {
     "predev": "node scripts/check-dev-runtime.mjs",
     "dev": "node --experimental-strip-types --watch src/main.ts",
