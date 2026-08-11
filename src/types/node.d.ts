@@ -18,6 +18,7 @@ declare const process: {
 declare const Buffer: {
   from(value: string | Uint8Array, encoding?: string): Uint8Array & { toString(encoding?: string): string };
   concat(values: readonly Uint8Array[]): Uint8Array & { toString(encoding?: string): string };
+  byteLength(value: string | Uint8Array, encoding?: string): number;
 };
 
 declare module 'node:crypto' {
