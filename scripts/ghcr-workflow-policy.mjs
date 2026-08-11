@@ -10,18 +10,30 @@ function forbidText(text, forbiddenValues, prefix, failures) {
   }
 }
 
+function requireWorkflowTrigger(text, trigger, prefix, failures) {
+  if (!text.includes(`\n  ${trigger}:`)) {
+    failures.push(`${prefix}: missing top-level ${trigger} trigger`);
+  }
+}
+
+function forbidWorkflowTrigger(text, trigger, prefix, failures) {
+  if (text.includes(`\n  ${trigger}:`)) {
+    failures.push(`${prefix}: forbidden top-level ${trigger} trigger`);
+  }
+}
+
 export function validateGhcrWorkflows(ci, publication) {
   const failures = [];
 
+  requireWorkflowTrigger(ci, 'pull_request', 'CI workflow', failures);
+  forbidWorkflowTrigger(ci, 'push', 'CI workflow', failures);
   requireText(ci, [
-    '\n  pull_request:',
     '- main',
     'permissions: read-all',
     'browser-e2e:',
     'container-smoke:',
   ], 'CI workflow', failures);
   forbidText(ci, [
-    '\n  push:',
     'publish-image:',
     'packages: write',
     'contents: write',
@@ -29,8 +41,10 @@ export function validateGhcrWorkflows(ci, publication) {
     'Publish immutable SHA candidate',
   ], 'CI workflow', failures);
 
+  requireWorkflowTrigger(publication, 'push', 'GHCR publication workflow', failures);
+  forbidWorkflowTrigger(publication, 'pull_request', 'GHCR publication workflow', failures);
+  forbidWorkflowTrigger(publication, 'workflow_run', 'GHCR publication workflow', failures);
   requireText(publication, [
-    '\n  push:',
     '- main',
     'permissions: read-all',
     'publish-image:',
@@ -70,8 +84,6 @@ export function validateGhcrWorkflows(ci, publication) {
     'NODE_OPTIONS=--max-old-space-size=128',
   ], 'GHCR publication workflow', failures);
   forbidText(publication, [
-    '\n  pull_request:',
-    '\n  workflow_run:',
     'github.event.workflow_run',
     'context.sha',
     '$GITHUB_SHA',
