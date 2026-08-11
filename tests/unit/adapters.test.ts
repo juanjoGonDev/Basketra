@@ -120,6 +120,7 @@ test('OpenAI-compatible provider proves image OCR plus strict structured output'
   const mockFetch: typeof fetch = async (input, init) => {
     const request = new Request(input, init);
     requests.push(request);
+    if (request.method === 'GET') return new Response('{}', { status: 404 });
     const body = JSON.parse(await request.clone().text()) as { response_format?: { json_schema?: { name?: string } } };
     const content = body.response_format?.json_schema?.name === 'basketra_provider_capability'
       ? JSON.stringify({ image: { format: 'jpg', text: PROVIDER_PROBE_VISIBLE_TEXT } })
@@ -138,11 +139,13 @@ test('OpenAI-compatible provider proves image OCR plus strict structured output'
   });
   const value = await provider.executeStructured({ operation: 'test', schemaName: 'result', systemPrompt: 'x', content: 'y', jsonSchema: { type: 'object' } });
   assert.deepEqual(value, { ok: true });
-  assert.equal(requests[0]?.url, 'http://localhost:8080/v1/chat/completions');
-  assert.equal(requests[1]?.url, 'http://localhost:8080/v1/chat/completions');
+  const modelRequests = requests.filter((request) => request.method === 'POST');
+  assert.equal(modelRequests.length, 2);
+  assert.equal(modelRequests[0]?.url, 'http://localhost:8080/v1/chat/completions');
+  assert.equal(modelRequests[1]?.url, 'http://localhost:8080/v1/chat/completions');
   assert.equal(requests[0]?.headers.get('authorization'), 'Bearer secret');
 
-  const probe = JSON.parse(await requests[0]!.clone().text()) as {
+  const probe = JSON.parse(await modelRequests[0]!.clone().text()) as {
     messages: Array<{ content: string | Array<Record<string, unknown>> }>;
     response_format: {
       json_schema: {
