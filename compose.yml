@@ -9,6 +9,8 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:${BASKETRA_PORT:-3000}:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       NODE_OPTIONS: --max-old-space-size=${BASKETRA_NODE_HEAP_MB:-128}
       BASKETRA_HOST: 0.0.0.0
