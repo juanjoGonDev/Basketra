@@ -18,32 +18,43 @@ test('rejects write permissions in the validation workflow', () => {
   )));
 });
 
-test('rejects publication from pull-request workflow runs', () => {
+test('rejects privileged publication from pull requests', () => {
   const unsafePublication = publication.replace(
-    "github.event.workflow_run.event == 'push'",
-    "github.event.workflow_run.event == 'pull_request'",
+    '  push:\n    branches:',
+    '  pull_request:\n    branches:',
   );
-  assert.ok(validateGhcrWorkflows(ci, unsafePublication).some(value => (
-    value.includes("missing github.event.workflow_run.event == 'push'")
-  )));
+  const failures = validateGhcrWorkflows(ci, unsafePublication);
+  assert.ok(failures.includes('GHCR publication workflow: missing top-level push trigger'));
+  assert.ok(failures.includes('GHCR publication workflow: forbidden top-level pull_request trigger'));
 });
 
-test('rejects a publication workflow without the same-repository guard', () => {
+test('rejects the legacy workflow-run publication path', () => {
   const unsafePublication = publication.replace(
-    'github.event.workflow_run.head_repository.full_name == github.repository',
-    'true',
+    '  push:\n    branches:',
+    '  workflow_run:\n    branches:',
   );
-  assert.ok(validateGhcrWorkflows(ci, unsafePublication).some(value => (
-    value.includes('missing github.event.workflow_run.head_repository.full_name == github.repository')
-  )));
+  const failures = validateGhcrWorkflows(ci, unsafePublication);
+  assert.ok(failures.includes('GHCR publication workflow: missing top-level push trigger'));
+  assert.ok(failures.includes('GHCR publication workflow: forbidden top-level workflow_run trigger'));
 });
 
-test('rejects publisher-context revisions instead of the validated CI head', () => {
+test('rejects candidate publication that bypasses the validated SHA alias', () => {
   const unsafePublication = publication.replace(
     'ghcr.io/juanjogondev/basketra:${{ env.VALIDATED_SHA }}',
     'ghcr.io/juanjogondev/basketra:${{ github.sha }}',
   );
   const failures = validateGhcrWorkflows(ci, unsafePublication);
-  assert.ok(failures.some(value => value.includes('forbidden ${{ github.sha }}')));
-  assert.ok(failures.some(value => value.includes('missing ghcr.io/juanjogondev/basketra:${{ env.VALIDATED_SHA }}')));
+  assert.ok(failures.some(value => (
+    value.includes('missing ghcr.io/juanjogondev/basketra:${{ env.VALIDATED_SHA }}')
+  )));
+});
+
+test('rejects checkout that is not pinned to the validated SHA', () => {
+  const unsafePublication = publication.replace(
+    'ref: ${{ env.VALIDATED_SHA }}',
+    'ref: ${{ github.ref }}',
+  );
+  assert.ok(validateGhcrWorkflows(ci, unsafePublication).some(value => (
+    value.includes('missing ref: ${{ env.VALIDATED_SHA }}')
+  )));
 });

@@ -1,11 +1,9 @@
 name: Publish verified private GHCR image and release
 
 on:
-  workflow_run:
-    workflows:
-      - Pull Request Quality
-    types:
-      - completed
+  push:
+    branches:
+      - main
 
 permissions: read-all
 
@@ -16,13 +14,6 @@ concurrency:
 jobs:
   publish-image:
     name: "🚀 Publish verified private GHCR image and release"
-    if: >-
-      ${{
-        github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.event == 'push' &&
-        github.event.workflow_run.head_branch == 'main' &&
-        github.event.workflow_run.head_repository.full_name == github.repository
-      }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
@@ -31,7 +22,7 @@ jobs:
     env:
       IMAGE: ghcr.io/juanjogondev/basketra
       GHCR_RETAIN_SHA_VERSIONS: '10'
-      VALIDATED_SHA: ${{ github.event.workflow_run.head_sha }}
+      VALIDATED_SHA: ${{ github.sha }}
     steps:
       - name: Checkout validated commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
