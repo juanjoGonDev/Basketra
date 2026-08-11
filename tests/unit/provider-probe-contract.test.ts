@@ -10,7 +10,7 @@ import {
 const EXPECTED_PROBE_TEXT = 'BASKETRA OCR 4821';
 const PROBE_FIXTURE_URL = new URL('../../src/ai/fixtures/provider-probe.png', import.meta.url);
 
-test('provider OCR probe sends the checked-in RGB PNG fixture', async () => {
+test('provider OCR probe sends the checked-in readable PNG fixture', async () => {
   let requestBody: unknown;
   const provider = new OpenAiCompatibleProvider(
     {
@@ -57,13 +57,15 @@ test('provider OCR probe sends the checked-in RGB PNG fixture', async () => {
   const fixturePng = readFileSync(PROBE_FIXTURE_URL);
   assert.deepEqual(transmittedPng, fixturePng);
   assert.deepEqual([...transmittedPng.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  assert.ok(transmittedPng.byteLength <= 256 * 1024);
 
-  const { height, idat, width } = readPngChunks(transmittedPng);
+  const { bytesPerPixel, height, idat, indexedColor, palette, width } = readPngChunks(transmittedPng);
   assert.ok(width >= 600);
   assert.ok(height >= 120);
   assert.ok(width / height >= 2 && width / height <= 4);
+  if (indexedColor) assert.ok(palette);
   const scanlines = inflateSync(Buffer.concat(idat));
-  assert.equal(scanlines.byteLength, height * (1 + width * 3));
+  assert.equal(scanlines.byteLength, height * (1 + width * bytesPerPixel));
 });
 
 test('provider OCR probe rejects non-object nested image payloads', async () => {
@@ -106,12 +108,18 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function readPngChunks(png: Buffer): Readonly<{
+  bytesPerPixel: number;
   height: number;
   idat: Buffer[];
+  indexedColor: boolean;
+  palette: boolean;
   width: number;
 }> {
   const idat: Buffer[] = [];
+  let bytesPerPixel = 0;
   let height = 0;
+  let indexedColor = false;
+  let palette = false;
   let width = 0;
   let offset = 8;
 
@@ -126,8 +134,14 @@ function readPngChunks(png: Buffer): Readonly<{
       assert.equal(length, 13);
       width = png.readUInt32BE(dataStart);
       height = png.readUInt32BE(dataStart + 4);
-      assert.equal(png[dataStart + 8], 8);
-      assert.equal(png[dataStart + 9], 2);
+      const bitDepth = png[dataStart + 8];
+      const colorType = png[dataStart + 9];
+      assert.equal(bitDepth, 8);
+      assert.ok(colorType === 2 || colorType === 3);
+      indexedColor = colorType === 3;
+      bytesPerPixel = indexedColor ? 1 : 3;
+    } else if (type === 'PLTE') {
+      palette = true;
     } else if (type === 'IDAT') {
       idat.push(png.subarray(dataStart, dataEnd));
     } else if (type === 'IEND') {
@@ -139,6 +153,7 @@ function readPngChunks(png: Buffer): Readonly<{
 
   assert.ok(width > 0);
   assert.ok(height > 0);
+  assert.ok(bytesPerPixel > 0);
   assert.ok(idat.length > 0);
-  return { height, idat, width };
+  return { bytesPerPixel, height, idat, indexedColor, palette, width };
 }
