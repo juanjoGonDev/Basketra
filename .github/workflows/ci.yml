@@ -2,15 +2,14 @@ name: Pull Request Quality
 
 on:
   pull_request:
-  push:
     branches:
       - main
 
 permissions: read-all
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   quality:
