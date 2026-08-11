@@ -8,7 +8,10 @@
     "node": ">=22.16.0 <23"
   },
   "scripts": {
+    "predev": "node scripts/check-dev-runtime.mjs",
     "dev": "node --experimental-strip-types --watch src/main.ts",
+    "dev:docker": "docker compose up --build --force-recreate basketra",
+    "dev:docker:down": "docker compose down",
     "start": "node dist/main.js",
     "format:check": "node scripts/format-check.mjs",
     "lint": "node scripts/lint.mjs",
