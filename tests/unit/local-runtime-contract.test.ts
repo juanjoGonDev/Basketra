@@ -5,9 +5,11 @@ import test from 'node:test';
 
 const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as Record<string, unknown>;
 const scripts = packageJson['scripts'] as Record<string, string>;
+const volta = packageJson['volta'] as Record<string, string>;
 const compose = readFileSync('compose.yml', 'utf8');
 
 test('development scripts expose native preflight and Docker runtime parity', () => {
+  assert.equal(volta['node'], '22.23.1');
   assert.equal(scripts['predev'], 'node scripts/check-dev-runtime.mjs');
   assert.equal(
     scripts['dev:docker'],
