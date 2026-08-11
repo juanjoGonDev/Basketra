@@ -122,10 +122,10 @@ const DEFAULT_CAPABILITIES: AiCapabilities = {
 export const DEFAULT_AI_MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_PROVIDER_ERROR_BYTES = 8 * 1024;
 const CORRELATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/u;
-const PROVIDER_PROBE_FILENAME = "test.png";
-const PROVIDER_PROBE_FORMAT = "png";
+const PROVIDER_PROBE_FILENAME = "test.jpg";
+const PROVIDER_PROBE_FORMAT = "jpg";
 const PROVIDER_PROBE_TEXT = "BASKETRA OCR 4821";
-const PROVIDER_PROBE_PNG_PATH = fileURLToPath(
+const PROVIDER_PROBE_JPEG_PATH = fileURLToPath(
   new URL("./fixtures/provider-probe.jpg", import.meta.url),
 );
 const PROVIDER_PROBE_SCHEMA = {
@@ -167,9 +167,9 @@ function assertPositiveInteger(value: number, name: string): number {
   return value;
 }
 
-function buildProviderProbePngDataUrl(): string {
-  const bytes = readFileSync(PROVIDER_PROBE_PNG_PATH);
-  return `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`;
+function buildProviderProbeJpegDataUrl(): string {
+  const bytes = readFileSync(PROVIDER_PROBE_JPEG_PATH);
+  return `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`;
 }
 
 async function readResponseText(
@@ -312,7 +312,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
           type: "image_url",
           filename: PROVIDER_PROBE_FILENAME,
           image_url: {
-            url: buildProviderProbePngDataUrl(),
+            url: buildProviderProbeJpegDataUrl(),
             detail: "high",
           },
         },
