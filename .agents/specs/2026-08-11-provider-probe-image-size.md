@@ -14,6 +14,7 @@ Fix the Settings AI capability probe failing with HTTP 413 / `AI_ATTACHMENT_TOO_
 - Basketra runs Node 22.23.1. The editor dependency should match the Node 22 type line and must not be auto-injected into the source TypeScript project that consumes the repository-owned ambient declarations.
 - webApi uses pinned Lefthook with pre-commit and pre-push gates plus a postinstall hook installer that skips CI, production installs, and non-Git working trees.
 - After isolating the editor typings and aligning the primary JPEG contracts, Pull Request Quality run `31474320557` passed TypeScript, dependency policy, security, container smoke, and the updated JPEG tests; its remaining unit failure was a stale PNG expectation in `tests/unit/ai-provider-errors.test.ts`, which has now been aligned to JPEG.
+- Pull Request Quality run `31474536490` then passed all unit/integration/E2E behavior but changed-code coverage failed because a whole-file formatting rewrite in `src/ai/provider.ts` made an unrelated existing PDF-capability branch appear changed. The provider source has been restored to main's formatting so the PR diff now contains only the actual JPEG probe lines.
 
 ## Decision
 
@@ -27,6 +28,7 @@ Fix the Settings AI capability probe failing with HTTP 413 / `AI_ATTACHMENT_TOO_
 - Add `lefthook.yml` with fast pre-commit format/lint/security gates and canonical `pnpm quality` on pre-push.
 - Add a dependency-free `scripts/install-hooks.mjs` postinstall installer that exits cleanly for `CI=true`, `NODE_ENV=production`, `SKIP_GIT_HOOKS=true`, missing `.git`, or missing Git.
 - Add regression coverage for the hook configuration, exact tool versions, TypeScript ambient-type isolation, and installer safety guards.
+- Keep `src/ai/provider.ts` changes narrowly scoped to the JPEG probe contract; do not create artificial coverage obligations by reformatting unrelated branches.
 - Do not raise webApi or Basketra attachment/body limits; that would mask rather than fix the oversized/mislabeled synthetic probe.
 
 ## Acceptance
@@ -69,4 +71,4 @@ No merge, release, publish, deploy, or remote migration is authorized by this ta
 
 ## Status
 
-Implementation is complete through the latest known stale-PNG regression. Exact-head Pull Request Quality, visual evidence, and CodeQL are running and remain the final validation authority.
+Implementation is complete. Exact-head Pull Request Quality, visual evidence, and CodeQL remain the final validation authority.
