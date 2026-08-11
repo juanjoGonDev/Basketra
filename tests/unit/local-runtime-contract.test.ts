@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as Record<string, unknown>;
@@ -11,6 +11,10 @@ const compose = readFileSync('compose.yml', 'utf8');
 test('development scripts expose native preflight and Docker runtime parity', () => {
   assert.equal(volta['node'], '22.23.1');
   assert.equal(scripts['predev'], 'node scripts/check-dev-runtime.mjs');
+  assert.equal(
+    scripts['dev'],
+    'node --env-file-if-exists=.env --experimental-strip-types --watch src/main.ts',
+  );
   assert.equal(
     scripts['dev:docker'],
     'docker compose up --build --force-recreate basketra',
