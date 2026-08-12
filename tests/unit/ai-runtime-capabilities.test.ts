@@ -124,8 +124,8 @@ test('provider applies runtime byte limits and degrades unusable capability resp
       requests: { maxJsonBodyBytes: 1 },
     }), { status: 200 }),
     new Response('null', { status: 200, headers: { 'content-length': 'not-a-number' } }),
-    new Response('[]', { status: 200, headers: { 'content-length': '2' } }),
     new Response(runtimeCapabilityBody(), { status: 200 }),
+    new Response('[]', { status: 200, headers: { 'content-length': '2' } }),
     new Response(JSON.stringify({
       attachments: { maxCount: 'one', maxFileBytes: 1, maxImageBytes: 1, maxSpreadsheetBytes: 1, maxUploadsPerThreeHours: 1 },
       execution: { replyInactivityTimeoutMs: 1 },
