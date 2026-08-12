@@ -68,6 +68,13 @@ function asArray(value: unknown): unknown[] {
   return value;
 }
 
+async function readProviderRequestBody(request: Request): Promise<Record<string, unknown>> {
+  const form = await request.clone().formData();
+  const metadata = form.get('request');
+  assert.equal(typeof metadata, 'string');
+  return asRecord(JSON.parse(metadata));
+}
+
 test('OpenAI-compatible provider classifies attachment rejection without leaking its body', async () => {
   const provider = providerWithResponse(413, JSON.stringify({
     error: {
@@ -203,7 +210,8 @@ test('provider capability probe verifies authenticated image OCR structured outp
   assert.equal(request.headers.get('authorization'), `Bearer ${managedTokenFixture}`);
   assert.match(request.headers.get('x-client-request-id') ?? '', /^provider-probe:[0-9a-f-]{36}$/u);
 
-  const body = asRecord(await request.json());
+  assert.match(request.headers.get('content-type') ?? '', /^multipart\/form-data; boundary=/u);
+  const body = await readProviderRequestBody(request);
   assert.equal(body['model'], 'test-model');
   const messages = asArray(body['messages']);
   assert.equal(messages.length, 2);
@@ -211,11 +219,15 @@ test('provider capability probe verifies authenticated image OCR structured outp
   const userMessage = asRecord(messages[1]);
   const content = asArray(userMessage['content']);
   assert.equal(String(asRecord(content[0])['text']).includes(PROVIDER_PROBE_VISIBLE_TEXT), false);
-  const imagePart = asRecord(content[1]);
-  const image = asRecord(imagePart['image_url']);
-  assert.equal(imagePart['type'], 'image_url');
-  assert.equal(imagePart['filename'], 'test.jpg');
-  assert.match(String(image['url']), /^data:image\/jpeg;base64,/u);
+  assert.equal(content.length, 1);
+  assert.equal(JSON.stringify(body).includes(';base64,'), false);
+  const form = await request.clone().formData();
+  const image = form.get('files');
+  assert.notEqual(image, null);
+  assert.notEqual(typeof image, 'string');
+  if (image === null || typeof image === 'string') throw new Error('missing provider probe attachment');
+  assert.equal(image.name, 'test.jpg');
+  assert.equal(image.type, 'image/jpeg');
 
   const responseFormat = asRecord(body['response_format']);
   const schemaEnvelope = asRecord(responseFormat['json_schema']);
