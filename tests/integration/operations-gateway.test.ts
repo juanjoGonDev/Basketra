@@ -44,15 +44,27 @@ test('operations gateway distinguishes missing and loopback AI configuration',as
     let base=`http://127.0.0.1:${missing.address().port}`;
     const missingResponse=await fetch(`${base}/api/v1/settings/ai-provider`);
     assert.equal(missingResponse.status,200);
-    assert.deepEqual(await json(missingResponse),{
-      configured:false,
-      status:'missing',
-      missing:['BASKETRA_AI_BASE_URL','BASKETRA_AI_MODEL'],
-      image:true,
-      pdf:false,
-      loopbackWarning:false,
-      requiresContainerRecreate:true,
-      recommendedHostUrl:'http://host.docker.internal:3001/v1/',
+    const missingSettings=await json(missingResponse);
+    assert.equal(missingSettings['configured'],false);
+    assert.equal(missingSettings['status'],'missing');
+    assert.deepEqual(missingSettings['missing'],['BASKETRA_AI_BASE_URL','BASKETRA_AI_MODEL']);
+    assert.equal(missingSettings['image'],true);
+    assert.equal(missingSettings['pdf'],false);
+    assert.equal(missingSettings['loopbackWarning'],false);
+    assert.equal(missingSettings['requiresContainerRecreate'],true);
+    assert.equal(missingSettings['recommendedHostUrl'],'http://host.docker.internal:3001/v1/');
+    const lastCheck=missingSettings['lastCheck'];
+    assert.equal(typeof lastCheck,'object');
+    assert.notEqual(lastCheck,null);
+    if(lastCheck===null||typeof lastCheck!=='object')throw new Error('missing startup provider check');
+    assert.deepEqual({
+      status:(lastCheck as Record<string,unknown>)['status'],
+      trigger:(lastCheck as Record<string,unknown>)['trigger'],
+      errorCode:(lastCheck as Record<string,unknown>)['errorCode'],
+    },{
+      status:'error',
+      trigger:'startup',
+      errorCode:'AI_NOT_CONFIGURED',
     });
     await missing.close();
 
@@ -82,25 +94,55 @@ test('operations gateway distinguishes missing and loopback AI configuration',as
 
 test('operations gateway verifies image OCR structured output through the canonical provider',async()=>{
   const directory=`.test-tmp/gateway-ai-probe-${randomUUID()}`;
-  const requests:Array<Readonly<{method:string;url:string;authorization?:string;correlation?:string;body:Record<string,unknown>}>>=[];
+  const requests:Array<Readonly<{
+    method:string;
+    url:string;
+    authorization?:string;
+    correlation?:string;
+    body:Record<string,unknown>;
+    attachment?:Readonly<{name:string;type:string;bytes:Buffer}>;
+  }>>=[];
+  let providerError:unknown;
   const providerServer=createServer(async(request,response)=>{
-    const chunks:Uint8Array[]=[];
-    for await(const chunk of request){
-      chunks.push(typeof chunk==='string'?Buffer.from(chunk):chunk);
+    try{
+      if(request.method==='GET'){
+        response.writeHead(404,{'content-type':'application/json'});
+        response.end('{}');
+        return;
+      }
+      const chunks:Uint8Array[]=[];
+      for await(const chunk of request){
+        chunks.push(typeof chunk==='string'?Buffer.from(chunk):chunk);
+      }
+      const raw=Buffer.concat(chunks);
+      const contentType=request.headers['content-type'];
+      assert.equal(typeof contentType,'string');
+      const multipart=await new Response(raw,{headers:{'content-type':contentType}}).formData();
+      const metadata=multipart.get('request');
+      assert.equal(typeof metadata,'string');
+      const file=multipart.get('files');
+      assert.notEqual(file,null);
+      assert.notEqual(typeof file,'string');
+      if(file===null||typeof file==='string')throw new Error('missing provider probe attachment');
+      requests.push({
+        method:request.method??'',
+        url:request.url??'',
+        ...(request.headers.authorization?{authorization:request.headers.authorization}:{}),
+        ...(typeof request.headers['x-client-request-id']==='string'?{correlation:request.headers['x-client-request-id']}:{}),
+        body:JSON.parse(metadata) as Record<string,unknown>,
+        attachment:{name:file.name,type:file.type,bytes:Buffer.from(await file.arrayBuffer())},
+      });
+      response.writeHead(200,{'content-type':'application/json'});
+      response.end(JSON.stringify({choices:[{message:{content:JSON.stringify({image:{format:'jpg',text:PROVIDER_PROBE_VISIBLE_TEXT}})}}]}));
+    }catch(error){
+      providerError=error;
+      response.writeHead(500,{'content-type':'application/json'});
+      response.end('{}');
     }
-    requests.push({
-      method:request.method??'',
-      url:request.url??'',
-      ...(request.headers.authorization?{authorization:request.headers.authorization}:{}),
-      ...(typeof request.headers['x-client-request-id']==='string'?{correlation:request.headers['x-client-request-id']}:{}),
-      body:JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string,unknown>,
-    });
-    response.writeHead(200,{'content-type':'application/json'});
-    response.end(JSON.stringify({choices:[{message:{content:JSON.stringify({image:{format:'jpg',text:PROVIDER_PROBE_VISIBLE_TEXT}})}}]}));
   });
   await new Promise<void>((resolve,reject)=>{
     providerServer.once('error',reject);
-    providerServer.listen(0,'0.0.0',()=>{
+    providerServer.listen(0,'127.0.0.1',()=>{
       providerServer.off('error',reject);
       resolve();
     });
@@ -108,7 +150,7 @@ test('operations gateway verifies image OCR structured output through the canoni
   const providerPort=(providerServer.address() as AddressInfo).port;
   const managedToken=['managed','webapi','token'].join('-');
   const gateway=new OperationsGateway(config(directory,{
-    aiBaseUrl:`http://127.0.0.2:${providerPort}/v1/`,
+    aiBaseUrl:`http://127.0.0.1:${providerPort}/v1/`,
     aiModel:'gpt-5',
     aiApiKey:managedToken,
   }));
@@ -117,13 +159,14 @@ test('operations gateway verifies image OCR structured output through the canoni
     const base=`http://127.0.0.1:${gateway.address().port}`;
     const response=await fetch(`${base}/api/v1/settings/ai-provider/test`,{method:'POST'});
     assert.equal(response.status,200);
+    assert.ifError(providerError);
     assert.deepEqual((await json(response))['connection'],{
       ok:true,
       model:'gpt-5',
       imageStructuredOutput:true,
     });
-    assert.equal(requests.length,1);
-    const providerRequest=requests[0];
+    assert.equal(requests.length,2);
+    const providerRequest=requests.at(-1);
     assert.ok(providerRequest);
     assert.equal(providerRequest.method,'POST');
     assert.equal(providerRequest.url,'/v1/chat/completions');
@@ -133,11 +176,13 @@ test('operations gateway verifies image OCR structured output through the canoni
     assert.equal(String(messages[0]?.['content']??'').includes(PROVIDER_PROBE_VISIBLE_TEXT),false);
     const content=messages[1]?.['content'] as Array<Record<string,unknown>>;
     assert.equal(String(content[0]?.['text']??'').includes(PROVIDER_PROBE_VISIBLE_TEXT),false);
-    assert.equal(content[1]?.['filename'],'test.jpg');
-    const imageUrl=(content[1]?.['image_url'] as Record<string,unknown>)['url'];
-    assert.match(String(imageUrl),/^data:image\/jpeg;base64,/u);
-    const encoded=String(imageUrl).slice(String(imageUrl).indexOf(',')+1);
-    const imageBytes=Buffer.from(encoded,'base64');
+    assert.equal(content.length,1);
+    assert.equal(JSON.stringify(providerRequest.body).includes(';base64,'),false);
+    const attachment=providerRequest.attachment;
+    assert.ok(attachment);
+    assert.equal(attachment.name,'test.jpg');
+    assert.equal(attachment.type,'image/jpeg');
+    const imageBytes=attachment.bytes;
     assert.deepEqual([...imageBytes.subarray(0,2)],[0xff,0xd8]);
     assert.deepEqual([...imageBytes.subarray(-2)],[0xff,0xd9]);
     const {height,width}=readJpegDimensions(imageBytes);

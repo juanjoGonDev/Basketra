@@ -111,12 +111,13 @@ function updateUptime() {
 }
 
 async function requestJson(path, options = {}) {
-  const { onRequestStarted, ...fetchOptions } = options;
+  const { onRequestStarted, method = 'GET', ...fetchOptions } = options;
   const started = performance.now();
   let response;
   try {
     const request = fetch(path, {
       ...fetchOptions,
+      method,
       headers: {
         ...(fetchOptions.body ? { 'content-type': 'application/json' } : {}),
         ...(fetchOptions.headers || {}),
@@ -149,7 +150,7 @@ async function requestJson(path, options = {}) {
     emitClientLog({
       event: 'client.api_error',
       level: response.status >= 500 ? 'error' : 'warn',
-      method: fetchOptions.method || 'GET',
+      method,
       path: new URL(path, location.origin).pathname,
       status: response.status,
       durationMs: Math.round(performance.now() - started),
