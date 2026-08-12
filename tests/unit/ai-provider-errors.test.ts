@@ -245,24 +245,24 @@ test('provider capability probe verifies authenticated image OCR structured outp
   assert.equal(text['type'], 'string');
 });
 
-test('provider capability probe rejects a response that did not satisfy the probe contract', async () => {
-  const provider = new OpenAiCompatibleProvider({
-    baseUrl: new URL('http://provider.test/v1/'),
-    model: 'test-model',
-  }, (async () => new Response(JSON.stringify({
-    choices: [{
-      message: {
-        content: JSON.stringify({
-          image: { format: 'jpg', text: 'WRONG OCR TEXT' },
-        }),
-      },
-    }],
-  }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch);
+test('provider capability probe separates malformed transport, invalid JSON, and wrong OCR text', async () => {
+  const cases: ReadonlyArray<readonly [string, string, AiProviderError['code']]> = [
+    ['not json', 'AI_MALFORMED_PROVIDER_RESPONSE', 'AI_MALFORMED_PROVIDER_RESPONSE'],
+    [JSON.stringify({ choices: [{ message: { content: 'not json' } }] }), 'AI_INVALID_STRUCTURED_OUTPUT', 'AI_INVALID_STRUCTURED_OUTPUT'],
+    [JSON.stringify({ choices: [{ message: { content: JSON.stringify({ image: { format: 'jpg', text: 'WRONG OCR TEXT' } }) } }] }), 'AI_PROBE_TEXT_MISMATCH', 'AI_PROBE_TEXT_MISMATCH'],
+  ];
 
-  await assert.rejects(
-    () => provider.testConnection(),
-    (error: unknown) => error instanceof AiProviderError && error.code === 'AI_INVALID_RESPONSE',
-  );
+  for (const [body, _description, code] of cases) {
+    const provider = new OpenAiCompatibleProvider({
+      baseUrl: new URL('http://provider.test/v1/'),
+      model: 'test-model',
+    }, (async () => new Response(body, { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch);
+
+    await assert.rejects(
+      () => provider.testConnection(),
+      (error: unknown) => error instanceof AiProviderError && error.code === code,
+    );
+  }
 });
 
 test('structured executor does not retry deterministic provider rejection', async () => {

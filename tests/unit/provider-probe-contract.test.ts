@@ -103,7 +103,7 @@ test('provider OCR probe rejects non-object nested image payloads', async () => 
     await assert.rejects(
       () => provider.testConnection(),
       (error: unknown) =>
-        error instanceof AiProviderError && error.code === 'AI_INVALID_RESPONSE',
+        error instanceof AiProviderError && error.code === 'AI_INVALID_STRUCTURED_OUTPUT',
     );
   }
 });

@@ -28,7 +28,10 @@ export type AiProviderErrorCode =
   | 'AI_EMPTY_RESPONSE'
   | 'AI_IMAGE_CAPABILITY_UNAVAILABLE'
   | 'AI_INVALID_RESPONSE'
+  | 'AI_INVALID_STRUCTURED_OUTPUT'
+  | 'AI_MALFORMED_PROVIDER_RESPONSE'
   | 'AI_PDF_CAPABILITY_UNAVAILABLE'
+  | 'AI_PROBE_TEXT_MISMATCH'
   | 'AI_PROVIDER_FAILED'
   | 'AI_RATE_LIMITED'
   | 'AI_REQUEST_REJECTED'
@@ -325,8 +328,9 @@ export class OpenAiCompatibleProvider implements AiProvider {
       ...(signal ? { signal } : {}),
     });
 
-    if (!isSuccessfulProviderProbe(result)) {
-      throw new AiProviderError('AI_INVALID_RESPONSE');
+    const probeFailure = providerProbeFailure(result);
+    if (probeFailure) {
+      throw new AiProviderError(probeFailure);
     }
 
     return {
@@ -363,10 +367,17 @@ export class OpenAiCompatibleProvider implements AiProvider {
       }
       const responseText = await readResponseText(response, this.#maxResponseBytes);
       if (!responseText) throw new AiProviderError('AI_EMPTY_RESPONSE', { retryable: true });
-      const body = parseProviderJson(responseText) as { choices?: Array<{ message?: { content?: string } }> };
+      const isCapabilityProbe = input.operation === 'provider-capability-probe';
+      const body = parseProviderJson(
+        responseText,
+        isCapabilityProbe ? 'AI_MALFORMED_PROVIDER_RESPONSE' : 'AI_INVALID_RESPONSE',
+      ) as { choices?: Array<{ message?: { content?: string } }> };
       const content = body.choices?.[0]?.message?.content;
       if (!content) throw new AiProviderError('AI_EMPTY_RESPONSE', { retryable: true });
-      return parseProviderJson(content);
+      return parseProviderJson(
+        content,
+        isCapabilityProbe ? 'AI_INVALID_STRUCTURED_OUTPUT' : 'AI_INVALID_RESPONSE',
+      );
     } catch (error) {
       if (input.signal?.aborted) throw new DOMException('The AI operation was aborted', 'AbortError');
       if (error instanceof AiProviderError) throw error;
@@ -582,24 +593,23 @@ function readPositiveInteger(value: unknown): number {
   return value as number;
 }
 
-function isSuccessfulProviderProbe(value: unknown): boolean {
+function providerProbeFailure(value: unknown): AiProviderErrorCode | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return false;
+    return 'AI_INVALID_STRUCTURED_OUTPUT';
   }
 
   const record = value as Record<string, unknown>;
-  if (Object.keys(record).length !== 1) return false;
+  if (Object.keys(record).length !== 1) return 'AI_INVALID_STRUCTURED_OUTPUT';
   const image = record['image'];
   if (typeof image !== 'object' || image === null || Array.isArray(image)) {
-    return false;
+    return 'AI_INVALID_STRUCTURED_OUTPUT';
   }
 
   const imageRecord = image as Record<string, unknown>;
-  return (
-    Object.keys(imageRecord).length === 2 &&
-    imageRecord['format'] === PROVIDER_PROBE_FORMAT &&
-    imageRecord['text'] === PROVIDER_PROBE_TEXT
-  );
+  if (Object.keys(imageRecord).length !== 2 || imageRecord['format'] !== PROVIDER_PROBE_FORMAT) {
+    return 'AI_INVALID_STRUCTURED_OUTPUT';
+  }
+  return imageRecord['text'] === PROVIDER_PROBE_TEXT ? undefined : 'AI_PROBE_TEXT_MISMATCH';
 }
 
 function mapProviderHttpError(status: number, metadata?: ProviderErrorMetadata): AiProviderError {
@@ -631,11 +641,11 @@ function mapProviderHttpError(status: number, metadata?: ProviderErrorMetadata):
   return new AiProviderError('AI_REQUEST_REJECTED', { status });
 }
 
-function parseProviderJson(value: string): unknown {
+function parseProviderJson(value: string, errorCode: AiProviderErrorCode): unknown {
   try {
     return JSON.parse(value) as unknown;
   } catch {
-    throw new AiProviderError('AI_INVALID_RESPONSE', { retryable: true });
+    throw new AiProviderError(errorCode, { retryable: true });
   }
 }
 

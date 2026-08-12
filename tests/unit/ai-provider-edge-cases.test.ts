@@ -193,7 +193,7 @@ test('provider capability probe rejects non-object and non-exact contracts', asy
     }));
     await assert.rejects(
       () => candidate.testConnection(),
-      (error: unknown) => error instanceof AiProviderError && error.code === 'AI_INVALID_RESPONSE',
+      (error: unknown) => error instanceof AiProviderError && error.code === 'AI_INVALID_STRUCTURED_OUTPUT',
     );
   }
 });
