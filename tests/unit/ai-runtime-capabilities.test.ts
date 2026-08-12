@@ -124,6 +124,13 @@ test('provider applies runtime byte limits and degrades unusable capability resp
       requests: { maxJsonBodyBytes: 1 },
     }), { status: 200 }),
     new Response('null', { status: 200, headers: { 'content-length': 'not-a-number' } }),
+    new Response('[]', { status: 200, headers: { 'content-length': '2' } }),
+    new Response(runtimeCapabilityBody(), { status: 200 }),
+    new Response(JSON.stringify({
+      attachments: { maxCount: 'one', maxFileBytes: 1, maxImageBytes: 1, maxSpreadsheetBytes: 1, maxUploadsPerThreeHours: 1 },
+      execution: { replyInactivityTimeoutMs: 1 },
+      requests: { maxJsonBodyBytes: 1 },
+    }), { status: 200 }),
   ];
   let completions = 0;
   const fetchImplementation = (async (_url, init) => {
@@ -151,7 +158,13 @@ test('provider applies runtime byte limits and degrades unusable capability resp
     ],
   }), /AI_ATTACHMENT_TOO_LARGE/);
   assert.deepEqual(await provider.executeStructured({ ...input, content: 'fallback after malformed capability document' }), { value: 'ok' });
-  assert.equal(completions, 3);
+  assert.deepEqual(await provider.executeStructured({ ...input, content: 'fallback after non-object capability document' }), { value: 'ok' });
+  assert.deepEqual(await provider.executeStructured({
+    ...input,
+    content: [{ type: 'image_url', image_url: { url: 'not-a-data-url' } }],
+  }), { value: 'ok' });
+  assert.deepEqual(await provider.executeStructured({ ...input, content: 'fallback after non-number capability field' }), { value: 'ok' });
+  assert.equal(completions, 6);
 });
 
 test('provider preserves invalid attachment metadata and moves valid files to multipart', async () => {
