@@ -15,39 +15,64 @@ const ocrText = 'ALCAMPO ALMERIA\n6 x ,89\nC.LADRON MANZAN 5,34 A\nTOT 202,26\nN
 test('receipt page verification crosses the real OpenAI-compatible provider with OCR and original attachments', async () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-openai-receipt-'));
   const apiKey = `fixture-${process.pid}-${Date.now()}`;
-  const requests: Array<Record<string, unknown>> = [];
+  const requests: Array<Readonly<{
+    body: Record<string, unknown>;
+    files: ReadonlyArray<Readonly<{ name: string; type: string; bytes: Buffer }>>;
+  }>> = [];
+  let providerError: unknown;
   const providerServer = createServer(async (request, response) => {
-    assert.equal(request.method, 'POST');
-    assert.equal(request.url, '/v1/chat/completions');
-    assert.equal(request.headers.authorization, `Bearer ${apiKey}`);
-    const chunks: Uint8Array[] = [];
-    for await (const chunk of request) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
-    const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
-    requests.push(body);
-    response.writeHead(200, { 'content-type': 'application/json' });
-    response.end(JSON.stringify({
-      choices: [{
-        message: {
-          content: JSON.stringify({
-            retailerName: 'ALCAMPO ALMERIA',
-            declaredTotalMinor: 20_226,
-            articleCount: 88,
-            currency: 'EUR',
-            correctedText: '6 x ,89\nC.LADRON MANZAN 5,34 A\nTOT 202,26',
-            items: [{
-              description: 'C.LADRON MANZAN',
-              quantity: 6,
-              unitPriceMinor: 89,
-              lineTotalMinor: 534,
-              taxCategory: 'A',
-              confidence: 0.94,
-              sourceLines: [2, 3],
-            }],
-            warnings: [],
-          }),
-        },
-      }],
-    }));
+    try {
+      if (request.method === 'GET') {
+        assert.equal(request.url, '/v1/capabilities');
+        response.writeHead(404, { 'content-type': 'application/json' });
+        response.end('{}');
+        return;
+      }
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v1/chat/completions');
+      assert.equal(request.headers.authorization, `Bearer ${apiKey}`);
+      const chunks: Uint8Array[] = [];
+      for await (const chunk of request) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+      const contentType = request.headers['content-type'];
+      assert.equal(typeof contentType, 'string');
+      const form = await new Response(Buffer.concat(chunks), { headers: { 'content-type': contentType } }).formData();
+      const metadata = form.get('request');
+      assert.equal(typeof metadata, 'string');
+      const files = await Promise.all(form.getAll('files').map(async (file) => {
+        assert.notEqual(typeof file, 'string');
+        if (typeof file === 'string') throw new Error('missing receipt attachment');
+        return { name: file.name, type: file.type, bytes: Buffer.from(await file.arrayBuffer()) };
+      }));
+      requests.push({ body: JSON.parse(metadata), files });
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              retailerName: 'ALCAMPO ALMERIA',
+              declaredTotalMinor: 20_226,
+              articleCount: 88,
+              currency: 'EUR',
+              correctedText: '6 x ,89\nC.LADRON MANZAN 5,34 A\nTOT 202,26',
+              items: [{
+                description: 'C.LADRON MANZAN',
+                quantity: 6,
+                unitPriceMinor: 89,
+                lineTotalMinor: 534,
+                taxCategory: 'A',
+                confidence: 0.94,
+                sourceLines: [2, 3],
+              }],
+              warnings: [],
+            }),
+          },
+        }],
+      }));
+    } catch (error) {
+      providerError = error;
+      response.writeHead(500, { 'content-type': 'application/json' });
+      response.end('{}');
+    }
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -88,13 +113,14 @@ test('receipt page verification crosses the real OpenAI-compatible provider with
     }));
 
     assert.equal(requests.length, 2);
+    assert.ifError(providerError);
     const imageRequest = requests[0];
     const pdfRequest = requests[1];
-    assert.equal(imageRequest?.['model'], 'gpt-5');
-    assert.equal(pdfRequest?.['model'], 'gpt-5');
+    assert.equal(imageRequest?.body['model'], 'gpt-5');
+    assert.equal(pdfRequest?.body['model'], 'gpt-5');
 
-    const imageMessages = imageRequest?.['messages'] as Array<{ role: string; content: unknown }>;
-    const pdfMessages = pdfRequest?.['messages'] as Array<{ role: string; content: unknown }>;
+    const imageMessages = imageRequest?.body['messages'] as Array<{ role: string; content: unknown }>;
+    const pdfMessages = pdfRequest?.body['messages'] as Array<{ role: string; content: unknown }>;
     assert.equal(imageMessages[0]?.role, 'system');
     assert.equal(imageMessages[1]?.role, 'user');
     assert.equal(pdfMessages[0]?.role, 'system');
@@ -103,21 +129,22 @@ test('receipt page verification crosses the real OpenAI-compatible provider with
     const serializedImageContent = JSON.stringify(imageMessages[1]?.content);
     assert.match(serializedImageContent, /Numbered OCR transcription/u);
     assert.match(serializedImageContent, /1: ALCAMPO ALMERIA/u);
-    assert.match(serializedImageContent, /"type":"image_url"/u);
-    assert.match(serializedImageContent, /data:image\/png;base64,/u);
+    assert.doesNotMatch(serializedImageContent, /data:/u);
+    assert.deepEqual(imageRequest?.files.map(({ name, type }) => ({ name, type })), [{ name: 'alcampo-page-1.png', type: 'image/png' }]);
+    assert.deepEqual([...imageRequest?.files[0]!.bytes ?? []], [0x89, 0x50, 0x4e, 0x47, 0x00]);
 
     const serializedPdfContent = JSON.stringify(pdfMessages[1]?.content);
     assert.match(serializedPdfContent, /Numbered OCR transcription/u);
     assert.match(serializedPdfContent, /1: ALCAMPO ALMERIA/u);
-    assert.match(serializedPdfContent, /"type":"file"/u);
-    assert.match(serializedPdfContent, /"filename":"alcampo-page-1.pdf"/u);
-    assert.match(serializedPdfContent, /data:application\/pdf;base64,/u);
+    assert.doesNotMatch(serializedPdfContent, /data:/u);
+    assert.deepEqual(pdfRequest?.files.map(({ name, type }) => ({ name, type })), [{ name: 'alcampo-page-1.pdf', type: 'application/pdf' }]);
+    assert.match(pdfRequest?.files[0]!.bytes.toString('utf8') ?? '', /^%PDF-1\.4/u);
 
     assert.doesNotMatch(JSON.stringify([imageMessages, pdfMessages]), /storageKey/u);
     assert.doesNotMatch(JSON.stringify([imageMessages, pdfMessages]), new RegExp(apiKey, 'u'));
 
     for (const request of requests) {
-      const responseFormat = request['response_format'] as {
+      const responseFormat = request.body['response_format'] as {
         type?: string;
         json_schema?: { strict?: boolean; schema?: { required?: string[] } };
       };
