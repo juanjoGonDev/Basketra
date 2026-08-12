@@ -205,7 +205,6 @@ For a provider listening on the Raspberry host at port 3001:
 BASKETRA_AI_BASE_URL=http://host.docker.internal:3001/v1/
 BASKETRA_AI_API_KEY=<managed-webapi-token>
 BASKETRA_AI_MODEL=default
-BASKETRA_AI_TIMEOUT_MS=30000
 BASKETRA_AI_MAX_RETRIES=1
 BASKETRA_AI_IMAGE_CAPABILITY=true
 BASKETRA_AI_PDF_CAPABILITY=false
@@ -213,7 +212,32 @@ BASKETRA_AI_PDF_CAPABILITY=false
 
 When the provider is webApi, create a database-backed managed token from webApi `/admin` and copy its one-time value into `BASKETRA_AI_API_KEY`. The removed webApi `API_KEY` environment variable is not supported and must not be recreated. Basketra masks the configured token in Settings and never sends it to the browser.
 
-The Settings action executes one bounded `POST /v1/chat/completions` request through Basketra's canonical provider client. It attaches a synthetic PNG with no receipt or user data, requires strict JSON Schema output, validates the parsed result, and does not retry. A successful `GET /v1/models` response is not treated as proof that authentication, image attachment, composer readiness, model routing, or Structured Outputs work together.
+### AI connectivity check
+
+The Settings action is a real end-to-end provider check, not a health check. It sends one `POST /v1/chat/completions` request through Basketra's canonical provider client. For webApi, the request is `multipart/form-data`: a JSON `request` field contains the OpenAI-compatible model, messages, and strict response schema, while exactly one `files` part contains the checked-in JPEG bytes. The image is a compact, non-user fixture named `test.jpg`; its filename and prompt do not disclose the text the model must read.
+
+Basketra builds the multipart request from the fixture's binary bytes. It does not put a base64 or data URL copy in the JSON field, set a competing `Content-Type`, or configure a separate attachment-size limit. The fetch runtime supplies the multipart boundary and framing. When webApi exposes `/v1/capabilities`, Basketra checks that endpoint's attachment and request budgets before uploading; webApi remains authoritative for validation and limits.
+
+The provider must return the requested strict JSON object and the image text must match the visible fixture text exactly. Therefore a successful provider discovery or `GET /v1/models` response is not proof that authentication, binary attachment handling, model routing, image processing, and structured output work together.
+
+There is no `BASKETRA_AI_TIMEOUT_MS` setting. Basketra does not impose a wall-clock timeout on AI inference: the provider/upstream owns that deadline. An abandoned browser request is still cancelled, and the manual connectivity check does not retry automatically.
+
+Settings reports safe, actionable outcomes without showing credentials, headers, image data, or raw provider responses. It distinguishes missing configuration, Docker-loopback configuration, connection failure, provider timeout, authentication failure, attachment-size or upload failure, request/schema rejection, rate limiting, invalid or empty structured output, oversized response, and provider failure. A failed check preserves the configured values and can be retried manually.
+
+### Test levels
+
+The repository's normal test suite is deterministic and uses a local mock provider; it does not call a live AI service. Run the focused provider contracts with:
+
+```bash
+node --experimental-strip-types --test \
+  tests/unit/ai-provider-errors.test.ts \
+  tests/unit/ai-runtime-capabilities.test.ts \
+  tests/unit/provider-probe-contract.test.ts
+pnpm test:integration
+pnpm quality
+```
+
+There is no unattended live-provider smoke command or required CI job. To perform the optional live check, configure a private webApi-compatible provider in the deployment environment, recreate Basketra, then use **Test AI provider** in Settings. Treat that manual result as operational evidence only; do not add credentials or live-provider calls to CI.
 
 `127.0.0.1` inside the Basketra container refers to Basketra itself, not to the Raspberry host. `compose.raspberry.yml` maps `host.docker.internal` to Docker's host gateway. After changing `.env`, validate and recreate the service so Docker injects the new values:
 

@@ -71,7 +71,6 @@ Inside the Basketra container, `127.0.0.1` means the Basketra container itself. 
 BASKETRA_AI_BASE_URL=http://host.docker.internal:3001/v1/
 BASKETRA_AI_API_KEY=<managed-webapi-token>
 BASKETRA_AI_MODEL=default
-BASKETRA_AI_TIMEOUT_MS=30000
 BASKETRA_AI_MAX_RETRIES=1
 BASKETRA_AI_IMAGE_CAPABILITY=true
 BASKETRA_AI_PDF_CAPABILITY=false
@@ -91,7 +90,15 @@ docker compose -f compose.raspberry.yml ps
 
 Do not use `docker inspect` formats that dump the full environment. The Basketra Settings page shows whether configuration is missing, loaded with a Docker-loopback error, unreachable, rejected by authentication, rejected while preparing an image, or unable to satisfy strict structured output. It returns only the provider URL, model, capabilities, and an optional last-four mask; it never returns the token.
 
-The Settings verification action performs one manual, bounded `POST /v1/chat/completions` request through Basketra's canonical provider client. It sends a synthetic PNG without receipt or user data, requires strict JSON Schema output, validates the parsed result, and does not retry. A successful `GET /v1/models` call does not prove that the managed token, image attachment, composer readiness, selected model, and Structured Outputs work together.
+The Settings verification action performs one manual `POST /v1/chat/completions` request through Basketra's canonical provider client. For webApi, it sends `multipart/form-data`: the `request` field holds the OpenAI-compatible JSON request and strict response schema, and one `files` part holds a compact repository-owned JPEG fixture. The generic filename is `test.jpg`; neither the filename nor the prompt reveals the text the provider must read. Basketra sends the JPEG binary once, without a base64/data-URL duplicate in request JSON, and lets the fetch runtime generate multipart framing.
+
+The provider must both process the image and return the requested strict JSON object with the expected visible text. A successful `GET /v1/models` call therefore does not prove that the managed token, binary attachment transport, composer readiness, selected model, image processing, and Structured Outputs work together.
+
+`BASKETRA_AI_TIMEOUT_MS` is not a supported setting. Basketra does not apply an inference wall-clock timeout; webApi/the upstream provider owns that timeout. A browser-disconnected request is still cancelled and the manual test does not retry automatically.
+
+The Settings result is safe to share only as its stable outcome code. It distinguishes missing configuration, container-loopback configuration, unreachable provider, authentication failure, provider timeout, attachment too large, attachment upload failure, request/schema rejection, rate limiting, invalid or empty structured output, response too large, and provider failure. It never returns the managed token, request headers, fixture bytes, or raw provider response. Correct the configuration or provider condition and run the manual check again.
+
+Deterministic repository checks use a local mock provider; no required CI job contacts a live AI service. There is no unattended live-provider smoke command. After configuring a private provider and recreating the container, use **Test AI provider** in Settings as the optional operational smoke check. Do not put a real token or live-provider invocation in CI.
 
 After a credential has appeared in chat, screenshots, shell history, or logs, revoke and replace it before restarting the service.
 
