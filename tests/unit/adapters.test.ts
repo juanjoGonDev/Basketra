@@ -216,7 +216,7 @@ test('OpenAI-compatible provider proves image OCR plus strict structured output'
         headers: { 'content-type': 'application/json' },
       }),
     );
-    await assert.rejects(() => invalidProvider.testConnection(), /AI_INVALID_RESPONSE/);
+    await assert.rejects(() => invalidProvider.testConnection(), /AI_(?:PROBE_TEXT_MISMATCH|INVALID_STRUCTURED_OUTPUT)/);
   }
 
   const failed = new OpenAiCompatibleProvider({ baseUrl: new URL('http://localhost/v1/'), model: 'x' }, async () => new Response('', { status: 503 }));

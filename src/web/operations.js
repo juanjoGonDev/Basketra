@@ -129,7 +129,7 @@ async function requestJson(path, options = {}) {
     emitClientLog({
       event: 'client.network_error',
       level: 'error',
-      method: fetchOptions.method || 'GET',
+      method: options.method || 'GET',
       path: new URL(path, location.origin).pathname,
       durationMs: Math.round(performance.now() - started),
       code: 'NETWORK_ERROR',
@@ -210,7 +210,6 @@ function aiTestIsRunning() {
 function renderAiTestStatus(lifecycle, message) {
   const status = $('#ai-test-state');
   const button = $('#test-ai-provider');
-  if (!status || !button) return;
   status.dataset.state = lifecycle;
   status.textContent = message;
   const running = aiTestIsRunning();
@@ -489,10 +488,8 @@ async function testAiProvider() {
   renderAiTestStatus('preparing', 'Preparando la imagen sintética y la prueba de esquema estricto…');
   try {
     await Promise.resolve();
-    if (generation !== state.aiTestGeneration) return;
     renderAiTestStatus('uploading', `Enviando una imagen sintética a POST ${probe} y validando el esquema estricto…`);
     await Promise.resolve();
-    if (generation !== state.aiTestGeneration) return;
     const result = await requestJson('/api/v1/settings/ai-provider/test', {
       method: 'POST',
       signal: controller.signal,
@@ -502,7 +499,6 @@ async function testAiProvider() {
         }
       },
     });
-    if (generation !== state.aiTestGeneration) return;
     if (result?.connection?.ok === true && result.connection.imageStructuredOutput === true) {
       renderAiTestStatus('success', `Capacidad verificada: autenticación, modelo, adjunto de imagen y salida estructurada estricta funcionan en ${probe}.`);
       return;
