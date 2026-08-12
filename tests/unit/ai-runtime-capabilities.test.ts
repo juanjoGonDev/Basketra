@@ -118,6 +118,7 @@ test('provider applies runtime byte limits and degrades unusable capability resp
     new Response(new ReadableStream({ start(controller) { controller.enqueue(Buffer.alloc(33 * 1024)); controller.close(); } }), { status: 200 }),
     new Response(runtimeCapabilityBody({ maxFileBytes: 4 }), { status: 200 }),
     new Response(runtimeCapabilityBody({ maxCount: 1 }), { status: 200 }),
+    new Response('null', { status: 200, headers: { 'content-length': 'not-a-number' } }),
   ];
   let completions = 0;
   const fetchImplementation = (async (_url, init) => {
@@ -144,7 +145,8 @@ test('provider applies runtime byte limits and degrades unusable capability resp
       { type: 'image_url', image_url: { url: imageDataUrl } },
     ],
   }), /AI_ATTACHMENT_TOO_LARGE/);
-  assert.equal(completions, 2);
+  assert.deepEqual(await provider.executeStructured({ ...input, content: 'fallback after malformed capability document' }), { value: 'ok' });
+  assert.equal(completions, 3);
 });
 
 test('provider preserves invalid attachment metadata and moves valid files to multipart', async () => {
@@ -166,6 +168,8 @@ test('provider preserves invalid attachment metadata and moves valid files to mu
       { type: 'image_url', image_url: { url: 'https://provider.test/external.png' } },
       { type: 'file', file: { filename: 'external.pdf', file_data: 'https://provider.test/external.pdf' } },
       { type: 'file', file: { filename: '', file_data: `data:application/pdf;base64,${Buffer.from('%PDF').toString('base64')}` } },
+      { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${Buffer.from('jpg').toString('base64')}` } },
+      { type: 'file', file: { filename: '', file_data: `data:application/octet-stream;base64,${Buffer.from('bin').toString('base64')}` } },
     ],
   }), { value: 'ok' });
   assert.ok(modelRequest);
@@ -173,10 +177,10 @@ test('provider preserves invalid attachment metadata and moves valid files to mu
   const metadata = JSON.parse(String(form.get('request'))) as { messages: Array<{ content: unknown }> };
   assert.equal(JSON.stringify(metadata.messages[1]?.content).includes('external.png'), true);
   assert.equal(JSON.stringify(metadata.messages[1]?.content).includes('external.pdf'), true);
-  const file = form.get('files');
-  assert.notEqual(file, null);
-  assert.notEqual(typeof file, 'string');
-  if (file === null || typeof file === 'string') throw new Error('missing multipart file');
-  assert.equal(file.name, 'attachment-3.pdf');
-  assert.equal(file.type, 'application/pdf');
+  const files = form.getAll('files');
+  assert.deepEqual(files.map(file => typeof file === 'string' ? file : `${file.name}:${file.type}`), [
+    'attachment-3.pdf:application/pdf',
+    'attachment-4.jpg:image/jpeg',
+    'attachment-5.bin:application/octet-stream',
+  ]);
 });

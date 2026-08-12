@@ -167,7 +167,7 @@ export class OperationsGateway {
 
   async close(): Promise<void> {
     this.#startupProbeController?.abort();
-    await this.#startupProbePromise?.catch(() => undefined);
+    await this.#startupProbePromise;
     await new Promise<void>((resolvePromise, reject) => this.#server.close((error) => error ? reject(error) : resolvePromise()));
     this.#probeStore.close();
     await this.#inner.close();
@@ -308,7 +308,7 @@ export class OperationsGateway {
           message: outcome.message,
           ...(outcome.missing ? { missing: outcome.missing } : {}),
         },
-        lastCheck: this.#probeStore.latest() ?? null,
+        lastCheck: this.#probeStore.latest(),
       }, requestId);
     } finally {
       request.off('aborted', onAborted);
@@ -360,10 +360,8 @@ export class OperationsGateway {
       const connection = await provider.testConnection(signal);
       const successfulConnection = {
         ok: true as const,
-        ...(connection.model ? { model: connection.model } : {}),
-        ...(connection.imageStructuredOutput === undefined
-          ? {}
-          : { imageStructuredOutput: connection.imageStructuredOutput }),
+        model: connection.model!,
+        imageStructuredOutput: connection.imageStructuredOutput!,
       };
       this.#probeStore.recordSuccess(trigger, Date.now() - started, successfulConnection);
       this.#logStore.append({
