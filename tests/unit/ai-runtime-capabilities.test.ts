@@ -38,6 +38,25 @@ function capabilityBody(maxImageBytes: number): string {
   });
 }
 
+function runtimeCapabilityBody(overrides: Readonly<{
+  maxCount?: number;
+  maxFileBytes?: number;
+  maxImageBytes?: number;
+  maxJsonBodyBytes?: number;
+}> = {}): string {
+  return JSON.stringify({
+    attachments: {
+      maxCount: overrides.maxCount ?? 10,
+      maxFileBytes: overrides.maxFileBytes ?? 1024 * 1024,
+      maxImageBytes: overrides.maxImageBytes ?? 1024 * 1024,
+      maxSpreadsheetBytes: 1024 * 1024,
+      maxUploadsPerThreeHours: 80,
+    },
+    execution: { replyInactivityTimeoutMs: 120_000 },
+    requests: { maxJsonBodyBytes: overrides.maxJsonBodyBytes ?? 1024 * 1024 },
+  });
+}
+
 function completionResponse(): Response {
   return new Response(JSON.stringify({
     choices: [{ message: { content: '{"value":"ok"}' } }],
@@ -90,4 +109,74 @@ test('provider falls back to provider enforcement when capabilities endpoint is 
 
   assert.deepEqual(await provider.executeStructured(input), { value: 'ok' });
   assert.deepEqual(methods, ['GET /v1/capabilities', 'POST /v1/chat/completions']);
+});
+
+test('provider applies runtime byte limits and degrades unusable capability responses safely', async () => {
+  const capabilityResponses: Response[] = [
+    new Response(runtimeCapabilityBody({ maxJsonBodyBytes: 1 }), { status: 200 }),
+    new Response('', { status: 200, headers: { 'content-length': '9000' } }),
+    new Response(new ReadableStream({ start(controller) { controller.enqueue(Buffer.alloc(33 * 1024)); controller.close(); } }), { status: 200 }),
+    new Response(runtimeCapabilityBody({ maxFileBytes: 4 }), { status: 200 }),
+    new Response(runtimeCapabilityBody({ maxCount: 1 }), { status: 200 }),
+  ];
+  let completions = 0;
+  const fetchImplementation = (async (_url, init) => {
+    if (init?.method === 'GET') return capabilityResponses.shift()!;
+    completions += 1;
+    return completionResponse();
+  }) as typeof fetch;
+  const provider = new OpenAiCompatibleProvider({
+    baseUrl: new URL('http://provider.test/v1/'),
+    model: 'test-model',
+  }, fetchImplementation);
+
+  await assert.rejects(() => provider.executeStructured({ ...input, content: 'small request' }), /AI_ATTACHMENT_TOO_LARGE/);
+  assert.deepEqual(await provider.executeStructured({ ...input, content: 'fallback after declared limit' }), { value: 'ok' });
+  assert.deepEqual(await provider.executeStructured({ ...input, content: 'fallback after streamed limit' }), { value: 'ok' });
+  await assert.rejects(() => provider.executeStructured({
+    ...input,
+    content: [{ type: 'file', file: { filename: 'large.pdf', file_data: `data:application/pdf;base64,${Buffer.from('12345').toString('base64')}` } }],
+  }), /AI_ATTACHMENT_TOO_LARGE/);
+  await assert.rejects(() => provider.executeStructured({
+    ...input,
+    content: [
+      { type: 'image_url', image_url: { url: imageDataUrl } },
+      { type: 'image_url', image_url: { url: imageDataUrl } },
+    ],
+  }), /AI_ATTACHMENT_TOO_LARGE/);
+  assert.equal(completions, 2);
+});
+
+test('provider preserves invalid attachment metadata and moves valid files to multipart', async () => {
+  let modelRequest: Request | undefined;
+  const fetchImplementation = (async (url, init) => {
+    if (new URL(String(url)).pathname.endsWith('/capabilities')) return new Response('{}', { status: 404 });
+    modelRequest = new Request(url, init);
+    return completionResponse();
+  }) as typeof fetch;
+  const provider = new OpenAiCompatibleProvider({
+    baseUrl: new URL('http://provider.test/v1/'),
+    model: 'test-model',
+  }, fetchImplementation);
+
+  assert.deepEqual(await provider.executeStructured({
+    ...input,
+    content: [
+      { type: 'text', text: 'keep text' },
+      { type: 'image_url', image_url: { url: 'https://provider.test/external.png' } },
+      { type: 'file', file: { filename: 'external.pdf', file_data: 'https://provider.test/external.pdf' } },
+      { type: 'file', file: { filename: '', file_data: `data:application/pdf;base64,${Buffer.from('%PDF').toString('base64')}` } },
+    ],
+  }), { value: 'ok' });
+  assert.ok(modelRequest);
+  const form = await modelRequest.formData();
+  const metadata = JSON.parse(String(form.get('request'))) as { messages: Array<{ content: unknown }> };
+  assert.equal(JSON.stringify(metadata.messages[1]?.content).includes('external.png'), true);
+  assert.equal(JSON.stringify(metadata.messages[1]?.content).includes('external.pdf'), true);
+  const file = form.get('files');
+  assert.notEqual(file, null);
+  assert.notEqual(typeof file, 'string');
+  if (file === null || typeof file === 'string') throw new Error('missing multipart file');
+  assert.equal(file.name, 'attachment-3.pdf');
+  assert.equal(file.type, 'application/pdf');
 });

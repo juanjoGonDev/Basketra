@@ -66,6 +66,15 @@ test('operations gateway distinguishes missing and loopback AI configuration',as
       trigger:'startup',
       errorCode:'AI_NOT_CONFIGURED',
     });
+    const missingProbe=await fetch(`${base}/api/v1/settings/ai-provider/test`,{method:'POST'});
+    assert.equal(missingProbe.status,503);
+    assert.deepEqual((await json(missingProbe))['connection'],{
+      ok:false,
+      code:'AI_NOT_CONFIGURED',
+      status:503,
+      message:'AI provider is not configured',
+      missing:['BASKETRA_AI_BASE_URL','BASKETRA_AI_MODEL'],
+    });
     await missing.close();
 
     const loopback=new OperationsGateway(config(directory,{
@@ -88,6 +97,25 @@ test('operations gateway distinguishes missing and loopback AI configuration',as
   }finally{
     if(previousContainer===undefined)delete process.env['BASKETRA_CONTAINER'];
     else process.env['BASKETRA_CONTAINER']=previousContainer;
+    rmSync(directory,{recursive:true,force:true});
+  }
+});
+
+test('operations gateway records unexpected startup probe setup failures without stopping the server',async()=>{
+  const directory=`.test-tmp/gateway-ai-startup-${randomUUID()}`;
+  const gateway=new OperationsGateway(config(directory,{
+    aiBaseUrl:'not-an-absolute-url',
+    aiModel:'default',
+  }));
+  try{
+    await gateway.listen();
+    const base=`http://127.0.0.1:${gateway.address().port}`;
+    const response=await fetch(`${base}/api/v1/logs?limit=50`);
+    assert.equal(response.status,200);
+    const events=(await json(response))['events'] as Array<Record<string,unknown>>;
+    assert.equal(events.some(event=>event['event']==='ai.startup_probe_unexpected_failure'),true);
+  }finally{
+    await gateway.close();
     rmSync(directory,{recursive:true,force:true});
   }
 });
