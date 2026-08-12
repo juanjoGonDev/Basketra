@@ -154,7 +154,7 @@ export class OperationsGateway {
         source: 'server',
         level: 'warn',
         event: 'ai.startup_probe_unexpected_failure',
-        code: error instanceof Error ? error.name.slice(0, 80).toUpperCase() : 'AI_PROVIDER_FAILED',
+        code: String(error).slice(0, 80).toUpperCase(),
       });
     });
   }
@@ -295,7 +295,6 @@ export class OperationsGateway {
 
     try {
       const outcome = await this.runAiProviderProbe('manual', controller.signal, requestId);
-      if (controller.signal.aborted) return;
       if (outcome.ok) {
         this.json(response, 200, { connection: outcome.connection, lastCheck: this.#probeStore.latest() ?? null }, requestId);
         return;

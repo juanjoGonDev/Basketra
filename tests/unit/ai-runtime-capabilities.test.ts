@@ -118,6 +118,11 @@ test('provider applies runtime byte limits and degrades unusable capability resp
     new Response(new ReadableStream({ start(controller) { controller.enqueue(Buffer.alloc(33 * 1024)); controller.close(); } }), { status: 200 }),
     new Response(runtimeCapabilityBody({ maxFileBytes: 4 }), { status: 200 }),
     new Response(runtimeCapabilityBody({ maxCount: 1 }), { status: 200 }),
+    new Response(JSON.stringify({
+      attachments: { maxCount: 1.5, maxFileBytes: 1, maxImageBytes: 1, maxSpreadsheetBytes: 1, maxUploadsPerThreeHours: 1 },
+      execution: { replyInactivityTimeoutMs: 1 },
+      requests: { maxJsonBodyBytes: 1 },
+    }), { status: 200 }),
     new Response('null', { status: 200, headers: { 'content-length': 'not-a-number' } }),
   ];
   let completions = 0;
@@ -165,6 +170,7 @@ test('provider preserves invalid attachment metadata and moves valid files to mu
     ...input,
     content: [
       { type: 'text', text: 'keep text' },
+      { type: 'image_url', image_url: { url: 'not-a-data-url' } },
       { type: 'image_url', image_url: { url: 'https://provider.test/external.png' } },
       { type: 'file', file: { filename: 'external.pdf', file_data: 'https://provider.test/external.pdf' } },
       { type: 'file', file: { filename: '', file_data: `data:application/pdf;base64,${Buffer.from('%PDF').toString('base64')}` } },
@@ -179,8 +185,8 @@ test('provider preserves invalid attachment metadata and moves valid files to mu
   assert.equal(JSON.stringify(metadata.messages[1]?.content).includes('external.pdf'), true);
   const files = form.getAll('files');
   assert.deepEqual(files.map(file => typeof file === 'string' ? file : `${file.name}:${file.type}`), [
-    'attachment-3.pdf:application/pdf',
-    'attachment-4.jpg:image/jpeg',
-    'attachment-5.bin:application/octet-stream',
+    'attachment-4.pdf:application/pdf',
+    'attachment-5.jpg:image/jpeg',
+    'attachment-6.bin:application/octet-stream',
   ]);
 });
