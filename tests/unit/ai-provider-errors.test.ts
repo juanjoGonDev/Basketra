@@ -68,6 +68,13 @@ function asArray(value: unknown): unknown[] {
   return value;
 }
 
+async function readProviderRequestBody(request: Request): Promise<Record<string, unknown>> {
+  const form = await request.clone().formData();
+  const metadata = form.get('request');
+  assert.equal(typeof metadata, 'string');
+  return asRecord(JSON.parse(metadata));
+}
+
 test('OpenAI-compatible provider classifies attachment rejection without leaking its body', async () => {
   const provider = providerWithResponse(413, JSON.stringify({
     error: {
@@ -148,7 +155,9 @@ test('OpenAI-compatible provider forwards only a validated correlation identifie
     baseUrl: new URL('http://provider.test/v1/'),
     model: 'test-model',
   }, (async (input, init) => {
-    requests.push(new Request(input, init));
+    const request = new Request(input, init);
+    if (request.method === 'GET') return new Response('{}', { status: 404 });
+    requests.push(request);
     return new Response(JSON.stringify({
       choices: [{ message: { content: '{"value":"ok"}' } }],
     }), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -161,7 +170,7 @@ test('OpenAI-compatible provider forwards only a validated correlation identifie
   assert.equal(requests[1]?.headers.get('x-client-request-id'), null);
 });
 
-test('provider capability probe verifies authenticated image OCR structured output in one request', async () => {
+test('provider capability probe verifies authenticated image OCR structured output in one model request', async () => {
   const requests: Request[] = [];
   const managedTokenFixture = ['managed', 'webapi', 'token'].join('-');
   const provider = new OpenAiCompatibleProvider({
@@ -169,7 +178,12 @@ test('provider capability probe verifies authenticated image OCR structured outp
     apiKey: managedTokenFixture,
     model: 'test-model',
   }, (async (input, init) => {
-    requests.push(new Request(input, init));
+    const request = new Request(input, init);
+    if (request.method === 'GET') {
+      assert.equal(request.headers.get('authorization'), `Bearer ${managedTokenFixture}`);
+      return new Response('{}', { status: 404 });
+    }
+    requests.push(request);
     return new Response(JSON.stringify({
       choices: [{
         message: {
@@ -196,7 +210,8 @@ test('provider capability probe verifies authenticated image OCR structured outp
   assert.equal(request.headers.get('authorization'), `Bearer ${managedTokenFixture}`);
   assert.match(request.headers.get('x-client-request-id') ?? '', /^provider-probe:[0-9a-f-]{36}$/u);
 
-  const body = asRecord(await request.json());
+  assert.match(request.headers.get('content-type') ?? '', /^multipart\/form-data; boundary=/u);
+  const body = await readProviderRequestBody(request);
   assert.equal(body['model'], 'test-model');
   const messages = asArray(body['messages']);
   assert.equal(messages.length, 2);
@@ -204,11 +219,15 @@ test('provider capability probe verifies authenticated image OCR structured outp
   const userMessage = asRecord(messages[1]);
   const content = asArray(userMessage['content']);
   assert.equal(String(asRecord(content[0])['text']).includes(PROVIDER_PROBE_VISIBLE_TEXT), false);
-  const imagePart = asRecord(content[1]);
-  const image = asRecord(imagePart['image_url']);
-  assert.equal(imagePart['type'], 'image_url');
-  assert.equal(imagePart['filename'], 'test.jpg');
-  assert.match(String(image['url']), /^data:image\/jpeg;base64,/u);
+  assert.equal(content.length, 1);
+  assert.equal(JSON.stringify(body).includes(';base64,'), false);
+  const form = await request.clone().formData();
+  const image = form.get('files');
+  assert.notEqual(image, null);
+  assert.notEqual(typeof image, 'string');
+  if (image === null || typeof image === 'string') throw new Error('missing provider probe attachment');
+  assert.equal(image.name, 'test.jpg');
+  assert.equal(image.type, 'image/jpeg');
 
   const responseFormat = asRecord(body['response_format']);
   const schemaEnvelope = asRecord(responseFormat['json_schema']);
@@ -226,24 +245,24 @@ test('provider capability probe verifies authenticated image OCR structured outp
   assert.equal(text['type'], 'string');
 });
 
-test('provider capability probe rejects a response that did not satisfy the probe contract', async () => {
-  const provider = new OpenAiCompatibleProvider({
-    baseUrl: new URL('http://provider.test/v1/'),
-    model: 'test-model',
-  }, (async () => new Response(JSON.stringify({
-    choices: [{
-      message: {
-        content: JSON.stringify({
-          image: { format: 'jpg', text: 'WRONG OCR TEXT' },
-        }),
-      },
-    }],
-  }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch);
+test('provider capability probe separates malformed transport, invalid JSON, and wrong OCR text', async () => {
+  const cases: ReadonlyArray<readonly [string, string, AiProviderError['code']]> = [
+    ['not json', 'AI_MALFORMED_PROVIDER_RESPONSE', 'AI_MALFORMED_PROVIDER_RESPONSE'],
+    [JSON.stringify({ choices: [{ message: { content: 'not json' } }] }), 'AI_INVALID_STRUCTURED_OUTPUT', 'AI_INVALID_STRUCTURED_OUTPUT'],
+    [JSON.stringify({ choices: [{ message: { content: JSON.stringify({ image: { format: 'jpg', text: 'WRONG OCR TEXT' } }) } }] }), 'AI_PROBE_TEXT_MISMATCH', 'AI_PROBE_TEXT_MISMATCH'],
+  ];
 
-  await assert.rejects(
-    () => provider.testConnection(),
-    (error: unknown) => error instanceof AiProviderError && error.code === 'AI_INVALID_RESPONSE',
-  );
+  for (const [body, _description, code] of cases) {
+    const provider = new OpenAiCompatibleProvider({
+      baseUrl: new URL('http://provider.test/v1/'),
+      model: 'test-model',
+    }, (async () => new Response(body, { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch);
+
+    await assert.rejects(
+      () => provider.testConnection(),
+      (error: unknown) => error instanceof AiProviderError && error.code === code,
+    );
+  }
 });
 
 test('structured executor does not retry deterministic provider rejection', async () => {

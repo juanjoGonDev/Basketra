@@ -11,15 +11,33 @@ const EXPECTED_PROBE_TEXT = 'BASKETRA OCR 4821';
 const PROBE_FIXTURE_URL = new URL('../../src/ai/fixtures/provider-probe.jpg', import.meta.url);
 const MAX_PROBE_BYTES = 256 * 1024;
 
-test('provider OCR probe sends the checked-in readable JPEG fixture', async () => {
+test('provider OCR probe sends the checked-in JPEG as binary multipart', async () => {
   let requestBody: unknown;
+  let transmittedJpeg: Buffer | undefined;
+  let transmittedFileName: string | undefined;
+  let transmittedMime: string | undefined;
   const provider = new OpenAiCompatibleProvider(
     {
       baseUrl: new URL('http://provider.test/v1/'),
       model: 'test-model',
     },
     (async (input, init) => {
-      requestBody = await new Request(input, init).json();
+      const request = new Request(input, init);
+      if (request.method === 'GET') return new Response('{}', { status: 404 });
+
+      assert.match(request.headers.get('content-type') ?? '', /^multipart\/form-data; boundary=/u);
+      const form = await request.formData();
+      const requestField = form.get('request');
+      assert.equal(typeof requestField, 'string');
+      requestBody = JSON.parse(String(requestField)) as unknown;
+      const file = form.get('files');
+      assert.notEqual(file, null);
+      assert.notEqual(typeof file, 'string');
+      if (file === null || typeof file === 'string') throw new Error('probe file missing');
+      transmittedJpeg = Buffer.from(await file.arrayBuffer());
+      transmittedFileName = file.name;
+      transmittedMime = file.type;
+
       return new Response(
         JSON.stringify({
           choices: [
@@ -46,22 +64,18 @@ test('provider OCR probe sends the checked-in readable JPEG fixture', async () =
   const content = asArray(userMessage['content']);
   assert.equal(String(systemMessage['content']).includes(EXPECTED_PROBE_TEXT), false);
   assert.equal(String(asRecord(content[0])['text']).includes(EXPECTED_PROBE_TEXT), false);
+  assert.equal(content.length, 1);
+  assert.equal(JSON.stringify(body).includes(';base64,'), false);
 
-  const imagePart = asRecord(content[1]);
-  assert.equal(imagePart['filename'], 'test.jpg');
-  const image = asRecord(imagePart['image_url']);
-  assert.equal(image['detail'], 'high');
-  const dataUrl = String(image['url']);
-  assert.match(dataUrl, /^data:image\/jpeg;base64,/u);
-
-  const transmittedJpeg = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64');
   const fixtureJpeg = readFileSync(PROBE_FIXTURE_URL);
+  assert.equal(transmittedFileName, 'test.jpg');
+  assert.equal(transmittedMime, 'image/jpeg');
   assert.deepEqual(transmittedJpeg, fixtureJpeg);
   assert.ok(fixtureJpeg.byteLength <= MAX_PROBE_BYTES);
-  assert.deepEqual([...transmittedJpeg.subarray(0, 2)], [0xff, 0xd8]);
-  assert.deepEqual([...transmittedJpeg.subarray(-2)], [0xff, 0xd9]);
+  assert.deepEqual([...fixtureJpeg.subarray(0, 2)], [0xff, 0xd8]);
+  assert.deepEqual([...fixtureJpeg.subarray(-2)], [0xff, 0xd9]);
 
-  const { height, width } = readJpegDimensions(transmittedJpeg);
+  const { height, width } = readJpegDimensions(fixtureJpeg);
   assert.ok(width >= 600);
   assert.ok(height >= 120);
   assert.ok(width / height >= 2 && width / height <= 4);
@@ -89,7 +103,7 @@ test('provider OCR probe rejects non-object nested image payloads', async () => 
     await assert.rejects(
       () => provider.testConnection(),
       (error: unknown) =>
-        error instanceof AiProviderError && error.code === 'AI_INVALID_RESPONSE',
+        error instanceof AiProviderError && error.code === 'AI_INVALID_STRUCTURED_OUTPUT',
     );
   }
 });

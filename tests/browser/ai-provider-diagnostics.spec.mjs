@@ -106,6 +106,9 @@ test('provider diagnostic renders every stable recovery message and 200-level ne
     ['AI_REQUEST_REJECTED', 'rechazó la imagen o el esquema estricto'],
     ['AI_RATE_LIMITED', 'limitando solicitudes'],
     ['AI_INVALID_RESPONSE', 'no respetó el esquema estricto'],
+    ['AI_MALFORMED_PROVIDER_RESPONSE', 'respuesta de transporte no válida'],
+    ['AI_INVALID_STRUCTURED_OUTPUT', 'JSON que no cumple el esquema estricto'],
+    ['AI_PROBE_TEXT_MISMATCH', 'no pudo leer correctamente la imagen de comprobación'],
     ['AI_EMPTY_RESPONSE', 'sin devolver contenido estructurado'],
     ['AI_RESPONSE_TOO_LARGE', 'superó el límite configurado'],
     ['AI_PROVIDER_FAILED', 'falló al procesar la imagen sintética'],
@@ -123,7 +126,48 @@ test('provider diagnostic renders every stable recovery message and 200-level ne
   successfulHttp = true;
   providerCode = 'AI_INVALID_RESPONSE';
   await button.click();
-  await expect(state).toHaveText('El proveedor respondió sin confirmar la capacidad multimodal estructurada.');
+  await expect(state).toContainText('El proveedor respondió sin confirmar la capacidad multimodal estructurada.');
+  await expect(state).toHaveAttribute('data-state', 'recoverable-error');
   await expect(button).toBeEnabled();
   await expect(state).not.toContainText('detalle privado');
+});
+
+test('provider diagnostic serializes submissions and ignores a superseded response', async ({ page }) => {
+  let requests = 0;
+  let releaseFirstRequest;
+  const firstRequest = new Promise(resolve => { releaseFirstRequest = resolve; });
+  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(settings()),
+  }));
+  await page.route('**/api/v1/settings/ai-provider/test', async route => {
+    requests += 1;
+    if (requests === 1) await firstRequest;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ connection: { ok: true, imageStructuredOutput: true } }),
+    });
+  });
+
+  await page.goto('/');
+  await navigate(page, 'Ajustes');
+  const button = page.getByRole('button', { name: 'Verificar imagen y JSON estricto', exact: true });
+  const status = page.locator('#ai-test-state');
+  await button.click();
+  await expect(status).toHaveAttribute('data-state', 'waiting');
+  await expect(button).toBeDisabled();
+  await expect(button).toHaveAttribute('aria-busy', '');
+
+  await page.evaluate(() => {
+    document.querySelector('#test-ai-provider').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+  await expect.poll(() => requests).toBe(2);
+  releaseFirstRequest();
+
+  await expect(status).toHaveAttribute('data-state', 'success');
+  await expect(status).toContainText('Capacidad verificada');
+  await expect(button).toBeEnabled();
+  await expect(button).not.toHaveAttribute('aria-busy');
 });

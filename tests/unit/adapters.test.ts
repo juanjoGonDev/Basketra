@@ -22,6 +22,16 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+async function readProviderRequestBody(request: Request): Promise<Record<string, unknown>> {
+  if (request.headers.get('content-type')?.startsWith('multipart/form-data;') === true) {
+    const form = await request.clone().formData();
+    const metadata = form.get('request');
+    assert.equal(typeof metadata, 'string');
+    return asRecord(JSON.parse(metadata));
+  }
+  return asRecord(JSON.parse(await request.clone().text()));
+}
+
 test('configuration uses private defaults and ignores removed token and AI timeout configuration', () => {
   const config = loadConfig({ BASKETRA_AUTH_TOKEN: 'legacy-token', BASKETRA_AI_TIMEOUT_MS: 'not-an-integer' });
   assert.equal(config.host, '127.0.0.1');
@@ -120,7 +130,8 @@ test('OpenAI-compatible provider proves image OCR plus strict structured output'
   const mockFetch: typeof fetch = async (input, init) => {
     const request = new Request(input, init);
     requests.push(request);
-    const body = JSON.parse(await request.clone().text()) as { response_format?: { json_schema?: { name?: string } } };
+    if (request.method === 'GET') return new Response('{}', { status: 404 });
+    const body = await readProviderRequestBody(request) as { response_format?: { json_schema?: { name?: string } } };
     const content = body.response_format?.json_schema?.name === 'basketra_provider_capability'
       ? JSON.stringify({ image: { format: 'jpg', text: PROVIDER_PROBE_VISIBLE_TEXT } })
       : '{"ok":true}';
@@ -138,11 +149,13 @@ test('OpenAI-compatible provider proves image OCR plus strict structured output'
   });
   const value = await provider.executeStructured({ operation: 'test', schemaName: 'result', systemPrompt: 'x', content: 'y', jsonSchema: { type: 'object' } });
   assert.deepEqual(value, { ok: true });
-  assert.equal(requests[0]?.url, 'http://localhost:8080/v1/chat/completions');
-  assert.equal(requests[1]?.url, 'http://localhost:8080/v1/chat/completions');
+  const modelRequests = requests.filter((request) => request.method === 'POST');
+  assert.equal(modelRequests.length, 2);
+  assert.equal(modelRequests[0]?.url, 'http://localhost:8080/v1/chat/completions');
+  assert.equal(modelRequests[1]?.url, 'http://localhost:8080/v1/chat/completions');
   assert.equal(requests[0]?.headers.get('authorization'), 'Bearer secret');
 
-  const probe = JSON.parse(await requests[0]!.clone().text()) as {
+  const probe = await readProviderRequestBody(modelRequests[0]!) as {
     messages: Array<{ content: string | Array<Record<string, unknown>> }>;
     response_format: {
       json_schema: {
@@ -157,14 +170,16 @@ test('OpenAI-compatible provider proves image OCR plus strict structured output'
   const userContent = probe.messages[1]?.content;
   assert.ok(Array.isArray(userContent));
   assert.equal(String(userContent[0]?.['text'] ?? '').includes(PROVIDER_PROBE_VISIBLE_TEXT), false);
-  const imagePart = asRecord(userContent[1]);
-  assert.equal(imagePart['type'], 'image_url');
-  assert.equal(imagePart['filename'], 'test.jpg');
-  const imageUrl = asRecord(imagePart['image_url']);
-  assert.equal(imageUrl['detail'], 'high');
-  const dataUrl = String(imageUrl['url'] ?? '');
-  assert.match(dataUrl, /^data:image\/jpeg;base64,/u);
-  const imageBytes = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64');
+  assert.equal(userContent.length, 1);
+  assert.equal(JSON.stringify(probe).includes(';base64,'), false);
+  const probeForm = await modelRequests[0]!.clone().formData();
+  const probeFile = probeForm.get('files');
+  assert.notEqual(probeFile, null);
+  assert.notEqual(typeof probeFile, 'string');
+  if (probeFile === null || typeof probeFile === 'string') throw new Error('missing provider probe attachment');
+  assert.equal(probeFile.name, 'test.jpg');
+  assert.equal(probeFile.type, 'image/jpeg');
+  const imageBytes = Buffer.from(await probeFile.arrayBuffer());
   assert.deepEqual([...imageBytes.subarray(0, 2)], [0xff, 0xd8]);
   assert.deepEqual([...imageBytes.subarray(-2)], [0xff, 0xd9]);
   const { height, width } = readJpegDimensions(imageBytes);
@@ -201,7 +216,7 @@ test('OpenAI-compatible provider proves image OCR plus strict structured output'
         headers: { 'content-type': 'application/json' },
       }),
     );
-    await assert.rejects(() => invalidProvider.testConnection(), /AI_INVALID_RESPONSE/);
+    await assert.rejects(() => invalidProvider.testConnection(), /AI_(?:PROBE_TEXT_MISMATCH|INVALID_STRUCTURED_OUTPUT)/);
   }
 
   const failed = new OpenAiCompatibleProvider({ baseUrl: new URL('http://localhost/v1/'), model: 'x' }, async () => new Response('', { status: 503 }));

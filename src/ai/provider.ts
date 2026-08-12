@@ -28,7 +28,10 @@ export type AiProviderErrorCode =
   | 'AI_EMPTY_RESPONSE'
   | 'AI_IMAGE_CAPABILITY_UNAVAILABLE'
   | 'AI_INVALID_RESPONSE'
+  | 'AI_INVALID_STRUCTURED_OUTPUT'
+  | 'AI_MALFORMED_PROVIDER_RESPONSE'
   | 'AI_PDF_CAPABILITY_UNAVAILABLE'
+  | 'AI_PROBE_TEXT_MISMATCH'
   | 'AI_PROVIDER_FAILED'
   | 'AI_RATE_LIMITED'
   | 'AI_REQUEST_REJECTED'
@@ -67,6 +70,8 @@ export function buildAiAttachmentContentPart(
     if (!capabilities.image) throw new AiProviderError('AI_IMAGE_CAPABILITY_UNAVAILABLE');
     return {
       type: 'image_url',
+      filename:
+        input.fileName?.trim() || (input.mimeType === 'image/jpeg' ? 'image.jpg' : 'image.png'),
       image_url: {
         url: `data:${input.mimeType};base64,${Buffer.from(input.bytes).toString('base64')}`,
         detail: 'high',
@@ -106,6 +111,18 @@ export interface AiProvider {
   dispose(): void;
 }
 
+export type AiProviderRuntimeCapabilities = Readonly<{
+  attachments: Readonly<{
+    maxCount: number;
+    maxFileBytes: number;
+    maxImageBytes: number;
+    maxSpreadsheetBytes: number;
+    maxUploadsPerThreeHours: number;
+  }>;
+  execution: Readonly<{ replyInactivityTimeoutMs: number }>;
+  requests: Readonly<{ maxJsonBodyBytes: number }>;
+}>;
+
 const DEFAULT_CAPABILITIES: AiCapabilities = {
   structuredOutput: true,
   jsonObject: true,
@@ -116,6 +133,8 @@ const DEFAULT_CAPABILITIES: AiCapabilities = {
 
 export const DEFAULT_AI_MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_PROVIDER_ERROR_BYTES = 8 * 1024;
+const MAX_RUNTIME_CAPABILITIES_BYTES = 32 * 1024;
+const MULTIPART_OVERHEAD_BYTES_PER_FILE = 1024;
 const CORRELATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/u;
 const PROVIDER_PROBE_FILENAME = 'test.jpg';
 const PROVIDER_PROBE_FORMAT = 'jpg';
@@ -154,6 +173,18 @@ const PROVIDER_REQUEST_REJECTION_CODES = new Set([
 type ProviderErrorMetadata = Readonly<{
   code?: string;
   type?: string;
+}>;
+
+type BinaryMultipartAttachment = Readonly<{
+  bytes: Buffer;
+  fileName: string;
+  mimeType: string;
+}>;
+
+type ProviderRequest = Readonly<{
+  body: BodyInit;
+  contentType?: string;
+  estimatedBytes: number;
 }>;
 
 function assertPositiveInteger(value: number, name: string): number {
@@ -297,8 +328,9 @@ export class OpenAiCompatibleProvider implements AiProvider {
       ...(signal ? { signal } : {}),
     });
 
-    if (!isSuccessfulProviderProbe(result)) {
-      throw new AiProviderError('AI_INVALID_RESPONSE');
+    const probeFailure = providerProbeFailure(result);
+    if (probeFailure) {
+      throw new AiProviderError(probeFailure);
     }
 
     return {
@@ -310,20 +342,23 @@ export class OpenAiCompatibleProvider implements AiProvider {
 
   async executeStructured(input: AiStructuredInput): Promise<unknown> {
     try {
+      const runtimeCapabilities = await this.fetchRuntimeCapabilities(input.signal);
+      assertContentWithinRuntimeCapabilities(input.content, runtimeCapabilities);
+      const providerRequest = buildProviderRequest(input, this.config.model);
+      if (
+        runtimeCapabilities !== undefined &&
+        providerRequest.estimatedBytes > runtimeCapabilities.requests.maxJsonBodyBytes
+      ) {
+        throw new AiProviderError('AI_ATTACHMENT_TOO_LARGE', { status: 413 });
+      }
+
       const response = await this.fetchImplementation(new URL('chat/completions', ensureTrailingSlash(this.config.baseUrl)), {
         method: 'POST',
-        headers: { ...this.headers(input.correlationId), 'content-type': 'application/json' },
-        body: JSON.stringify({
-          model: this.config.model,
-          messages: [
-            { role: 'system', content: input.systemPrompt },
-            { role: 'user', content: input.content },
-          ],
-          response_format: {
-            type: 'json_schema',
-            json_schema: { name: input.schemaName, strict: true, schema: input.jsonSchema },
-          },
-        }),
+        headers: {
+          ...this.headers(input.correlationId),
+          ...(providerRequest.contentType ? { 'content-type': providerRequest.contentType } : {}),
+        },
+        body: providerRequest.body,
         ...(input.signal ? { signal: input.signal } : {}),
       });
       if (!response.ok) {
@@ -332,10 +367,17 @@ export class OpenAiCompatibleProvider implements AiProvider {
       }
       const responseText = await readResponseText(response, this.#maxResponseBytes);
       if (!responseText) throw new AiProviderError('AI_EMPTY_RESPONSE', { retryable: true });
-      const body = parseProviderJson(responseText) as { choices?: Array<{ message?: { content?: string } }> };
+      const isCapabilityProbe = input.operation === 'provider-capability-probe';
+      const body = parseProviderJson(
+        responseText,
+        isCapabilityProbe ? 'AI_MALFORMED_PROVIDER_RESPONSE' : 'AI_INVALID_RESPONSE',
+      ) as { choices?: Array<{ message?: { content?: string } }> };
       const content = body.choices?.[0]?.message?.content;
       if (!content) throw new AiProviderError('AI_EMPTY_RESPONSE', { retryable: true });
-      return parseProviderJson(content);
+      return parseProviderJson(
+        content,
+        isCapabilityProbe ? 'AI_INVALID_STRUCTURED_OUTPUT' : 'AI_INVALID_RESPONSE',
+      );
     } catch (error) {
       if (input.signal?.aborted) throw new DOMException('The AI operation was aborted', 'AbortError');
       if (error instanceof AiProviderError) throw error;
@@ -344,6 +386,28 @@ export class OpenAiCompatibleProvider implements AiProvider {
   }
 
   dispose(): void {}
+
+  private async fetchRuntimeCapabilities(signal?: AbortSignal): Promise<AiProviderRuntimeCapabilities | undefined> {
+    const response = await this.fetchImplementation(new URL('capabilities', ensureTrailingSlash(this.config.baseUrl)), {
+      method: 'GET',
+      headers: this.headers(),
+      ...(signal ? { signal } : {}),
+    });
+
+    if (response.status === 400 || response.status === 404 || response.status === 405) return undefined;
+    if (!response.ok) {
+      const metadata = await readProviderErrorMetadata(response);
+      throw mapProviderHttpError(response.status, metadata);
+    }
+
+    try {
+      const text = await readResponseText(response, MAX_RUNTIME_CAPABILITIES_BYTES);
+      return parseRuntimeCapabilities(text);
+    } catch (error) {
+      if (error instanceof AiProviderError && error.code === 'AI_RESPONSE_TOO_LARGE') return undefined;
+      throw error;
+    }
+  }
 
   private headers(correlationId?: string): Record<string, string> {
     return {
@@ -355,24 +419,197 @@ export class OpenAiCompatibleProvider implements AiProvider {
   }
 }
 
-function isSuccessfulProviderProbe(value: unknown): boolean {
+function buildProviderRequest(input: AiStructuredInput, model: string): ProviderRequest {
+  const extracted = extractBinaryAttachments(input.content);
+  const metadata = {
+    model,
+    messages: [
+      { role: 'system', content: input.systemPrompt },
+      { role: 'user', content: extracted.content },
+    ],
+    response_format: {
+      type: 'json_schema',
+      json_schema: { name: input.schemaName, strict: true, schema: input.jsonSchema },
+    },
+  };
+  const requestJson = JSON.stringify(metadata);
+
+  if (extracted.attachments.length === 0) {
+    return {
+      body: requestJson,
+      contentType: 'application/json',
+      estimatedBytes: Buffer.byteLength(requestJson, 'utf8'),
+    };
+  }
+
+  const form = new FormData();
+  form.set('request', requestJson);
+  let estimatedBytes = Buffer.byteLength(requestJson, 'utf8');
+  for (const attachment of extracted.attachments) {
+    form.append(
+      'files',
+      new Blob([Uint8Array.from(attachment.bytes)], { type: attachment.mimeType }),
+      attachment.fileName,
+    );
+    estimatedBytes += attachment.bytes.byteLength + MULTIPART_OVERHEAD_BYTES_PER_FILE;
+  }
+
+  return { body: form, estimatedBytes };
+}
+
+function extractBinaryAttachments(content: AiMessageContent): Readonly<{
+  attachments: readonly BinaryMultipartAttachment[];
+  content: AiMessageContent;
+}> {
+  if (typeof content === 'string') return { attachments: [], content };
+
+  const attachments: BinaryMultipartAttachment[] = [];
+  const metadataParts: AiMessageContentPart[] = [];
+  for (const [index, part] of content.entries()) {
+    if (part.type === 'text') {
+      metadataParts.push(part);
+      continue;
+    }
+
+    if (part.type === 'image_url') {
+      const decoded = decodeDataUrl(part.image_url.url);
+      if (decoded === undefined) {
+        metadataParts.push(part);
+        continue;
+      }
+      attachments.push({
+        bytes: decoded.bytes,
+        fileName: part.filename?.trim() || defaultFileName(decoded.mimeType, index),
+        mimeType: decoded.mimeType,
+      });
+      continue;
+    }
+
+    const decoded = decodeDataUrl(part.file.file_data);
+    if (decoded === undefined) {
+      metadataParts.push(part);
+      continue;
+    }
+    attachments.push({
+      bytes: decoded.bytes,
+      fileName: part.file.filename.trim() || defaultFileName(decoded.mimeType, index),
+      mimeType: decoded.mimeType,
+    });
+  }
+
+  return { attachments, content: metadataParts };
+}
+
+function decodeDataUrl(value: string): Readonly<{ bytes: Buffer; mimeType: string }> | undefined {
+  const match = /^data:([^;,]+);base64,([A-Za-z0-9+/]*={0,2})$/u.exec(value);
+  if (!match?.[1] || match[2] === undefined) return undefined;
+  return {
+    bytes: Buffer.from(match[2], 'base64'),
+    mimeType: match[1].trim().toLowerCase(),
+  };
+}
+
+function defaultFileName(mimeType: string, index: number): string {
+  const extension = mimeType === 'image/jpeg'
+    ? 'jpg'
+    : mimeType === 'image/png'
+      ? 'png'
+      : mimeType === 'application/pdf'
+        ? 'pdf'
+        : 'bin';
+  return `attachment-${index.toString()}.${extension}`;
+}
+
+function parseRuntimeCapabilities(value: string): AiProviderRuntimeCapabilities | undefined {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!isRecord(parsed)) return undefined;
+    const attachments = parsed['attachments'];
+    const execution = parsed['execution'];
+    const requests = parsed['requests'];
+    if (!isRecord(attachments) || !isRecord(execution) || !isRecord(requests)) return undefined;
+
+    return {
+      attachments: {
+        maxCount: readPositiveInteger(attachments['maxCount']),
+        maxFileBytes: readPositiveInteger(attachments['maxFileBytes']),
+        maxImageBytes: readPositiveInteger(attachments['maxImageBytes']),
+        maxSpreadsheetBytes: readPositiveInteger(attachments['maxSpreadsheetBytes']),
+        maxUploadsPerThreeHours: readPositiveInteger(attachments['maxUploadsPerThreeHours']),
+      },
+      execution: {
+        replyInactivityTimeoutMs: readPositiveInteger(execution['replyInactivityTimeoutMs']),
+      },
+      requests: {
+        maxJsonBodyBytes: readPositiveInteger(requests['maxJsonBodyBytes']),
+      },
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function assertContentWithinRuntimeCapabilities(
+  content: AiMessageContent,
+  capabilities: AiProviderRuntimeCapabilities | undefined,
+): void {
+  if (capabilities === undefined || typeof content === 'string') return;
+
+  let attachmentCount = 0;
+  for (const part of content) {
+    if (part.type === 'image_url') {
+      attachmentCount += 1;
+      if (readDataUrlBytes(part.image_url.url) > capabilities.attachments.maxImageBytes) {
+        throw new AiProviderError('AI_ATTACHMENT_TOO_LARGE', { status: 413 });
+      }
+      continue;
+    }
+    if (part.type === 'file') {
+      attachmentCount += 1;
+      if (readDataUrlBytes(part.file.file_data) > capabilities.attachments.maxFileBytes) {
+        throw new AiProviderError('AI_ATTACHMENT_TOO_LARGE', { status: 413 });
+      }
+    }
+  }
+
+  if (attachmentCount > capabilities.attachments.maxCount) {
+    throw new AiProviderError('AI_ATTACHMENT_TOO_LARGE', { status: 413 });
+  }
+}
+
+function readDataUrlBytes(value: string): number {
+  const decoded = decodeDataUrl(value);
+  if (decoded === undefined) return 0;
+  return decoded.bytes.byteLength;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readPositiveInteger(value: unknown): number {
+  if (typeof value !== 'number') throw new RangeError('Capability must be a positive safe integer');
+  if (value <= 0 || !Number.isSafeInteger(value)) throw new RangeError('Capability must be a positive safe integer');
+  return value;
+}
+
+function providerProbeFailure(value: unknown): AiProviderErrorCode | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return false;
+    return 'AI_INVALID_STRUCTURED_OUTPUT';
   }
 
   const record = value as Record<string, unknown>;
-  if (Object.keys(record).length !== 1) return false;
+  if (Object.keys(record).length !== 1) return 'AI_INVALID_STRUCTURED_OUTPUT';
   const image = record['image'];
   if (typeof image !== 'object' || image === null || Array.isArray(image)) {
-    return false;
+    return 'AI_INVALID_STRUCTURED_OUTPUT';
   }
 
   const imageRecord = image as Record<string, unknown>;
-  return (
-    Object.keys(imageRecord).length === 2 &&
-    imageRecord['format'] === PROVIDER_PROBE_FORMAT &&
-    imageRecord['text'] === PROVIDER_PROBE_TEXT
-  );
+  if (Object.keys(imageRecord).length !== 2 || imageRecord['format'] !== PROVIDER_PROBE_FORMAT) {
+    return 'AI_INVALID_STRUCTURED_OUTPUT';
+  }
+  return imageRecord['text'] === PROVIDER_PROBE_TEXT ? undefined : 'AI_PROBE_TEXT_MISMATCH';
 }
 
 function mapProviderHttpError(status: number, metadata?: ProviderErrorMetadata): AiProviderError {
@@ -404,11 +641,11 @@ function mapProviderHttpError(status: number, metadata?: ProviderErrorMetadata):
   return new AiProviderError('AI_REQUEST_REJECTED', { status });
 }
 
-function parseProviderJson(value: string): unknown {
+function parseProviderJson(value: string, errorCode: AiProviderErrorCode): unknown {
   try {
     return JSON.parse(value) as unknown;
   } catch {
-    throw new AiProviderError('AI_INVALID_RESPONSE', { retryable: true });
+    throw new AiProviderError(errorCode, { retryable: true });
   }
 }
 

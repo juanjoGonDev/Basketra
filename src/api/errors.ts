@@ -106,6 +106,12 @@ function mapAiProviderError(error: AiProviderError): ApiError {
     case 'AI_EMPTY_RESPONSE':
     case 'AI_INVALID_RESPONSE':
       return new ApiError(502, error.code, 'El proveedor devolvió una respuesta vacía o no válida');
+    case 'AI_MALFORMED_PROVIDER_RESPONSE':
+      return new ApiError(502, error.code, 'El proveedor devolvió una respuesta de transporte no válida');
+    case 'AI_INVALID_STRUCTURED_OUTPUT':
+      return new ApiError(502, error.code, 'El proveedor devolvió JSON estructurado no válido');
+    case 'AI_PROBE_TEXT_MISMATCH':
+      return new ApiError(502, error.code, 'El proveedor no pudo leer correctamente la imagen de comprobación');
     case 'AI_RESPONSE_TOO_LARGE':
       return new ApiError(502, error.code, 'La respuesta del proveedor superó el límite permitido');
     case 'AI_PROVIDER_FAILED':

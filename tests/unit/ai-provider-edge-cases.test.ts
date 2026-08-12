@@ -178,8 +178,11 @@ test('provider forwards only caller cancellation and synthesizes no deadline sig
   const controller = new AbortController();
   await candidate.executeStructured({ ...input, signal: controller.signal });
 
+  assert.equal(signals.length, 4);
   assert.equal(signals[0], undefined);
-  assert.equal(signals[1], controller.signal);
+  assert.equal(signals[1], undefined);
+  assert.equal(signals[2], controller.signal);
+  assert.equal(signals[3], controller.signal);
 });
 
 test('provider capability probe rejects non-object and non-exact contracts', async () => {
@@ -190,7 +193,7 @@ test('provider capability probe rejects non-object and non-exact contracts', asy
     }));
     await assert.rejects(
       () => candidate.testConnection(),
-      (error: unknown) => error instanceof AiProviderError && error.code === 'AI_INVALID_RESPONSE',
+      (error: unknown) => error instanceof AiProviderError && error.code === 'AI_INVALID_STRUCTURED_OUTPUT',
     );
   }
 });
