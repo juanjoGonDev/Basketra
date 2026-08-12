@@ -131,6 +131,7 @@ test('provider applies runtime byte limits and degrades unusable capability resp
       execution: { replyInactivityTimeoutMs: 1 },
       requests: { maxJsonBodyBytes: 1 },
     }), { status: 200 }),
+    new Response(runtimeCapabilityBody(), { status: 200 }),
   ];
   let completions = 0;
   const fetchImplementation = (async (_url, init) => {
@@ -164,7 +165,8 @@ test('provider applies runtime byte limits and degrades unusable capability resp
     content: [{ type: 'image_url', image_url: { url: 'not-a-data-url' } }],
   }), { value: 'ok' });
   assert.deepEqual(await provider.executeStructured({ ...input, content: 'fallback after non-number capability field' }), { value: 'ok' });
-  assert.equal(completions, 6);
+  assert.deepEqual(await provider.executeStructured({ ...input, content: 'fallback after exhausted capability fixture' }), { value: 'ok' });
+  assert.equal(completions, 7);
 });
 
 test('provider preserves invalid attachment metadata and moves valid files to multipart', async () => {

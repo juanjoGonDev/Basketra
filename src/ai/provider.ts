@@ -400,9 +400,6 @@ export class OpenAiCompatibleProvider implements AiProvider {
       throw mapProviderHttpError(response.status, metadata);
     }
 
-    const declaredLength = Number(response.headers.get('content-length'));
-    if (declaredLength > MAX_RUNTIME_CAPABILITIES_BYTES) return undefined;
-
     try {
       const text = await readResponseText(response, MAX_RUNTIME_CAPABILITIES_BYTES);
       return parseRuntimeCapabilities(text);
@@ -582,7 +579,8 @@ function assertContentWithinRuntimeCapabilities(
 
 function readDataUrlBytes(value: string): number {
   const decoded = decodeDataUrl(value);
-  return decoded === undefined ? 0 : decoded.bytes.byteLength;
+  if (decoded === undefined) return 0;
+  return decoded.bytes.byteLength;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -590,9 +588,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function readPositiveInteger(value: unknown): number {
-  const number = typeof value === 'number' ? value : Number.NaN;
-  if (number > 0 && Number.isSafeInteger(number)) return number;
-  throw new RangeError('Capability must be a positive safe integer');
+  if (typeof value !== 'number') throw new RangeError('Capability must be a positive safe integer');
+  if (value <= 0 || !Number.isSafeInteger(value)) throw new RangeError('Capability must be a positive safe integer');
+  return value;
 }
 
 function providerProbeFailure(value: unknown): AiProviderErrorCode | undefined {
