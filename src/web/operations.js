@@ -15,6 +15,8 @@ const state = {
   logCopyCount: 0,
   logCopyPayload: '',
   aiSettings: null,
+  aiTestGeneration: 0,
+  aiTestController: null,
 };
 
 const $ = selector => document.querySelector(selector);
@@ -109,21 +111,25 @@ function updateUptime() {
 }
 
 async function requestJson(path, options = {}) {
+  const { onRequestStarted, ...fetchOptions } = options;
   const started = performance.now();
   let response;
   try {
-    response = await fetch(path, {
-      ...options,
+    const request = fetch(path, {
+      ...fetchOptions,
       headers: {
-        ...(options.body ? { 'content-type': 'application/json' } : {}),
-        ...(options.headers || {}),
+        ...(fetchOptions.body ? { 'content-type': 'application/json' } : {}),
+        ...(fetchOptions.headers || {}),
       },
     });
+    onRequestStarted?.();
+    response = await request;
   } catch (error) {
+    if (error.name === 'AbortError') throw error;
     emitClientLog({
       event: 'client.network_error',
       level: 'error',
-      method: options.method || 'GET',
+      method: fetchOptions.method || 'GET',
       path: new URL(path, location.origin).pathname,
       durationMs: Math.round(performance.now() - started),
       code: 'NETWORK_ERROR',
@@ -143,7 +149,7 @@ async function requestJson(path, options = {}) {
     emitClientLog({
       event: 'client.api_error',
       level: response.status >= 500 ? 'error' : 'warn',
-      method: options.method || 'GET',
+      method: fetchOptions.method || 'GET',
       path: new URL(path, location.origin).pathname,
       status: response.status,
       durationMs: Math.round(performance.now() - started),
@@ -197,6 +203,21 @@ function providerNetworkGuidance(settings) {
   return 'La prueba sale desde el contenedor Basketra. El equipo que ejecuta webApi debe escuchar en esa dirección y puerto; para clientes remotos webApi necesita HOST=0.0.0.0 y el puerto debe quedar limitado a la LAN o VPN.';
 }
 
+function aiTestIsRunning() {
+  return state.aiTestController !== null;
+}
+
+function renderAiTestStatus(lifecycle, message) {
+  const status = $('#ai-test-state');
+  const button = $('#test-ai-provider');
+  if (!status || !button) return;
+  status.dataset.state = lifecycle;
+  status.textContent = message;
+  const running = aiTestIsRunning();
+  button.disabled = running || !state.aiSettings?.configured;
+  button.toggleAttribute('aria-busy', running);
+}
+
 function renderAiSettings(settings) {
   state.aiSettings = settings;
   const status = $('#ai-configuration-status');
@@ -215,7 +236,7 @@ function renderAiSettings(settings) {
     testButton.disabled = true;
     return;
   }
-  testButton.disabled = false;
+  testButton.disabled = aiTestIsRunning();
   if (settings.loopbackWarning) {
     status.textContent = 'Configurado con dirección incorrecta para Docker';
     status.dataset.state = 'warning';
@@ -459,20 +480,39 @@ async function stageRestore() {
 }
 
 async function testAiProvider() {
-  const button = $('#test-ai-provider');
-  const stateElement = $('#ai-test-state');
-  const probe = providerProbeUrl(state.aiSettings);
-  button.disabled = true;
-  stateElement.textContent = `Enviando una imagen sintética a POST ${probe} y validando el esquema estricto…`;
+  const generation = ++state.aiTestGeneration;
+  state.aiTestController?.abort();
+  const controller = new AbortController();
+  state.aiTestController = controller;
+  const settings = state.aiSettings;
+  const probe = providerProbeUrl(settings);
+  renderAiTestStatus('preparing', 'Preparando la imagen sintética y la prueba de esquema estricto…');
   try {
-    const result = await requestJson('/api/v1/settings/ai-provider/test', { method: 'POST' });
-    stateElement.textContent = result.connection.ok && result.connection.imageStructuredOutput
-      ? `Capacidad verificada: autenticación, modelo, adjunto de imagen y salida estructurada estricta funcionan en ${probe}.`
-      : 'El proveedor respondió sin confirmar la capacidad multimodal estructurada.';
+    await Promise.resolve();
+    if (generation !== state.aiTestGeneration) return;
+    renderAiTestStatus('uploading', `Enviando una imagen sintética a POST ${probe} y validando el esquema estricto…`);
+    await Promise.resolve();
+    if (generation !== state.aiTestGeneration) return;
+    const result = await requestJson('/api/v1/settings/ai-provider/test', {
+      method: 'POST',
+      signal: controller.signal,
+      onRequestStarted: () => {
+        if (generation === state.aiTestGeneration) {
+          renderAiTestStatus('waiting', 'La imagen se está comprobando; esperando la validación del proveedor…');
+        }
+      },
+    });
+    if (generation !== state.aiTestGeneration) return;
+    if (result?.connection?.ok === true && result.connection.imageStructuredOutput === true) {
+      renderAiTestStatus('success', `Capacidad verificada: autenticación, modelo, adjunto de imagen y salida estructurada estricta funcionan en ${probe}.`);
+      return;
+    }
+    renderAiTestStatus('recoverable-error', 'El proveedor respondió sin confirmar la capacidad multimodal estructurada. Puedes revisar la configuración y volver a intentarlo.');
   } catch (error) {
+    if (generation !== state.aiTestGeneration || error.name === 'AbortError') return;
     const messages = {
-      AI_LOOPBACK_CONTAINER: providerNetworkGuidance(state.aiSettings),
-      AI_UNREACHABLE: `No se pudo abrir una conexión con ${probe}. ${providerNetworkGuidance(state.aiSettings)}`,
+      AI_LOOPBACK_CONTAINER: providerNetworkGuidance(settings),
+      AI_UNREACHABLE: `No se pudo abrir una conexión con ${probe}. ${providerNetworkGuidance(settings)}`,
       AI_AUTHENTICATION_FAILED: 'webApi respondió, pero rechazó el token. Crea un token gestionado en /admin y copia su valor completo en BASKETRA_AI_API_KEY.',
       AI_TIMEOUT: `webApi o el proveedor agotó su propio tiempo de espera al procesar ${probe}. Basketra no impone un límite de tiempo a esta prueba.`,
       AI_ATTACHMENT_TOO_LARGE: 'El proveedor rechazó incluso la imagen sintética mínima por tamaño. Revisa los límites del proveedor.',
@@ -484,9 +524,11 @@ async function testAiProvider() {
       AI_RESPONSE_TOO_LARGE: 'La respuesta de la prueba superó el límite configurado.',
       AI_PROVIDER_FAILED: 'El proveedor falló al procesar la imagen sintética.',
     };
-    stateElement.textContent = messages[error.code] || `${error.message}. Solicitud probada: POST ${probe}.`;
+    renderAiTestStatus('recoverable-error', `${messages[error.code] || `${error.message}. Solicitud probada: POST ${probe}.`} Puedes volver a intentarlo.`);
   } finally {
-    button.disabled = false;
+    if (generation !== state.aiTestGeneration) return;
+    state.aiTestController = null;
+    renderAiTestStatus($('#ai-test-state').dataset.state, $('#ai-test-state').textContent);
     await loadLogs();
   }
 }
