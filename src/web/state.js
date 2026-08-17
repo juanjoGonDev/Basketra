@@ -2,6 +2,7 @@ const STORAGE_KEYS = Object.freeze({
   activeListId: 'basketra.activeListId',
   itemDraft: 'basketra.itemDraft',
   captures: 'basketra.captures',
+  receiptExtractionJobId: 'basketra.receiptExtractionJobId',
   aiMode: 'basketra.aiMode',
 });
 
@@ -63,6 +64,21 @@ export function loadCaptures() {
 
 export function saveCaptures(captures) {
   localStorage.setItem(STORAGE_KEYS.captures, JSON.stringify(captures));
+}
+
+export function loadReceiptExtractionJobId() {
+  const id = localStorage.getItem(STORAGE_KEYS.receiptExtractionJobId) || '';
+  if (/^receiptextractionjob_[a-z0-9]+$/i.test(id)) return id;
+  localStorage.removeItem(STORAGE_KEYS.receiptExtractionJobId);
+  return '';
+}
+
+export function saveReceiptExtractionJobId(id) {
+  if (/^receiptextractionjob_[a-z0-9]+$/i.test(id)) {
+    localStorage.setItem(STORAGE_KEYS.receiptExtractionJobId, id);
+  } else {
+    localStorage.removeItem(STORAGE_KEYS.receiptExtractionJobId);
+  }
 }
 
 export function loadAiMode() {

@@ -18,6 +18,10 @@ test('receipt service keeps two OCR slots while serializing AI verification', as
   const initialOcrGate = new Promise<void>((resolve) => {
     releaseInitialOcr = resolve;
   });
+  let releaseThirdOcr = (): void => {};
+  const thirdOcrGate = new Promise<void>((resolve) => {
+    releaseThirdOcr = resolve;
+  });
   let releaseFirstAi = (): void => {};
   const firstAiGate = new Promise<void>((resolve) => {
     releaseFirstAi = resolve;
@@ -29,6 +33,9 @@ test('receipt service keeps two OCR slots while serializing AI verification', as
   let maximumAi = 0;
   let aiCalls = 0;
   const aiPayloadChars: number[] = [];
+  const aiSessionAffinities: Array<string | undefined> = [];
+  const aiSessionFinals: Array<boolean | undefined> = [];
+  const aiPageNumbers: number[] = [];
 
   const localOcr: OcrProvider = {
     name: 'controlled-local-ocr',
@@ -41,6 +48,7 @@ test('receipt service keeps two OCR slots while serializing AI verification', as
       const call = ocrCalls;
       try {
         if (call <= 2) await initialOcrGate;
+        if (call === 3) await thirdOcrGate;
         return {
           text: `Product ${call};1;120;120`,
           confidence: 0.9,
@@ -71,6 +79,11 @@ test('receipt service keeps two OCR slots while serializing AI verification', as
       maximumAi = Math.max(maximumAi, activeAi);
       aiCalls += 1;
       aiPayloadChars.push(JSON.stringify(input.content).length);
+      aiSessionAffinities.push(input.sessionAffinity);
+      aiSessionFinals.push(input.sessionFinal);
+      const page = /This is page (\d+) of 3 of one receipt\./u.exec(input.systemPrompt);
+      assert.ok(page?.[1]);
+      aiPageNumbers.push(Number(page[1]));
       const call = aiCalls;
       try {
         if (call === 1) await firstAiGate;
@@ -117,7 +130,9 @@ test('receipt service keeps two OCR slots while serializing AI verification', as
     releaseInitialOcr();
     await waitFor(() => aiCalls === 1 && ocrCalls === 3);
     assert.equal(maximumAi, 1);
+    assert.equal(activeOcr, 1);
     releaseFirstAi();
+    releaseThirdOcr();
 
     const result = await extraction;
     assert.equal(result.pages.length, 3);
@@ -125,6 +140,10 @@ test('receipt service keeps two OCR slots while serializing AI verification', as
     assert.equal(maximumAi, 1);
     assert.equal(maximumOcr, 2);
     assert.ok(aiPayloadChars.some((length) => length > 2_000_000));
+    assert.deepEqual(aiPageNumbers, [1, 2, 3]);
+    assert.deepEqual(aiSessionFinals, [false, false, true]);
+    assert.equal(new Set(aiSessionAffinities).size, 1);
+    assert.match(aiSessionAffinities[0] ?? '', /^basketra-receipt-[0-9a-f-]{36}$/u);
     service.dispose();
   } finally {
     rmSync(root, { recursive: true, force: true });

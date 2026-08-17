@@ -14,7 +14,7 @@ import { validateReceiptLine, validateReceiptTotal, type ReceiptLineInput } from
 import { ApiError, mapError } from './errors.ts';
 import { OpenAiCompatibleProvider } from '../ai/provider.ts';
 import { StructuredAiExecutor, type RuntimeSchema } from '../ai/structured-executor.ts';
-import { ReceiptExtractionService } from '../receipts/service.ts';
+import { ReceiptExtractionService, type ReceiptExtractionRequest } from '../receipts/service.ts';
 import { parseReceiptConfirmation } from '../receipts/import.ts';
 import { RealtimeHub, type RealtimeInvalidation } from '../realtime/hub.ts';
 import { proposeProductFromPhoto } from '../products/photo-proposal.ts';
@@ -36,6 +36,7 @@ const STATIC_ASSETS = new Set([
   'sw.js',
   'icon.svg',
 ]);
+const RECEIPT_EXTRACTION_JOB_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 export type AppDiagnostics = Readonly<{
   ready: boolean;
@@ -74,6 +75,8 @@ export class BasketraServer {
   #lastActivityAt = new Date().toISOString();
   #hibernateTimer?: NodeJS.Timeout;
   #aiProvider: OpenAiCompatibleProvider | undefined;
+  readonly #receiptExtractionJobControllers = new Map<string, AbortController>();
+  readonly #receiptExtractionJobTasks = new Map<string, Promise<void>>();
 
   constructor(config: AppConfig) {
     this.config = config;
@@ -94,6 +97,8 @@ export class BasketraServer {
         resolvePromise();
       });
     });
+    this.#database.recoverInterruptedReceiptExtractionJobs();
+    this.pruneReceiptExtractionJobs();
     this.#ready = true;
     this.scheduleHibernation();
   }
@@ -121,6 +126,11 @@ export class BasketraServer {
     this.#ready = false;
     if (this.#hibernateTimer) clearTimeout(this.#hibernateTimer);
     for (const response of [...this.#realtimeResponses]) response.end();
+    for (const [id, controller] of this.#receiptExtractionJobControllers) {
+      this.#database.failReceiptExtractionJob(id, 'RECEIPT_EXTRACTION_INTERRUPTED');
+      controller.abort(new Error('SERVER_CLOSING'));
+    }
+    await Promise.allSettled(this.#receiptExtractionJobTasks.values());
     this.#realtimeResponses.clear();
     await new Promise<void>((resolvePromise, reject) => this.#server.close((error) => error ? reject(error) : resolvePromise()));
     this.#fileStore.cleanupTemporary();
@@ -208,6 +218,13 @@ export class BasketraServer {
       const fileMatch = /^\/api\/v1\/files\/([^/]+)$/.exec(url.pathname);
       if (request.method === 'GET' && fileMatch?.[1]) return this.serveStoredFile(response, decodePathSegment(fileMatch[1]));
       if (request.method === 'POST' && url.pathname === '/api/v1/receipts/extract') return await this.extractReceipt(request, response);
+      if (request.method === 'POST' && url.pathname === '/api/v1/receipts/extraction-jobs') return await this.createReceiptExtractionJob(request, response);
+      const receiptExtractionJobMatch = /^\/api\/v1\/receipts\/extraction-jobs\/([^/]+)$/.exec(url.pathname);
+      if (receiptExtractionJobMatch?.[1]) {
+        const id = decodePathSegment(receiptExtractionJobMatch[1]);
+        if (request.method === 'GET') return this.getReceiptExtractionJob(response, id);
+        if (request.method === 'DELETE') return this.cancelReceiptExtractionJob(response, id);
+      }
       if (request.method === 'POST' && url.pathname === '/api/v1/receipts/validate') return await this.validateReceipt(request, response);
       if (request.method === 'POST' && url.pathname === '/api/v1/receipts/confirm') return await this.confirmReceipt(request, response);
       if (request.method === 'POST' && url.pathname === '/api/v1/optimization-runs') return await this.runOptimization(request, response);
@@ -738,6 +755,89 @@ export class BasketraServer {
       request.off('aborted', onAborted);
       this.#activeExpensiveOperations -= 1;
     }
+  }
+
+  private async createReceiptExtractionJob(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const input = this.#receiptExtractionService.parseRequest(await this.readJson(request));
+    this.pruneReceiptExtractionJobs();
+    const job = this.#database.createReceiptExtractionJob(input);
+    this.startReceiptExtractionJob(job.id);
+    this.json(response, 202, { job: this.receiptExtractionJobResponse(job) });
+  }
+
+  private getReceiptExtractionJob(response: ServerResponse, id: string): void {
+    this.pruneReceiptExtractionJobs();
+    const job = this.#database.getReceiptExtractionJob(id);
+    if (!job) throw new ApiError(404, 'RECEIPT_EXTRACTION_JOB_NOT_FOUND', 'Receipt extraction job was not found');
+    this.json(response, 200, { job: this.receiptExtractionJobResponse(job) });
+  }
+
+  private cancelReceiptExtractionJob(response: ServerResponse, id: string): void {
+    const job = this.#database.cancelReceiptExtractionJob(id);
+    if (!job) throw new ApiError(404, 'RECEIPT_EXTRACTION_JOB_NOT_FOUND', 'Receipt extraction job was not found');
+    this.#receiptExtractionJobControllers.get(id)?.abort(new Error('RECEIPT_EXTRACTION_CANCELLED'));
+    this.publishRealtime({ entityType: 'receipt-extraction-job', mutation: 'updated', entityId: id, updatedAt: job.updatedAt });
+    this.empty(response);
+  }
+
+  private startReceiptExtractionJob(id: string): void {
+    const controller = new AbortController();
+    this.#receiptExtractionJobControllers.set(id, controller);
+    const task = this.runReceiptExtractionJob(id, controller)
+      .finally(() => {
+        this.#receiptExtractionJobControllers.delete(id);
+        this.#receiptExtractionJobTasks.delete(id);
+      });
+    this.#receiptExtractionJobTasks.set(id, task);
+  }
+
+  private async runReceiptExtractionJob(id: string, controller: AbortController): Promise<void> {
+    const job = this.#database.startReceiptExtractionJob(id);
+    if (!job) return;
+    this.#activeExpensiveOperations += 1;
+    this.publishRealtime({ entityType: 'receipt-extraction-job', mutation: 'updated', entityId: id, updatedAt: job.updatedAt });
+    try {
+      const extraction = await this.#receiptExtractionService.extract(job.input as ReceiptExtractionRequest, controller.signal);
+      const completed = this.#database.completeReceiptExtractionJob(id, extraction);
+      if (completed) {
+        this.publishRealtime({ entityType: 'receipt-extraction-job', mutation: 'updated', entityId: id, updatedAt: completed.updatedAt });
+      }
+    } catch (error) {
+      const current = this.#database.getReceiptExtractionJob(id);
+      if (current?.status === 'running') {
+        const failed = this.#database.failReceiptExtractionJob(id, mapError(error).code);
+        if (failed) {
+          this.publishRealtime({ entityType: 'receipt-extraction-job', mutation: 'updated', entityId: id, updatedAt: failed.updatedAt });
+        }
+      }
+    } finally {
+      this.#activeExpensiveOperations -= 1;
+      this.scheduleHibernation();
+    }
+  }
+
+  private receiptExtractionJobResponse(job: Readonly<{
+    id: string;
+    status: string;
+    result?: unknown;
+    errorCode?: string;
+    createdAt: string;
+    updatedAt: string;
+    completedAt?: string;
+  }>): Readonly<Record<string, unknown>> {
+    return {
+      id: job.id,
+      status: job.status,
+      ...(job.result === undefined ? {} : { extraction: job.result }),
+      ...(job.errorCode === undefined ? {} : { errorCode: job.errorCode }),
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+      ...(job.completedAt === undefined ? {} : { completedAt: job.completedAt }),
+    };
+  }
+
+  private pruneReceiptExtractionJobs(): void {
+    this.#database.pruneReceiptExtractionJobs(new Date(Date.now() - RECEIPT_EXTRACTION_JOB_RETENTION_MS).toISOString());
   }
 
   private async validateReceipt(request: IncomingMessage, response: ServerResponse): Promise<void> {

@@ -20,6 +20,17 @@ async function json<T>(response: Response): Promise<T> {
   return await response.json() as T;
 }
 
+async function waitForReceiptExtractionJob(baseUrl: string, jobId: string): Promise<{ status: string; extraction?: { final: { declaredTotalMinor: number } } }> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const response = await request(baseUrl, `/api/v1/receipts/extraction-jobs/${encodeURIComponent(jobId)}`);
+    assert.equal(response.status, 200);
+    const job = (await json<{ job: { status: string; extraction?: { final: { declaredTotalMinor: number } } } }>(response)).job;
+    if (!['queued', 'running'].includes(job.status)) return job;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  throw new Error('receipt extraction job did not finish');
+}
+
 test('HTTP API works without an application token and completes list and receipt workflows', async () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-api-'));
   const config: AppConfig = {
@@ -175,6 +186,18 @@ test('HTTP API works without an application token and completes list and receipt
     assert.equal(extraction.pages[0]?.source, 'embedded-text');
     assert.equal(extraction.final.declaredTotalMinor, 120);
     assert.equal(extraction.final.review.lines[0]?.status, 'confirmed');
+
+    const background = await request(baseUrl, '/api/v1/receipts/extraction-jobs', {
+      method: 'POST',
+      body: JSON.stringify({ captures: [{ storageKey, originalName: 'receipt.png', embeddedText: 'Pan;2;150;300\nTOTAL 3,00' }], verifyWithAi: false }),
+    });
+    assert.equal(background.status, 202);
+    const backgroundJob = (await json<{ job: { id: string; status: string } }>(background)).job;
+    assert.match(backgroundJob.id, /^receiptextractionjob_/);
+    assert.ok(['queued', 'running'].includes(backgroundJob.status));
+    const completedBackground = await waitForReceiptExtractionJob(baseUrl, backgroundJob.id);
+    assert.equal(completedBackground.status, 'completed');
+    assert.equal(completedBackground.extraction?.final.declaredTotalMinor, 300);
 
     const receipt = await request(baseUrl, '/api/v1/receipts/validate', { method: 'POST', body: JSON.stringify({ declaredTotalMinor: 120, items: [{ description: 'Leche', quantity: 1, unitPriceMinor: 120, lineTotalMinor: 120 }] }) });
     assert.equal((await json<{ total: { valid: boolean } }>(receipt)).total.valid, true);

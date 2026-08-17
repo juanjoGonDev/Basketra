@@ -149,7 +149,7 @@ test('OpenAI-compatible provider classifies retryable upstream failures', async 
   );
 });
 
-test('OpenAI-compatible provider forwards only a validated correlation identifier', async () => {
+test('OpenAI-compatible provider forwards only validated correlation and session affinity identifiers', async () => {
   const requests: Request[] = [];
   const provider = new OpenAiCompatibleProvider({
     baseUrl: new URL('http://provider.test/v1/'),
@@ -163,11 +163,27 @@ test('OpenAI-compatible provider forwards only a validated correlation identifie
     }), { status: 200, headers: { 'content-type': 'application/json' } });
   }) as typeof fetch);
 
-  await provider.executeStructured({ ...structuredInput, correlationId: 'receipt:abc-123' });
-  await provider.executeStructured({ ...structuredInput, correlationId: 'invalid value\r\nheader' });
+  await provider.executeStructured({
+    ...structuredInput,
+    correlationId: 'receipt:abc-123',
+    sessionAffinity: 'basketra-receipt:abc-123',
+    sessionFinal: true,
+  });
+  await provider.executeStructured({
+    ...structuredInput,
+    correlationId: 'invalid value\r\nheader',
+    sessionAffinity: 'invalid value\r\nheader',
+    sessionFinal: true,
+  });
 
   assert.equal(requests[0]?.headers.get('x-client-request-id'), 'receipt:abc-123');
+  assert.equal(requests[0]?.headers.get('x-session-affinity'), 'basketra-receipt:abc-123');
+  assert.equal(requests[0]?.headers.get('x-session-affinity-keep-open'), 'true');
+  assert.equal(requests[0]?.headers.get('x-session-affinity-final'), 'true');
   assert.equal(requests[1]?.headers.get('x-client-request-id'), null);
+  assert.equal(requests[1]?.headers.get('x-session-affinity'), null);
+  assert.equal(requests[1]?.headers.get('x-session-affinity-keep-open'), null);
+  assert.equal(requests[1]?.headers.get('x-session-affinity-final'), null);
 });
 
 test('provider capability probe verifies authenticated image OCR structured output in one model request', async () => {

@@ -368,6 +368,10 @@ test('receipt service skips OCR and AI when embedded text is supplied', async ()
     assert.equal(result.final.declaredTotalMinor, 120);
     assert.equal(service.parseRequest({ captures: [{ storageKey: file.storageKey }] }).verifyWithAi, false);
     assert.throws(() => service.parseRequest({ captures: [], verifyWithAi: false }), /At least one/u);
+    assert.throws(
+      () => service.parseRequest({ captures: Array.from({ length: 21 }, () => ({ storageKey: file.storageKey })) }),
+      /at most 20/u,
+    );
     service.dispose();
   } finally {
     rmSync(root, { recursive: true, force: true });

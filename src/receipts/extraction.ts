@@ -37,6 +37,13 @@ export type AiReceiptInterpretation = Readonly<{
   warnings: readonly string[];
 }>;
 
+export type ReceiptAiSession = Readonly<{
+  affinity: string;
+  final: boolean;
+  pageCount: number;
+  pagePosition: number;
+}>;
+
 export type ReceiptReviewLine = ReceiptExtractionItem & Readonly<{
   status: 'confirmed' | 'needs-review' | 'unreadable' | 'arithmetic-mismatch';
   expectedMinor: number;
@@ -276,6 +283,7 @@ export async function verifyReceiptWithAi(
   originalText: string,
   attachment: AiAttachmentInput,
   signal?: AbortSignal,
+  session?: ReceiptAiSession,
 ): Promise<Readonly<{ value: AiReceiptInterpretation; attempts: number }>> {
   const executor = new StructuredAiExecutor(provider, maxRetries);
   const attachmentPart = buildAiAttachmentContentPart(attachment, await provider.getCapabilities());
@@ -297,6 +305,9 @@ export async function verifyReceiptWithAi(
       'Return sourceLines with the numbered OCR lines supporting every item, even when the attachment corrects OCR characters.',
       'Return correctedText in page order, retailerName, declaredTotalMinor and articleCount only when visible in the attachment or OCR.',
       'Mark uncertainty through confidence and warnings. Return JSON only.',
+      ...(session
+        ? [`This is page ${String(session.pagePosition + 1)} of ${String(session.pageCount)} of one receipt. Return only this page; do not repeat or modify prior pages.`]
+        : []),
     ].join(' '),
     content: [
       {
@@ -309,6 +320,7 @@ export async function verifyReceiptWithAi(
       attachmentPart,
     ],
     schema: RECEIPT_SCHEMA,
+    ...(session ? { sessionAffinity: session.affinity, sessionFinal: session.final } : {}),
     ...(signal ? { signal } : {}),
   });
   return result;

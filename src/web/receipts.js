@@ -1,6 +1,6 @@
-import { api, setBusy } from './api.js';
+import { api, realtimeEndpoint, setBusy } from './api.js';
 import { buildReceiptAiRecovery } from './receipt-ai-recovery.js';
-import { loadCaptures, saveCaptures } from './state.js';
+import { loadCaptures, loadReceiptExtractionJobId, saveCaptures, saveReceiptExtractionJobId } from './state.js';
 import { captureItem, euroInputToMinor, minorToEuroInput, receiptReview } from './ui.js';
 
 const PAGE_CONCURRENCY = 2;
@@ -43,6 +43,8 @@ const state = {
   retailerCandidates: new Map(),
   retailerManuallyEdited: false,
   settingRetailerValue: false,
+  activeJobId: loadReceiptExtractionJobId(),
+  jobRealtime: null,
 };
 
 let metadata;
@@ -125,6 +127,7 @@ function abortPageWork({ markCancelled = false } = {}) {
 }
 
 function invalidateExtraction() {
+  clearReceiptExtractionJob({ cancel: true });
   abortPageWork();
   state.processing = false;
   state.manualReviewRequired = false;
@@ -397,6 +400,109 @@ function requestExtraction(captures, verifyWithAi, signal) {
   });
 }
 
+function requestReceiptExtractionJob(captures, verifyWithAi) {
+  return api('/api/v1/receipts/extraction-jobs', {
+    method: 'POST',
+    body: JSON.stringify({ captures, verifyWithAi }),
+  });
+}
+
+function clearReceiptExtractionJob({ cancel = false } = {}) {
+  const jobId = state.activeJobId;
+  state.jobRealtime?.close();
+  state.jobRealtime = null;
+  state.activeJobId = '';
+  saveReceiptExtractionJobId('');
+  if (cancel && jobId) void api(`/api/v1/receipts/extraction-jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' }).catch(() => {});
+}
+
+function setPagesForBackgroundJob(status) {
+  const nextStatus = status === 'running' ? (state.verifyWithAi ? 'ai' : 'ocr') : 'preparing';
+  for (const page of state.pageStates.values()) {
+    page.status = nextStatus;
+    page.startedAt ||= Date.now();
+    page.error = '';
+    page.errorCode = '';
+    page.recovery = null;
+  }
+}
+
+function completeBackgroundJob(extraction) {
+  const pages = Array.isArray(extraction.pages) ? extraction.pages : [];
+  for (const [index, capture] of state.captures.entries()) {
+    const page = state.pageStates.get(captureKey(capture));
+    const result = pages.find(candidate => candidate?.position === index);
+    page.status = 'completed';
+    page.rawText = typeof result?.text === 'string' ? result.text : '';
+    page.result = extraction;
+    page.elapsedMs = Date.now() - page.startedAt;
+  }
+  applyExtraction(extraction);
+  state.processing = false;
+  state.finalizing = false;
+  setBusy($('#extract-receipt'), false);
+  stopReceiptProgress();
+  persistAndRenderCaptures();
+  const articleCount = extraction.final?.articleCount;
+  $('#receipt-state').textContent = articleCount === undefined
+    ? 'Ticket preparado. Revisa las líneas, cantidades y total antes de confirmar.'
+    : `Ticket preparado. Se detectaron ${articleCount} artículos; revisa las líneas y el total.`;
+}
+
+function failBackgroundJob(errorCode = 'RECEIPT_EXTRACTION_FAILED') {
+  for (const page of state.pageStates.values()) {
+    page.status = 'error';
+    page.errorCode = errorCode;
+    page.error = 'No se pudo completar el análisis en segundo plano. Puedes volver a intentarlo.';
+    page.elapsedMs = Date.now() - page.startedAt;
+  }
+  state.processing = false;
+  state.finalizing = false;
+  setBusy($('#extract-receipt'), false);
+  stopReceiptProgress();
+  persistAndRenderCaptures();
+  $('#receipt-state').textContent = 'El análisis no terminó. Las capturas se conservan para reintentar.';
+}
+
+async function refreshReceiptExtractionJob() {
+  const result = await api(`/api/v1/receipts/extraction-jobs/${encodeURIComponent(state.activeJobId)}`);
+  const job = result.job;
+  if (!job || job.id !== state.activeJobId) return;
+  if (job.status === 'queued' || job.status === 'running') {
+    state.processing = true;
+    setPagesForBackgroundJob(job.status);
+    startReceiptProgress();
+    persistAndRenderCaptures();
+    return;
+  }
+  if (job.status === 'completed' && job.extraction) {
+    completeBackgroundJob(job.extraction);
+    return;
+  }
+  if (job.status === 'cancelled') {
+    clearReceiptExtractionJob();
+    cancelReceiptExtraction();
+    return;
+  }
+  failBackgroundJob(job.errorCode);
+}
+
+function watchReceiptExtractionJob() {
+  const source = new EventSource(realtimeEndpoint());
+  state.jobRealtime = source;
+  source.addEventListener('invalidate', event => {
+    if (state.jobRealtime !== source) return;
+    try {
+      const invalidation = JSON.parse(event.data);
+      if (invalidation?.entityType === 'receipt-extraction-job' && invalidation.entityId === state.activeJobId) {
+        void refreshReceiptExtractionJob().catch(() => {});
+      }
+    } catch {
+      // The next valid invalidation reconnects through EventSource without leaking job contents.
+    }
+  });
+}
+
 function captureRequest(capture, embeddedText) {
   return {
     storageKey: capture.storageKey,
@@ -583,18 +689,48 @@ function processReceipt() {
     $('#receipt-camera').focus();
     return;
   }
+  if (state.aiConfigured && $('#verify-receipt-ai').checked) {
+    void startReceiptBackgroundJob();
+    return;
+  }
+  startInteractiveReceiptExtraction();
+}
+
+function startInteractiveReceiptExtraction() {
+  clearReceiptExtractionJob({ cancel: true });
+  resetPagesForProcessing();
+  state.verifyWithAi = false;
+  state.processing = true;
+  setBusy($('#extract-receipt'), true);
+  startReceiptProgress();
+  $('#receipt-state').textContent = 'Procesando hasta dos imágenes a la vez con OCR local.';
+  const token = state.runToken;
+  for (const capture of state.captures) enqueueCapture(capture, false, token);
+  persistAndRenderCaptures();
+  pumpPageQueue();
+}
+
+async function startReceiptBackgroundJob() {
+  clearReceiptExtractionJob({ cancel: true });
   resetPagesForProcessing();
   state.verifyWithAi = state.aiConfigured && $('#verify-receipt-ai').checked;
   state.processing = true;
   setBusy($('#extract-receipt'), true);
   startReceiptProgress();
-  $('#receipt-state').textContent = state.verifyWithAi
-    ? 'Procesando hasta dos imágenes a la vez: OCR local y después verificación IA por página.'
-    : 'Procesando hasta dos imágenes a la vez con OCR local.';
-  const token = state.runToken;
-  for (const capture of state.captures) enqueueCapture(capture, state.verifyWithAi, token);
+  setPagesForBackgroundJob('queued');
   persistAndRenderCaptures();
-  pumpPageQueue();
+  $('#receipt-state').textContent = 'El análisis continúa aunque cierres esta página. Puedes volver más tarde para revisar el resultado.';
+  try {
+    const result = await requestReceiptExtractionJob(state.captures.map(capture => captureRequest(capture)), state.verifyWithAi);
+    const jobId = result.job?.id;
+    if (typeof jobId !== 'string') throw new Error('No se recibió el identificador del análisis');
+    state.activeJobId = jobId;
+    saveReceiptExtractionJobId(jobId);
+    watchReceiptExtractionJob();
+    await refreshReceiptExtractionJob();
+  } catch (error) {
+    failBackgroundJob(typeof error?.code === 'string' ? error.code : undefined);
+  }
 }
 
 function enqueueCapture(capture, verifyWithAi, token = state.runToken) {
@@ -770,6 +906,7 @@ function useManualReview(index) {
 }
 
 function cancelReceiptExtraction() {
+  clearReceiptExtractionJob({ cancel: true });
   abortPageWork({ markCancelled: true });
   state.processing = false;
   state.finalizing = false;
@@ -1137,6 +1274,7 @@ async function confirmReceipt() {
     toast('Ticket confirmado');
     abortPageWork();
     state.captures = [];
+    clearReceiptExtractionJob();
     state.pageStates.clear();
     state.extraction = null;
     state.items = [];
@@ -1237,9 +1375,15 @@ export function initReceipts(options) {
   aiToggle.checked = false;
   aiToggle.disabled = !state.aiConfigured;
   $('#receipt-ai-help').textContent = state.aiConfigured
-    ? 'Opcional: cada imagen pasa por OCR local y después se revisa por separado con tu proveedor.'
+    ? 'Opcional: procesa hasta 20 imágenes por ticket. El OCR se adelanta y la IA las verifica una a una en la misma conversación; el análisis sigue aunque cierres esta página.'
     : 'OCR local en español activo; no necesita cuenta ni conexión externa.';
   bindEvents();
   ensurePageStates();
   persistAndRenderCaptures();
+  if (state.activeJobId) {
+    watchReceiptExtractionJob();
+    void refreshReceiptExtractionJob().catch(() => {
+      $('#receipt-state').textContent = 'No se pudo recuperar el análisis en segundo plano. Puedes conservar las capturas y reintentar.';
+    });
+  }
 }

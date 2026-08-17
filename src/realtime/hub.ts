@@ -1,4 +1,4 @@
-export const REALTIME_ENTITY_TYPES = ['shopping-list', 'shopping-list-item', 'product', 'category', 'store', 'price-observation'] as const;
+export const REALTIME_ENTITY_TYPES = ['shopping-list', 'shopping-list-item', 'product', 'category', 'store', 'price-observation', 'receipt-extraction-job'] as const;
 export const REALTIME_MUTATION_TYPES = ['created', 'updated', 'deleted', 'reordered'] as const;
 
 export type RealtimeEntityType = typeof REALTIME_ENTITY_TYPES[number];
