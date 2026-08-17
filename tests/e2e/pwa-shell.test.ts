@@ -17,8 +17,11 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   const receipts = read('src/web/receipts.js');
   const ui = read('src/web/ui.js');
   const css = read('src/web/styles.css');
+  const modernCss = read('src/web/modern.css');
 
   assert.match(html, /viewport-fit=cover/);
+  assert.doesNotMatch(html, /user-scalable=no|maximum-scale=1/i);
+  assert.match(html, /href="\/modern\.css"/);
   assert.match(html, /data-nav="lists"/);
   assert.match(html, /id="new-list-form"/);
   assert.match(html, /id="rename-list-form"/);
@@ -39,7 +42,7 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.equal(manifest.display, 'standalone');
   assert.ok(manifest.icons.length > 0);
 
-  for (const asset of ['/api.js', '/state.js', '/lists.js', '/receipts.js', '/ui.js']) {
+  for (const asset of ['/api.js', '/state.js', '/lists.js', '/receipts.js', '/ui.js', '/styles.css', '/modern.css']) {
     assert.ok(serviceWorker.includes(`'${asset}'`));
   }
   assert.match(serviceWorker, /url\.pathname\.startsWith\('\/api\/'\)/);
@@ -74,4 +77,8 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.match(css, /prefers-reduced-motion/);
   assert.match(css, /\.confirm-dialog/);
   assert.match(css, /\.preview-dialog/);
+  assert.match(modernCss, /\.hero::after\s*{[\s\S]*display:\s*none/);
+  assert.match(modernCss, /box-shadow:\s*none/);
+  assert.match(modernCss, /\.capture-card__progress/);
+  assert.match(modernCss, /prefers-reduced-motion/);
 });
