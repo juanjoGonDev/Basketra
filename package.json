@@ -7,8 +7,14 @@
   "engines": {
     "node": ">=22.16.0 <23"
   },
+  "volta": {
+    "node": "22.23.1"
+  },
   "scripts": {
-    "dev": "node --experimental-strip-types --watch src/main.ts",
+    "predev": "node scripts/check-dev-runtime.mjs",
+    "dev": "node --env-file-if-exists=.env --experimental-strip-types --watch src/main.ts",
+    "dev:docker": "docker compose up --build --force-recreate basketra",
+    "dev:docker:down": "docker compose down",
     "start": "node dist/main.js",
     "format:check": "node scripts/format-check.mjs",
     "lint": "node scripts/lint.mjs",
