@@ -228,6 +228,28 @@ details.settings-card:has(#diagnostics),
   border-top: 1px solid var(--color-outline-variant);
 }
 
+#backup-import-file {
+  padding: .3rem;
+  cursor: pointer;
+}
+
+#backup-import-file::file-selector-button {
+  min-height: 2.5rem;
+  margin-right: var(--space-3);
+  padding: .5rem .85rem;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-container-high);
+  color: var(--color-on-surface);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+#backup-import-file:hover::file-selector-button {
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface-container-high));
+}
+
 .status-pill.error {
   background: var(--color-error-container);
   color: var(--color-on-error-container);
