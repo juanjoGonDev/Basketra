@@ -215,14 +215,14 @@ export class ReceiptExtractionService {
   }>> {
     signal?.throwIfAborted();
     const captures = uniqueCaptures(request.captures);
-    const ocrPages = await Promise.all(captures.map((capture, position) =>
+    const ocrPages = captures.map((capture, position) =>
       this.#pageQueue.run(
         () => this.extractOcrPage(capture, position, signal),
         signal,
-      )));
+      ));
     const pages = request.verifyWithAi
       ? await this.verifyOcrPagesInOrder(captures, ocrPages, signal)
-      : ocrPages;
+      : await Promise.all(ocrPages);
     const originalText = pages.map((page) => page.text).join('\n').trim();
 
     const deterministicItems = mergeReceiptPageItems(
@@ -395,20 +395,21 @@ export class ReceiptExtractionService {
 
   private async verifyOcrPagesInOrder(
     captures: readonly ReceiptCaptureRequest[],
-    pages: readonly ReceiptOcrPageEvidence[],
+    ocrPages: readonly Promise<ReceiptOcrPageEvidence>[],
     signal?: AbortSignal,
   ): Promise<ReceiptPageEvidence[]> {
     const affinity = `basketra-receipt-${randomUUID()}`;
     const verified: ReceiptPageEvidence[] = [];
 
-    for (const [position, page] of pages.entries()) {
+    for (const [position, ocrPage] of ocrPages.entries()) {
+      const page = await ocrPage;
       const capture = captures[position];
       if (!capture) throw new Error('Receipt capture is missing for OCR page');
       verified.push(await this.#aiQueue.run(
         () => this.verifyPageWithAi(capture, page, signal, {
           affinity,
-          final: position === pages.length - 1,
-          pageCount: pages.length,
+          final: position === ocrPages.length - 1,
+          pageCount: ocrPages.length,
           pagePosition: position,
         }),
         signal,

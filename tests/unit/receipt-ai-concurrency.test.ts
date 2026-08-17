@@ -18,6 +18,10 @@ test('receipt service keeps two OCR slots while serializing AI verification', as
   const initialOcrGate = new Promise<void>((resolve) => {
     releaseInitialOcr = resolve;
   });
+  let releaseThirdOcr = (): void => {};
+  const thirdOcrGate = new Promise<void>((resolve) => {
+    releaseThirdOcr = resolve;
+  });
   let releaseFirstAi = (): void => {};
   const firstAiGate = new Promise<void>((resolve) => {
     releaseFirstAi = resolve;
@@ -44,6 +48,7 @@ test('receipt service keeps two OCR slots while serializing AI verification', as
       const call = ocrCalls;
       try {
         if (call <= 2) await initialOcrGate;
+        if (call === 3) await thirdOcrGate;
         return {
           text: `Product ${call};1;120;120`,
           confidence: 0.9,
@@ -125,7 +130,9 @@ test('receipt service keeps two OCR slots while serializing AI verification', as
     releaseInitialOcr();
     await waitFor(() => aiCalls === 1 && ocrCalls === 3);
     assert.equal(maximumAi, 1);
+    assert.equal(activeOcr, 1);
     releaseFirstAi();
+    releaseThirdOcr();
 
     const result = await extraction;
     assert.equal(result.pages.length, 3);
