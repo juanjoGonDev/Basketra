@@ -262,13 +262,40 @@ function assembledExtraction() {
     item('RESTO TICKET', 1, 19_422, 19_422, 'B'),
   ];
   return {
-    pages: [],
+    pages: [0, 1, 2].map(position => ({
+      position,
+      source: 'local-tesseract',
+      text: `OCR page ${position + 1}`,
+      confidence: 0.91,
+    })),
     originalText: 'ALCAMPO ALMERIA\nC.LADRON MANZAN;6;89;534;A\nPAN;1;150;150;B\nLECHE;1;120;120;B\nRESTO TICKET;1;19422;19422;B\nTOTAL 202.26\nNUM. TOTAL ART. VENDIDOS = 88',
     deterministic: {
       retailerName: 'ALCAMPO ALMERIA',
       declaredTotalMinor: 20_226,
       articleCount: 88,
       items,
+    },
+    ai: {
+      interpretation: {
+        retailerName: 'ALCAMPO ALMERIA',
+        declaredTotalMinor: 20_226,
+        articleCount: 88,
+        currency: 'EUR',
+        correctedText: 'ALCAMPO ALMERIA\nTOTAL 202.26',
+        items,
+        warnings: [],
+      },
+      attempts: 1,
+      pages: [0, 1, 2].map(position => ({
+        position,
+        interpretation: {
+          currency: 'EUR',
+          correctedText: `OCR page ${position + 1}`,
+          items: [],
+          warnings: [],
+        },
+        attempts: 1,
+      })),
     },
     final: {
       retailerName: 'ALCAMPO ALMERIA',
