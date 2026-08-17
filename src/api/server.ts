@@ -32,6 +32,7 @@ const STATIC_ASSETS = new Set([
   'receipts.js',
   'ui.js',
   'styles.css',
+  'modern.css',
   'manifest.webmanifest',
   'sw.js',
   'icon.svg',
