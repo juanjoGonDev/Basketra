@@ -1,4 +1,4 @@
-const CACHE = 'basketra-shell-v9';
+const CACHE = 'basketra-shell-v10';
 const SHELL = [
   '/',
   '/index.html',
