@@ -154,7 +154,7 @@ jobs:
           copy_flow_capture mobile-settings-receipts-s settings-dark-360.png 11-settings-dark-360.png
           copy_flow_capture mobile-settings-receipts-s settings-light-390.png 11-settings-light-390.png
           copy_flow_capture mobile-settings-receipts-s settings-light-768.png 11-settings-light-768.png
-          copy_flow_capture mobile-settings-receipts-O ocr-running.png 12-ocr-running.png
+          copy_flow_capture mobile-settings-receipts-O background-job-running.png 12-background-job-running.png
 
           test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 19
           test "$(find evidence-assets -maxdepth 1 -type f -name '*.gif' | wc -l)" -eq 12
@@ -206,7 +206,7 @@ jobs:
           <tr>
           <td><strong>Settings · dark · 430 px</strong><br><img src="$base/11-responsive-settings.png" width="240" alt="Basketra Settings at 430 pixels in dark mode"></td>
           <td><strong>Settings · tablet · 768 px</strong><br><img src="$base/11-settings-light-768.png" width="280" alt="Basketra Settings at tablet width in light mode"></td>
-          <td><strong>OCR running progress</strong><br><img src="$base/12-ocr-running.png" width="240" alt="Basketra receipt OCR showing elapsed progress and cancellation"></td>
+          <td><strong>OCR running progress</strong><br><img src="$base/12-background-job-running.png" width="240" alt="Basketra receipt OCR showing elapsed progress and cancellation"></td>
           </tr>
           <tr>
           <td colspan="3"><strong>Retailer suggestion and confirmed receipt</strong><br><img src="$base/12-ocr-retailer.png" width="360" alt="Basketra receipt review with a saved retailer suggestion and successful confirmation"></td>
