@@ -41,11 +41,11 @@ test('service worker installs the complete shell, cleans old caches and handles 
   };
   const fakeCaches = {
     async open(name: string) {
-      assert.equal(name, 'basketra-shell-v9');
+      assert.equal(name, 'basketra-shell-v10');
       return cache;
     },
     async keys() {
-      return ['basketra-shell-v8', 'basketra-shell-v9'];
+      return ['basketra-shell-v8', 'basketra-shell-v9', 'basketra-shell-v10'];
     },
     async delete(name: string) {
       deletedCaches.push(name);
@@ -88,7 +88,7 @@ test('service worker installs the complete shell, cleans old caches and handles 
     let activateWork: Promise<unknown> | undefined;
     activate({ waitUntil(work: Promise<unknown>) { activateWork = work; } });
     await activateWork;
-    assert.deepEqual(deletedCaches, ['basketra-shell-v8']);
+    assert.deepEqual(deletedCaches, ['basketra-shell-v8', 'basketra-shell-v9']);
     assert.equal(claimCalls, 1);
 
     let responseWork: Promise<Response | undefined> | undefined;
