@@ -25,25 +25,23 @@
   <main id="main" tabindex="-1">
     <section class="view active" data-view="home">
       <div class="hero">
-        <div class="hero__badge"><span data-icon="shield"></span> Sólo en tu red privada</div>
+        <div class="hero__badge"><span data-icon="shield"></span> Red privada</div>
         <h1>Organiza la compra sin perder tiempo.</h1>
-        <p>Prepara la lista, fotografía tickets y conserva las evidencias en tu propia Raspberry Pi.</p>
+        <p>Prepara tus listas, captura tickets y conserva las evidencias en tu propia Raspberry Pi.</p>
         <div class="hero__actions">
           <button class="button primary" data-nav="lists"><span data-icon="list"></span>Ir a mis listas</button>
-          <button class="button secondary" data-nav="scan"><span data-icon="camera"></span>Fotografiar ticket</button>
         </div>
       </div>
-      <div class="dashboard-grid">
-        <button class="dashboard-card" data-nav="lists"><span data-icon="plus"></span><strong>Preparar la compra</strong><small>Listas compartidas en tiempo real.</small></button>
-        <button class="dashboard-card" data-nav="scan"><span data-icon="receipt"></span><strong>Importar ticket</strong><small>Cámara, galería o PDF.</small></button>
-        <button class="dashboard-card" data-nav="prices"><span data-icon="prices"></span><strong>Comparar planes</strong><small>Decisiones con evidencia.</small></button>
+      <div class="dashboard-grid" aria-label="Acciones rápidas">
+        <button class="dashboard-card" data-nav="scan"><span data-icon="receipt"></span><strong>Importar ticket</strong><small>Cámara, galería o PDF</small></button>
+        <button class="dashboard-card" data-nav="prices"><span data-icon="prices"></span><strong>Comparar planes</strong><small>Compara opciones con evidencia</small></button>
       </div>
     </section>
 
     <section class="view" data-view="lists">
       <div id="lists-overview" class="lists-screen">
         <div class="page-header list-page-header">
-          <div><p class="eyebrow">Listas</p><h1>¿Qué compra preparas?</h1><p>Ambos móviles comparten estas listas. Abre una para comprar o crea otra para una ocasión distinta.</p></div>
+          <div><p class="eyebrow">Listas</p><h1>¿Qué compra preparas?</h1><p>Tus listas se comparten en tiempo real. Abre una o crea otra para una compra distinta.</p></div>
           <button id="open-create-list" class="button primary" type="button"><span data-icon="plus"></span>Nueva lista</button>
         </div>
         <div id="list-cards" class="list-overview-grid" aria-live="polite"></div>
@@ -82,12 +80,12 @@
     </section>
 
     <section class="view" data-view="scan">
-      <div class="page-header"><div><p class="eyebrow">Tickets</p><h1>Captura y revisa</h1><p>Las fotos JPEG y PNG se leen con OCR local en español. Después corriges cada producto e importe directamente en euros.</p></div></div>
+      <div class="page-header"><div><p class="eyebrow">Tickets</p><h1>Captura y revisa</h1><p>Añade fotos o PDF, extrae los datos y revisa el resultado antes de importarlo.</p></div></div>
       <section class="surface capture-source">
         <div class="panel-heading"><span class="section-icon" data-icon="camera"></span><div><p class="eyebrow">Paso 1</p><h2>Añade las páginas</h2></div></div>
         <div class="capture-actions">
           <label class="capture-action primary"><span data-icon="camera"></span><strong>Hacer foto</strong><small>Usa la cámara trasera</small><input id="receipt-camera" type="file" accept="image/jpeg,image/png" capture="environment"></label>
-          <label class="capture-action"><span data-icon="upload"></span><strong>Elegir imágenes o PDF</strong><small>Galería o documentos</small><input id="receipt-files" type="file" accept="image/jpeg,image/png,application/pdf" multiple></label>
+          <label class="capture-action"><span data-icon="upload"></span><strong>Elegir archivos</strong><small>Imágenes o PDF</small><input id="receipt-files" type="file" accept="image/jpeg,image/png,application/pdf" multiple></label>
         </div>
         <p id="upload-state" class="inline-status" role="status"></p>
         <ol id="capture-list" class="capture-list"></ol>
@@ -99,7 +97,7 @@
         <button id="extract-receipt" class="button primary full" type="button" disabled><span data-icon="scan"></span>Leer con OCR local</button>
         <span id="receipt-state" class="inline-status" role="status"></span>
         <details class="manual-entry" open><summary>Revisión manual y total</summary><div class="details-body">
-          <p>Cada producto es una fila editable. Desliza un poco a la izquierda para descubrir editar y eliminar; continúa hasta el fondo rojo para eliminar al soltar. La acción ofrece Deshacer y también puede ejecutarse con botones.</p>
+          <p>Edita cada fila directamente. Para las acciones puedes deslizar o usar los botones accesibles de cada producto.</p>
           <button id="add-manual-line" class="button secondary full" type="button"><span data-icon="plus"></span>Añadir línea manual</button>
           <label class="field"><span>Total declarado (€)</span><input id="receipt-total" type="text" value="0.00" inputmode="decimal" autocomplete="off"></label>
           <button id="review-receipt" class="button secondary full" type="button"><span data-icon="check"></span>Validar líneas e importes</button>
@@ -110,13 +108,13 @@
     </section>
 
     <section class="view" data-view="prices">
-      <div class="page-header"><div><p class="eyebrow">Comparación</p><h1>Planes de compra</h1><p>Comprueba coste, confianza, faltantes y número de comercios.</p></div></div>
-      <div class="surface comparison-intro"><span data-icon="prices"></span><div><strong>Tres estrategias verificables</strong><p>Genera un ejemplo para comprobar el flujo completo.</p></div><button id="run-demo-comparison" class="button primary full" type="button">Generar ejemplo verificable</button></div>
+      <div class="page-header"><div><p class="eyebrow">Comparación</p><h1>Planes de compra</h1><p>Compara coste, confianza, faltantes y número de comercios.</p></div></div>
+      <div class="surface comparison-intro"><span data-icon="prices"></span><div><strong>Compara tres estrategias</strong><p>Genera un ejemplo verificable para revisar el resultado.</p></div><button id="run-demo-comparison" class="button primary full" type="button">Generar ejemplo</button></div>
       <div id="plans" class="plans" aria-live="polite"></div>
     </section>
 
     <section class="view" data-view="settings">
-      <div class="page-header"><div><p class="eyebrow">Instalación privada</p><h1>Ajustes</h1><p>Basketra no requiere token de aplicación: la frontera de acceso es tu VPN o red privada.</p></div></div>
+      <div class="page-header"><div><p class="eyebrow">Instalación privada</p><h1>Ajustes</h1><p>Estado, diagnóstico y recuperación de esta instalación de Basketra.</p></div></div>
       <details class="surface settings-card"><summary>Diagnóstico técnico</summary><pre id="diagnostics" aria-live="polite"></pre></details>
       <button id="download-backup" class="button secondary full"><span data-icon="backup"></span>Crear copia de seguridad</button>
     </section>
