@@ -112,6 +112,32 @@ details.settings-card:has(#diagnostics),
   color: var(--color-on-error-container);
 }
 
+#ai-test-state:not(:empty) {
+  min-height: 0;
+  padding: .7rem .85rem;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-container-high);
+  color: var(--color-on-surface-variant);
+  line-height: 1.45;
+}
+
+#ai-test-state[data-state="success"] {
+  background: var(--color-success-container);
+  color: var(--color-on-success-container);
+}
+
+#ai-test-state[data-state="recoverable-error"] {
+  background: var(--color-error-container);
+  color: var(--color-on-error-container);
+}
+
+#ai-test-state[data-state="preparing"],
+#ai-test-state[data-state="uploading"],
+#ai-test-state[data-state="waiting"] {
+  background: var(--color-primary-container);
+  color: var(--color-on-primary-container);
+}
+
 .provider-check {
   display: grid;
   gap: 1px;
@@ -264,10 +290,6 @@ details.settings-card:has(#diagnostics),
   .operations-stack {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
-  }
-
-  .operations-card {
-    min-height: 100%;
   }
 }
 
