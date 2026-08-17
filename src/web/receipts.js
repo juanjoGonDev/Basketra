@@ -488,7 +488,6 @@ async function refreshReceiptExtractionJob() {
 }
 
 function watchReceiptExtractionJob() {
-  state.jobRealtime?.close();
   const source = new EventSource(realtimeEndpoint());
   state.jobRealtime = source;
   source.addEventListener('invalidate', event => {
