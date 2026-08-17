@@ -190,25 +190,32 @@ test('cancel all marks active work cancelled and keeps the uploaded capture', as
 
 test('background jobs render running state and finish after their matching realtime invalidation', async ({ page }) => {
   let jobStatus = 'running';
+  let failNextRefresh = false;
   await installControlledEventSource(page);
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({ configured: true }),
   }));
-  await page.route('**/api/v1/receipts/extraction-jobs**', route => route.fulfill({
-    status: route.request().method() === 'POST' ? 202 : 200,
-    contentType: 'application/json',
-    body: JSON.stringify({
-      job: route.request().method() === 'POST'
-        ? { id: 'receiptextractionjob_live' }
-        : {
-            id: 'receiptextractionjob_live',
-            status: jobStatus,
-            ...(jobStatus === 'completed' ? { extraction: backgroundExtraction() } : {}),
-          },
-    }),
-  }));
+  await page.route('**/api/v1/receipts/extraction-jobs**', route => {
+    if (route.request().method() === 'GET' && failNextRefresh) {
+      failNextRefresh = false;
+      return route.abort('failed');
+    }
+    return route.fulfill({
+      status: route.request().method() === 'POST' ? 202 : 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        job: route.request().method() === 'POST'
+          ? { id: 'receiptextractionjob_live' }
+          : {
+              id: 'receiptextractionjob_live',
+              status: jobStatus,
+              ...(jobStatus === 'completed' ? { extraction: backgroundExtraction() } : {}),
+            },
+      }),
+    });
+  });
 
   await page.goto('/');
   await navigate(page, 'Tickets');
@@ -221,6 +228,12 @@ test('background jobs render running state and finish after their matching realt
   await page.evaluate(() => window.__emitReceiptInvalidation(JSON.stringify({
     entityType: 'shopping-list', entityId: 'other',
   })));
+  failNextRefresh = true;
+  await page.evaluate(() => window.__emitReceiptInvalidation(JSON.stringify({
+    entityType: 'receipt-extraction-job', entityId: 'receiptextractionjob_live',
+  })));
+  await expect.poll(() => failNextRefresh).toBe(false);
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Verificando con IA');
   jobStatus = 'completed';
   await page.evaluate(() => window.__emitReceiptInvalidation(JSON.stringify({
     entityType: 'receipt-extraction-job', entityId: 'receiptextractionjob_live',
@@ -263,6 +276,9 @@ test('background job cancellation clears the persisted job and marks the capture
   await page.getByRole('button', { name: 'Cancelar todo', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Cancelada');
   await expect.poll(() => deleteRequests).toBe(1);
+  await page.evaluate(() => window.__emitReceiptInvalidation(JSON.stringify({
+    entityType: 'receipt-extraction-job', entityId: 'receiptextractionjob_cancel',
+  })));
 });
 
 test('a provider-side background cancellation is reflected without issuing a second cancellation', async ({ page }) => {
@@ -403,4 +419,29 @@ test('a malformed background-job response fails safely before persisting an iden
   await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
   await expect(page.locator('#receipt-state')).toContainText('El análisis no terminó');
+});
+
+test('a stale job response with a different identifier is ignored', async ({ page }) => {
+  await installControlledEventSource(page);
+  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ configured: true }),
+  }));
+  await page.route('**/api/v1/receipts/extraction-jobs**', route => route.fulfill({
+    status: route.request().method() === 'POST' ? 202 : 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      job: route.request().method() === 'POST'
+        ? { id: 'receiptextractionjob_expected' }
+        : { id: 'receiptextractionjob_other', status: 'completed', extraction: backgroundExtraction() },
+    }),
+  }));
+
+  await page.goto('/');
+  await navigate(page, 'Tickets');
+  await uploadReceipt(page, 'stale-job-response.png');
+  await enableAi(page);
+  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Preparando imagen');
 });
