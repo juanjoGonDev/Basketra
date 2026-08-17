@@ -403,8 +403,7 @@ export class ReceiptExtractionService {
 
     for (const [position, ocrPage] of ocrPages.entries()) {
       const page = await ocrPage;
-      const capture = captures[position];
-      if (!capture) throw new Error('Receipt capture is missing for OCR page');
+      const capture = captures[position]!;
       verified.push(await this.#aiQueue.run(
         () => this.verifyPageWithAi(capture, page, signal, {
           affinity,
