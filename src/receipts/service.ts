@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { AiProvider } from '../ai/provider.ts';
 import { asArray, asBoolean, asRecord, asString } from '../domain/validation.ts';
 import type { FileStore, StoredFileContent as StoredFile } from '../infrastructure/files.ts';
@@ -15,12 +16,14 @@ import {
   parseDeterministicReceiptText,
   verifyReceiptWithAi,
   type AiReceiptInterpretation,
+  type ReceiptAiSession,
   type ReceiptExtractionItem,
   type ReceiptMetadata,
 } from './extraction.ts';
 
 const DEFAULT_PAGE_CONCURRENCY = 2;
 const DEFAULT_AI_CONCURRENCY = 1;
+const MAX_RECEIPT_CONVERSATION_PAGES = 20;
 
 export type ReceiptCaptureRequest = Readonly<{
   storageKey: string;
@@ -160,7 +163,7 @@ export class ReceiptExtractionService {
 
   parseRequest(value: unknown): ReceiptExtractionRequest {
     const root = asRecord(value);
-    const captures = asArray(root['captures'], '$.captures', 20).map((entry, index): ReceiptCaptureRequest => {
+    const captures = asArray(root['captures'], '$.captures', MAX_RECEIPT_CONVERSATION_PAGES).map((entry, index): ReceiptCaptureRequest => {
       const capture = asRecord(entry, `$.captures[${index}]`);
       const originalName = typeof capture['originalName'] === 'string'
         ? asString(capture['originalName'], `$.captures[${index}].originalName`, { min: 1, max: 240 })
@@ -212,20 +215,14 @@ export class ReceiptExtractionService {
   }>> {
     signal?.throwIfAborted();
     const captures = uniqueCaptures(request.captures);
-    const pagePromises = captures.map(async (capture, position) => {
-      const ocrPage = await this.#pageQueue.run(
+    const ocrPages = await Promise.all(captures.map((capture, position) =>
+      this.#pageQueue.run(
         () => this.extractOcrPage(capture, position, signal),
         signal,
-      );
-
-      if (!request.verifyWithAi) return ocrPage;
-
-      return this.#aiQueue.run(
-        () => this.verifyPageWithAi(capture, ocrPage, signal),
-        signal,
-      );
-    });
-    const pages = await Promise.all(pagePromises);
+      )));
+    const pages = request.verifyWithAi
+      ? await this.verifyOcrPagesInOrder(captures, ocrPages, signal)
+      : ocrPages;
     const originalText = pages.map((page) => page.text).join('\n').trim();
 
     const deterministicItems = mergeReceiptPageItems(
@@ -371,6 +368,7 @@ export class ReceiptExtractionService {
     capture: ReceiptCaptureRequest,
     page: ReceiptOcrPageEvidence,
     signal?: AbortSignal,
+    session?: ReceiptAiSession,
   ): Promise<ReceiptPageEvidence> {
     const stored = this.#fileStore.read(capture.storageKey);
     const ai = await verifyReceiptWithAi(
@@ -383,6 +381,7 @@ export class ReceiptExtractionService {
         ...(capture.originalName ? { fileName: capture.originalName } : {}),
       },
       signal,
+      session,
     );
 
     return {
@@ -392,6 +391,31 @@ export class ReceiptExtractionService {
         attempts: ai.attempts,
       },
     };
+  }
+
+  private async verifyOcrPagesInOrder(
+    captures: readonly ReceiptCaptureRequest[],
+    pages: readonly ReceiptOcrPageEvidence[],
+    signal?: AbortSignal,
+  ): Promise<ReceiptPageEvidence[]> {
+    const affinity = `basketra-receipt-${randomUUID()}`;
+    const verified: ReceiptPageEvidence[] = [];
+
+    for (const [position, page] of pages.entries()) {
+      const capture = captures[position];
+      if (!capture) throw new Error('Receipt capture is missing for OCR page');
+      verified.push(await this.#aiQueue.run(
+        () => this.verifyPageWithAi(capture, page, signal, {
+          affinity,
+          final: position === pages.length - 1,
+          pageCount: pages.length,
+          pagePosition: position,
+        }),
+        signal,
+      ));
+    }
+
+    return verified;
   }
 
   private getAiOcrProvider(): MultimodalAiOcrProvider {

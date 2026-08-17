@@ -90,6 +90,8 @@ export type AiStructuredInput = Readonly<{
   schemaName: string;
   jsonSchema: Readonly<Record<string, unknown>>;
   correlationId?: string;
+  sessionAffinity?: string;
+  sessionFinal?: boolean;
   signal?: AbortSignal;
 }>;
 
@@ -117,6 +119,7 @@ const DEFAULT_CAPABILITIES: AiCapabilities = {
 export const DEFAULT_AI_MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_PROVIDER_ERROR_BYTES = 8 * 1024;
 const CORRELATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/u;
+const SESSION_AFFINITY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const PROVIDER_PROBE_FILENAME = 'test.jpg';
 const PROVIDER_PROBE_FORMAT = 'jpg';
 const PROVIDER_PROBE_TEXT = 'BASKETRA OCR 4821';
@@ -312,7 +315,10 @@ export class OpenAiCompatibleProvider implements AiProvider {
     try {
       const response = await this.fetchImplementation(new URL('chat/completions', ensureTrailingSlash(this.config.baseUrl)), {
         method: 'POST',
-        headers: { ...this.headers(input.correlationId), 'content-type': 'application/json' },
+        headers: {
+          ...this.headers(input.correlationId, input.sessionAffinity, input.sessionFinal),
+          'content-type': 'application/json',
+        },
         body: JSON.stringify({
           model: this.config.model,
           messages: [
@@ -345,12 +351,16 @@ export class OpenAiCompatibleProvider implements AiProvider {
 
   dispose(): void {}
 
-  private headers(correlationId?: string): Record<string, string> {
+  private headers(correlationId?: string, sessionAffinity?: string, sessionFinal?: boolean): Record<string, string> {
+    const candidate = sessionAffinity?.trim();
+    const affinity = candidate && SESSION_AFFINITY_PATTERN.test(candidate) ? candidate : undefined;
     return {
       ...(this.config.apiKey ? { authorization: `Bearer ${this.config.apiKey}` } : {}),
       ...(correlationId && CORRELATION_ID_PATTERN.test(correlationId)
         ? { 'x-client-request-id': correlationId }
         : {}),
+      ...(affinity ? { 'x-session-affinity': affinity, 'x-session-affinity-keep-open': 'true' } : {}),
+      ...(affinity && sessionFinal ? { 'x-session-affinity-final': 'true' } : {}),
     };
   }
 }
