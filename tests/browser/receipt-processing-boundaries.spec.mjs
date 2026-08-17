@@ -64,6 +64,42 @@ async function uploadReceipt(page, name) {
   await expect(page.locator('.capture-card')).toHaveCount(1);
 }
 
+async function enableAi(page) {
+  const input = page.getByLabel('Verificar y normalizar con IA');
+  await page.locator('label.switch-row').filter({ has: input }).click();
+  await expect(input).toBeChecked();
+}
+
+async function installControlledEventSource(page) {
+  await page.addInitScript(() => {
+    class ControlledEventSource {
+      constructor() {
+        this.listeners = new Map();
+        window.__receiptEventSources ??= [];
+        window.__receiptEventSources.push(this);
+      }
+
+      addEventListener(type, listener) {
+        const listeners = this.listeners.get(type) ?? [];
+        listeners.push(listener);
+        this.listeners.set(type, listeners);
+      }
+
+      close() {}
+    }
+    window.EventSource = ControlledEventSource;
+    window.__emitReceiptInvalidation = data => {
+      for (const source of window.__receiptEventSources ?? []) {
+        for (const listener of source.listeners.get('invalidate') ?? []) listener({ data });
+      }
+    };
+  });
+}
+
+function backgroundExtraction() {
+  return extraction();
+}
+
 test('an AbortError marks the page cancelled without converting it into an AI or OCR failure', async ({ page }) => {
   await page.addInitScript(() => {
     const originalFetch = window.fetch.bind(window);
@@ -150,4 +186,81 @@ test('cancel all marks active work cancelled and keeps the uploaded capture', as
   await expect(page.locator('#receipt-state')).toContainText('Análisis cancelado');
   await expect(page.locator('.capture-card')).toHaveCount(1);
   releaseRequest();
+});
+
+test('background jobs render running state and finish after their matching realtime invalidation', async ({ page }) => {
+  let jobStatus = 'running';
+  await installControlledEventSource(page);
+  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ configured: true }),
+  }));
+  await page.route('**/api/v1/receipts/extraction-jobs**', route => route.fulfill({
+    status: route.request().method() === 'POST' ? 202 : 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      job: route.request().method() === 'POST'
+        ? { id: 'receiptextractionjob_live' }
+        : {
+            id: 'receiptextractionjob_live',
+            status: jobStatus,
+            ...(jobStatus === 'completed' ? { extraction: backgroundExtraction() } : {}),
+          },
+    }),
+  }));
+
+  await page.goto('/');
+  await navigate(page, 'Tickets');
+  await uploadReceipt(page, 'background-live.png');
+  await enableAi(page);
+  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Verificando con IA');
+
+  await page.evaluate(() => window.__emitReceiptInvalidation('not-json'));
+  await page.evaluate(() => window.__emitReceiptInvalidation(JSON.stringify({
+    entityType: 'shopping-list', entityId: 'other',
+  })));
+  jobStatus = 'completed';
+  await page.evaluate(() => window.__emitReceiptInvalidation(JSON.stringify({
+    entityType: 'receipt-extraction-job', entityId: 'receiptextractionjob_live',
+  })));
+
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada');
+  await expect(page.locator('#receipt-state')).toHaveText('Ticket preparado. Revisa las líneas, cantidades y total antes de confirmar.');
+});
+
+test('background job cancellation clears the persisted job and marks the capture cancelled', async ({ page }) => {
+  let deleteRequests = 0;
+  await installControlledEventSource(page);
+  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ configured: true }),
+  }));
+  await page.route('**/api/v1/receipts/extraction-jobs**', route => {
+    if (route.request().method() === 'DELETE') {
+      deleteRequests += 1;
+      return route.fulfill({ status: 204 });
+    }
+    return route.fulfill({
+      status: route.request().method() === 'POST' ? 202 : 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        job: route.request().method() === 'POST'
+          ? { id: 'receiptextractionjob_cancel' }
+          : { id: 'receiptextractionjob_cancel', status: 'running' },
+      }),
+    });
+  });
+
+  await page.goto('/');
+  await navigate(page, 'Tickets');
+  await uploadReceipt(page, 'background-cancel.png');
+  await enableAi(page);
+  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Verificando con IA');
+  await page.getByRole('button', { name: 'Cancelar todo', exact: true }).click();
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Cancelada');
+  await expect.poll(() => deleteRequests).toBe(1);
 });
