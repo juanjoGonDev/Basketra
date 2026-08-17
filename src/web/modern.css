@@ -142,7 +142,7 @@ textarea:disabled {
 
 h1 {
   margin-bottom: var(--space-2);
-  font-size: clamp(1.75rem, 5vw, 2.25rem);
+  font-size: clamp(1.6rem, 4.5vw, 2rem);
   font-weight: 650;
   line-height: 1.14;
   letter-spacing: -.025em;
@@ -377,6 +377,15 @@ main {
   background: var(--color-surface-container-low);
 }
 
+.switch-row input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .switch {
   background: var(--color-outline-variant);
 }
@@ -427,11 +436,12 @@ main {
 
 .hero h1 {
   max-width: 36rem;
+  font-size: clamp(1.8rem, 7vw, 2.4rem);
 }
 
 .hero p {
   max-width: var(--reading-max);
-  font-size: 1rem;
+  font-size: .95rem;
 }
 
 .hero__actions {
@@ -448,6 +458,10 @@ main {
 
 .dashboard-card {
   min-height: 5.5rem;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  gap: .15rem .75rem;
+  align-items: center;
   padding: 1rem 1.125rem;
   border: 0;
   border-radius: 0;
@@ -460,9 +474,16 @@ main {
 }
 
 .dashboard-card > .icon {
+  grid-row: 1 / -1;
   width: 1.6rem;
   height: 1.6rem;
   color: var(--color-primary);
+}
+
+.dashboard-card > strong,
+.dashboard-card > small {
+  grid-column: 2;
+  text-align: left;
 }
 
 /* Lists: entity containers with compact Android-style rows. */
@@ -628,10 +649,15 @@ main {
 
 .capture-action {
   min-height: 5.5rem;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  gap: .15rem .75rem;
+  align-items: center;
   padding: 1rem;
   border: 0;
   border-radius: var(--radius-lg);
   background: var(--color-surface-container-low);
+  text-align: left;
 }
 
 .capture-action:hover {
@@ -645,7 +671,13 @@ main {
 }
 
 .capture-action > .icon {
+  grid-row: 1 / -1;
   color: currentColor;
+}
+
+.capture-action > strong,
+.capture-action > small {
+  grid-column: 2;
 }
 
 .capture-card {
@@ -967,13 +999,16 @@ summary {
     padding-inline: var(--space-6);
   }
 
-  .hero__actions,
+  .hero__actions {
+    grid-template-columns: minmax(12rem, 20rem);
+  }
+
   .capture-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .dashboard-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--space-3);
     overflow: visible;
     background: transparent;
