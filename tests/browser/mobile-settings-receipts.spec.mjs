@@ -91,61 +91,30 @@ test('OCR exposes a two-slot per-image pipeline with retry and retailer autofill
     body: JSON.stringify({ configured: true }),
   }));
 
-  const pageByStorageKey = new Map();
-  let nextPage = 0;
-  let activePageRequests = 0;
-  let maximumActivePageRequests = 0;
-  let releaseInitialOcr = () => {};
-  const initialOcrGate = new Promise(resolve => {
-    releaseInitialOcr = resolve;
+  let releaseBackgroundJob = () => {};
+  const backgroundJobGate = new Promise(resolve => {
+    releaseBackgroundJob = resolve;
   });
-  let initialOcrRequests = 0;
-  let failedAiOnce = false;
-
-  await page.route('**/api/v1/receipts/extract', async route => {
-    const body = route.request().postDataJSON();
-    const captures = body.captures || [];
-    if (captures.length > 1) {
+  await page.route('**/api/v1/receipts/extraction-jobs**', async route => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON();
+      expect(body.verifyWithAi).toBe(true);
+      expect(body.captures).toHaveLength(3);
+      await backgroundJobGate;
       await route.fulfill({
-        status: 200,
+        status: 202,
         contentType: 'application/json',
-        body: JSON.stringify({ extraction: assembledExtraction() }),
+        body: JSON.stringify({ job: { id: 'receipt-job-pipeline' } }),
       });
       return;
     }
-
-    const capture = captures[0];
-    if (!pageByStorageKey.has(capture.storageKey)) {
-      pageByStorageKey.set(capture.storageKey, nextPage);
-      nextPage += 1;
-    }
-    const pageIndex = pageByStorageKey.get(capture.storageKey);
-    const isAi = body.verifyWithAi === true && typeof capture.embeddedText === 'string';
-    activePageRequests += 1;
-    maximumActivePageRequests = Math.max(maximumActivePageRequests, activePageRequests);
-    try {
-      if (!isAi && initialOcrRequests < 2) {
-        initialOcrRequests += 1;
-        await initialOcrGate;
-      }
-      if (isAi && pageIndex === 1 && !failedAiOnce) {
-        failedAiOnce = true;
-        await route.fulfill({
-          status: 502,
-          contentType: 'application/json',
-          body: JSON.stringify({ error: { code: 'AI_UNREACHABLE', message: 'Proveedor temporalmente no disponible' } }),
-        });
-        return;
-      }
-      await new Promise(resolve => setTimeout(resolve, 80));
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ extraction: pageExtraction(pageIndex, isAi) }),
-      });
-    } finally {
-      activePageRequests -= 1;
-    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        job: { id: 'receipt-job-pipeline', status: 'completed', extraction: assembledExtraction() },
+      }),
+    });
   });
 
   await page.goto('/');
@@ -163,22 +132,12 @@ test('OCR exposes a two-slot per-image pipeline with retry and retailer autofill
   await expect(aiInput).toBeChecked();
   await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
 
-  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'OCR local' })).toHaveCount(2);
-  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Pendiente' })).toHaveCount(1);
-  await expect(page.locator('#receipt-progress-detail')).toContainText('2 procesando');
-  await expect(page.locator('#receipt-progress-detail')).toContainText('1 pendientes');
-  await expect.poll(() => maximumActivePageRequests).toBe(2);
+  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Preparando imagen' })).toHaveCount(3);
+  await expect(page.locator('#receipt-progress-detail')).toContainText('3 procesando');
   await expectNoHorizontalOverflow(page);
-  await page.screenshot({ path: testInfo.outputPath('ocr-running.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('background-job-running.png'), fullPage: true });
 
-  releaseInitialOcr();
-  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Error' })).toHaveCount(1);
-  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Completada' })).toHaveCount(2);
-  await expect(page.getByText('El OCR de esta imagen se conserva')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Reintentar imagen', exact: true })).toBeVisible();
-  await expect(maximumActivePageRequests).toBeLessThanOrEqual(2);
-
-  await page.getByRole('button', { name: 'Reintentar imagen', exact: true }).click();
+  releaseBackgroundJob();
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Completada' })).toHaveCount(3);
   await expect(page.locator('#receipt-state')).toContainText('88 artículos');
   await expect(page.getByLabel('Comercio (opcional)', { exact: true })).toHaveValue('ALCAMPO ALMERIA');

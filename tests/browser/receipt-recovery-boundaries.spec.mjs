@@ -107,30 +107,21 @@ test('an API failure without a stable code remains recoverable without inventing
   await expect(page.getByRole('button', { name: 'Revisar manualmente', exact: true })).toHaveCount(0);
 });
 
-test('manual AI recovery reports multiple OCR rows as unverified before validation', async ({ page }) => {
-  const items = [receiptItem('PAN', 150), receiptItem('LECHE', 120)];
+test('background AI failure keeps multiple captures retryable without manufacturing OCR rows', async ({ page }) => {
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({ configured: true }),
   }));
-  await page.route('**/api/v1/receipts/extract', route => {
-    const body = route.request().postDataJSON();
-    if (body.verifyWithAi === true) {
-      return route.fulfill({
-        status: 502,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          error: { code: 'AI_UNREACHABLE', message: 'private upstream detail' },
-        }),
-      });
-    }
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ extraction: extraction(items) }),
-    });
-  });
+  await page.route('**/api/v1/receipts/extraction-jobs**', route => route.fulfill({
+    status: route.request().method() === 'POST' ? 202 : 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      job: route.request().method() === 'POST'
+        ? { id: 'background-ai-failure' }
+        : { id: 'background-ai-failure', status: 'failed', errorCode: 'AI_UNREACHABLE' },
+    }),
+  }));
 
   await page.goto('/');
   await navigate(page, 'Tickets');
@@ -139,10 +130,10 @@ test('manual AI recovery reports multiple OCR rows as unverified before validati
   await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
 
-  await page.getByRole('button', { name: 'Revisar manualmente', exact: true }).click();
-  await expect(page.locator('.capture-card .status-pill')).toHaveText('Revisión manual');
-  await expect(page.getByText('2 líneas OCR pendientes de revisión manual', { exact: true })).toBeVisible();
-  await expect(page.locator('.receipt-item')).toHaveCount(2);
+  await expect(page.locator('#receipt-state')).toContainText('El análisis no terminó');
+  await expect(page.getByRole('button', { name: 'Reintentar imagen', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Revisar manualmente', exact: true })).toHaveCount(0);
+  await expect(page.locator('.receipt-item')).toHaveCount(0);
 });
 
 test('a PDF provider failure permits blank manual entry while preserving the original capture', async ({ page }) => {
