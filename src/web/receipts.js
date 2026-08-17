@@ -431,12 +431,11 @@ function completeBackgroundJob(extraction) {
   const pages = Array.isArray(extraction.pages) ? extraction.pages : [];
   for (const [index, capture] of state.captures.entries()) {
     const page = state.pageStates.get(captureKey(capture));
-    if (!page) continue;
     const result = pages.find(candidate => candidate?.position === index);
     page.status = 'completed';
     page.rawText = typeof result?.text === 'string' ? result.text : '';
     page.result = extraction;
-    page.elapsedMs = page.startedAt ? Date.now() - page.startedAt : 0;
+    page.elapsedMs = Date.now() - page.startedAt;
   }
   applyExtraction(extraction);
   state.processing = false;
@@ -452,11 +451,10 @@ function completeBackgroundJob(extraction) {
 
 function failBackgroundJob(errorCode = 'RECEIPT_EXTRACTION_FAILED') {
   for (const page of state.pageStates.values()) {
-    if (!ACTIVE_PAGE_STATUSES.has(page.status)) continue;
     page.status = 'error';
     page.errorCode = errorCode;
     page.error = 'No se pudo completar el análisis en segundo plano. Puedes volver a intentarlo.';
-    page.elapsedMs = page.startedAt ? Date.now() - page.startedAt : 0;
+    page.elapsedMs = Date.now() - page.startedAt;
   }
   state.processing = false;
   state.finalizing = false;
@@ -467,7 +465,6 @@ function failBackgroundJob(errorCode = 'RECEIPT_EXTRACTION_FAILED') {
 }
 
 async function refreshReceiptExtractionJob() {
-  if (!state.activeJobId) return;
   const result = await api(`/api/v1/receipts/extraction-jobs/${encodeURIComponent(state.activeJobId)}`);
   const job = result.job;
   if (!job || job.id !== state.activeJobId) return;
@@ -492,7 +489,6 @@ async function refreshReceiptExtractionJob() {
 
 function watchReceiptExtractionJob() {
   state.jobRealtime?.close();
-  if (!state.activeJobId) return;
   const source = new EventSource(realtimeEndpoint());
   state.jobRealtime = source;
   source.addEventListener('invalidate', event => {
