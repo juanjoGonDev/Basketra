@@ -241,7 +241,7 @@ test('background job cancellation clears the persisted job and marks the capture
   await page.route('**/api/v1/receipts/extraction-jobs**', route => {
     if (route.request().method() === 'DELETE') {
       deleteRequests += 1;
-      return route.fulfill({ status: 204 });
+      return route.abort('failed');
     }
     return route.fulfill({
       status: route.request().method() === 'POST' ? 202 : 200,
@@ -333,4 +333,74 @@ test('an interrupted persisted background job reports recovery failure without d
   await page.goto('/');
   await navigate(page, 'Tickets');
   await expect(page.locator('#receipt-state')).toContainText('No se pudo recuperar el análisis en segundo plano');
+});
+
+test('a persisted running job restores local OCR status before an AI mode is selected', async ({ page }) => {
+  await installControlledEventSource(page);
+  await page.addInitScript(() => {
+    const hash = 'a'.repeat(64);
+    localStorage.setItem('basketra.captures', JSON.stringify([{
+      name: 'restored.png', mimeType: 'image/png', bytes: 12,
+      storageKey: `${hash}.png`, contentHash: hash,
+    }]));
+    localStorage.setItem('basketra.receiptExtractionJobId', 'receiptextractionjob_restore2');
+  });
+  await page.route('**/api/v1/receipts/extraction-jobs/receiptextractionjob_restore2', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ job: { id: 'receiptextractionjob_restore2', status: 'running' } }),
+  }));
+
+  await page.goto('/');
+  await navigate(page, 'Tickets');
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('OCR local');
+});
+
+test('a persisted completion tolerates absent per-page evidence and restores a reviewable receipt', async ({ page }) => {
+  await installControlledEventSource(page);
+  await page.addInitScript(() => {
+    const hash = 'b'.repeat(64);
+    localStorage.setItem('basketra.captures', JSON.stringify([{
+      name: 'restored-completed.png', mimeType: 'image/png', bytes: 12,
+      storageKey: `${hash}.png`, contentHash: hash,
+    }]));
+    localStorage.setItem('basketra.receiptExtractionJobId', 'receiptextractionjob_restore3');
+  });
+  await page.route('**/api/v1/receipts/extraction-jobs/receiptextractionjob_restore3', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      job: {
+        id: 'receiptextractionjob_restore3',
+        status: 'completed',
+        extraction: { ...backgroundExtraction(), pages: null },
+      },
+    }),
+  }));
+
+  await page.goto('/');
+  await navigate(page, 'Tickets');
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada');
+  await expect(page.locator('#receipt-state')).toHaveText('Ticket preparado. Revisa las líneas, cantidades y total antes de confirmar.');
+});
+
+test('a malformed background-job response fails safely before persisting an identifier', async ({ page }) => {
+  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ configured: true }),
+  }));
+  await page.route('**/api/v1/receipts/extraction-jobs', route => route.fulfill({
+    status: 202,
+    contentType: 'application/json',
+    body: JSON.stringify({ job: {} }),
+  }));
+
+  await page.goto('/');
+  await navigate(page, 'Tickets');
+  await uploadReceipt(page, 'missing-job-id.png');
+  await enableAi(page);
+  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
+  await expect(page.locator('#receipt-state')).toContainText('El análisis no terminó');
 });
