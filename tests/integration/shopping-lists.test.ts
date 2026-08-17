@@ -162,7 +162,7 @@ test('version-one databases migrate completion, collaboration and category data 
   try {
     const version = raw.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number };
     assert.equal(version.version, CURRENT_SCHEMA_VERSION);
-    assert.equal(CURRENT_SCHEMA_VERSION, 4);
+    assert.equal(CURRENT_SCHEMA_VERSION, 5);
     const itemColumns = raw.prepare('PRAGMA table_info(shopping_list_items)').all() as Array<{ name: string }>;
     assert.ok(itemColumns.some((column) => column.name === 'completed'));
     assert.ok(itemColumns.some((column) => column.name === 'completed_at'));
@@ -171,6 +171,9 @@ test('version-one databases migrate completion, collaboration and category data 
     const storeColumns = raw.prepare('PRAGMA table_info(stores)').all() as Array<{ name: string }>;
     assert.ok(storeColumns.some((column) => column.name === 'latitude_microdegrees'));
     assert.ok(storeColumns.some((column) => column.name === 'longitude_microdegrees'));
+    const receiptJobColumns = raw.prepare('PRAGMA table_info(receipt_extraction_jobs)').all() as Array<{ name: string }>;
+    assert.ok(receiptJobColumns.some((column) => column.name === 'status'));
+    assert.ok(receiptJobColumns.some((column) => column.name === 'result_json'));
     const row = raw.prepare('SELECT completed, completed_at AS completedAt, version FROM shopping_list_items WHERE list_id = ?').get('list_fixture') as { completed: number; completedAt: string | null; version: number };
     assert.equal(row.completed, 1);
     assert.equal(row.version, 2);
