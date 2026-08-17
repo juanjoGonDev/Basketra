@@ -11,12 +11,16 @@ import { ReceiptExtractionService } from '../../src/receipts/service.ts';
 const PNG_PREFIX = Uint8Array.from([0x89, 0x50, 0x4e, 0x47]);
 const REALISTIC_IMAGE_BYTES = 1_700_000;
 
-test('receipt service keeps two OCR slots while serializing AI verification', async () => {
+test('receipt service refills either of two OCR slots while serializing AI verification', async () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-receipt-concurrency-'));
   const store = new FileStore(join(root, 'files'), join(root, 'tmp'), 2 * 1024 * 1024);
-  let releaseInitialOcr = (): void => {};
-  const initialOcrGate = new Promise<void>((resolve) => {
-    releaseInitialOcr = resolve;
+  let releaseFirstOcr = (): void => {};
+  const firstOcrGate = new Promise<void>((resolve) => {
+    releaseFirstOcr = resolve;
+  });
+  let releaseSecondOcr = (): void => {};
+  const secondOcrGate = new Promise<void>((resolve) => {
+    releaseSecondOcr = resolve;
   });
   let releaseThirdOcr = (): void => {};
   const thirdOcrGate = new Promise<void>((resolve) => {
@@ -47,7 +51,8 @@ test('receipt service keeps two OCR slots while serializing AI verification', as
       ocrCalls += 1;
       const call = ocrCalls;
       try {
-        if (call <= 2) await initialOcrGate;
+        if (call === 1) await firstOcrGate;
+        if (call === 2) await secondOcrGate;
         if (call === 3) await thirdOcrGate;
         return {
           text: `Product ${call};1;120;120`,
@@ -126,11 +131,18 @@ test('receipt service keeps two OCR slots while serializing AI verification', as
     }));
 
     await waitFor(() => ocrCalls === 2);
+    assert.equal(activeOcr, 2);
     assert.equal(maximumOcr, 2);
-    releaseInitialOcr();
-    await waitFor(() => aiCalls === 1 && ocrCalls === 3);
+
+    releaseFirstOcr();
+    await waitFor(() => ocrCalls === 3 && aiCalls === 1);
+    assert.equal(activeOcr, 2, 'the third OCR must immediately refill the slot released by page one');
     assert.equal(maximumAi, 1);
-    assert.equal(activeOcr, 1);
+
+    releaseSecondOcr();
+    await waitFor(() => activeOcr === 1);
+    assert.equal(aiCalls, 1, 'page two AI must remain serialized behind page one AI');
+
     releaseFirstAi();
     releaseThirdOcr();
 
