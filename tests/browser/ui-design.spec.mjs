@@ -15,7 +15,7 @@ async function expectNoHorizontalOverflow(page) {
 async function screenshotView(page, testInfo, name) {
   await page.evaluate(() => window.scrollTo(0, 0));
   await expectNoHorizontalOverflow(page);
-  await page.screenshot({ path: testInfo.outputPath(`${name}.png`), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath(`${name}.png`), fullPage: false });
 }
 
 test('adaptive Android scaffold uses a navigation bar on compact screens and a rail on expanded screens', async ({ page }, testInfo) => {
@@ -29,9 +29,7 @@ test('adaptive Android scaffold uses a navigation bar on compact screens and a r
     return {
       left: navigation.left,
       right: navigation.right,
-      top: navigation.top,
       bottom: navigation.bottom,
-      width: navigation.width,
       height: navigation.height,
       viewportHeight,
     };
