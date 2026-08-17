@@ -54,12 +54,16 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.match(state, /basketra\.activeListId/);
   assert.match(state, /basketra\.itemDraft/);
   assert.match(state, /basketra\.captures/);
+  assert.match(state, /basketra\.receiptExtractionJobId/);
   assert.match(lists, /suggestionController\?\.abort/);
   assert.match(lists, /items\/order/);
   assert.match(lists, /completed/);
   assert.match(receipts, /capture="environment"|receipt-camera/);
   assert.match(receipts, /\/api\/v1\/files\//);
   assert.match(receipts, /El borrador se conserva/);
+  assert.match(receipts, /\/api\/v1\/receipts\/extraction-jobs/);
+  assert.match(receipts, /new EventSource\(realtimeEndpoint\(\)\)/);
+  assert.match(receipts, /análisis continúa aunque cierres esta página/);
   assert.match(ui, /export function shoppingListItem/);
   assert.match(ui, /export function receiptReview/);
   assert.match(ui, /data-capture-preview-image/);
