@@ -83,6 +83,37 @@ test('SQLite migrations, lists, FTS, receipt evidence and backup work together',
   }
 });
 
+test('receipt extraction jobs persist background state and expire on retention', () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-receipt-job-'));
+  let now = new Date('2026-08-17T08:00:00.000Z');
+  const database = new BasketraDatabase(join(root, 'basketra.db'), { clock: () => now });
+  try {
+    const queued = database.createReceiptExtractionJob({ captures: [{ storageKey: 'a'.repeat(64) + '.jpg' }], verifyWithAi: true });
+    assert.equal(queued.status, 'queued');
+    assert.deepEqual(queued.input, { captures: [{ storageKey: 'a'.repeat(64) + '.jpg' }], verifyWithAi: true });
+
+    const running = database.startReceiptExtractionJob(queued.id);
+    assert.equal(running?.status, 'running');
+    now = new Date('2026-08-17T08:01:00.000Z');
+    const completed = database.completeReceiptExtractionJob(queued.id, { final: { items: [] } });
+    assert.equal(completed?.status, 'completed');
+    assert.deepEqual(completed?.result, { final: { items: [] } });
+    assert.ok(completed?.completedAt);
+
+    const interrupted = database.createReceiptExtractionJob({ captures: [], verifyWithAi: false });
+    assert.equal(database.startReceiptExtractionJob(interrupted.id)?.status, 'running');
+    assert.equal(database.recoverInterruptedReceiptExtractionJobs(), 1);
+    assert.equal(database.getReceiptExtractionJob(interrupted.id)?.errorCode, 'RECEIPT_EXTRACTION_INTERRUPTED');
+
+    now = new Date('2026-08-18T08:01:00.000Z');
+    assert.equal(database.pruneReceiptExtractionJobs(now.toISOString()), 2);
+    assert.equal(database.getReceiptExtractionJob(queued.id), undefined);
+  } finally {
+    database.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('startup upgrades a representative version-one database after validating a pre-migration backup', () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-upgrade-'));
   const databasePath = join(root, 'basketra.db');

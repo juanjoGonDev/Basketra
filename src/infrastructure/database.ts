@@ -29,6 +29,20 @@ export type RetailerSuggestion = Readonly<{
   lastUsedAt?: string;
 }>;
 
+export const RECEIPT_EXTRACTION_JOB_STATUSES = ['queued', 'running', 'completed', 'failed', 'cancelled'] as const;
+export type ReceiptExtractionJobStatus = typeof RECEIPT_EXTRACTION_JOB_STATUSES[number];
+
+export type ReceiptExtractionJobRecord = Readonly<{
+  id: string;
+  status: ReceiptExtractionJobStatus;
+  input: unknown;
+  result?: unknown;
+  errorCode?: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}>;
+
 export type ReceiptImportInput = Readonly<{
   importKey: string;
   declaredTotalMinor: number;
@@ -584,6 +598,99 @@ export class BasketraDatabase {
       receiptCount: Number(row.receiptCount),
       ...(row.lastUsedAt ? { lastUsedAt: row.lastUsedAt } : {}),
     }));
+  }
+
+  createReceiptExtractionJob(input: unknown): ReceiptExtractionJobRecord {
+    const id = createId('receiptextractionjob');
+    const timestamp = this.#clock().toISOString();
+    this.#database.prepare(`
+      INSERT INTO receipt_extraction_jobs(id, status, input_json, created_at, updated_at)
+      VALUES (?, 'queued', ?, ?, ?)
+    `).run(id, JSON.stringify(input), timestamp, timestamp);
+    return this.getReceiptExtractionJob(id)!;
+  }
+
+  getReceiptExtractionJob(id: string): ReceiptExtractionJobRecord | undefined {
+    const row = this.#database.prepare(`
+      SELECT id, status, input_json AS inputJson, result_json AS resultJson, error_code AS errorCode,
+        created_at AS createdAt, updated_at AS updatedAt, completed_at AS completedAt
+      FROM receipt_extraction_jobs WHERE id = ?
+    `).get(id) as {
+      id: string;
+      status: ReceiptExtractionJobStatus;
+      inputJson: string;
+      resultJson: string | null;
+      errorCode: string | null;
+      createdAt: string;
+      updatedAt: string;
+      completedAt: string | null;
+    } | undefined;
+    if (!row) return undefined;
+    return {
+      id: row.id,
+      status: row.status,
+      input: JSON.parse(row.inputJson) as unknown,
+      ...(row.resultJson === null ? {} : { result: JSON.parse(row.resultJson) as unknown }),
+      ...(row.errorCode === null ? {} : { errorCode: row.errorCode }),
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      ...(row.completedAt === null ? {} : { completedAt: row.completedAt }),
+    };
+  }
+
+  startReceiptExtractionJob(id: string): ReceiptExtractionJobRecord | undefined {
+    const timestamp = this.#clock().toISOString();
+    this.#database.prepare(`
+      UPDATE receipt_extraction_jobs SET status = 'running', updated_at = ?
+      WHERE id = ? AND status = 'queued'
+    `).run(timestamp, id);
+    const job = this.getReceiptExtractionJob(id);
+    return job?.status === 'running' ? job : undefined;
+  }
+
+  completeReceiptExtractionJob(id: string, result: unknown): ReceiptExtractionJobRecord | undefined {
+    const timestamp = this.#clock().toISOString();
+    this.#database.prepare(`
+      UPDATE receipt_extraction_jobs
+      SET status = 'completed', result_json = ?, error_code = NULL, updated_at = ?, completed_at = ?
+      WHERE id = ? AND status = 'running'
+    `).run(JSON.stringify(result), timestamp, timestamp, id);
+    return this.getReceiptExtractionJob(id);
+  }
+
+  failReceiptExtractionJob(id: string, errorCode: string): ReceiptExtractionJobRecord | undefined {
+    const timestamp = this.#clock().toISOString();
+    this.#database.prepare(`
+      UPDATE receipt_extraction_jobs
+      SET status = 'failed', error_code = ?, updated_at = ?, completed_at = ?
+      WHERE id = ? AND status = 'running'
+    `).run(errorCode, timestamp, timestamp, id);
+    return this.getReceiptExtractionJob(id);
+  }
+
+  cancelReceiptExtractionJob(id: string): ReceiptExtractionJobRecord | undefined {
+    const timestamp = this.#clock().toISOString();
+    this.#database.prepare(`
+      UPDATE receipt_extraction_jobs
+      SET status = 'cancelled', updated_at = ?, completed_at = ?
+      WHERE id = ? AND status IN ('queued', 'running')
+    `).run(timestamp, timestamp, id);
+    return this.getReceiptExtractionJob(id);
+  }
+
+  recoverInterruptedReceiptExtractionJobs(): number {
+    const timestamp = this.#clock().toISOString();
+    const result = this.#database.prepare(`
+      UPDATE receipt_extraction_jobs
+      SET status = 'failed', error_code = 'RECEIPT_EXTRACTION_INTERRUPTED', updated_at = ?, completed_at = ?
+      WHERE status IN ('queued', 'running')
+    `).run(timestamp, timestamp);
+    return Number(result.changes);
+  }
+
+  pruneReceiptExtractionJobs(before: string): number {
+    const result = this.#database.prepare('DELETE FROM receipt_extraction_jobs WHERE updated_at < ?').run(before);
+    return Number(result.changes);
   }
 
   seedProduct(input: Readonly<{ name: string; brand?: string; aliases?: readonly string[] }>): string {

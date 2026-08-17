@@ -51,4 +51,21 @@ export const COLLABORATION_MIGRATIONS: readonly MigrationDefinition[] = [
         WHERE osm_type IS NOT NULL AND osm_id IS NOT NULL;
     `,
   },
+  {
+    version: 5,
+    kind: 'safe',
+    sql: `
+      CREATE TABLE receipt_extraction_jobs(
+        id TEXT PRIMARY KEY,
+        status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'completed', 'failed', 'cancelled')),
+        input_json TEXT NOT NULL,
+        result_json TEXT,
+        error_code TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+      );
+      CREATE INDEX receipt_extraction_jobs_updated_idx ON receipt_extraction_jobs(updated_at);
+    `,
+  },
 ] as const;
