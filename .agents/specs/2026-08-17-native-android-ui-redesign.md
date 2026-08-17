@@ -296,4 +296,4 @@ Pull request will target `main`, remain design-only, and will not be merged with
 
 ## Status
 
-Proposed on 2026-08-17 after repository and baseline evidence inspection. Awaiting user acceptance before implementation, per the frontend UI/UX guide.
+Accepted by the user on 2026-08-17. The user has granted standing approval to proceed with reversible design-only implementation work on this PR without asking again. Implementation and screenshot review are in progress.
