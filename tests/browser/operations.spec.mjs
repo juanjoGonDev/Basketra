@@ -158,7 +158,7 @@ test('settings verify the managed-token image and strict JSON capability', async
   await expectNoHorizontalOverflow(page);
 });
 
-test('desktop settings explain the webApi probe and keep navigation above content', async ({ page }, testInfo) => {
+test('desktop settings explain the webApi probe and use the expanded navigation rail', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1664, height: 900 });
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
@@ -206,15 +206,20 @@ test('desktop settings explain the webApi probe and keep navigation above conten
     const metrics = [...document.querySelectorAll('.operations-metrics > div')].map(element => element.getBoundingClientRect());
     return {
       headerBottom: header.bottom,
+      navigationLeft: navigation.left,
       navigationTop: navigation.top,
       navigationBottom: navigation.bottom,
+      navigationWidth: navigation.width,
       firstCardTop: firstCard.top,
       stackWidth: stack.width,
       metricColumns: [metrics[0]?.x, metrics[1]?.x, metrics[2]?.x, metrics[3]?.x],
     };
   });
+  expect(geometry.navigationLeft).toBeLessThanOrEqual(1);
   expect(geometry.navigationTop).toBeGreaterThanOrEqual(geometry.headerBottom - 1);
-  expect(geometry.firstCardTop).toBeGreaterThanOrEqual(geometry.navigationBottom - 1);
+  expect(geometry.navigationBottom).toBeGreaterThanOrEqual(899);
+  expect(geometry.navigationWidth).toBeLessThanOrEqual(100);
+  expect(geometry.firstCardTop).toBeGreaterThanOrEqual(geometry.headerBottom);
   expect(geometry.stackWidth).toBeGreaterThan(1000);
   expect(geometry.metricColumns[0]).toBe(geometry.metricColumns[2]);
   expect(geometry.metricColumns[1]).toBe(geometry.metricColumns[3]);
