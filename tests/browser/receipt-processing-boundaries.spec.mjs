@@ -264,3 +264,73 @@ test('background job cancellation clears the persisted job and marks the capture
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Cancelada');
   await expect.poll(() => deleteRequests).toBe(1);
 });
+
+test('a provider-side background cancellation is reflected without issuing a second cancellation', async ({ page }) => {
+  let deleteRequests = 0;
+  await installControlledEventSource(page);
+  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ configured: true }),
+  }));
+  await page.route('**/api/v1/receipts/extraction-jobs**', route => {
+    if (route.request().method() === 'DELETE') {
+      deleteRequests += 1;
+      return route.fulfill({ status: 204 });
+    }
+    return route.fulfill({
+      status: route.request().method() === 'POST' ? 202 : 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        job: route.request().method() === 'POST'
+          ? { id: 'receiptextractionjob_provider_cancel' }
+          : { id: 'receiptextractionjob_provider_cancel', status: 'cancelled' },
+      }),
+    });
+  });
+
+  await page.goto('/');
+  await navigate(page, 'Tickets');
+  await uploadReceipt(page, 'provider-cancel.png');
+  await enableAi(page);
+  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Cancelada');
+  expect(deleteRequests).toBe(0);
+});
+
+test('background job submission failure preserves the capture for retry', async ({ page }) => {
+  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ configured: true }),
+  }));
+  await page.route('**/api/v1/receipts/extraction-jobs', route => route.fulfill({
+    status: 502,
+    contentType: 'application/json',
+    body: JSON.stringify({ error: { code: 'AI_UNREACHABLE', message: 'private detail' } }),
+  }));
+
+  await page.goto('/');
+  await navigate(page, 'Tickets');
+  await uploadReceipt(page, 'submit-failure.png');
+  await enableAi(page);
+  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
+  await expect(page.locator('#receipt-state')).toContainText('El análisis no terminó');
+});
+
+test('an interrupted persisted background job reports recovery failure without discarding the draft', async ({ page }) => {
+  await installControlledEventSource(page);
+  await page.addInitScript(() => {
+    localStorage.setItem('basketra.receiptExtractionJobId', 'receiptextractionjob_restore1');
+  });
+  await page.route('**/api/v1/receipts/extraction-jobs/receiptextractionjob_restore1', route => route.fulfill({
+    status: 503,
+    contentType: 'application/json',
+    body: JSON.stringify({ error: { code: 'AI_UNREACHABLE' } }),
+  }));
+
+  await page.goto('/');
+  await navigate(page, 'Tickets');
+  await expect(page.locator('#receipt-state')).toContainText('No se pudo recuperar el análisis en segundo plano');
+});
