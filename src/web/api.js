@@ -85,6 +85,11 @@ function canShareAiProviderSettings(path, options) {
     && !options.signal;
 }
 
+function invalidateAiProviderSettings() {
+  aiProviderSettingsCache.value = null;
+  aiProviderSettingsCache.expiresAt = 0;
+}
+
 async function readAiProviderSettings(path, options) {
   const now = Date.now();
   if (aiProviderSettingsCache.value !== null && aiProviderSettingsCache.expiresAt > now) {
@@ -214,6 +219,7 @@ function enhanceProviderHealth() {
   const observer = new MutationObserver(records => {
     const busyChanged = records.some(record => record.attributeName === 'aria-busy');
     if (busyChanged && !button.hasAttribute('aria-busy') && !button.disabled) {
+      invalidateAiProviderSettings();
       void refreshProviderHealth();
     }
   });
