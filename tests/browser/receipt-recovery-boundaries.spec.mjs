@@ -10,6 +10,10 @@ function navigate(page, name) {
   return page.locator('.bottom-nav').getByRole('button', { name, exact: true }).click();
 }
 
+async function selectTicketTab(page, name) {
+  await page.locator('[data-tab-group="tickets"]').getByRole('tab', { name, exact: true }).click();
+}
+
 function receiptItem(description, lineTotalMinor) {
   return {
     description,
@@ -99,10 +103,12 @@ test('an API failure without a stable code remains recoverable without inventing
   await page.goto('/');
   await navigate(page, 'Tickets');
   await uploadPng(page, 'missing-code.png');
+  await selectTicketTab(page, 'Progreso');
   await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
 
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
-  await expect(page.getByText('Fallo de extracción sin código estable', { exact: false })).toBeVisible();
+  await expect(page.getByText('Fallo de extracción sin código estable', { exact: false })).toHaveCount(1);
+  await selectTicketTab(page, 'Capturas');
   await expect(page.getByRole('button', { name: 'Reintentar imagen', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Revisar manualmente', exact: true })).toHaveCount(0);
 });
@@ -126,11 +132,13 @@ test('background AI failure keeps multiple captures retryable without manufactur
   await page.goto('/');
   await navigate(page, 'Tickets');
   await uploadPng(page, 'plural-manual-review.png');
+  await selectTicketTab(page, 'Progreso');
   await enableAi(page);
   await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
 
   await expect(page.locator('#receipt-state')).toContainText('El análisis no terminó');
+  await selectTicketTab(page, 'Capturas');
   await expect(page.getByRole('button', { name: 'Reintentar imagen', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Revisar manualmente', exact: true })).toHaveCount(0);
   await expect(page.locator('.receipt-item')).toHaveCount(0);
@@ -184,9 +192,11 @@ test('a PDF provider failure permits blank manual entry while preserving the ori
     buffer: minimalPdf,
   });
   await expect(page.locator('.capture-card')).toHaveCount(1);
+  await selectTicketTab(page, 'Progreso');
   await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
 
+  await selectTicketTab(page, 'Capturas');
   await page.getByRole('button', { name: 'Revisar manualmente', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Revisión manual');
   await expect(page.getByText('Entrada manual pendiente; la captura original se conserva', { exact: true })).toBeVisible();
