@@ -4,6 +4,11 @@ function navigate(page, name) {
   return page.locator('.bottom-nav').getByRole('button', { name, exact: true }).click();
 }
 
+async function openAiSettings(page) {
+  await navigate(page, 'Ajustes');
+  await page.locator('[data-tab-group="settings"]').getByRole('tab', { name: 'IA', exact: true }).click();
+}
+
 function settings(overrides = {}) {
   return {
     configured: true,
@@ -29,25 +34,25 @@ test('settings render remote, invalid, host, loopback and missing provider state
   }));
 
   await page.goto('/');
-  await navigate(page, 'Ajustes');
+  await openAiSettings(page);
   await expect(page.locator('#ai-provider-request')).toHaveText('POST http://192.168.1.20:3001/v1/chat/completions');
   await expect(page.locator('#ai-provider-authorization')).toHaveText('Sin cabecera Authorization');
   await expect(page.locator('#ai-configuration-status')).toHaveText('Configuración cargada');
 
   current = settings({ baseUrl: 'not a valid absolute URL', apiKeyMask: '***safe' });
   await page.reload();
-  await navigate(page, 'Ajustes');
+  await openAiSettings(page);
   await expect(page.locator('#ai-provider-request')).toHaveText('POST not a valid absolute URL/chat/completions');
   await expect(page.locator('#ai-provider-authorization')).toHaveText('Bearer con token gestionado');
 
   current = settings({ baseUrl: 'http://host.docker.internal:3001/v1/' });
   await page.reload();
-  await navigate(page, 'Ajustes');
+  await openAiSettings(page);
   await expect(page.locator('#ai-configuration-detail')).toContainText('host.docker.internal');
 
   current = settings({ baseUrl: 'http://127.0.0.1:3001/v1/', loopbackWarning: true });
   await page.reload();
-  await navigate(page, 'Ajustes');
+  await openAiSettings(page);
   await expect(page.locator('#ai-configuration-status')).toHaveText('Configurado con dirección incorrecta para Docker');
   await expect(page.locator('#ai-configuration-status')).toHaveAttribute('data-state', 'warning');
   await expect(page.locator('#ai-configuration-detail')).not.toContainText('token');
@@ -58,12 +63,12 @@ test('settings render remote, invalid, host, loopback and missing provider state
     loopbackWarning: true,
   });
   await page.reload();
-  await navigate(page, 'Ajustes');
+  await openAiSettings(page);
   await expect(page.locator('#ai-configuration-detail')).toContainText('token ***safe');
 
   current = settings({ configured: false, status: 'missing', missing: ['BASKETRA_AI_BASE_URL', 'BASKETRA_AI_MODEL'], baseUrl: undefined, model: undefined });
   await page.reload();
-  await navigate(page, 'Ajustes');
+  await openAiSettings(page);
   await expect(page.locator('#ai-configuration-status')).toHaveText('Configuración no cargada');
   await expect(page.locator('#ai-configuration-detail')).toContainText('BASKETRA_AI_BASE_URL, BASKETRA_AI_MODEL');
   await expect(page.getByRole('button', { name: 'Verificar imagen y JSON estricto', exact: true })).toBeDisabled();
@@ -93,7 +98,7 @@ test('provider diagnostic renders every stable recovery message and 200-level ne
   }));
 
   await page.goto('/');
-  await navigate(page, 'Ajustes');
+  await openAiSettings(page);
   const button = page.getByRole('button', { name: 'Verificar imagen y JSON estricto', exact: true });
   const state = page.locator('#ai-test-state');
   const cases = [
@@ -152,7 +157,7 @@ test('provider diagnostic serializes submissions and ignores a superseded respon
   });
 
   await page.goto('/');
-  await navigate(page, 'Ajustes');
+  await openAiSettings(page);
   const button = page.getByRole('button', { name: 'Verificar imagen y JSON estricto', exact: true });
   const status = page.locator('#ai-test-state');
   await button.click();
