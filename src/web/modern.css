@@ -1238,6 +1238,67 @@ summary {
   color: var(--color-primary-container);
 }
 
+/* Receipt evidence stays out of compact rows and joins the contextual editor. */
+.receipt-line-evidence {
+  display: none;
+  min-width: 0;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--color-on-surface) 10%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-container-low);
+}
+
+.receipt-item--editing .receipt-line-evidence {
+  display: grid;
+}
+
+.receipt-line-evidence__heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.receipt-line-evidence__heading strong,
+.receipt-line-evidence__heading small {
+  min-width: 0;
+}
+
+.receipt-line-evidence__preview {
+  position: relative;
+  min-height: 10rem;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--color-on-surface) 12%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-container);
+  cursor: zoom-in;
+}
+
+.receipt-line-evidence__preview img {
+  width: 100%;
+  height: 100%;
+  max-height: 18rem;
+  display: block;
+  object-fit: contain;
+}
+
+.receipt-line-evidence__region {
+  position: absolute;
+  left: var(--source-x);
+  top: var(--source-y);
+  width: var(--source-width);
+  height: var(--source-height);
+  min-width: .4rem;
+  min-height: .4rem;
+  border: .125rem solid var(--color-warning);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-warning-container) 34%, transparent);
+  pointer-events: none;
+}
+
 @media (max-width: 359px) {
   main {
     padding-inline: .75rem;
@@ -1383,6 +1444,41 @@ summary {
   .plans {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .receipt-line-dialog {
+    width: min(calc(100% - 3rem), 58rem);
+    max-width: 58rem;
+  }
+
+  .receipt-item--editing {
+    grid-template-columns: minmax(18rem, .9fr) minmax(0, 1.1fr);
+    align-items: start;
+    column-gap: var(--space-5);
+  }
+
+  .receipt-item--editing > legend {
+    grid-column: 1 / -1;
+  }
+
+  .receipt-item--editing > .receipt-line-evidence {
+    grid-column: 1;
+    grid-row: 2 / span 3;
+    position: sticky;
+    top: var(--space-4);
+  }
+
+  .receipt-item--editing > .field,
+  .receipt-item--editing > .quantity-row {
+    grid-column: 2;
+  }
+
+  .receipt-line-evidence__preview {
+    min-height: 20rem;
+  }
+
+  .receipt-line-evidence__preview img {
+    max-height: 28rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1409,7 +1505,8 @@ summary {
   .bottom-nav button[aria-current="page"],
   .button.primary,
   .connection-chip[data-ok="true"],
-  .status-pill {
+  .status-pill,
+  .receipt-line-evidence__region {
     border: 1px solid CanvasText;
   }
 }
