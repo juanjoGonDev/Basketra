@@ -415,7 +415,6 @@ function installReceiptReviewPresentation() {
       feedback.textContent = message;
       lastTerminalMessage = message;
       toast(message);
-      selectTabValue('tickets', 'review');
       openReceiptLineEditor(item);
       return;
     }
@@ -453,75 +452,23 @@ function installReceiptReviewPresentation() {
   updateReceiptLinePresentation(review);
 }
 
-function installTicketTaskTabs() {
+function installTicketContinuousWorkflow() {
   const view = $('.view[data-view="scan"]');
-  if (!view || view.querySelector('[data-tab-group="tickets"]')) return;
-  const header = view.querySelector('.page-header');
+  if (!view || view.dataset.ticketWorkflow === 'continuous') return;
   const captureSource = view.querySelector('.capture-source');
   const workflow = view.querySelector('.receipt-workflow');
-  const manualEntry = workflow?.querySelector('.manual-entry');
-  const receiptState = $('#receipt-state');
   const review = $('#receipt-review');
   const confirmButton = $('#confirm-receipt');
-  const feedback = $('#receipt-confirm-state');
-  if (!header || !captureSource || !workflow || !receiptState || !review || !confirmButton) return;
+  if (!captureSource || !workflow || !review || !confirmButton) return;
 
-  const { root, tablist, panels } = createTabGroup('tickets', 'Etapas del ticket', [
-    { value: 'captures', label: 'Capturas', panelClass: 'ticket-tab-panel' },
-    { value: 'progress', label: 'Progreso', panelClass: 'ticket-tab-panel' },
-    { value: 'review', label: 'Revisión', panelClass: 'ticket-tab-panel' },
-    { value: 'import', label: 'Importar', panelClass: 'ticket-tab-panel' },
-  ]);
-  root.classList.add('ticket-task-tabs');
-  header.after(root);
-  tablist.after(receiptState);
-  panels.get('captures').append(captureSource);
-  if (manualEntry) {
-    manualEntry.open = false;
-    manualEntry.classList.add('review-data-disclosure');
-    const summary = manualEntry.querySelector('summary');
-    if (summary) summary.textContent = 'Datos del ticket y total';
-    panels.get('review').append(manualEntry);
-  }
-  panels.get('progress').append(workflow);
-  panels.get('review').append(review);
+  view.dataset.ticketWorkflow = 'continuous';
+  captureSource.dataset.workflowStep = 'capture';
+  workflow.dataset.workflowStep = 'process';
+  review.dataset.workflowStep = 'review';
+  confirmButton.dataset.workflowStep = 'confirm';
 
-  const importSummary = document.createElement('section');
-  importSummary.id = 'receipt-import-summary';
-  importSummary.className = 'receipt-import-summary';
-  importSummary.setAttribute('aria-live', 'polite');
-  importSummary.innerHTML = `
-    <div><p class="eyebrow">Resumen final</p><h2>Listo para importar</h2><p data-import-readiness>Analiza el ticket o añade una línea manual.</p></div>
-    <dl>
-      <div><dt>Líneas</dt><dd data-import-lines>0</dd></div>
-      <div><dt>Total</dt><dd data-import-total>0.00 €</dd></div>
-      <div><dt>Comercio</dt><dd data-import-retailer>Sin comercio</dd></div>
-    </dl>`;
-  panels.get('import').append(importSummary);
-  if (feedback) panels.get('import').append(feedback);
-  panels.get('import').append(confirmButton);
-
-  $('#extract-receipt')?.addEventListener('click', () => selectTabValue('tickets', 'progress'));
-  root.addEventListener('input', updateReceiptImportSummary);
-
-  let reviewAvailable = !review.hidden && Boolean(review.querySelector('.receipt-item'));
-  new MutationObserver(() => {
-    const available = !review.hidden && Boolean(review.querySelector('.receipt-item'));
-    if (available && !reviewAvailable) selectTabValue('tickets', 'review');
-    reviewAvailable = available;
-    updateReceiptImportSummary();
-  }).observe(review, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden'] });
-
-  new MutationObserver(() => {
-    const message = receiptState.textContent.trim();
-    if (message.startsWith('Líneas y total validados.')) selectTabValue('tickets', 'import');
-    if (message.startsWith('Revisa las filas:') || message.startsWith('El total no coincide')) {
-      selectTabValue('tickets', 'review');
-    }
-    updateReceiptImportSummary();
-  }).observe(receiptState, { childList: true, characterData: true, subtree: true });
-
-  updateReceiptImportSummary();
+  const manualEntry = workflow.querySelector('.manual-entry');
+  if (manualEntry) manualEntry.open = true;
 }
 
 function installCompletedListDisclosure() {
@@ -659,7 +606,7 @@ function renderPlanTabs(plans) {
 }
 
 installReceiptReviewPresentation();
-installTicketTaskTabs();
+installTicketContinuousWorkflow();
 installCompletedListDisclosure();
 installSettingsDisclosureWatcher();
 
