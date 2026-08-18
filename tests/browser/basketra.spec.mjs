@@ -291,7 +291,6 @@ test('local OCR creates editable euro rows with accessible row actions and impor
   await expect(page.getByText(/céntimos|cént\./i)).toHaveCount(0);
 
   const firstLineShell = page.locator('[data-swipe-kind="receipt-line"]').first();
-  const firstLine = firstLineShell.locator('.receipt-item');
   await page.getByRole('button', { name: 'Mostrar acciones de la línea 1' }).click();
   await expect(firstLineShell).toHaveAttribute('data-swipe-open', 'true');
   const firstLineEdit = firstLineShell.getByRole('button', { name: 'Editar línea 1', exact: true });
@@ -299,9 +298,12 @@ test('local OCR creates editable euro rows with accessible row actions and impor
   await expect(firstLineShell.getByRole('button', { name: 'Eliminar línea 1', exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('swipe-reveal.png') });
   await firstLineEdit.click();
-  await expect(firstLine.locator('[data-field="description"]')).toBeFocused();
-  await firstLine.locator('[data-field="description"]').fill('Whole milk');
-  await page.getByRole('button', { name: 'Guardar línea', exact: true }).click();
+  const editorDialog = page.locator('#receipt-line-dialog');
+  await expect(editorDialog).toBeVisible();
+  const editorDescription = editorDialog.locator('[data-field="description"]');
+  await expect(editorDescription).toBeFocused();
+  await editorDescription.fill('Whole milk');
+  await editorDialog.getByRole('button', { name: 'Guardar línea', exact: true }).click();
 
   await page.getByRole('button', { name: 'Añadir línea', exact: true }).click();
   await expect(page.locator('.receipt-item')).toHaveCount(2);
