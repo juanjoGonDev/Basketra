@@ -26,6 +26,10 @@ function navigate(page, name) {
   return page.locator('.bottom-nav').getByRole('button', { name: accessibleName, exact: true }).click();
 }
 
+async function selectTaskTab(page, group, name) {
+  await page.locator(`[data-tab-group="${group}"]`).getByRole('tab', { name, exact: true }).click();
+}
+
 function productInput(page) {
   return page.getByRole('textbox', { name: 'Producto', exact: true });
 }
@@ -195,6 +199,8 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
 
   let riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
   await swipe(page, riceRow, 'right');
+  await expect(page.locator('#completed-section')).not.toHaveAttribute('open', '');
+  await page.locator('#completed-section summary').click();
   await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Devolver Arroz 1 kg a pendientes' }).click());
   await expect(page.locator('#pending-items')).toContainText('Arroz 1 kg');
 
@@ -278,33 +284,44 @@ test('local OCR creates editable euro rows with accessible row actions and impor
   await page.getByRole('button', { name: 'Retirar receipt.pdf del borrador' }).click();
   await expect(page.locator('#capture-list li')).toHaveCount(2);
 
+  await selectTaskTab(page, 'tickets', 'Progreso');
   await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
   await expect(page.locator('#receipt-state')).toContainText('Todas las imágenes están combinadas');
+  await expect(page.locator('[data-tab-group="tickets"] [role="tab"][aria-selected="true"]')).toHaveText('Revisión');
   await expect(page.locator('.receipt-item')).toHaveCount(1);
   await expect(page.getByLabel('Precio unitario (€)').first()).toHaveValue('1.20');
   await expect(page.getByLabel('Total (€)').first()).toHaveValue('1.20');
   await expect(page.getByLabel('Total declarado (€)')).toHaveValue('1.20');
+  await expect(page.locator('.receipt-line-compact')).toHaveCount(1);
   await expect(page.locator('#receipt-review')).toContainText('1,20 €');
   await expect(page.getByText(/céntimos|cént\./i)).toHaveCount(0);
 
   const firstLineShell = page.locator('[data-swipe-kind="receipt-line"]').first();
-  const firstLine = firstLineShell.locator('.receipt-item');
   await page.getByRole('button', { name: 'Mostrar acciones de la línea 1' }).click();
   await expect(firstLineShell).toHaveAttribute('data-swipe-open', 'true');
   await expect(page.getByRole('button', { name: 'Editar línea 1' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Eliminar línea 1' })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('swipe-reveal.png') });
   await page.getByRole('button', { name: 'Editar línea 1' }).click();
-  await expect(firstLine.locator('[data-field="description"]')).toBeFocused();
-  await firstLine.locator('[data-field="description"]').fill('Whole milk');
+  const lineDialog = page.locator('#receipt-line-dialog');
+  await expect(lineDialog).toBeVisible();
+  await expect(lineDialog.locator('[data-field="description"]')).toBeFocused();
+  await lineDialog.locator('[data-field="description"]').fill('Whole milk');
+  await lineDialog.getByRole('button', { name: 'Guardar línea', exact: true }).click();
+  await expect(page.locator('.receipt-line-compact').first()).toContainText('Whole milk');
 
+  const dataDisclosure = page.locator('.review-data-disclosure');
+  await dataDisclosure.getByText('Datos del ticket y total', { exact: true }).click();
   await page.getByRole('button', { name: 'Añadir línea', exact: true }).click();
   await expect(page.locator('.receipt-item')).toHaveCount(2);
-  const manualLine = page.locator('.receipt-item').last();
-  await manualLine.locator('[data-field="description"]').fill('Bread');
-  await manualLine.locator('[data-field="quantity"]').fill('1');
-  await manualLine.locator('[data-field="unitPriceEuro"]').fill('0.20');
-  await manualLine.locator('[data-field="lineTotalEuro"]').fill('0.20');
+  await page.locator('.receipt-line-compact').last().click();
+  await expect(lineDialog).toBeVisible();
+  await lineDialog.locator('[data-field="description"]').fill('Bread');
+  await lineDialog.locator('[data-field="quantity"]').fill('1');
+  await lineDialog.locator('[data-field="unitPriceEuro"]').fill('0.20');
+  await lineDialog.locator('[data-field="lineTotalEuro"]').fill('0.20');
+  await lineDialog.getByRole('button', { name: 'Guardar línea', exact: true }).click();
+  await expect(page.locator('.receipt-line-compact').last()).toContainText('Bread');
 
   const manualLineShell = page.locator('[data-swipe-kind="receipt-line"]').last();
   await page.getByRole('button', { name: 'Mostrar acciones de la línea 2' }).click();
@@ -322,6 +339,7 @@ test('local OCR creates editable euro rows with accessible row actions and impor
   await page.getByLabel('Total declarado (€)').fill('1.40');
   await page.getByRole('button', { name: 'Validar líneas e importes', exact: true }).click();
   await expect(page.locator('#receipt-state')).toContainText('Líneas y total validados');
+  await expect(page.locator('[data-tab-group="tickets"] [role="tab"][aria-selected="true"]')).toHaveText('Importar');
 
   await page.getByRole('button', { name: 'Confirmar e importar', exact: true }).click();
   await expect(page.locator('#receipt-state')).toContainText('Ticket importado');
@@ -343,13 +361,15 @@ test('local OCR failure preserves captures and supports page retry', async ({ pa
     }
     await route.continue();
   });
+  await selectTaskTab(page, 'tickets', 'Progreso');
   await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
   await expect(page.locator('#receipt-state')).toContainText('1 imágenes con error');
   await expect(page.locator('#capture-list li')).toHaveCount(1);
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
-  await expect(page.getByRole('button', { name: 'Reintentar imagen', exact: true })).toBeVisible();
   await expect(page.locator('.receipt-item')).toHaveCount(0);
 
+  await selectTaskTab(page, 'tickets', 'Capturas');
+  await expect(page.getByRole('button', { name: 'Reintentar imagen', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Reintentar imagen', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada');
   await expect(page.locator('#receipt-state')).toContainText('Todas las imágenes están combinadas');
@@ -358,15 +378,22 @@ test('local OCR failure preserves captures and supports page retry', async ({ pa
   expect(failures).toEqual([]);
 });
 
-test('comparison renders all deterministic plans in euros', async ({ page }) => {
+test('comparison presents deterministic plans through recommendation, comparison and details', async ({ page }) => {
   const failures = await gotoApp(page);
   await navigate(page, 'Planes');
   await page.getByRole('button', { name: 'Generar ejemplo verificable', exact: true }).click();
-  await expect(page.locator('#plans article')).toHaveCount(3);
-  await expect(page.getByRole('heading', { name: 'Un solo comercio' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Equilibrio recomendado' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Máximo ahorro' })).toBeVisible();
+  await expect(page.locator('[data-tab-group="plans"] [role="tab"][aria-selected="true"]')).toHaveText('Mejor opción');
+  await expect(page.locator('[data-tab-panel="best"] .plan-card')).toHaveCount(1);
+  await expect(page.locator('[data-tab-panel="compare"]')).toBeHidden();
   await expect(page.locator('.plan-total').first()).toContainText('€');
+
+  await selectTaskTab(page, 'plans', 'Comparativa');
+  await expect(page.locator('.plan-comparison-row')).toHaveCount(3);
+  await expect(page.locator('.plan-comparison-row').first()).toContainText('€');
+
+  await selectTaskTab(page, 'plans', 'Detalle');
+  await expect(page.locator('.plan-detail-disclosure')).toHaveCount(3);
+  await expect(page.locator('.plan-detail-disclosure[open]')).toHaveCount(1);
   await expect(page.getByText(/cént\./i)).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
   expect(failures).toEqual([]);
