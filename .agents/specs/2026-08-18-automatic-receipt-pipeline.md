@@ -103,4 +103,8 @@ Frontend/state changes are reversible by reverting this task's commits. Persiste
 
 ## Status
 
-Accepted; implementation in progress.
+Implementation complete on the feature branch. The delivered flow starts persisted receipt processing immediately after upload, uses the server-owned OCR/AI queues, persists multiple active job-to-capture mappings, restores jobs after reload, supports per-capture retry/cancellation and global cancellation, retains explicit review/validation/import, and removes the former manual analysis step and per-ticket AI toggle.
+
+Regression work on the final PR series also restores the intended recovery boundary: image failures without OCR remain retry-only, while PDFs that cannot produce an OCR draft may still enter blank manual review with the original attachment preserved. Browser coverage was realigned to the automatic flow without weakening the canonical exact-duplicate rule: identical stored captures remain collapsed, while distinct captures remain independent.
+
+Quality, security, CodeQL, container smoke, linux/amd64 and linux/arm64 checks passed on the implementation series. The final documentation head must pass the complete PR CI, including Browser E2E and exact-head visual evidence, before delivery. No merge, release or deployment is authorized by this specification.
