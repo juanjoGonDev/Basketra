@@ -30,6 +30,18 @@ async function expectNoHorizontalOverflow(page) {
   expect(dimensions.page).toBeLessThanOrEqual(dimensions.viewport);
 }
 
+async function prepareReceiptReview(page) {
+  await page.goto('/');
+  await navigate(page, 'Tickets');
+  await page.locator('#receipt-camera').setInputFiles({
+    name: 'review.png',
+    mimeType: 'image/png',
+    buffer: validPng,
+  });
+  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
+  await expect(page.locator('.receipt-item')).toHaveCount(1);
+}
+
 test('settings coalesce AI configuration reads and keep the expensive probe manual', async ({ page }) => {
   let settingsReads = 0;
   let probePosts = 0;
@@ -83,15 +95,7 @@ test('receipt review hides destructive rails and exposes confirmation errors nex
     }
   });
 
-  await page.goto('/');
-  await navigate(page, 'Tickets');
-  await page.locator('#receipt-camera').setInputFiles({
-    name: 'review.png',
-    mimeType: 'image/png',
-    buffer: validPng,
-  });
-  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
-  await expect(page.locator('.receipt-item')).toHaveCount(1);
+  await prepareReceiptReview(page);
 
   const firstShell = page.locator('[data-swipe-kind="receipt-line"]').first();
   const actionRail = firstShell.locator('[data-swipe-actions]');
@@ -118,4 +122,33 @@ test('receipt review hides destructive rails and exposes confirmation errors nex
   await expect(page.locator('#capture-list li')).toHaveCount(1);
   await expectNoHorizontalOverflow(page);
   await page.screenshot({ path: testInfo.outputPath('receipt-confirmation-error.png'), fullPage: true });
+});
+
+test('receipt review keeps product and numeric fields readable on expanded layouts', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await prepareReceiptReview(page);
+
+  const geometry = await page.locator('.receipt-item').first().evaluate(item => {
+    const description = item.querySelector('[data-field="description"]').getBoundingClientRect();
+    const quantity = item.querySelector('[data-field="quantity"]').getBoundingClientRect();
+    const unitPrice = item.querySelector('[data-field="unitPriceEuro"]').getBoundingClientRect();
+    const lineTotal = item.querySelector('[data-field="lineTotalEuro"]').getBoundingClientRect();
+    const card = item.getBoundingClientRect();
+    return {
+      cardWidth: card.width,
+      descriptionWidth: description.width,
+      quantityTop: quantity.top,
+      unitPriceTop: unitPrice.top,
+      lineTotalTop: lineTotal.top,
+      inputHeights: [description.height, quantity.height, unitPrice.height, lineTotal.height],
+    };
+  });
+
+  expect(geometry.cardWidth).toBeGreaterThan(700);
+  expect(geometry.descriptionWidth).toBeGreaterThan(geometry.cardWidth * .8);
+  expect(Math.abs(geometry.quantityTop - geometry.unitPriceTop)).toBeLessThanOrEqual(2);
+  expect(Math.abs(geometry.unitPriceTop - geometry.lineTotalTop)).toBeLessThanOrEqual(2);
+  expect(geometry.inputHeights.every(height => height >= 44)).toBeTruthy();
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({ path: testInfo.outputPath('receipt-review-desktop.png'), fullPage: true });
 });
