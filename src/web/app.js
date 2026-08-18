@@ -110,7 +110,24 @@ function installReceiptReviewPresentation() {
   new MutationObserver(syncFeedback)
     .observe(receiptState, { childList: true, characterData: true, subtree: true });
 
-  confirmButton.addEventListener('click', () => {
+  confirmButton.addEventListener('click', event => {
+    const descriptions = [...review.querySelectorAll('[data-field="description"]')];
+    const invalidDescriptionIndex = descriptions.findIndex(input => input.value.trim().length === 0);
+    if (invalidDescriptionIndex >= 0) {
+      event.stopImmediatePropagation();
+      const invalidDescription = descriptions[invalidDescriptionIndex];
+      const message = `Revisa la línea ${invalidDescriptionIndex + 1}: indica el producto antes de importar.`;
+      invalidDescription.setAttribute('aria-invalid', 'true');
+      receiptState.textContent = message;
+      feedback.hidden = false;
+      feedback.dataset.state = 'error';
+      feedback.textContent = message;
+      lastTerminalMessage = message;
+      toast(message);
+      invalidDescription.focus();
+      return;
+    }
+
     confirmationActive = true;
     lastTerminalMessage = '';
     feedback.hidden = false;
@@ -118,7 +135,12 @@ function installReceiptReviewPresentation() {
     feedback.textContent = 'Validando ticket…';
     queueMicrotask(syncFeedback);
   });
-  review.addEventListener('input', resetFeedback);
+  review.addEventListener('input', event => {
+    resetFeedback();
+    if (event.target.matches('[data-field="description"]') && event.target.value.trim()) {
+      event.target.removeAttribute('aria-invalid');
+    }
+  });
   review.addEventListener('click', event => {
     if (event.target.closest('[data-receipt-action="add-line"], [data-receipt-action="edit"], [data-receipt-action="delete"]')) {
       resetFeedback();
