@@ -137,7 +137,15 @@ async function installInitialAiWarning(page, state, { empty = false } = {}) {
     }
     return route.fallback();
   });
-  await installAssembly(page, () => state.storageKey);
+  if (empty) {
+    await page.route('**/api/v1/receipts/extract', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ extraction: extractionFromEvidence(pageEvidence(state.storageKey, { items: [] }), { finalItems: [] }) }),
+    }));
+  } else {
+    await installAssembly(page, () => state.storageKey);
+  }
 }
 
 test('idle capture controls reorder, preview and remove failed drafts without losing the remaining capture', async ({ page }) => {
@@ -228,7 +236,10 @@ test('an invalid edited review row blocks automatic refresh without throwing whe
   await navigate(page, 'Tickets');
   await upload(page, 'review-one.png', validPng);
   await expect(page.locator('.receipt-item')).toHaveCount(1);
-  await page.getByLabel('Precio unitario (€)').first().fill('');
+  await page.locator('.receipt-item').first().locator('[data-field="unitPriceEuro"]').evaluate(input => {
+    input.value = '';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
   await upload(page, 'review-two.png', distinctPng);
   await expect(page.locator('.capture-card')).toHaveCount(2);
   expect(pageErrors).toEqual([]);
@@ -346,7 +357,10 @@ test('receipt evidence derives a source region when possible and degrades withou
   });
   await page.route('**/api/v1/receipts/extract', route => {
     const items = [
-      item('PAN', storageKey, { sourceLines: [1, 2] }),
+      item('PAN', storageKey, {
+        sourceLines: [1, 2],
+        sourceRegion: { x: 0.1, y: 0.2, width: 0.7, height: 0.05 },
+      }),
       item('LECHE', storageKey, { sourceLines: [99], unitPriceMinor: 80, lineTotalMinor: 80 }),
     ];
     return route.fulfill({
@@ -360,6 +374,7 @@ test('receipt evidence derives a source region when possible and degrades withou
   await navigate(page, 'Tickets');
   await upload(page, 'regions.png');
   await expect(page.locator('.receipt-item')).toHaveCount(2);
+  await page.getByRole('tab', { name: 'Revisión', exact: true }).click();
   await expect(page.locator('.receipt-item').first().locator('.receipt-line-evidence__region')).toBeVisible();
   await expect(page.locator('.receipt-item').nth(1).locator('.receipt-line-evidence__region')).toHaveCount(0);
 });
@@ -399,6 +414,7 @@ test('PDF review keeps the original document as textual evidence without an imag
   await navigate(page, 'Tickets');
   await upload(page, 'evidence.pdf', minimalPdf, 'application/pdf');
   await expect(page.locator('.receipt-item')).toHaveCount(1);
+  await page.getByRole('tab', { name: 'Revisión', exact: true }).click();
   await expect(page.getByText('El PDF original se conserva como evidencia de esta línea.')).toBeVisible();
 });
 
