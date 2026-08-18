@@ -1,3 +1,12 @@
+const AI_PROVIDER_SETTINGS_PATH = '/api/v1/settings/ai-provider';
+const AI_PROVIDER_SETTINGS_FRESH_MS = 10_000;
+
+const aiProviderSettingsCache = {
+  value: null,
+  expiresAt: 0,
+  promise: null,
+};
+
 function emitApiLog(detail) {
   window.dispatchEvent(new CustomEvent('basketra:api-log', { detail }));
 }
@@ -10,7 +19,7 @@ function requestPath(path) {
   }
 }
 
-export async function api(path, options = {}) {
+async function performApiRequest(path, options = {}) {
   const method = options.method || 'GET';
   const started = performance.now();
   let response;
@@ -69,6 +78,40 @@ export async function api(path, options = {}) {
   return body;
 }
 
+function canShareAiProviderSettings(path, options) {
+  const method = options.method || 'GET';
+  return method === 'GET'
+    && requestPath(path) === AI_PROVIDER_SETTINGS_PATH
+    && !options.signal;
+}
+
+async function readAiProviderSettings(path, options) {
+  const now = Date.now();
+  if (aiProviderSettingsCache.value !== null && aiProviderSettingsCache.expiresAt > now) {
+    return aiProviderSettingsCache.value;
+  }
+  if (aiProviderSettingsCache.promise) return aiProviderSettingsCache.promise;
+
+  aiProviderSettingsCache.promise = performApiRequest(path, options)
+    .then(value => {
+      aiProviderSettingsCache.value = value;
+      aiProviderSettingsCache.expiresAt = Date.now() + AI_PROVIDER_SETTINGS_FRESH_MS;
+      return value;
+    });
+  try {
+    return await aiProviderSettingsCache.promise;
+  } finally {
+    aiProviderSettingsCache.promise = null;
+  }
+}
+
+export async function api(path, options = {}) {
+  if (canShareAiProviderSettings(path, options)) {
+    return readAiProviderSettings(path, options);
+  }
+  return performApiRequest(path, options);
+}
+
 export function realtimeEndpoint() {
   return '/api/v1/realtime';
 }
@@ -112,6 +155,7 @@ function ensureProviderHealthRegion() {
   if (!(card instanceof HTMLElement) || !(reference instanceof HTMLElement)) return null;
   let region = document.querySelector('#ai-provider-health');
   if (region instanceof HTMLElement) return region;
+
   region = document.createElement('div');
   region.id = 'ai-provider-health';
   region.className = 'provider-health';
@@ -122,6 +166,7 @@ function ensureProviderHealthRegion() {
   detail.dataset.providerHealthDetail = '';
   region.append(title, detail);
   reference.before(region);
+
   const explanation = [...card.querySelectorAll('p')]
     .find(element => element.textContent?.includes('Sólo se ejecuta al pulsar el botón.'));
   if (explanation) {
@@ -146,9 +191,7 @@ async function refreshProviderHealth() {
   if (providerHealthRefreshPromise) return providerHealthRefreshPromise;
   providerHealthRefreshPromise = (async () => {
     try {
-      const response = await fetch('/api/v1/settings/ai-provider', { cache: 'no-store' });
-      if (!response.ok) return;
-      const settings = await response.json();
+      const settings = await api(AI_PROVIDER_SETTINGS_PATH, { cache: 'no-store' });
       renderProviderHealth(settings.lastCheck);
     } catch {
       // Existing Settings connectivity state is the canonical transport error UI.
