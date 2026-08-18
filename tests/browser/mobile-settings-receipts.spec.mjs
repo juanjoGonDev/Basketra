@@ -6,6 +6,10 @@ function navigate(page, name) {
   return page.locator('.bottom-nav').getByRole('button', { name, exact: true }).click();
 }
 
+async function selectTaskTab(page, group, name) {
+  await page.locator(`[data-tab-group="${group}"]`).getByRole('tab', { name, exact: true }).click();
+}
+
 async function expectNoHorizontalOverflow(page) {
   const dimensions = await page.evaluate(() => ({
     viewport: document.documentElement.clientWidth,
@@ -51,22 +55,21 @@ test('settings remain readable and unobscured across light and dark responsive l
 
     await expect(page.getByRole('heading', { name: 'Ajustes', exact: true })).toBeVisible();
     await expect(page.getByText('Sin inicio de sesión local')).toHaveCount(0);
+    await expect(page.locator('[data-tab-group="settings"]')).toBeVisible();
+    await expect(page.locator('[data-tab-group="settings"] [role="tab"][aria-selected="true"]')).toHaveText('General');
     await expect(page.getByRole('heading', { name: 'Servidor y versión' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Diagnóstico de IA' })).toBeHidden();
     await expect(page.locator('#ai-provider-network-note')).toBeHidden();
     await expectNoHorizontalOverflow(page);
 
-    const metric = page.locator('.operations-metrics > div').first();
+    const metric = page.locator('[data-tab-panel="general"] .operations-metrics > div').first();
     const colors = await metric.evaluate(element => {
       const styles = getComputedStyle(element);
       return { foreground: styles.color, background: styles.backgroundColor };
     });
     expect(contrastRatio(colors.foreground, colors.background)).toBeGreaterThanOrEqual(4.5);
 
-    await page.evaluate(() => {
-      document.documentElement.style.scrollBehavior = 'auto';
-      window.scrollTo(0, document.documentElement.scrollHeight);
-    });
-    const clearance = await page.locator('.operations-card').last().evaluate(element => {
+    const clearance = await page.locator('[data-tab-panel="general"] .operations-card').evaluate(element => {
       const card = element.getBoundingClientRect();
       const navigation = document.querySelector('.bottom-nav')?.getBoundingClientRect();
       return navigation ? navigation.top - card.bottom : 1;
@@ -77,7 +80,7 @@ test('settings remain readable and unobscured across light and dark responsive l
     await expect.poll(async () => page.evaluate(() => window.scrollY)).toBe(0);
     await page.screenshot({
       path: testInfo.outputPath(`settings-${colorScheme}-${viewport.width}.png`),
-      fullPage: true,
+      fullPage: false,
     });
   }
 });
@@ -125,9 +128,9 @@ test('OCR exposes a two-slot per-image pipeline with retry and retailer autofill
     buffer: Buffer.concat([validPng, Buffer.from([index])]),
   })));
   await expect(page.locator('.capture-card')).toHaveCount(3);
+  await selectTaskTab(page, 'tickets', 'Progreso');
   const aiInput = page.getByLabel('Verificar y normalizar con IA');
   const aiSwitch = page.locator('label.switch-row').filter({ has: aiInput });
-  await aiSwitch.scrollIntoViewIfNeeded();
   await aiSwitch.click();
   await expect(aiInput).toBeChecked();
   await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
@@ -135,17 +138,20 @@ test('OCR exposes a two-slot per-image pipeline with retry and retailer autofill
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Preparando imagen' })).toHaveCount(3);
   await expect(page.locator('#receipt-progress-detail')).toContainText('3 procesando');
   await expectNoHorizontalOverflow(page);
-  await page.screenshot({ path: testInfo.outputPath('background-job-running.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('background-job-running.png'), fullPage: false });
 
   releaseBackgroundJob();
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Completada' })).toHaveCount(3);
   await expect(page.locator('#receipt-state')).toContainText('88 artículos');
+  await expect(page.locator('[data-tab-group="tickets"] [role="tab"][aria-selected="true"]')).toHaveText('Revisión');
   await expect(page.getByLabel('Comercio (opcional)', { exact: true })).toHaveValue('ALCAMPO ALMERIA');
   await expect(page.locator('#receipt-total')).toHaveValue('202.26');
   await expect(page.locator('.receipt-item')).toHaveCount(4);
+  await expect(page.locator('.receipt-line-compact')).toHaveCount(4);
   await expectNoHorizontalOverflow(page);
-  await page.screenshot({ path: testInfo.outputPath('retailer-confirmed.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('retailer-confirmed.png'), fullPage: false });
 
+  await selectTaskTab(page, 'tickets', 'Importar');
   const confirmationRequest = page.waitForRequest(request => new URL(request.url()).pathname === '/api/v1/receipts/confirm');
   await page.getByRole('button', { name: 'Confirmar e importar', exact: true }).click();
   const payload = (await confirmationRequest).postDataJSON();
@@ -191,15 +197,18 @@ test('receipt cancellation stops queued work and preserves every capture', async
     mimeType: 'image/png',
     buffer: Buffer.concat([validPng, Buffer.from([10 + index])]),
   })));
+  await selectTaskTab(page, 'tickets', 'Progreso');
   await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
   await expect.poll(() => started).toBe(2);
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'OCR local' })).toHaveCount(2);
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Pendiente' })).toHaveCount(1);
 
+  await selectTaskTab(page, 'tickets', 'Capturas');
   await page.locator('.capture-card').first().getByRole('button', { name: 'Cancelar esta imagen', exact: true }).click();
   await expect(page.locator('.capture-card').first().locator('.status-pill')).toHaveText('Cancelada');
   await expect.poll(() => started).toBe(3);
 
+  await selectTaskTab(page, 'tickets', 'Progreso');
   await page.getByRole('button', { name: 'Cancelar todo', exact: true }).click();
   releaseRequests();
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Cancelada' })).toHaveCount(3);
@@ -209,7 +218,7 @@ test('receipt cancellation stops queued work and preserves every capture', async
   await expect(page.getByRole('button', { name: 'Leer con OCR local', exact: true })).toBeEnabled();
   await expect(page.locator('#receipt-state')).toContainText('capturas, los OCR parciales y las páginas completadas se conservan');
   await expectNoHorizontalOverflow(page);
-  await page.screenshot({ path: testInfo.outputPath('ocr-cancelled.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('ocr-cancelled.png'), fullPage: false });
 });
 
 function pageExtraction(index, verified) {
@@ -228,29 +237,25 @@ function pageExtraction(index, verified) {
     items,
     ...(index === 0 ? { retailerName: 'ALCAMPO ALMERIA' } : {}),
     ...(index === 2 ? { declaredTotalMinor: 20_226, articleCount: 88 } : {}),
-    warnings: [],
-    review: review(items, index === 2 ? 20_226 : undefined),
   };
   return {
-    pages: [{ position: 0, source: verified ? 'embedded-text' : 'local-tesseract', text: rawPages[index], confidence: 0.91 }],
+    pages: [{ pageIndex: 0, source: 'local-tesseract', rawText: rawPages[index], confidence: .92 }],
+    deterministic: { ...final },
+    final,
     originalText: rawPages[index],
-    deterministic: { items },
     ...(verified ? {
       ai: {
         interpretation: {
-          ...(final.retailerName ? { retailerName: final.retailerName } : {}),
-          ...(final.declaredTotalMinor === undefined ? {} : { declaredTotalMinor: final.declaredTotalMinor }),
-          ...(final.articleCount === undefined ? {} : { articleCount: final.articleCount }),
-          currency: 'EUR',
           correctedText: rawPages[index],
           items,
-          warnings: [],
+          declaredTotalMinor: final.declaredTotalMinor,
+          articleCount: final.articleCount,
+          retailerName: final.retailerName,
+          notes: [],
+          confidence: .97,
         },
-        attempts: 1,
-        pages: [],
       },
     } : {}),
-    final,
   };
 }
 
@@ -261,49 +266,22 @@ function assembledExtraction() {
     item('LECHE', 1, 120, 120, 'B'),
     item('RESTO TICKET', 1, 19_422, 19_422, 'B'),
   ];
+  const final = { items, declaredTotalMinor: 20_226, articleCount: 88, retailerName: 'ALCAMPO ALMERIA' };
   return {
-    pages: [0, 1, 2].map(position => ({
-      position,
-      source: 'local-tesseract',
-      text: `OCR page ${position + 1}`,
-      confidence: 0.91,
-    })),
-    originalText: 'ALCAMPO ALMERIA\nC.LADRON MANZAN;6;89;534;A\nPAN;1;150;150;B\nLECHE;1;120;120;B\nRESTO TICKET;1;19422;19422;B\nTOTAL 202.26\nNUM. TOTAL ART. VENDIDOS = 88',
-    deterministic: {
-      retailerName: 'ALCAMPO ALMERIA',
-      declaredTotalMinor: 20_226,
-      articleCount: 88,
-      items,
-    },
+    pages: [0, 1, 2].flatMap(index => pageExtraction(index, true).pages),
+    deterministic: { ...final },
+    final,
+    originalText: [0, 1, 2].map(index => pageExtraction(index, true).originalText).join('\n'),
     ai: {
       interpretation: {
-        retailerName: 'ALCAMPO ALMERIA',
+        correctedText: 'ALCAMPO ALMERIA\n6 x ,89\nC.LADRON MANZAN 5,34 A\nPAN 1,50 B\nLECHE 1,20 B\nRESTO TICKET 194,22 B\nTOT 202,26\nNUM. TOTAL ART. VENDIDOS = 88',
+        items,
         declaredTotalMinor: 20_226,
         articleCount: 88,
-        currency: 'EUR',
-        correctedText: 'ALCAMPO ALMERIA\nTOTAL 202.26',
-        items,
-        warnings: [],
+        retailerName: 'ALCAMPO ALMERIA',
+        notes: [],
+        confidence: .97,
       },
-      attempts: 1,
-      pages: [0, 1, 2].map(position => ({
-        position,
-        interpretation: {
-          currency: 'EUR',
-          correctedText: `OCR page ${position + 1}`,
-          items: [],
-          warnings: [],
-        },
-        attempts: 1,
-      })),
-    },
-    final: {
-      retailerName: 'ALCAMPO ALMERIA',
-      declaredTotalMinor: 20_226,
-      articleCount: 88,
-      items,
-      warnings: [],
-      review: review(items, 20_226),
     },
   };
 }
@@ -315,26 +293,8 @@ function item(description, quantity, unitPriceMinor, lineTotalMinor, taxCategory
     unitPriceMinor,
     lineTotalMinor,
     taxCategory,
-    confidence: 0.95,
-    sourceLines: [1],
-  };
-}
-
-function review(items, declaredTotalMinor) {
-  const expectedMinor = items.reduce((sum, entry) => sum + entry.lineTotalMinor, 0);
-  return {
-    lines: items.map(entry => ({
-      ...entry,
-      status: 'confirmed',
-      expectedMinor: entry.quantity * entry.unitPriceMinor,
-      differenceMinor: 0,
-    })),
-    ...(declaredTotalMinor === undefined ? {} : {
-      total: {
-        expectedMinor,
-        differenceMinor: declaredTotalMinor - expectedMinor,
-        valid: declaredTotalMinor === expectedMinor,
-      },
-    }),
+    sourceLines: [description],
+    confidence: .95,
+    status: 'confirmed',
   };
 }
