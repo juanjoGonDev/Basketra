@@ -7,6 +7,8 @@ const STORAGE_KEYS = Object.freeze({
   aiMode: 'basketra.aiMode',
 });
 
+const RECEIPT_JOB_STATUSES = new Set(['queued', 'running', 'completed', 'failed', 'cancelled']);
+
 function readJson(key, fallback) {
   try {
     const value = JSON.parse(localStorage.getItem(key) || 'null');
@@ -43,7 +45,8 @@ function normalizeReceiptExtractionJob(value) {
   }
   const captureKeys = [...new Set(value.captureKeys.filter(isStorageKey))];
   if (captureKeys.length === 0) return null;
-  return { id: value.id, captureKeys };
+  const status = RECEIPT_JOB_STATUSES.has(value.status) ? value.status : 'queued';
+  return { id: value.id, captureKeys, status };
 }
 
 export function loadActiveListId() {
