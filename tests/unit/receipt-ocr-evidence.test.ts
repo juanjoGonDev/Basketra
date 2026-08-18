@@ -29,26 +29,25 @@ test('deterministic OCR parsing preserves field confidence and source region wit
   });
 
   assert.equal(items.length, 1);
-  assert.deepEqual(items[0], {
-    description: 'YOGUR NATURAL',
-    quantity: 2,
-    unitPriceMinor: 89,
-    lineTotalMinor: 178,
-    confidence: 0.92,
-    sourceLines: [1, 2],
-    fieldConfidence: {
-      description: 0.86,
-      quantity: 0.98,
-      unitPriceMinor: 0.98,
-      lineTotalMinor: 0.86,
-    },
-    sourceRegion: {
-      x: 0.08,
-      y: 0.2,
-      width: 0.8,
-      height: 0.1,
-    },
+  const item = items[0];
+  assert.ok(item);
+  assert.equal(item.description, 'YOGUR NATURAL');
+  assert.equal(item.quantity, 2);
+  assert.equal(item.unitPriceMinor, 89);
+  assert.equal(item.lineTotalMinor, 178);
+  assert.ok(Math.abs(item.confidence - 0.92) < 1e-12);
+  assert.deepEqual(item.sourceLines, [1, 2]);
+  assert.deepEqual(item.fieldConfidence, {
+    description: 0.86,
+    quantity: 0.98,
+    unitPriceMinor: 0.98,
+    lineTotalMinor: 0.86,
   });
+  assert.ok(item.sourceRegion);
+  assert.equal(item.sourceRegion.x, 0.08);
+  assert.equal(item.sourceRegion.y, 0.2);
+  assert.equal(item.sourceRegion.width, 0.8);
+  assert.ok(Math.abs(item.sourceRegion.height - 0.1) < 1e-12);
 });
 
 test('deterministic OCR parsing falls back to overall OCR confidence when layout is unavailable', () => {
