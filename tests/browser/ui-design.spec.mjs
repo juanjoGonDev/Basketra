@@ -18,6 +18,21 @@ async function screenshotView(page, testInfo, name) {
   await page.screenshot({ path: testInfo.outputPath(`${name}.png`), fullPage: false });
 }
 
+async function expectSettingsTabsInsideViewport(page) {
+  const geometry = await page.getByRole('tablist', { name: 'Secciones de ajustes' }).evaluate(tablist => ({
+    viewportWidth: document.documentElement.clientWidth,
+    scrollWidth: tablist.scrollWidth,
+    clientWidth: tablist.clientWidth,
+    tabs: [...tablist.querySelectorAll('[role="tab"]')].map(tab => {
+      const rect = tab.getBoundingClientRect();
+      return { left: rect.left, right: rect.right };
+    }),
+  }));
+  expect(geometry.tabs).toHaveLength(5);
+  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth + 1);
+  expect(geometry.tabs.every(tab => tab.left >= -1 && tab.right <= geometry.viewportWidth + 1)).toBeTruthy();
+}
+
 test('adaptive Android scaffold uses a navigation bar on compact screens and a rail on expanded screens', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/#home');
@@ -79,6 +94,7 @@ test('all primary destinations share touch-safe controls, reflow and the same vi
     await navigate(page, destination);
     if (destination === 'Ajustes') {
       await expect(page.getByRole('heading', { name: 'Servidor y versión' })).toBeVisible();
+      await expectSettingsTabsInsideViewport(page);
     }
     const controlHeights = await page.locator('button:visible').evaluateAll(elements => (
       elements.map(element => element.getBoundingClientRect().height)
@@ -90,6 +106,9 @@ test('all primary destinations share touch-safe controls, reflow and the same vi
   await page.setViewportSize({ width: 320, height: 700 });
   await navigate(page, 'Tickets');
   await screenshotView(page, testInfo, 'tickets-mobile-320');
+  await navigate(page, 'Ajustes');
+  await expectSettingsTabsInsideViewport(page);
+  await screenshotView(page, testInfo, 'settings-mobile-320');
 });
 
 test('keyboard focus stays visibly exposed on primary navigation and actions', async ({ page }) => {

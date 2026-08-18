@@ -437,29 +437,6 @@ details.settings-card:has(#diagnostics),
   display: none;
 }
 
-.ticket-task-tabs {
-  gap: var(--space-4);
-}
-
-.ticket-task-tabs > #receipt-state:not(:empty) {
-  margin: 0;
-  padding: .75rem 1rem;
-  border-radius: var(--radius-md);
-  background: var(--color-surface-container-low);
-  color: var(--color-on-surface-variant);
-}
-
-.ticket-tab-panel .capture-source,
-.ticket-tab-panel .receipt-workflow {
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
-
-.ticket-tab-panel .receipt-workflow {
-  padding-top: 0;
-}
-
 .review-data-disclosure {
   margin: 0;
 }
@@ -725,6 +702,18 @@ details.settings-card:has(#diagnostics),
   gap: var(--space-4);
 }
 
+.settings-tabs-shell > .task-tablist {
+  grid-auto-flow: row;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow-x: visible;
+}
+
+.settings-tabs-shell > .task-tablist .task-tab {
+  min-width: 0;
+  white-space: normal;
+}
+
 .settings-tabs-shell .settings-tab-panel {
   min-width: 0;
 }
@@ -760,6 +749,12 @@ details.settings-card:has(#diagnostics),
   .task-tablist {
     grid-auto-columns: max-content;
   }
+
+  .settings-tabs-shell > .task-tablist {
+    grid-auto-flow: row;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (min-width: 45rem) {
@@ -770,6 +765,10 @@ details.settings-card:has(#diagnostics),
 
   .operations-stack.settings-tabs-shell {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-tabs-shell > .task-tablist {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
   .operations-card {
@@ -805,6 +804,10 @@ details.settings-card:has(#diagnostics),
   .task-tablist {
     width: fit-content;
     max-width: 100%;
+  }
+
+  .settings-tabs-shell > .task-tablist {
+    width: 100%;
   }
 
   .operations-logs {
