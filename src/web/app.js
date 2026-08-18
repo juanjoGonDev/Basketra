@@ -149,6 +149,10 @@ function resetReceiptSwipeShell(item) {
   row.querySelector('[data-swipe-toggle]')?.setAttribute('aria-expanded', 'false');
 }
 
+function setTextIfChanged(element, value) {
+  if (element && element.textContent !== value) element.textContent = value;
+}
+
 function syncReceiptCompactSummary(item) {
   let summary = item.querySelector('.receipt-line-compact');
   if (!summary) {
@@ -174,11 +178,12 @@ function syncReceiptCompactSummary(item) {
   const quantityValue = quantity?.value || '0';
   const unitPriceValue = unitPrice?.value || '0.00';
   const totalValue = lineTotal?.value || '0.00';
+  const accessibleLabel = `Editar línea ${index + 1}: ${descriptionValue}`;
 
-  summary.setAttribute('aria-label', `Editar línea ${index + 1}: ${descriptionValue}`);
-  summary.querySelector('[data-receipt-summary-description]').textContent = descriptionValue;
-  summary.querySelector('[data-receipt-summary-meta]').textContent = `${quantityValue} × ${unitPriceValue} €`;
-  summary.querySelector('[data-receipt-summary-total]').textContent = `${totalValue} €`;
+  if (summary.getAttribute('aria-label') !== accessibleLabel) summary.setAttribute('aria-label', accessibleLabel);
+  setTextIfChanged(summary.querySelector('[data-receipt-summary-description]'), descriptionValue);
+  setTextIfChanged(summary.querySelector('[data-receipt-summary-meta]'), `${quantityValue} × ${unitPriceValue} €`);
+  setTextIfChanged(summary.querySelector('[data-receipt-summary-total]'), `${totalValue} €`);
 }
 
 function updateReceiptLinePresentation(root) {
@@ -583,7 +588,7 @@ function organizeSettingsOperations() {
   panels.get('diagnostics').append(logsCard);
   panels.get('data').append(backupCard);
 
-  const advanced = settings.querySelector('details.settings-card:has(#diagnostics)');
+  const advanced = settings.querySelector('details.settings-advanced-source:has(#diagnostics)');
   if (advanced) {
     advanced.hidden = false;
     advanced.classList.add('settings-advanced-disclosure');
