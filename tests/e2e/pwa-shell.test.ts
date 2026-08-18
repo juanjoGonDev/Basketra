@@ -30,7 +30,6 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.match(html, /id="completed-items"/);
   assert.match(html, /id="realtime-state"/);
   assert.match(html, /id="open-ai-assistant"/);
-  assert.match(html, /id="verify-receipt-ai"/);
   assert.match(html, /id="receipt-camera"[^>]*accept="image\/jpeg,image\/png"[^>]*capture="environment"/);
   assert.match(html, /id="receipt-files"[^>]*application\/pdf/);
   assert.match(html, /id="capture-preview-dialog"/);
@@ -58,6 +57,9 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.match(state, /basketra\.itemDraft/);
   assert.match(state, /basketra\.captures/);
   assert.match(state, /basketra\.receiptExtractionJobId/);
+  assert.match(state, /basketra\.receiptExtractionJobs/);
+  assert.match(state, /loadReceiptExtractionJobs/);
+  assert.match(state, /saveReceiptExtractionJobs/);
   assert.match(lists, /suggestionController\?\.abort/);
   assert.match(lists, /items\/order/);
   assert.match(lists, /completed/);
@@ -66,7 +68,11 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.match(receipts, /El borrador se conserva/);
   assert.match(receipts, /\/api\/v1\/receipts\/extraction-jobs/);
   assert.match(receipts, /new EventSource\(realtimeEndpoint\(\)\)/);
-  assert.match(receipts, /análisis continúa aunque cierres esta página/);
+  assert.match(receipts, /startReceiptBackgroundJob\(uploaded\)/);
+  assert.match(receipts, /verifyWithAi[\s\S]*state\.aiConfigured|state\.aiConfigured[\s\S]*requestReceiptExtractionJob/);
+  assert.match(receipts, /OCR e IA empiezan automáticamente|OCR local empieza automáticamente/);
+  assert.match(receipts, /state\.jobs =|jobs: new Map/);
+  assert.doesNotMatch(receipts, /addEventListener\('click',[^\n]*processReceipt/);
   assert.match(ui, /export function shoppingListItem/);
   assert.match(ui, /export function receiptReview/);
   assert.match(ui, /data-capture-preview-image/);
