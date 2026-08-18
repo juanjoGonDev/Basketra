@@ -75,7 +75,7 @@ test('settings coalesce AI configuration reads and keep the expensive probe manu
 
   await page.waitForTimeout(2200);
   const startupReads = settingsReads;
-  expect(startupReads).toBeLessThanOrEqual(3);
+  expect(startupReads).toBeLessThanOrEqual(2);
   expect(probePosts).toBe(0);
 
   await page.getByRole('button', { name: 'Verificar imagen y JSON estricto', exact: true }).click();
