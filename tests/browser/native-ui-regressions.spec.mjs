@@ -130,7 +130,7 @@ test('receipt review hides destructive rails and exposes confirmation errors at 
   await page.screenshot({ path: testInfo.outputPath('receipt-confirmation-error.png'), fullPage: false });
 });
 
-test('receipt review keeps compact rows and contextual editor readable on expanded layouts', async ({ page }, testInfo) => {
+test('receipt review keeps source evidence and contextual editor readable on expanded layouts', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await prepareReceiptReview(page);
 
@@ -141,22 +141,27 @@ test('receipt review keeps compact rows and contextual editor readable on expand
 
   const dialog = page.locator('#receipt-line-dialog');
   await expect(dialog).toBeVisible();
+  await expect(dialog.locator('.receipt-line-evidence')).toBeVisible();
+  await expect(dialog.locator('.receipt-line-evidence img')).toBeVisible();
   const geometry = await dialog.evaluate(element => {
     const description = element.querySelector('[data-field="description"]').getBoundingClientRect();
     const quantity = element.querySelector('[data-field="quantity"]').getBoundingClientRect();
     const unitPrice = element.querySelector('[data-field="unitPriceEuro"]').getBoundingClientRect();
     const lineTotal = element.querySelector('[data-field="lineTotalEuro"]').getBoundingClientRect();
+    const evidence = element.querySelector('.receipt-line-evidence').getBoundingClientRect();
     const sheet = element.getBoundingClientRect();
     return {
       sheetWidth: sheet.width,
       descriptionWidth: description.width,
+      evidenceWidth: evidence.width,
       inputHeights: [description.height, quantity.height, unitPrice.height, lineTotal.height],
     };
   });
 
-  expect(geometry.sheetWidth).toBeGreaterThan(500);
-  expect(geometry.sheetWidth).toBeLessThan(720);
-  expect(geometry.descriptionWidth).toBeGreaterThan(450);
+  expect(geometry.sheetWidth).toBeGreaterThan(760);
+  expect(geometry.sheetWidth).toBeLessThan(960);
+  expect(geometry.descriptionWidth).toBeGreaterThan(320);
+  expect(geometry.evidenceWidth).toBeGreaterThan(280);
   expect(geometry.inputHeights.every(height => height >= 44)).toBeTruthy();
   await expectNoHorizontalOverflow(page);
   await page.screenshot({ path: testInfo.outputPath('receipt-editor-desktop.png'), fullPage: false });
