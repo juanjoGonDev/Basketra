@@ -437,6 +437,12 @@ details.settings-card:has(#diagnostics),
   display: none;
 }
 
+.switch-row:has(input:focus-visible),
+.capture-action:has(input:focus-visible) {
+  outline: .1875rem solid var(--color-focus);
+  outline-offset: .1875rem;
+}
+
 .review-data-disclosure {
   margin: 0;
 }

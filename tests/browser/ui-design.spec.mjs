@@ -111,7 +111,7 @@ test('all primary destinations share touch-safe controls, reflow and the same vi
   await screenshotView(page, testInfo, 'settings-mobile-320');
 });
 
-test('keyboard focus stays visibly exposed on primary navigation and actions', async ({ page }) => {
+test('keyboard focus stays visibly exposed on primary and visually hidden controls', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/#home');
   await page.keyboard.press('Tab');
@@ -132,4 +132,17 @@ test('keyboard focus stays visibly exposed on primary navigation and actions', a
   expect(focus.outlineStyle).not.toBe('none');
   expect(focus.outlineWidth).toBeGreaterThanOrEqual(2);
   expect(focus.visible).toBeTruthy();
+
+  await navigate(page, 'Tickets');
+  const camera = page.locator('#receipt-camera');
+  await camera.focus();
+  const hiddenControlFocus = await camera.locator('xpath=ancestor::label[contains(@class,"capture-action")]').evaluate(label => {
+    const styles = getComputedStyle(label);
+    return {
+      outlineStyle: styles.outlineStyle,
+      outlineWidth: Number.parseFloat(styles.outlineWidth),
+    };
+  });
+  expect(hiddenControlFocus.outlineStyle).not.toBe('none');
+  expect(hiddenControlFocus.outlineWidth).toBeGreaterThanOrEqual(2);
 });
