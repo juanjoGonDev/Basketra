@@ -30,6 +30,10 @@ async function expectNoHorizontalOverflow(page) {
   expect(dimensions.page).toBeLessThanOrEqual(dimensions.viewport);
 }
 
+async function selectTaskTab(page, group, name) {
+  await page.locator(`[data-tab-group="${group}"]`).getByRole('tab', { name, exact: true }).click();
+}
+
 async function prepareReceiptReview(page) {
   await page.goto('/');
   await navigate(page, 'Tickets');
@@ -38,8 +42,10 @@ async function prepareReceiptReview(page) {
     mimeType: 'image/png',
     buffer: validPng,
   });
+  await selectTaskTab(page, 'tickets', 'Progreso');
   await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
   await expect(page.locator('.receipt-item')).toHaveCount(1);
+  await expect(page.locator('[data-tab-group="tickets"] [role="tab"][aria-selected="true"]')).toHaveText('Revisión');
 }
 
 test('settings coalesce AI configuration reads and keep the expensive probe manual', async ({ page }) => {
@@ -71,6 +77,7 @@ test('settings coalesce AI configuration reads and keep the expensive probe manu
 
   await page.goto('/');
   await navigate(page, 'Ajustes');
+  await selectTaskTab(page, 'settings', 'IA');
   await expect(page.locator('#ai-configuration-status')).toHaveText('Configuración cargada');
 
   await page.waitForTimeout(2200);
@@ -86,7 +93,7 @@ test('settings coalesce AI configuration reads and keep the expensive probe manu
   expect(settingsReads).toBeLessThanOrEqual(startupReads + 1);
 });
 
-test('receipt review hides destructive rails and exposes confirmation errors next to the action', async ({ page }, testInfo) => {
+test('receipt review hides destructive rails and exposes confirmation errors at the actionable line', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   let confirmPosts = 0;
   page.on('request', request => {
@@ -113,42 +120,46 @@ test('receipt review hides destructive rails and exposes confirmation errors nex
 
   await page.getByRole('button', { name: 'Añadir línea', exact: true }).click();
   await expect(page.locator('.receipt-item')).toHaveCount(2);
+  await selectTaskTab(page, 'tickets', 'Importar');
   await page.getByRole('button', { name: 'Confirmar e importar', exact: true }).click();
 
-  const feedback = page.locator('#receipt-confirm-state');
-  await expect(feedback).toBeVisible();
-  await expect(feedback).toContainText(/Revisa|Producto|línea|ticket/i);
+  await expect(page.locator('#receipt-state')).toContainText(/Revisa la línea 2|indica el producto/i);
+  await expect(page.locator('#receipt-line-dialog')).toBeVisible();
+  await expect(page.locator('#receipt-line-dialog [data-field="description"]')).toBeFocused();
   expect(confirmPosts).toBe(0);
   await expect(page.locator('#capture-list li')).toHaveCount(1);
   await expectNoHorizontalOverflow(page);
-  await page.screenshot({ path: testInfo.outputPath('receipt-confirmation-error.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('receipt-confirmation-error.png'), fullPage: false });
 });
 
-test('receipt review keeps product and numeric fields readable on expanded layouts', async ({ page }, testInfo) => {
+test('receipt review keeps compact rows and contextual editor readable on expanded layouts', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await prepareReceiptReview(page);
 
-  const geometry = await page.locator('.receipt-item').first().evaluate(item => {
-    const description = item.querySelector('[data-field="description"]').getBoundingClientRect();
-    const quantity = item.querySelector('[data-field="quantity"]').getBoundingClientRect();
-    const unitPrice = item.querySelector('[data-field="unitPriceEuro"]').getBoundingClientRect();
-    const lineTotal = item.querySelector('[data-field="lineTotalEuro"]').getBoundingClientRect();
-    const card = item.getBoundingClientRect();
+  const compactRow = page.locator('.receipt-line-compact').first();
+  await expect(compactRow).toBeVisible();
+  await expect(page.locator('.receipt-item').first().locator('[data-field="description"]')).toBeHidden();
+  await compactRow.click();
+
+  const dialog = page.locator('#receipt-line-dialog');
+  await expect(dialog).toBeVisible();
+  const geometry = await dialog.evaluate(element => {
+    const description = element.querySelector('[data-field="description"]').getBoundingClientRect();
+    const quantity = element.querySelector('[data-field="quantity"]').getBoundingClientRect();
+    const unitPrice = element.querySelector('[data-field="unitPriceEuro"]').getBoundingClientRect();
+    const lineTotal = element.querySelector('[data-field="lineTotalEuro"]').getBoundingClientRect();
+    const sheet = element.getBoundingClientRect();
     return {
-      cardWidth: card.width,
+      sheetWidth: sheet.width,
       descriptionWidth: description.width,
-      quantityTop: quantity.top,
-      unitPriceTop: unitPrice.top,
-      lineTotalTop: lineTotal.top,
       inputHeights: [description.height, quantity.height, unitPrice.height, lineTotal.height],
     };
   });
 
-  expect(geometry.cardWidth).toBeGreaterThan(700);
-  expect(geometry.descriptionWidth).toBeGreaterThan(geometry.cardWidth * .8);
-  expect(Math.abs(geometry.quantityTop - geometry.unitPriceTop)).toBeLessThanOrEqual(2);
-  expect(Math.abs(geometry.unitPriceTop - geometry.lineTotalTop)).toBeLessThanOrEqual(2);
+  expect(geometry.sheetWidth).toBeGreaterThan(500);
+  expect(geometry.sheetWidth).toBeLessThan(720);
+  expect(geometry.descriptionWidth).toBeGreaterThan(450);
   expect(geometry.inputHeights.every(height => height >= 44)).toBeTruthy();
   await expectNoHorizontalOverflow(page);
-  await page.screenshot({ path: testInfo.outputPath('receipt-review-desktop.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('receipt-editor-desktop.png'), fullPage: false });
 });
