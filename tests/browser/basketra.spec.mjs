@@ -195,6 +195,9 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
 
   let riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
   await swipe(page, riceRow, 'right');
+  const completedSection = page.locator('#completed-section');
+  await completedSection.locator('summary').click();
+  await expect(completedSection).toHaveAttribute('open', '');
   await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Devolver Arroz 1 kg a pendientes' }).click());
   await expect(page.locator('#pending-items')).toContainText('Arroz 1 kg');
 
@@ -362,11 +365,13 @@ test('comparison renders all deterministic plans in euros', async ({ page }) => 
   const failures = await gotoApp(page);
   await navigate(page, 'Planes');
   await page.getByRole('button', { name: 'Generar ejemplo verificable', exact: true }).click();
-  await expect(page.locator('#plans article')).toHaveCount(3);
-  await expect(page.getByRole('heading', { name: 'Un solo comercio' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Equilibrio recomendado' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Máximo ahorro' })).toBeVisible();
-  await expect(page.locator('.plan-total').first()).toContainText('€');
+  await page.getByRole('tab', { name: 'Comparativa', exact: true }).click();
+  const rows = page.locator('.plan-comparison-row');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.filter({ hasText: 'Un solo comercio' })).toBeVisible();
+  await expect(rows.filter({ hasText: 'Equilibrio recomendado' })).toBeVisible();
+  await expect(rows.filter({ hasText: 'Máximo ahorro' })).toBeVisible();
+  await expect(rows.first()).toContainText('€');
   await expect(page.getByText(/cént\./i)).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
   expect(failures).toEqual([]);
