@@ -300,7 +300,7 @@ test('local OCR creates editable euro rows with accessible row actions and impor
   await expect(page.locator('.receipt-line-compact').first()).toContainText('Whole milk');
 
   const dataDisclosure = page.locator('.review-data-disclosure');
-  await dataDisclosure.getByText('Datos del ticket y total', { exact: true }).click();
+  await expect(dataDisclosure).toHaveAttribute('open', '');
   await page.getByRole('button', { name: 'Añadir línea', exact: true }).click();
   await expect(page.locator('.receipt-item')).toHaveCount(2);
   await page.locator('.receipt-line-compact').last().click();
