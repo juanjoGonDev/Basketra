@@ -6,24 +6,28 @@ import {
   EmbeddedTextOcrProvider,
   MultimodalAiOcrProvider,
   TesseractCliOcrProvider,
+  type OcrLine,
   type OcrProvider,
+  type OcrRegion,
   type OcrResult,
 } from '../ocr/provider.ts';
 import {
   buildReceiptReview,
   extractReceiptMetadata,
   mergeReceiptPageItems,
-  parseDeterministicReceiptText,
+  parseDeterministicReceiptOcr,
   verifyReceiptWithAi,
   type AiReceiptInterpretation,
   type ReceiptAiSession,
   type ReceiptExtractionItem,
+  type ReceiptFieldConfidence,
   type ReceiptMetadata,
 } from './extraction.ts';
 
 const DEFAULT_PAGE_CONCURRENCY = 2;
 const DEFAULT_AI_CONCURRENCY = 1;
 const MAX_RECEIPT_CONVERSATION_PAGES = 20;
+const GENERIC_AI_WARNING_CODE = 'AI_VERIFICATION_FAILED';
 
 export type ReceiptCaptureRequest = Readonly<{
   storageKey: string;
@@ -36,6 +40,10 @@ export type ReceiptExtractionRequest = Readonly<{
   verifyWithAi: boolean;
 }>;
 
+export type ReceiptAiFailure = Readonly<{
+  code: string;
+}>;
+
 export type ReceiptPageEvidence = Readonly<{
   position: number;
   storageKey: string;
@@ -43,6 +51,7 @@ export type ReceiptPageEvidence = Readonly<{
   text: string;
   confidence: number;
   source: OcrResult['source'];
+  lines?: readonly OcrLine[];
   deterministic: Readonly<{
     items: readonly ReceiptExtractionItem[];
     metadata: ReceiptMetadata;
@@ -51,6 +60,7 @@ export type ReceiptPageEvidence = Readonly<{
     interpretation: AiReceiptInterpretation;
     attempts: number;
   }>;
+  aiFailure?: ReceiptAiFailure;
 }>;
 
 type ReceiptOcrPageEvidence = ReceiptPageEvidence;
@@ -249,9 +259,12 @@ export class ReceiptExtractionService {
       : []);
     const aiInterpretations = aiPages.map((page) => page.interpretation);
     const aiMetadata = combineMetadata(aiInterpretations);
-    const aiItemsByPage = pages.map((page) => page.ai?.interpretation.items ?? page.deterministic.items);
-    const aiItems = mergeReceiptPageItems(aiItemsByPage);
-    const warnings = aiInterpretations.flatMap((interpretation) => interpretation.warnings);
+    const resolvedItemsByPage = pages.map((page) => resolvePageItems(page));
+    const aiItems = mergeReceiptPageItems(resolvedItemsByPage);
+    const warnings = [
+      ...aiInterpretations.flatMap((interpretation) => interpretation.warnings),
+      ...pages.flatMap((page) => page.aiFailure ? ['AI verification unavailable for one receipt page'] : []),
+    ];
 
     let ai: Readonly<{
       interpretation: AiReceiptInterpretation;
@@ -273,7 +286,10 @@ export class ReceiptExtractionService {
             ? {}
             : { articleCount: aiMetadata.articleCount }),
           currency: 'EUR',
-          correctedText: aiInterpretations.map((interpretation) => interpretation.correctedText).join('\n').trim(),
+          correctedText: pages
+            .map((page) => page.ai?.interpretation.correctedText ?? page.text)
+            .join('\n')
+            .trim(),
           items: aiItems,
           warnings,
         },
@@ -282,7 +298,7 @@ export class ReceiptExtractionService {
       };
     }
 
-    const finalItems = ai?.interpretation.items.length ? ai.interpretation.items : deterministicItems;
+    const finalItems = aiPages.length > 0 ? aiItems : deterministicItems;
     const finalRetailerName = ai?.interpretation.retailerName ?? deterministicMetadata.retailerName;
     const finalTotal = ai?.interpretation.declaredTotalMinor ?? deterministicMetadata.declaredTotalMinor;
     const finalArticleCount = ai?.interpretation.articleCount ?? deterministicMetadata.articleCount;
@@ -319,7 +335,11 @@ export class ReceiptExtractionService {
     signal?.throwIfAborted();
     const stored = this.#fileStore.read(capture.storageKey);
     const result = await this.recognizeCapture(capture, stored, signal);
-    const deterministicItems = parseDeterministicReceiptText(result.text);
+    const deterministicItems = parseDeterministicReceiptOcr(result)
+      .map((item): ReceiptExtractionItem => ({
+        ...item,
+        captureStorageKey: capture.storageKey,
+      }));
     const metadata = extractReceiptMetadata(result.text);
 
     return {
@@ -404,15 +424,23 @@ export class ReceiptExtractionService {
     for (const [position, ocrPage] of ocrPages.entries()) {
       const page = await ocrPage;
       const capture = captures[position]!;
-      verified.push(await this.#aiQueue.run(
-        () => this.verifyPageWithAi(capture, page, signal, {
-          affinity,
-          final: position === ocrPages.length - 1,
-          pageCount: ocrPages.length,
-          pagePosition: position,
-        }),
-        signal,
-      ));
+      try {
+        verified.push(await this.#aiQueue.run(
+          () => this.verifyPageWithAi(capture, page, signal, {
+            affinity,
+            final: position === ocrPages.length - 1,
+            pageCount: ocrPages.length,
+            pagePosition: position,
+          }),
+          signal,
+        ));
+      } catch (error) {
+        if (signal?.aborted || isAbortError(error)) throw error;
+        verified.push({
+          ...page,
+          aiFailure: { code: stableAiFailureCode(error) },
+        });
+      }
     }
 
     return verified;
@@ -422,6 +450,68 @@ export class ReceiptExtractionService {
     this.#aiOcrProvider ??= new MultimodalAiOcrProvider(this.#getAiProvider(), this.#maxRetries);
     return this.#aiOcrProvider;
   }
+}
+
+function resolvePageItems(page: ReceiptPageEvidence): ReceiptExtractionItem[] {
+  const items = page.ai?.interpretation.items ?? page.deterministic.items;
+  return items.map((item) => addPageProvenance(item, page));
+}
+
+function addPageProvenance(item: ReceiptExtractionItem, page: ReceiptPageEvidence): ReceiptExtractionItem {
+  const sourceLines = item.sourceLines ?? [];
+  const lineEvidence = sourceLines.flatMap((index) => {
+    const line = page.lines?.find((candidate) => candidate.index === index);
+    return line ? [line] : [];
+  });
+  const sourceRegion = unionRegions(lineEvidence.flatMap((line) => line.region ? [line.region] : []));
+  const fieldConfidence = fieldConfidenceFromLines(item, lineEvidence);
+  return {
+    ...item,
+    captureStorageKey: page.storageKey,
+    ...(sourceRegion ? { sourceRegion } : {}),
+    ...(fieldConfidence ? { fieldConfidence } : {}),
+  };
+}
+
+function fieldConfidenceFromLines(
+  item: ReceiptExtractionItem,
+  lines: readonly OcrLine[],
+): ReceiptFieldConfidence | undefined {
+  if (lines.length === 0) return item.fieldConfidence;
+  const product = lines.at(-1)?.confidence ?? item.confidence;
+  const quantity = (lines.length > 1 ? lines[0]?.confidence : product) ?? item.confidence;
+  return {
+    description: Math.min(item.confidence, normalizeConfidence(product)),
+    quantity: Math.min(item.confidence, normalizeConfidence(quantity)),
+    unitPriceMinor: Math.min(item.confidence, normalizeConfidence(quantity)),
+    lineTotalMinor: Math.min(item.confidence, normalizeConfidence(product)),
+  };
+}
+
+function unionRegions(regions: readonly OcrRegion[]): OcrRegion | undefined {
+  if (regions.length === 0) return undefined;
+  const x = Math.min(...regions.map((region) => region.x));
+  const y = Math.min(...regions.map((region) => region.y));
+  const right = Math.max(...regions.map((region) => region.x + region.width));
+  const bottom = Math.max(...regions.map((region) => region.y + region.height));
+  return { x, y, width: right - x, height: bottom - y };
+}
+
+function normalizeConfidence(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+}
+
+function stableAiFailureCode(error: unknown): string {
+  const candidate = typeof error === 'object' && error !== null && 'code' in error
+    ? (error as { code?: unknown }).code
+    : undefined;
+  if (typeof candidate === 'string' && /^[A-Z][A-Z0-9_]{2,80}$/u.test(candidate)) return candidate;
+  if (error instanceof Error && /^[A-Z][A-Z0-9_]{2,80}$/u.test(error.message)) return error.message;
+  return GENERIC_AI_WARNING_CODE;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
 }
 
 function uniqueCaptures(captures: readonly ReceiptCaptureRequest[]): ReceiptCaptureRequest[] {
