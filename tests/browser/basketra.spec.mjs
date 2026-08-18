@@ -294,12 +294,14 @@ test('local OCR creates editable euro rows with accessible row actions and impor
   const firstLine = firstLineShell.locator('.receipt-item');
   await page.getByRole('button', { name: 'Mostrar acciones de la línea 1' }).click();
   await expect(firstLineShell).toHaveAttribute('data-swipe-open', 'true');
-  await expect(page.getByRole('button', { name: 'Editar línea 1' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Eliminar línea 1' })).toBeVisible();
+  const firstLineEdit = firstLineShell.getByRole('button', { name: 'Editar línea 1', exact: true });
+  await expect(firstLineEdit).toBeVisible();
+  await expect(firstLineShell.getByRole('button', { name: 'Eliminar línea 1', exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('swipe-reveal.png') });
-  await page.getByRole('button', { name: 'Editar línea 1' }).click();
+  await firstLineEdit.click();
   await expect(firstLine.locator('[data-field="description"]')).toBeFocused();
   await firstLine.locator('[data-field="description"]').fill('Whole milk');
+  await page.getByRole('button', { name: 'Guardar línea', exact: true }).click();
 
   await page.getByRole('button', { name: 'Añadir línea', exact: true }).click();
   await expect(page.locator('.receipt-item')).toHaveCount(2);
@@ -312,7 +314,7 @@ test('local OCR creates editable euro rows with accessible row actions and impor
   const manualLineShell = page.locator('[data-swipe-kind="receipt-line"]').last();
   await page.getByRole('button', { name: 'Mostrar acciones de la línea 2' }).click();
   await expect(manualLineShell).toHaveAttribute('data-swipe-open', 'true');
-  await page.getByRole('button', { name: 'Eliminar línea 2' }).click();
+  await page.getByRole('button', { name: 'Eliminar línea 2', exact: true }).click();
   await expect(page.locator('.receipt-item')).toHaveCount(1);
   await expect(page.locator('#toast-message')).toHaveText('Línea eliminada');
   await expect(page.getByRole('button', { name: 'Deshacer' })).toBeVisible();
