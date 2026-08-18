@@ -8,6 +8,7 @@ const STORAGE_KEYS = Object.freeze({
 });
 
 const RECEIPT_JOB_STATUSES = new Set(['queued', 'running', 'completed', 'failed', 'cancelled']);
+const RECEIPT_JOB_MODES = new Set(['full', 'ai-retry']);
 
 function readJson(key, fallback) {
   try {
@@ -46,7 +47,8 @@ function normalizeReceiptExtractionJob(value) {
   const captureKeys = [...new Set(value.captureKeys.filter(isStorageKey))];
   if (captureKeys.length === 0) return null;
   const status = RECEIPT_JOB_STATUSES.has(value.status) ? value.status : 'queued';
-  return { id: value.id, captureKeys, status };
+  const mode = RECEIPT_JOB_MODES.has(value.mode) ? value.mode : 'full';
+  return { id: value.id, captureKeys, status, mode };
 }
 
 export function loadActiveListId() {
