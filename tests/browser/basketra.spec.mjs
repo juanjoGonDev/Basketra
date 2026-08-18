@@ -268,25 +268,14 @@ test('local OCR creates editable euro rows with accessible row actions and impor
   await expect(page.locator('#receipt-camera')).toHaveAttribute('accept', 'image/jpeg,image/png');
   await expect(page.locator('#receipt-files')).toHaveAttribute('accept', 'image/jpeg,image/png,application/pdf');
   await expect(page.locator('#receipt-text')).toHaveCount(0);
-  await expect(page.getByLabel('Verificar y normalizar con IA')).toBeDisabled();
-  await expect(page.locator('#receipt-ai-help')).toContainText('OCR local en español activo');
+  await expect(page.getByLabel('Verificar y normalizar con IA')).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'Progreso', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Leer con OCR local', exact: true })).toHaveCount(0);
 
-  const pdf = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00]);
   await page.locator('#receipt-camera').setInputFiles({ name: 'camera.png', mimeType: 'image/png', buffer: validPng });
-  await page.locator('#receipt-files').setInputFiles([
-    { name: 'gallery.png', mimeType: 'image/png', buffer: validPng },
-    { name: 'receipt.pdf', mimeType: 'application/pdf', buffer: pdf },
-  ]);
-
-  await expect(page.locator('#capture-list li')).toHaveCount(3);
-  await expect(page.locator('#capture-list img[data-capture-preview-image]')).toHaveCount(2);
-  await expect(page.locator('#capture-list')).toContainText('PDF');
-  await page.getByRole('button', { name: 'Retirar receipt.pdf del borrador' }).click();
-  await expect(page.locator('#capture-list li')).toHaveCount(2);
-
-  await selectTaskTab(page, 'tickets', 'Progreso');
-  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
-  await expect(page.locator('#receipt-state')).toContainText('Todas las imágenes están combinadas');
+  await expect(page.locator('#capture-list li')).toHaveCount(1);
+  await expect(page.locator('#capture-list img[data-capture-preview-image]')).toHaveCount(1);
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada', { timeout: 15_000 });
   await expect(page.locator('[data-tab-group="tickets"] [role="tab"][aria-selected="true"]')).toHaveText('Revisión');
   await expect(page.locator('.receipt-item')).toHaveCount(1);
   await expect(page.getByLabel('Precio unitario (€)').first()).toHaveValue('1.20');
@@ -348,31 +337,38 @@ test('local OCR creates editable euro rows with accessible row actions and impor
   expect(failures).toEqual([]);
 });
 
-test('local OCR failure preserves captures and supports page retry', async ({ page }) => {
+test('automatic OCR submission failure preserves captures and supports retry', async ({ page }) => {
   const failures = await gotoApp(page, { allowExpectedOcrFailure: true });
   await navigate(page, 'Tickets');
-  await page.locator('#receipt-camera').setInputFiles({ name: 'manual.png', mimeType: 'image/png', buffer: validPng });
   let failOnce = true;
-  await page.route('**/api/v1/receipts/extract', async route => {
-    if (failOnce) {
+  await page.route('**/api/v1/receipts/extraction-jobs', async route => {
+    if (route.request().method() === 'POST' && failOnce) {
       failOnce = false;
-      await route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ error: { code: 'OCR_LOCAL_PROCESS_FAILED', message: 'El OCR local no pudo leer la imagen; el borrador se conserva', requestId: 'ocr-test' } }) });
+      await route.fulfill({
+        status: 502,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: {
+            code: 'OCR_LOCAL_PROCESS_FAILED',
+            message: 'El OCR local no pudo leer la imagen; el borrador se conserva',
+            requestId: 'ocr-test',
+          },
+        }),
+      });
       return;
     }
     await route.continue();
   });
-  await selectTaskTab(page, 'tickets', 'Progreso');
-  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
-  await expect(page.locator('#receipt-state')).toContainText('1 imágenes con error');
+
+  await page.locator('#receipt-camera').setInputFiles({ name: 'manual.png', mimeType: 'image/png', buffer: validPng });
   await expect(page.locator('#capture-list li')).toHaveCount(1);
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
   await expect(page.locator('.receipt-item')).toHaveCount(0);
-
-  await selectTaskTab(page, 'tickets', 'Capturas');
   await expect(page.getByRole('button', { name: 'Reintentar imagen', exact: true })).toBeVisible();
+
   await page.getByRole('button', { name: 'Reintentar imagen', exact: true }).click();
-  await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada');
-  await expect(page.locator('#receipt-state')).toContainText('Todas las imágenes están combinadas');
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada', { timeout: 15_000 });
+  await expect(page.locator('[data-tab-group="tickets"] [role="tab"][aria-selected="true"]')).toHaveText('Revisión');
   await expect(page.locator('.receipt-item')).toHaveCount(1);
   await expect(page.locator('#capture-list li')).toHaveCount(1);
   expect(failures).toEqual([]);

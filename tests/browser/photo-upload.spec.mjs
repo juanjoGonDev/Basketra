@@ -45,7 +45,7 @@ async function expectNoOverflow(page) {
   expect(widths.content).toBeLessThanOrEqual(widths.viewport);
 }
 
-test('camera and gallery photos upload, deduplicate and persist after reload', async ({ page }) => {
+test('exact duplicate uploads collapse to one retained capture and persist after reload', async ({ page }) => {
   const failures = await openTickets(page);
   const storageKeys = [];
   page.on('response', async response => {
@@ -59,16 +59,16 @@ test('camera and gallery photos upload, deduplicate and persist after reload', a
     { name: 'gallery-copy.png', mimeType: 'image/png', buffer: validPng },
   ]);
 
-  await expect(page.locator('#capture-list li')).toHaveCount(3);
-  await expect(page.locator('#upload-state')).toContainText('Capturas guardadas');
-  await expectLoadedImages(page, 3);
+  await expect(page.locator('#capture-list li')).toHaveCount(1);
+  await expect(page.locator('#upload-state')).toContainText('Estas capturas ya estaban añadidas');
+  await expectLoadedImages(page, 1);
   await expect.poll(() => storageKeys.length).toBe(3);
   expect(new Set(storageKeys).size).toBe(1);
 
   await page.reload();
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
-  await expect(page.locator('#capture-list li')).toHaveCount(3);
-  await expectLoadedImages(page, 3);
+  await expect(page.locator('#capture-list li')).toHaveCount(1);
+  await expectLoadedImages(page, 1);
   await page.getByRole('button', { name: 'Ampliar camera.png' }).click();
   await expect.poll(() => page.locator('#capture-preview-image').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
   await page.getByRole('button', { name: 'Cerrar vista previa' }).click();
@@ -76,7 +76,7 @@ test('camera and gallery photos upload, deduplicate and persist after reload', a
   expect(failures).toEqual([]);
 });
 
-test('a failed photo upload preserves the draft and succeeds on retry', async ({ page }) => {
+test('a failed distinct photo upload preserves the draft and succeeds on retry', async ({ page }) => {
   const failures = await openTickets(page, true);
   await page.locator('#receipt-camera').setInputFiles({ name: 'existing.png', mimeType: 'image/png', buffer: validPng });
   await expect(page.locator('#capture-list li')).toHaveCount(1);
@@ -95,7 +95,11 @@ test('a failed photo upload preserves the draft and succeeds on retry', async ({
     await route.continue();
   });
 
-  const retry = { name: 'retry.png', mimeType: 'image/png', buffer: validPng };
+  const retry = {
+    name: 'retry.png',
+    mimeType: 'image/png',
+    buffer: Buffer.concat([validPng, Buffer.from([1])]),
+  };
   await page.locator('#receipt-files').setInputFiles(retry);
   await expect(page.locator('#upload-state')).toContainText('incident-upload-test');
   await expect(page.locator('#capture-list li')).toHaveCount(1);
