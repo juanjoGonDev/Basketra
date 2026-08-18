@@ -114,7 +114,7 @@ function ensureProviderHealthRegion() {
   if (region instanceof HTMLElement) return region;
   region = document.createElement('div');
   region.id = 'ai-provider-health';
-  region.className = 'provider-check provider-health';
+  region.className = 'provider-health';
   region.setAttribute('aria-live', 'polite');
   const title = document.createElement('strong');
   title.dataset.providerHealthTitle = '';
@@ -141,17 +141,23 @@ function renderProviderHealth(lastCheck) {
   if (detail) detail.textContent = formatted.detail;
 }
 
-let providerHealthRefreshGeneration = 0;
+let providerHealthRefreshPromise = null;
 async function refreshProviderHealth() {
-  const generation = ++providerHealthRefreshGeneration;
+  if (providerHealthRefreshPromise) return providerHealthRefreshPromise;
+  providerHealthRefreshPromise = (async () => {
+    try {
+      const response = await fetch('/api/v1/settings/ai-provider', { cache: 'no-store' });
+      if (!response.ok) return;
+      const settings = await response.json();
+      renderProviderHealth(settings.lastCheck);
+    } catch {
+      // Existing Settings connectivity state is the canonical transport error UI.
+    }
+  })();
   try {
-    const response = await fetch('/api/v1/settings/ai-provider', { cache: 'no-store' });
-    if (!response.ok) return;
-    const settings = await response.json();
-    if (generation !== providerHealthRefreshGeneration) return;
-    renderProviderHealth(settings.lastCheck);
-  } catch {
-    // Existing Settings connectivity state is the canonical transport error UI.
+    await providerHealthRefreshPromise;
+  } finally {
+    providerHealthRefreshPromise = null;
   }
 }
 
@@ -159,19 +165,21 @@ function enhanceProviderHealth() {
   const button = document.querySelector('#test-ai-provider');
   if (!(button instanceof HTMLButtonElement)) return;
   ensureProviderHealthRegion();
-  if (button.dataset.healthObserver !== 'true') {
-    button.dataset.healthObserver = 'true';
-    const observer = new MutationObserver(() => {
-      if (!button.disabled) void refreshProviderHealth();
-    });
-    observer.observe(button, { attributes: true, attributeFilter: ['disabled'] });
-  }
+  if (button.dataset.healthObserver === 'true') return;
+
+  button.dataset.healthObserver = 'true';
+  const observer = new MutationObserver(records => {
+    const busyChanged = records.some(record => record.attributeName === 'aria-busy');
+    if (busyChanged && !button.hasAttribute('aria-busy') && !button.disabled) {
+      void refreshProviderHealth();
+    }
+  });
+  observer.observe(button, { attributes: true, attributeFilter: ['aria-busy'] });
   void refreshProviderHealth();
 }
 
-const providerHealthObserver = new MutationObserver(() => enhanceProviderHealth());
-providerHealthObserver.observe(document.documentElement, { childList: true, subtree: true });
 document.addEventListener('DOMContentLoaded', enhanceProviderHealth, { once: true });
-enhanceProviderHealth();
 
-void import('./operations.js').catch(() => {});
+void import('./operations.js')
+  .then(() => enhanceProviderHealth())
+  .catch(() => {});
