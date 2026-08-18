@@ -295,7 +295,7 @@ test('local OCR creates editable euro rows with accessible row actions and impor
   const lineDialog = page.locator('#receipt-line-dialog');
   await expect(lineDialog).toBeVisible();
   await expect(lineDialog.locator('[data-field="description"]')).toBeFocused();
-  await lineDialog.locator('[data-field="description"]')).fill('Whole milk');
+  await lineDialog.locator('[data-field="description"]').fill('Whole milk');
   await lineDialog.getByRole('button', { name: 'Guardar línea', exact: true }).click();
   await expect(page.locator('.receipt-line-compact').first()).toContainText('Whole milk');
 
@@ -305,10 +305,10 @@ test('local OCR creates editable euro rows with accessible row actions and impor
   await expect(page.locator('.receipt-item')).toHaveCount(2);
   await page.locator('.receipt-line-compact').last().click();
   await expect(lineDialog).toBeVisible();
-  await lineDialog.locator('[data-field="description"]')).fill('Bread');
-  await lineDialog.locator('[data-field="quantity"]')).fill('1');
-  await lineDialog.locator('[data-field="unitPriceEuro"]')).fill('0.20');
-  await lineDialog.locator('[data-field="lineTotalEuro"]')).fill('0.20');
+  await lineDialog.locator('[data-field="description"]').fill('Bread');
+  await lineDialog.locator('[data-field="quantity"]').fill('1');
+  await lineDialog.locator('[data-field="unitPriceEuro"]').fill('0.20');
+  await lineDialog.locator('[data-field="lineTotalEuro"]').fill('0.20');
   await lineDialog.getByRole('button', { name: 'Guardar línea', exact: true }).click();
   await expect(page.locator('.receipt-line-compact').last()).toContainText('Bread');
 
