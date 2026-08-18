@@ -5,6 +5,11 @@ const validPng = Buffer.from(
   'base64',
 );
 
+const distinctPng = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR4nGP4z8DwHwyBNBgAAEnICff5q7YNAAAAAElFTkSuQmCC',
+  'base64',
+);
+
 function watchBrowser(page, allowExpectedServerError = false) {
   const failures = [];
   page.on('pageerror', error => failures.push(`pageerror: ${error.message}`));
@@ -67,6 +72,7 @@ test('exact duplicate uploads collapse to one retained capture and persist after
 
   await page.reload();
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
+  await page.getByRole('tab', { name: 'Capturas', exact: true }).click();
   await expect(page.locator('#capture-list li')).toHaveCount(1);
   await expectLoadedImages(page, 1);
   await page.getByRole('button', { name: 'Ampliar camera.png' }).click();
@@ -98,7 +104,7 @@ test('a failed distinct photo upload preserves the draft and succeeds on retry',
   const retry = {
     name: 'retry.png',
     mimeType: 'image/png',
-    buffer: Buffer.concat([validPng, Buffer.from([1])]),
+    buffer: distinctPng,
   };
   await page.locator('#receipt-files').setInputFiles(retry);
   await expect(page.locator('#upload-state')).toContainText('incident-upload-test');
