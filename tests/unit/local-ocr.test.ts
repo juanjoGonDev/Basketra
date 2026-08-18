@@ -72,23 +72,23 @@ test('local OCR uses fixed Spanish single-thread arguments and validated image b
   provider.dispose();
 });
 
-test('local OCR serializes concurrent requests to bound Raspberry resources', async () => {
+test('local OCR provider does not add a second concurrency queue', async () => {
   const starts: number[] = [];
-  let releaseFirst: (() => void) | undefined;
+  const releases = new Map<number, () => void>();
   const provider = new TesseractCliOcrProvider({ runner: async request => {
     const marker = request.input[0] ?? 0;
     starts.push(marker);
-    if (marker === 1) await new Promise<void>(resolve => { releaseFirst = resolve; });
+    await new Promise<void>(resolve => releases.set(marker, resolve));
     return { stdout: tsv, stderr: '' };
   } });
   const first = provider.recognize({ mimeType: 'image/png', bytes: Uint8Array.from([1]) });
   const second = provider.recognize({ mimeType: 'image/png', bytes: Uint8Array.from([2]) });
   await Promise.resolve();
-  assert.deepEqual(starts, [1]);
-  assert.ok(releaseFirst);
-  releaseFirst();
-  await Promise.all([first, second]);
   assert.deepEqual(starts, [1, 2]);
+  assert.equal(releases.size, 2);
+  releases.get(1)?.();
+  releases.get(2)?.();
+  await Promise.all([first, second]);
 });
 
 test('local OCR rejects unsupported inputs before starting a process', async () => {
