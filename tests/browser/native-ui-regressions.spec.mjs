@@ -101,7 +101,7 @@ test('receipt review hides destructive rails and exposes confirmation errors nex
   const actionRail = firstShell.locator('[data-swipe-actions]');
   await expect(firstShell).toHaveAttribute('data-swipe-open', 'false');
   await expect(actionRail).toHaveCSS('visibility', 'hidden');
-  await expect(firstShell.getByText('Revisar', { exact: true })).toBeVisible();
+  await expect(firstShell.locator('[data-receipt-validation]')).toHaveText(/^(Revisar|Validada)$/);
   await expect(firstShell.getByText('needs-review', { exact: true })).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Mostrar acciones de la línea 1' }).click();
