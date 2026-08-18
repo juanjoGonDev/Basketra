@@ -1,22 +1,28 @@
 import { api, realtimeEndpoint, setBusy } from './api.js';
 import { buildReceiptAiRecovery } from './receipt-ai-recovery.js';
-import { loadCaptures, loadReceiptExtractionJobId, saveCaptures, saveReceiptExtractionJobId } from './state.js';
+import {
+  loadCaptures,
+  loadReceiptExtractionJobId,
+  loadReceiptExtractionJobs,
+  saveCaptures,
+  saveReceiptExtractionJobId,
+  saveReceiptExtractionJobs,
+} from './state.js';
 import { captureItem, euroInputToMinor, minorToEuroInput, receiptReview } from './ui.js';
 
-const PAGE_CONCURRENCY = 2;
-const ACTIVE_PAGE_STATUSES = new Set(['preparing', 'ocr', 'ai']);
+const ACTIVE_JOB_STATUSES = new Set(['queued', 'running']);
+const ACTIVE_PAGE_STATUSES = new Set(['preparing']);
 const REVIEWABLE_PAGE_STATUSES = new Set(['completed', 'manual']);
 const PAGE_LABELS = {
-  pending: 'Pendiente',
-  preparing: 'Preparando imagen',
-  ocr: 'OCR local',
-  ai: 'Verificando con IA',
+  pending: 'En cola',
+  preparing: 'Procesando',
   completed: 'Completada',
   manual: 'Revisión manual',
   error: 'Error',
   cancelled: 'Cancelada',
 };
 
+const persistedJobs = loadReceiptExtractionJobs();
 const state = {
   captures: loadCaptures(),
   extraction: null,
@@ -25,14 +31,14 @@ const state = {
   originalText: '',
   aiConfigured: false,
   pageStates: new Map(),
-  pageQueue: [],
-  activePageTasks: new Map(),
-  activePageCount: 0,
-  nextTaskId: 1,
+  jobs: new Map(persistedJobs.map(job => [job.id, { ...job, captureKeys: [...job.captureKeys] }])),
+  legacyJobId: loadReceiptExtractionJobId(),
+  jobRealtime: null,
+  jobSubmissions: 0,
+  jobGeneration: 0,
   runToken: 0,
   processing: false,
   finalizing: false,
-  verifyWithAi: false,
   manualReviewRequired: false,
   assemblyController: null,
   progressVisible: false,
@@ -43,8 +49,6 @@ const state = {
   retailerCandidates: new Map(),
   retailerManuallyEdited: false,
   settingRetailerValue: false,
-  activeJobId: loadReceiptExtractionJobId(),
-  jobRealtime: null,
 };
 
 let metadata;
@@ -82,6 +86,7 @@ function createPageState(previous = {}) {
     error: '',
     errorCode: '',
     recovery: null,
+    jobId: '',
     ...previous,
     status: 'pending',
     startedAt: 0,
@@ -91,6 +96,7 @@ function createPageState(previous = {}) {
     error: '',
     errorCode: '',
     recovery: null,
+    jobId: '',
   };
 }
 
@@ -105,44 +111,96 @@ function ensurePageStates() {
   }
 }
 
-function abortPageWork({ markCancelled = false } = {}) {
+function activeJobs() {
+  return [...state.jobs.values()].filter(job => ACTIVE_JOB_STATUSES.has(job.status));
+}
+
+function syncProcessingState() {
+  state.processing = state.finalizing || state.jobSubmissions > 0 || activeJobs().length > 0;
+  return state.processing;
+}
+
+function persistReceiptJobs() {
+  const currentKeys = new Set(state.captures.map(captureKey));
+  for (const [id, job] of state.jobs) {
+    job.captureKeys = job.captureKeys.filter(key => currentKeys.has(key));
+    if (job.captureKeys.length === 0) state.jobs.delete(id);
+  }
+  saveReceiptExtractionJobs([...state.jobs.values()]);
+  saveReceiptExtractionJobId('');
+}
+
+function findJobForCapture(key, { activeOnly = false } = {}) {
+  const jobs = [...state.jobs.values()].reverse();
+  return jobs.find(job => job.captureKeys.includes(key) && (!activeOnly || ACTIVE_JOB_STATUSES.has(job.status)));
+}
+
+function detachCaptureFromJobs(key) {
+  for (const [id, job] of state.jobs) {
+    if (!job.captureKeys.includes(key)) continue;
+    job.captureKeys = job.captureKeys.filter(candidate => candidate !== key);
+    if (job.captureKeys.length === 0) state.jobs.delete(id);
+  }
+  persistReceiptJobs();
+}
+
+function invalidateAssembledReview() {
   state.runToken += 1;
-  state.pageQueue = [];
   state.assemblyController?.abort();
   state.assemblyController = null;
   state.finalizing = false;
-  for (const task of state.activePageTasks.values()) task.controller.abort();
-  if (markCancelled) {
-    for (const page of state.pageStates.values()) {
-      if (page.status === 'pending' || ACTIVE_PAGE_STATUSES.has(page.status)) {
-        page.version += 1;
-        page.status = 'cancelled';
-        page.elapsedMs = page.startedAt ? Date.now() - page.startedAt : page.elapsedMs;
-        page.error = '';
-        page.errorCode = '';
-        page.recovery = null;
-      }
-    }
-  }
-}
-
-function invalidateExtraction() {
-  clearReceiptExtractionJob({ cancel: true });
-  abortPageWork();
-  state.processing = false;
-  state.manualReviewRequired = false;
   state.extraction = null;
   state.items = [];
   state.originalItems = [];
   state.originalText = '';
+  state.manualReviewRequired = false;
+  state.retailerCandidates.clear();
+  state.retailerManuallyEdited = false;
+  const review = $('#receipt-review');
+  if (review) review.hidden = true;
+  const confirm = $('#confirm-receipt');
+  if (confirm) confirm.hidden = true;
+  if ($('#receipt-total')) $('#receipt-total').value = '0.00';
+  if ($('#receipt-retailer')) setRetailerValue('');
+  if ($('#retailer-suggestions')) hideRetailerSuggestions();
+  syncProcessingState();
+}
+
+function clearReceiptExtractionJobs({ cancel = false } = {}) {
+  state.jobGeneration += 1;
+  const jobs = [...state.jobs.values()];
+  state.jobs.clear();
+  persistReceiptJobs();
+  if (cancel) {
+    for (const job of jobs) {
+      if (!ACTIVE_JOB_STATUSES.has(job.status)) continue;
+      void api(`/api/v1/receipts/extraction-jobs/${encodeURIComponent(job.id)}`, { method: 'DELETE' }).catch(() => {});
+    }
+  }
+  state.jobRealtime?.close();
+  state.jobRealtime = null;
+  syncProcessingState();
+}
+
+function resetAllReceiptProcessing() {
+  clearReceiptExtractionJobs({ cancel: true });
+  state.runToken += 1;
+  state.assemblyController?.abort();
+  state.assemblyController = null;
+  state.finalizing = false;
+  state.extraction = null;
+  state.items = [];
+  state.originalItems = [];
+  state.originalText = '';
+  state.manualReviewRequired = false;
   state.retailerCandidates.clear();
   ensurePageStates();
   for (const [key, page] of state.pageStates) state.pageStates.set(key, createPageState(page));
   $('#receipt-review').hidden = true;
   $('#confirm-receipt').hidden = true;
   $('#receipt-state').textContent = '';
-  setBusy($('#extract-receipt'), false);
   stopReceiptProgress({ hide: true });
+  syncProcessingState();
 }
 
 function persistAndRenderCaptures() {
@@ -160,7 +218,6 @@ function persistAndRenderCaptures() {
     renderCaptureProgress(card, capture, index);
   });
 
-  $('#extract-receipt').disabled = state.captures.length === 0 || state.processing || state.finalizing;
   list.querySelectorAll('img[data-capture-preview-image]').forEach(image => {
     image.addEventListener('error', () => {
       image.hidden = true;
@@ -170,9 +227,15 @@ function persistAndRenderCaptures() {
   updateGlobalProgress();
 }
 
+function pageIsActive(page) {
+  if (ACTIVE_PAGE_STATUSES.has(page.status)) return true;
+  if (!page.jobId) return false;
+  return ACTIVE_JOB_STATUSES.has(state.jobs.get(page.jobId)?.status);
+}
+
 function renderCaptureProgress(card, capture, index) {
   const page = state.pageStates.get(captureKey(capture)) ?? createPageState();
-  const active = ACTIVE_PAGE_STATUSES.has(page.status);
+  const active = pageIsActive(page);
   const section = document.createElement('section');
   section.className = 'capture-card__progress';
   section.dataset.capturePageProgress = captureKey(capture);
@@ -260,22 +323,23 @@ function pageStatusClass(status) {
 }
 
 function pageStageValue(status) {
-  if (status === 'preparing' || status === 'pending' || status === 'cancelled' || status === 'error') return 0;
-  if (status === 'ocr') return 1;
-  if (status === 'ai') return 2;
+  if (status === 'preparing') return 1;
   if (status === 'completed' || status === 'manual') return 3;
   return 0;
 }
 
 function pageStageDescription(page) {
-  if (page.status === 'pending') return 'En espera de un hueco del pool';
-  if (page.status === 'preparing') return 'Preparando la captura almacenada';
-  if (page.status === 'ocr') return 'Reconociendo el texto localmente';
-  if (page.status === 'ai') return 'Corrigiendo el OCR y reconstruyendo líneas';
-  if (page.status === 'completed') return 'OCR y revisión de esta imagen terminados';
+  if (page.status === 'pending' && page.jobId) return 'En cola; el servidor asignará OCR e IA según capacidad';
+  if (page.status === 'pending') return 'Pendiente de procesamiento automático';
+  if (page.status === 'preparing') return state.aiConfigured
+    ? 'Procesando en los pools compartidos de OCR e IA'
+    : 'Procesando en el pool compartido de OCR local';
+  if (page.status === 'completed') return state.aiConfigured
+    ? 'OCR y verificación automática terminados'
+    : 'OCR local terminado';
   if (page.status === 'manual') return 'OCR conservado; cantidades e importes requieren revisión manual';
   if (page.status === 'cancelled') return 'Esta imagen no se incluirá hasta reintentar';
-  if (page.status === 'error') return 'La captura y el OCR parcial se conservan';
+  if (page.status === 'error') return 'La captura y cualquier evidencia parcial se conservan';
   return '';
 }
 
@@ -324,6 +388,7 @@ function fileToBase64(file) {
 async function uploadFiles(fileList) {
   const files = [...fileList];
   if (files.length === 0) return;
+  const uploaded = [];
   try {
     files.forEach(validateFile);
     for (const [index, file] of files.entries()) {
@@ -333,18 +398,29 @@ async function uploadFiles(fileList) {
         method: 'POST',
         body: JSON.stringify({ base64, mimeType: file.type, originalName: file.name || 'captura' }),
       });
-      state.captures.push({
+      if (state.captures.some(capture => capture.storageKey === result.file.storageKey)) continue;
+      const capture = {
         name: file.name || `captura-${Date.now()}`,
         mimeType: result.file.mimeType,
         bytes: result.file.bytes,
         storageKey: result.file.storageKey,
         contentHash: result.file.hash,
-      });
+      };
+      state.captures.push(capture);
+      uploaded.push(capture);
     }
-    invalidateExtraction();
+    if (uploaded.length === 0) {
+      $('#upload-state').textContent = 'Estas capturas ya estaban añadidas.';
+      return;
+    }
+    invalidateAssembledReview();
+    ensurePageStates();
     persistAndRenderCaptures();
-    $('#upload-state').textContent = 'Capturas guardadas y listas para revisar';
-    toast('Capturas guardadas');
+    $('#upload-state').textContent = state.aiConfigured
+      ? 'Capturas guardadas. OCR e IA empiezan automáticamente.'
+      : 'Capturas guardadas. El OCR local empieza automáticamente.';
+    toast(uploaded.length === 1 ? 'Captura guardada y en cola' : 'Capturas guardadas y en cola');
+    await startReceiptBackgroundJob(uploaded);
   } catch (error) {
     $('#upload-state').textContent = error.message;
     toast(error.message);
@@ -361,21 +437,28 @@ function showPreview(index) {
 }
 
 function moveCapture(index, direction) {
+  syncProcessingState();
   if (state.processing || state.finalizing) return;
   const target = index + direction;
   if (!state.captures[index] || !state.captures[target]) return;
   [state.captures[index], state.captures[target]] = [state.captures[target], state.captures[index]];
-  invalidateExtraction();
+  invalidateAssembledReview();
   persistAndRenderCaptures();
+  void maybeAssembleReceipt();
 }
 
 function deleteCapture(index) {
+  syncProcessingState();
   if (state.processing || state.finalizing || !state.captures[index]) return;
   const [removed] = state.captures.splice(index, 1);
-  if (removed) state.pageStates.delete(captureKey(removed));
-  invalidateExtraction();
+  if (removed) {
+    state.pageStates.delete(captureKey(removed));
+    detachCaptureFromJobs(captureKey(removed));
+  }
+  invalidateAssembledReview();
   persistAndRenderCaptures();
   $('#upload-state').textContent = 'Captura retirada del borrador; la evidencia original se conserva';
+  void maybeAssembleReceipt();
 }
 
 function handleCaptureAction(event) {
@@ -387,8 +470,8 @@ function handleCaptureAction(event) {
   if (action === 'up') moveCapture(index, -1);
   if (action === 'down') moveCapture(index, 1);
   if (action === 'delete') deleteCapture(index);
-  if (action === 'cancel-processing') cancelCaptureProcessing(index);
-  if (action === 'retry-processing') retryCaptureProcessing(index);
+  if (action === 'cancel-processing') void cancelCaptureProcessing(index);
+  if (action === 'retry-processing') void retryCaptureProcessing(index);
   if (action === 'manual-review') useManualReview(index);
 }
 
@@ -407,19 +490,21 @@ function requestReceiptExtractionJob(captures, verifyWithAi) {
   });
 }
 
-function clearReceiptExtractionJob({ cancel = false } = {}) {
-  const jobId = state.activeJobId;
-  state.jobRealtime?.close();
-  state.jobRealtime = null;
-  state.activeJobId = '';
-  saveReceiptExtractionJobId('');
-  if (cancel && jobId) void api(`/api/v1/receipts/extraction-jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' }).catch(() => {});
+function captureRequest(capture, embeddedText) {
+  return {
+    storageKey: capture.storageKey,
+    originalName: capture.name,
+    ...(embeddedText ? { embeddedText } : {}),
+  };
 }
 
-function setPagesForBackgroundJob(status) {
-  const nextStatus = status === 'running' ? (state.verifyWithAi ? 'ai' : 'ocr') : 'preparing';
-  for (const page of state.pageStates.values()) {
-    page.status = nextStatus;
+function setPagesForBackgroundJob(job, status) {
+  job.status = status;
+  for (const key of job.captureKeys) {
+    const page = state.pageStates.get(key);
+    if (!page) continue;
+    page.jobId = job.id;
+    page.status = status === 'running' ? 'preparing' : 'pending';
     page.startedAt ||= Date.now();
     page.error = '';
     page.errorCode = '';
@@ -427,88 +512,215 @@ function setPagesForBackgroundJob(status) {
   }
 }
 
-function completeBackgroundJob(extraction) {
+function pageResultFromEvidence(extraction, evidence, singleCapture) {
+  if (!evidence && singleCapture) return extraction;
+  if (!evidence) return null;
+  const deterministic = evidence.deterministic || { items: [], metadata: {} };
+  const interpretation = evidence.ai?.interpretation;
+  const metadata = deterministic.metadata || {};
+  const items = interpretation?.items?.length ? interpretation.items : (deterministic.items || []);
+  const retailerName = interpretation?.retailerName ?? metadata.retailerName;
+  const declaredTotalMinor = interpretation?.declaredTotalMinor ?? metadata.declaredTotalMinor;
+  const articleCount = interpretation?.articleCount ?? metadata.articleCount;
+  const final = {
+    items,
+    ...(retailerName ? { retailerName } : {}),
+    ...(declaredTotalMinor === undefined ? {} : { declaredTotalMinor }),
+    ...(articleCount === undefined ? {} : { articleCount }),
+  };
+  return {
+    pages: [evidence],
+    originalText: evidence.text || '',
+    deterministic: {
+      items: deterministic.items || [],
+      ...(metadata.retailerName ? { retailerName: metadata.retailerName } : {}),
+      ...(metadata.declaredTotalMinor === undefined ? {} : { declaredTotalMinor: metadata.declaredTotalMinor }),
+      ...(metadata.articleCount === undefined ? {} : { articleCount: metadata.articleCount }),
+    },
+    ...(interpretation ? { ai: { interpretation, attempts: evidence.ai?.attempts || 1 } } : {}),
+    final,
+  };
+}
+
+function completeBackgroundJob(job, extraction) {
   const pages = Array.isArray(extraction.pages) ? extraction.pages : [];
-  for (const [index, capture] of state.captures.entries()) {
-    const page = state.pageStates.get(captureKey(capture));
-    const result = pages.find(candidate => candidate?.position === index);
+  const singleCapture = job.captureKeys.length === 1;
+  for (const [position, key] of job.captureKeys.entries()) {
+    const page = state.pageStates.get(key);
+    if (!page) continue;
+    const evidence = pages.find(candidate => candidate?.position === position);
     page.status = 'completed';
-    page.rawText = typeof result?.text === 'string' ? result.text : '';
-    page.result = extraction;
-    page.elapsedMs = Date.now() - page.startedAt;
+    page.jobId = job.id;
+    page.rawText = typeof evidence?.text === 'string'
+      ? evidence.text
+      : (singleCapture && typeof extraction.originalText === 'string' ? extraction.originalText : '');
+    page.result = pageResultFromEvidence(extraction, evidence, singleCapture);
+    page.elapsedMs = page.startedAt ? Date.now() - page.startedAt : 0;
+    page.error = '';
+    page.errorCode = '';
+    page.recovery = null;
   }
-  applyExtraction(extraction);
-  state.processing = false;
-  state.finalizing = false;
-  setBusy($('#extract-receipt'), false);
-  stopReceiptProgress();
+  job.status = 'completed';
+  persistReceiptJobs();
+  syncProcessingState();
+  closeJobRealtimeIfIdle();
   persistAndRenderCaptures();
-  const articleCount = extraction.final?.articleCount;
-  $('#receipt-state').textContent = articleCount === undefined
-    ? 'Ticket preparado. Revisa las líneas, cantidades y total antes de confirmar.'
-    : `Ticket preparado. Se detectaron ${articleCount} artículos; revisa las líneas y el total.`;
+  $('#receipt-state').textContent = 'Procesamiento automático completado. Preparando la revisión conjunta…';
+  void maybeAssembleReceipt();
 }
 
-function failBackgroundJob(errorCode = 'RECEIPT_EXTRACTION_FAILED') {
-  for (const page of state.pageStates.values()) {
+function failBackgroundJob(job, errorCode = 'RECEIPT_EXTRACTION_FAILED') {
+  job.status = 'failed';
+  for (const key of job.captureKeys) {
+    const capture = captureByKey(key);
+    const page = state.pageStates.get(key);
+    if (!page) continue;
+    const recovery = buildReceiptAiRecovery({
+      code: errorCode,
+      message: 'No se pudo completar el procesamiento automático.',
+    }, {
+      mimeType: capture?.mimeType || '',
+      hasOcrDraft: Boolean(page.rawText || page.result),
+    });
     page.status = 'error';
+    page.jobId = job.id;
     page.errorCode = errorCode;
-    page.error = 'No se pudo completar el análisis en segundo plano. Puedes volver a intentarlo.';
-    page.elapsedMs = Date.now() - page.startedAt;
+    page.error = recovery.message;
+    page.recovery = recovery;
+    page.elapsedMs = page.startedAt ? Date.now() - page.startedAt : 0;
   }
-  state.processing = false;
-  state.finalizing = false;
-  setBusy($('#extract-receipt'), false);
+  persistReceiptJobs();
+  syncProcessingState();
+  closeJobRealtimeIfIdle();
   stopReceiptProgress();
   persistAndRenderCaptures();
-  $('#receipt-state').textContent = 'El análisis no terminó. Las capturas se conservan para reintentar.';
+  $('#receipt-state').textContent = 'Parte del procesamiento automático no terminó. Reintenta sólo las capturas con error.';
 }
 
-async function refreshReceiptExtractionJob() {
-  const result = await api(`/api/v1/receipts/extraction-jobs/${encodeURIComponent(state.activeJobId)}`);
+function cancelBackgroundJobState(job) {
+  job.status = 'cancelled';
+  for (const key of job.captureKeys) {
+    const page = state.pageStates.get(key);
+    if (!page || REVIEWABLE_PAGE_STATUSES.has(page.status)) continue;
+    page.status = 'cancelled';
+    page.jobId = job.id;
+    page.error = '';
+    page.errorCode = '';
+    page.recovery = null;
+    page.elapsedMs = page.startedAt ? Date.now() - page.startedAt : page.elapsedMs;
+  }
+  persistReceiptJobs();
+  syncProcessingState();
+  closeJobRealtimeIfIdle();
+  persistAndRenderCaptures();
+}
+
+async function refreshReceiptExtractionJob(jobId) {
+  const tracked = state.jobs.get(jobId);
+  if (!tracked) return;
+  const result = await api(`/api/v1/receipts/extraction-jobs/${encodeURIComponent(jobId)}`);
   const job = result.job;
-  if (!job || job.id !== state.activeJobId) return;
+  if (!job || job.id !== jobId || !state.jobs.has(jobId)) return;
   if (job.status === 'queued' || job.status === 'running') {
-    state.processing = true;
-    setPagesForBackgroundJob(job.status);
+    setPagesForBackgroundJob(tracked, job.status);
+    syncProcessingState();
     startReceiptProgress();
+    persistReceiptJobs();
     persistAndRenderCaptures();
     return;
   }
   if (job.status === 'completed' && job.extraction) {
-    completeBackgroundJob(job.extraction);
+    completeBackgroundJob(tracked, job.extraction);
     return;
   }
   if (job.status === 'cancelled') {
-    clearReceiptExtractionJob();
-    cancelReceiptExtraction();
+    cancelBackgroundJobState(tracked);
     return;
   }
-  failBackgroundJob(job.errorCode);
+  failBackgroundJob(tracked, job.errorCode);
 }
 
-function watchReceiptExtractionJob() {
+function ensureJobRealtime() {
+  if (state.jobRealtime || activeJobs().length === 0) return;
   const source = new EventSource(realtimeEndpoint());
   state.jobRealtime = source;
   source.addEventListener('invalidate', event => {
     if (state.jobRealtime !== source) return;
     try {
       const invalidation = JSON.parse(event.data);
-      if (invalidation?.entityType === 'receipt-extraction-job' && invalidation.entityId === state.activeJobId) {
-        void refreshReceiptExtractionJob().catch(() => {});
+      const job = state.jobs.get(invalidation?.entityId);
+      if (invalidation?.entityType === 'receipt-extraction-job' && job && ACTIVE_JOB_STATUSES.has(job.status)) {
+        void refreshReceiptExtractionJob(job.id).catch(() => {});
       }
     } catch {
-      // The next valid invalidation reconnects through EventSource without leaking job contents.
+      // A later valid invalidation will retry through the same EventSource connection.
     }
   });
 }
 
-function captureRequest(capture, embeddedText) {
-  return {
-    storageKey: capture.storageKey,
-    originalName: capture.name,
-    ...(embeddedText ? { embeddedText } : {}),
-  };
+function closeJobRealtimeIfIdle() {
+  if (activeJobs().length > 0) return;
+  state.jobRealtime?.close();
+  state.jobRealtime = null;
+}
+
+async function startReceiptBackgroundJob(captures) {
+  const queuedCaptures = captures.filter(capture => state.captures.some(current => captureKey(current) === captureKey(capture)));
+  if (queuedCaptures.length === 0) return;
+  const generation = state.jobGeneration;
+  state.jobSubmissions += 1;
+  syncProcessingState();
+  startReceiptProgress();
+  for (const capture of queuedCaptures) {
+    const page = state.pageStates.get(captureKey(capture));
+    if (!page) continue;
+    page.status = 'pending';
+    page.startedAt ||= Date.now();
+    page.error = '';
+    page.errorCode = '';
+    page.recovery = null;
+  }
+  persistAndRenderCaptures();
+  $('#receipt-state').textContent = state.aiConfigured
+    ? 'Procesamiento automático activo: OCR hasta 2 en paralelo; la IA usa su cola independiente.'
+    : 'Procesamiento automático activo: OCR local usa el pool compartido de hasta 2 capturas.';
+
+  try {
+    const result = await requestReceiptExtractionJob(
+      queuedCaptures.map(capture => captureRequest(capture)),
+      state.aiConfigured,
+    );
+    const jobId = result.job?.id;
+    if (typeof jobId !== 'string') throw new Error('No se recibió el identificador del procesamiento');
+    if (generation !== state.jobGeneration) {
+      void api(`/api/v1/receipts/extraction-jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' }).catch(() => {});
+      return;
+    }
+    const job = {
+      id: jobId,
+      captureKeys: queuedCaptures.map(captureKey),
+      status: result.job?.status === 'running' ? 'running' : 'queued',
+    };
+    state.jobs.set(jobId, job);
+    for (const key of job.captureKeys) {
+      const page = state.pageStates.get(key);
+      if (page) page.jobId = jobId;
+    }
+    persistReceiptJobs();
+    ensureJobRealtime();
+    await refreshReceiptExtractionJob(jobId);
+  } catch (error) {
+    const provisional = {
+      id: '',
+      captureKeys: queuedCaptures.map(captureKey),
+      status: 'failed',
+    };
+    failBackgroundJob(provisional, typeof error?.code === 'string' ? error.code : undefined);
+  } finally {
+    state.jobSubmissions = Math.max(0, state.jobSubmissions - 1);
+    syncProcessingState();
+    void maybeAssembleReceipt();
+  }
 }
 
 function renderReview(lines = [], total) {
@@ -598,16 +810,18 @@ function formatElapsed(milliseconds) {
 }
 
 function currentElapsed(page) {
-  return ACTIVE_PAGE_STATUSES.has(page.status) && page.startedAt
+  return pageIsActive(page) && page.startedAt
     ? Date.now() - page.startedAt
     : page.elapsedMs;
 }
 
 function startReceiptProgress() {
-  state.progressVisible = true;
-  state.progressStartedAt = Date.now();
+  if (!state.progressVisible) {
+    state.progressVisible = true;
+    state.progressStartedAt = Date.now();
+  }
   $('#receipt-progress').hidden = false;
-  clearInterval(state.progressTimer);
+  if (state.progressTimer) return;
   state.progressTimer = setInterval(() => {
     updateElapsedLabels();
     updateGlobalProgress();
@@ -642,8 +856,8 @@ function updateGlobalProgress() {
   const pages = state.captures.map(capture => state.pageStates.get(captureKey(capture)) ?? createPageState());
   const total = pages.length;
   const completed = pages.filter(page => REVIEWABLE_PAGE_STATUSES.has(page.status)).length;
-  const active = pages.filter(page => ACTIVE_PAGE_STATUSES.has(page.status)).length;
-  const pending = pages.filter(page => page.status === 'pending').length;
+  const active = pages.filter(pageIsActive).length;
+  const pending = pages.filter(page => page.status === 'pending' && !pageIsActive(page)).length;
   const failed = pages.filter(page => page.status === 'error').length;
   const cancelled = pages.filter(page => page.status === 'cancelled').length;
   const manual = pages.filter(page => page.status === 'manual').length;
@@ -653,7 +867,7 @@ function updateGlobalProgress() {
   $('#receipt-progress-stage').textContent = stage;
   $('#receipt-progress-captures').textContent = `${completed} de ${total} imágenes completadas`;
   $('#receipt-progress-detail').textContent = [
-    active ? `${active} procesando` : '',
+    active ? `${active} en cola o procesando` : '',
     pending ? `${pending} pendientes` : '',
     failed ? `${failed} con error` : '',
     cancelled ? `${cancelled} canceladas` : '',
@@ -666,280 +880,126 @@ function updateGlobalProgress() {
   track.setAttribute('aria-valuetext', `${stage}. ${$('#receipt-progress-detail').textContent}`);
   track.dataset.determinate = 'true';
   track.style.setProperty('--receipt-progress', `${total === 0 ? 0 : completed / total * 100}%`);
-  $('#cancel-receipt-extraction').disabled = active === 0 && pending === 0 && !state.finalizing;
+  $('#cancel-receipt-extraction').disabled = active === 0 && !state.finalizing;
 }
 
-function resetPagesForProcessing() {
-  abortPageWork();
-  state.extraction = null;
-  state.items = [];
-  state.originalItems = [];
-  state.originalText = '';
-  state.manualReviewRequired = false;
-  state.retailerCandidates.clear();
-  $('#receipt-review').hidden = true;
-  $('#confirm-receipt').hidden = true;
-  ensurePageStates();
-  for (const [key, page] of state.pageStates) state.pageStates.set(key, createPageState(page));
-}
-
-function processReceipt() {
-  if (state.captures.length === 0) {
-    $('#receipt-state').textContent = 'Añade al menos una captura antes de procesar.';
-    $('#receipt-camera').focus();
-    return;
-  }
-  if (state.aiConfigured && $('#verify-receipt-ai').checked) {
-    void startReceiptBackgroundJob();
-    return;
-  }
-  startInteractiveReceiptExtraction();
-}
-
-function startInteractiveReceiptExtraction() {
-  clearReceiptExtractionJob({ cancel: true });
-  resetPagesForProcessing();
-  state.verifyWithAi = false;
-  state.processing = true;
-  setBusy($('#extract-receipt'), true);
-  startReceiptProgress();
-  $('#receipt-state').textContent = 'Procesando hasta dos imágenes a la vez con OCR local.';
-  const token = state.runToken;
-  for (const capture of state.captures) enqueueCapture(capture, false, token);
-  persistAndRenderCaptures();
-  pumpPageQueue();
-}
-
-async function startReceiptBackgroundJob() {
-  clearReceiptExtractionJob({ cancel: true });
-  resetPagesForProcessing();
-  state.verifyWithAi = state.aiConfigured && $('#verify-receipt-ai').checked;
-  state.processing = true;
-  setBusy($('#extract-receipt'), true);
-  startReceiptProgress();
-  setPagesForBackgroundJob('queued');
-  persistAndRenderCaptures();
-  $('#receipt-state').textContent = 'El análisis continúa aunque cierres esta página. Puedes volver más tarde para revisar el resultado.';
-  try {
-    const result = await requestReceiptExtractionJob(state.captures.map(capture => captureRequest(capture)), state.verifyWithAi);
-    const jobId = result.job?.id;
-    if (typeof jobId !== 'string') throw new Error('No se recibió el identificador del análisis');
-    state.activeJobId = jobId;
-    saveReceiptExtractionJobId(jobId);
-    watchReceiptExtractionJob();
-    await refreshReceiptExtractionJob();
-  } catch (error) {
-    failBackgroundJob(typeof error?.code === 'string' ? error.code : undefined);
-  }
-}
-
-function enqueueCapture(capture, verifyWithAi, token = state.runToken) {
-  const page = state.pageStates.get(captureKey(capture));
+async function cancelCaptureProcessing(index) {
+  const capture = state.captures[index];
+  if (!capture) return;
+  const key = captureKey(capture);
+  const job = findJobForCapture(key, { activeOnly: true });
+  const page = state.pageStates.get(key);
   if (!page) return;
-  state.pageQueue.push({
-    key: captureKey(capture),
-    version: page.version,
-    token,
-    verifyWithAi,
-  });
-}
 
-function pumpPageQueue() {
-  while (state.activePageCount < PAGE_CONCURRENCY && state.pageQueue.length > 0) {
-    const entry = state.pageQueue.shift();
-    if (!entry || entry.token !== state.runToken) continue;
-    const capture = captureByKey(entry.key);
-    const page = state.pageStates.get(entry.key);
-    if (!capture || !page || page.version !== entry.version || page.status !== 'pending') continue;
-    if ([...state.activePageTasks.values()].some(task => task.key === entry.key)) {
-      state.pageQueue.push(entry);
-      break;
-    }
-    startPageTask(capture, entry);
-  }
-  void finishCurrentRunWhenIdle();
-}
-
-function startPageTask(capture, entry) {
-  const controller = new AbortController();
-  const taskId = state.nextTaskId;
-  state.nextTaskId += 1;
-  state.activePageCount += 1;
-  state.activePageTasks.set(taskId, { key: entry.key, token: entry.token, controller });
-  void processCapture(capture, entry, controller.signal)
-    .finally(() => {
-      state.activePageTasks.delete(taskId);
-      state.activePageCount -= 1;
-      pumpPageQueue();
-      updateGlobalProgress();
-    });
-}
-
-async function processCapture(capture, entry, signal) {
-  const page = state.pageStates.get(entry.key);
-  if (!page || !isCurrentPageEntry(page, entry)) return;
-  page.status = 'preparing';
-  page.startedAt = Date.now();
-  page.elapsedMs = 0;
-  page.error = '';
-  page.errorCode = '';
-  page.recovery = null;
-  persistAndRenderCaptures();
-
-  try {
-    page.status = 'ocr';
-    persistAndRenderCaptures();
-    const ocrResponse = await requestExtraction([captureRequest(capture)], false, signal);
-    if (!isCurrentPageEntry(page, entry) || signal.aborted) return;
-    const ocrExtraction = ocrResponse.extraction;
-    page.rawText = ocrExtraction.pages?.[0]?.text || ocrExtraction.originalText || '';
-    page.result = ocrExtraction;
-    persistAndRenderCaptures();
-
-    if (entry.verifyWithAi) {
-      page.status = 'ai';
-      persistAndRenderCaptures();
-      const aiResponse = await requestExtraction(
-        [captureRequest(capture, page.rawText)],
-        true,
-        signal,
-      );
-      if (!isCurrentPageEntry(page, entry) || signal.aborted) return;
-      page.result = aiResponse.extraction;
-    }
-
-    page.status = 'completed';
-    page.elapsedMs = Date.now() - page.startedAt;
+  if (!job) {
+    page.status = 'cancelled';
     page.error = '';
     page.errorCode = '';
     page.recovery = null;
-    applyRetailerCandidate(
-      page.result?.final?.retailerName
-      || page.result?.ai?.interpretation?.retailerName
-      || page.result?.deterministic?.retailerName,
-    );
-  } catch (error) {
-    if (!isCurrentPageEntry(page, entry)) return;
-    page.elapsedMs = Date.now() - page.startedAt;
-    if (error.name === 'AbortError') {
-      page.status = 'cancelled';
-      page.error = '';
-      page.errorCode = '';
-      page.recovery = null;
-    } else {
-      page.status = 'error';
-      page.errorCode = typeof error.code === 'string' ? error.code : '';
-      page.recovery = buildReceiptAiRecovery(error, {
-        mimeType: capture.mimeType,
-        hasOcrDraft: Boolean(page.rawText || page.result),
-      });
-      page.error = page.recovery.message;
-    }
-  } finally {
-    if (isCurrentPageEntry(page, entry)) persistAndRenderCaptures();
+    persistAndRenderCaptures();
+    return;
   }
-}
 
-function isCurrentPageEntry(page, entry) {
-  return entry.token === state.runToken && page.version === entry.version;
-}
-
-function cancelCaptureProcessing(index) {
-  const capture = state.captures[index];
-  if (!capture) return;
-  const key = captureKey(capture);
-  const page = state.pageStates.get(key);
-  if (!page) return;
-  page.version += 1;
-  state.pageQueue = state.pageQueue.filter(entry => entry.key !== key);
-  for (const task of state.activePageTasks.values()) {
-    if (task.key === key && task.token === state.runToken) task.controller.abort();
+  const survivorCaptures = job.captureKeys
+    .filter(candidate => candidate !== key)
+    .map(captureByKey)
+    .filter(Boolean);
+  try {
+    await api(`/api/v1/receipts/extraction-jobs/${encodeURIComponent(job.id)}`, { method: 'DELETE' });
+  } catch {
+    // The local draft still needs deterministic recovery even if the DELETE response is lost.
   }
-  page.status = 'cancelled';
-  page.elapsedMs = page.startedAt ? Date.now() - page.startedAt : page.elapsedMs;
-  page.error = '';
-  page.errorCode = '';
-  page.recovery = null;
+  state.jobs.delete(job.id);
+  for (const candidate of job.captureKeys) {
+    const candidatePage = state.pageStates.get(candidate);
+    if (!candidatePage || REVIEWABLE_PAGE_STATUSES.has(candidatePage.status)) continue;
+    state.pageStates.set(candidate, createPageState(candidatePage));
+  }
+  const cancelledPage = state.pageStates.get(key);
+  cancelledPage.status = 'cancelled';
+  cancelledPage.elapsedMs = cancelledPage.startedAt ? Date.now() - cancelledPage.startedAt : cancelledPage.elapsedMs;
+  persistReceiptJobs();
+  syncProcessingState();
   persistAndRenderCaptures();
-  $('#receipt-state').textContent = `Imagen ${index + 1} cancelada. Las demás continúan y el OCR parcial se conserva.`;
-  pumpPageQueue();
+  $('#receipt-state').textContent = `Imagen ${index + 1} cancelada. Las demás capturas del mismo lote vuelven a la cola automáticamente.`;
+  if (survivorCaptures.length > 0) await startReceiptBackgroundJob(survivorCaptures);
 }
 
-function retryCaptureProcessing(index) {
+async function retryCaptureProcessing(index) {
   const capture = state.captures[index];
   if (!capture) return;
   const key = captureKey(capture);
+  detachCaptureFromJobs(key);
   const previous = state.pageStates.get(key) ?? createPageState();
-  for (const task of state.activePageTasks.values()) {
-    if (task.key === key && task.token === state.runToken) task.controller.abort();
-  }
-  state.pageQueue = state.pageQueue.filter(entry => entry.key !== key);
-  const page = createPageState(previous);
-  state.pageStates.set(key, page);
-  state.verifyWithAi = state.aiConfigured && $('#verify-receipt-ai').checked;
-  state.processing = true;
-  setBusy($('#extract-receipt'), true);
-  if (!state.progressTimer) startReceiptProgress();
-  enqueueCapture(capture, state.verifyWithAi);
+  state.pageStates.set(key, createPageState(previous));
+  invalidateAssembledReview();
   persistAndRenderCaptures();
-  $('#receipt-state').textContent = `Reintentando la imagen ${index + 1} con ${state.verifyWithAi ? 'IA' : 'OCR local'}.`;
-  pumpPageQueue();
+  $('#receipt-state').textContent = `Reintentando la imagen ${index + 1} automáticamente.`;
+  await startReceiptBackgroundJob([capture]);
 }
 
 function useManualReview(index) {
   const capture = state.captures[index];
   if (!capture) return;
-  const page = state.pageStates.get(captureKey(capture));
+  const key = captureKey(capture);
+  const page = state.pageStates.get(key);
   if (!page || page.status !== 'error' || !page.recovery?.allowManualReview) return;
+  detachCaptureFromJobs(key);
   page.version += 1;
   page.status = 'manual';
+  page.jobId = '';
   page.error = '';
   page.errorCode = '';
   page.recovery = null;
   state.manualReviewRequired = true;
-  state.processing = true;
-  setBusy($('#extract-receipt'), true);
-  if (!state.progressTimer) startReceiptProgress();
   persistAndRenderCaptures();
   $('#receipt-state').textContent = `Imagen ${index + 1} enviada a revisión manual. El OCR es sólo un borrador: valida todas las líneas y el total antes de confirmar.`;
-  pumpPageQueue();
+  void maybeAssembleReceipt();
 }
 
 function cancelReceiptExtraction() {
-  clearReceiptExtractionJob({ cancel: true });
-  abortPageWork({ markCancelled: true });
-  state.processing = false;
+  state.jobGeneration += 1;
+  for (const job of activeJobs()) {
+    void api(`/api/v1/receipts/extraction-jobs/${encodeURIComponent(job.id)}`, { method: 'DELETE' }).catch(() => {});
+    job.status = 'cancelled';
+    for (const key of job.captureKeys) {
+      const page = state.pageStates.get(key);
+      if (!page || REVIEWABLE_PAGE_STATUSES.has(page.status)) continue;
+      page.status = 'cancelled';
+      page.jobId = job.id;
+      page.elapsedMs = page.startedAt ? Date.now() - page.startedAt : page.elapsedMs;
+      page.error = '';
+      page.errorCode = '';
+      page.recovery = null;
+    }
+  }
+  state.assemblyController?.abort();
+  state.assemblyController = null;
   state.finalizing = false;
-  setBusy($('#extract-receipt'), false);
+  persistReceiptJobs();
+  syncProcessingState();
+  closeJobRealtimeIfIdle();
+  stopReceiptProgress();
   persistAndRenderCaptures();
-  $('#receipt-state').textContent = 'Análisis cancelado. Las capturas, los OCR parciales y las páginas completadas se conservan.';
+  $('#receipt-state').textContent = 'Procesamiento cancelado. Las capturas y cualquier evidencia completada se conservan.';
 }
 
-async function finishCurrentRunWhenIdle() {
-  if (!state.processing || state.finalizing) return;
-  const currentActive = [...state.activePageTasks.values()]
-    .some(task => task.token === state.runToken);
-  const currentPending = state.pageQueue.some(entry => entry.token === state.runToken);
-  if (currentActive || currentPending) return;
-
+async function maybeAssembleReceipt() {
+  syncProcessingState();
+  if (state.processing || state.finalizing || state.captures.length === 0) return;
   const pages = state.captures.map(capture => state.pageStates.get(captureKey(capture)));
   if (pages.every(page => page && REVIEWABLE_PAGE_STATUSES.has(page.status))) {
     await assembleCompletedPages(state.runToken);
     return;
   }
-
-  state.processing = false;
-  setBusy($('#extract-receipt'), false);
   stopReceiptProgress();
   updateGlobalProgress();
-  const failed = pages.filter(page => page?.status === 'error').length;
-  const cancelled = pages.filter(page => page?.status === 'cancelled').length;
-  $('#receipt-state').textContent = `${failed} imágenes con error y ${cancelled} canceladas. Reintenta, revisa manualmente o retira esas imágenes para preparar la revisión.`;
 }
 
 async function assembleCompletedPages(token) {
   if (token !== state.runToken || state.finalizing) return;
   state.finalizing = true;
+  syncProcessingState();
   updateGlobalProgress();
   const controller = new AbortController();
   state.assemblyController = controller;
@@ -964,19 +1024,18 @@ async function assembleCompletedPages(token) {
       $('#receipt-state').textContent = 'Revisión manual preparada. Corrige cantidades e importes y pulsa “Validar líneas” antes de confirmar.';
     } else {
       $('#receipt-state').textContent = articleCount === undefined
-        ? 'Todas las imágenes están combinadas. Revisa las líneas, cantidades y total antes de confirmar.'
-        : `Todas las imágenes están combinadas. El ticket indica ${articleCount} artículos; revisa las líneas y el total.`;
+        ? 'Procesamiento terminado. Revisa las líneas, cantidades y total antes de confirmar.'
+        : `Procesamiento terminado. El ticket indica ${articleCount} artículos; revisa las líneas y el total.`;
     }
   } catch (error) {
     if (error.name !== 'AbortError' && token === state.runToken) {
-      $('#receipt-state').textContent = `${error.message}. Las páginas completadas se conservan; vuelve a procesar para combinar.`;
+      $('#receipt-state').textContent = `${error.message}. Las páginas completadas se conservan; se puede volver a preparar la revisión.`;
     }
   } finally {
     if (token === state.runToken) {
-      state.processing = false;
       state.finalizing = false;
       state.assemblyController = null;
-      setBusy($('#extract-receipt'), false);
+      syncProcessingState();
       stopReceiptProgress();
       updateGlobalProgress();
       persistAndRenderCaptures();
@@ -1210,6 +1269,7 @@ function allCapturesCompleted() {
 }
 
 async function confirmReceipt() {
+  syncProcessingState();
   if (!allCapturesCompleted() || state.processing || state.finalizing) {
     $('#receipt-state').textContent = 'Completa, reintenta o retira todas las imágenes antes de confirmar el ticket.';
     return;
@@ -1272,9 +1332,8 @@ async function confirmReceipt() {
     });
     $('#receipt-state').textContent = `Ticket importado: ${result.receiptId}`;
     toast('Ticket confirmado');
-    abortPageWork();
+    clearReceiptExtractionJobs();
     state.captures = [];
-    clearReceiptExtractionJob();
     state.pageStates.clear();
     state.extraction = null;
     state.items = [];
@@ -1300,9 +1359,8 @@ async function confirmReceipt() {
 }
 
 function installReceiptEnhancements() {
-  const workflow = $('.receipt-workflow');
-  const extractButton = $('#extract-receipt');
-  if (workflow && extractButton && !$('#receipt-progress')) {
+  const captureList = $('#capture-list');
+  if (captureList && !$('#receipt-progress')) {
     const progress = document.createElement('section');
     progress.id = 'receipt-progress';
     progress.className = 'receipt-progress';
@@ -1310,16 +1368,16 @@ function installReceiptEnhancements() {
     progress.setAttribute('aria-live', 'polite');
     progress.innerHTML = `
       <div class="receipt-progress__heading">
-        <strong id="receipt-progress-stage">Preparando imágenes</strong>
+        <strong id="receipt-progress-stage">Procesamiento automático</strong>
         <span id="receipt-progress-elapsed">0 s</span>
       </div>
       <div id="receipt-progress-track" class="receipt-progress__track" role="progressbar" aria-label="Imágenes completadas" aria-valuetext="Sin iniciar"></div>
       <div class="receipt-progress__meta">
         <span id="receipt-progress-captures">0 imágenes completadas</span>
-        <span id="receipt-progress-detail">Hasta dos imágenes se procesan a la vez.</span>
+        <span id="receipt-progress-detail">El servidor reparte OCR e IA según la capacidad disponible.</span>
       </div>
       <button id="cancel-receipt-extraction" class="button secondary receipt-progress__cancel" type="button">Cancelar todo</button>`;
-    extractButton.insertAdjacentElement('afterend', progress);
+    captureList.insertAdjacentElement('afterend', progress);
   }
 
   const manualBody = $('.manual-entry .details-body');
@@ -1336,6 +1394,17 @@ function installReceiptEnhancements() {
   }
 }
 
+function removeLegacyAnalysisStep() {
+  const group = document.querySelector('[data-tab-group="tickets"]');
+  const tab = group?.querySelector('[role="tab"][data-tab-value="progress"]');
+  const panelId = tab?.getAttribute('aria-controls');
+  tab?.remove();
+  if (panelId) document.getElementById(panelId)?.remove();
+  const workflow = $('.receipt-workflow');
+  if (workflow && !workflow.contains($('.manual-entry'))) workflow.remove();
+  else if (workflow) workflow.hidden = true;
+}
+
 function bindEvents() {
   for (const input of [$('#receipt-files'), $('#receipt-camera')]) {
     input.addEventListener('change', async event => {
@@ -1349,7 +1418,6 @@ function bindEvents() {
     $('#capture-preview-image').removeAttribute('src');
     closeDialog($('#capture-preview-dialog'));
   });
-  $('#extract-receipt').addEventListener('click', processReceipt);
   $('#cancel-receipt-extraction').addEventListener('click', cancelReceiptExtraction);
   $('#review-receipt').addEventListener('click', () => void validateRows());
   $('#confirm-receipt').addEventListener('click', () => void confirmReceipt());
@@ -1366,24 +1434,71 @@ function bindEvents() {
   });
 }
 
+function prepareStoredJobs() {
+  ensurePageStates();
+  const captureKeys = new Set(state.captures.map(captureKey));
+  for (const [id, job] of state.jobs) {
+    job.captureKeys = job.captureKeys.filter(key => captureKeys.has(key));
+    if (job.captureKeys.length === 0) state.jobs.delete(id);
+  }
+  if (state.jobs.size === 0 && state.legacyJobId && state.captures.length > 0) {
+    state.jobs.set(state.legacyJobId, {
+      id: state.legacyJobId,
+      captureKeys: state.captures.map(captureKey),
+      status: 'queued',
+    });
+  }
+  state.legacyJobId = '';
+  for (const job of state.jobs.values()) {
+    for (const key of job.captureKeys) {
+      const page = state.pageStates.get(key);
+      if (!page) continue;
+      page.jobId = job.id;
+      if (job.status === 'running') page.status = 'preparing';
+      else if (job.status === 'queued') page.status = 'pending';
+    }
+  }
+  persistReceiptJobs();
+}
+
+async function restoreReceiptProcessing() {
+  prepareStoredJobs();
+  persistAndRenderCaptures();
+  const jobs = [...state.jobs.values()];
+  if (jobs.some(job => ACTIVE_JOB_STATUSES.has(job.status))) {
+    syncProcessingState();
+    startReceiptProgress();
+    ensureJobRealtime();
+  }
+
+  const refreshResults = await Promise.allSettled(jobs.map(job => refreshReceiptExtractionJob(job.id)));
+  const failedRecovery = refreshResults.some(result => result.status === 'rejected');
+  if (failedRecovery) {
+    $('#receipt-state').textContent = 'No se pudo recuperar todo el procesamiento en segundo plano. Las capturas se conservan y se reintentará al volver a cargar.';
+    return;
+  }
+
+  const mappedKeys = new Set([...state.jobs.values()].flatMap(job => job.captureKeys));
+  const untracked = state.captures.filter(capture => !mappedKeys.has(captureKey(capture)));
+  if (untracked.length > 0) {
+    invalidateAssembledReview();
+    await startReceiptBackgroundJob(untracked);
+    return;
+  }
+  await maybeAssembleReceipt();
+}
+
 export function initReceipts(options) {
   metadata = options.metadata;
   toast = options.toast;
   state.aiConfigured = options.aiConfigured === true;
   installReceiptEnhancements();
-  const aiToggle = $('#verify-receipt-ai');
-  aiToggle.checked = false;
-  aiToggle.disabled = !state.aiConfigured;
-  $('#receipt-ai-help').textContent = state.aiConfigured
-    ? 'Opcional: procesa hasta 20 imágenes por ticket. El OCR se adelanta y la IA las verifica una a una en la misma conversación; el análisis sigue aunque cierres esta página.'
-    : 'OCR local en español activo; no necesita cuenta ni conexión externa.';
+  removeLegacyAnalysisStep();
   bindEvents();
   ensurePageStates();
   persistAndRenderCaptures();
-  if (state.activeJobId) {
-    watchReceiptExtractionJob();
-    void refreshReceiptExtractionJob().catch(() => {
-      $('#receipt-state').textContent = 'No se pudo recuperar el análisis en segundo plano. Puedes conservar las capturas y reintentar.';
-    });
-  }
+  $('#upload-state').textContent = state.aiConfigured
+    ? 'Añade una captura: OCR e IA empezarán automáticamente.'
+    : 'Añade una captura: el OCR local empezará automáticamente.';
+  void restoreReceiptProcessing();
 }
