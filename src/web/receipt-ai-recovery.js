@@ -27,7 +27,7 @@ function normalizedMessage(error) {
 function manualReviewEvidence(hasOcrDraft) {
   return hasOcrDraft
     ? 'El OCR de esta imagen se conserva localmente, pero no se considera un ticket estructurado válido hasta reintentar con IA o revisar manualmente todas las líneas.'
-    : 'No se obtuvo un borrador OCR utilizable; la alternativa es una entrada manual desde cero conservando la captura original.';
+    : 'No se obtuvo un borrador OCR utilizable; la captura original se conserva para que puedas reintentar.';
 }
 
 export function buildReceiptAiRecovery(error, options = {}) {
@@ -37,7 +37,7 @@ export function buildReceiptAiRecovery(error, options = {}) {
 
   if (code === 'AI_NOT_CONFIGURED' && mimeType === 'application/pdf') {
     return {
-      message: `Este PDF necesita un proveedor compatible. ${manualReviewEvidence(false)}`,
+      message: 'Este PDF necesita un proveedor compatible. La captura original se conserva y puedes completar el ticket manualmente desde cero.',
       retryLabel: 'Reintentar imagen',
       manualLabel: 'Revisar manualmente',
       allowManualReview: true,
@@ -51,7 +51,7 @@ export function buildReceiptAiRecovery(error, options = {}) {
       message: `${guidance} ${manualReviewEvidence(hasOcrDraft)}`,
       retryLabel: 'Reintentar imagen',
       manualLabel: 'Revisar manualmente',
-      allowManualReview: true,
+      allowManualReview: hasOcrDraft,
     };
   }
 
