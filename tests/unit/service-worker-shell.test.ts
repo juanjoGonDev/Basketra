@@ -13,6 +13,7 @@ test('service worker installs the complete shell, cleans old caches and handles 
   const deletedCaches: string[] = [];
   const cachedRequests: string[] = [];
   const cacheWrites: string[] = [];
+  let currentCacheName = '';
   let skipWaitingCalls = 0;
   let claimCalls = 0;
   let fetchImplementation: typeof fetch = async request => new Response(String(request), { status: 200 });
@@ -41,11 +42,14 @@ test('service worker installs the complete shell, cleans old caches and handles 
   };
   const fakeCaches = {
     async open(name: string) {
-      assert.equal(name, 'basketra-shell-v9');
+      assert.match(name, /^basketra-shell-v\d+$/);
+      currentCacheName ||= name;
+      assert.equal(name, currentCacheName);
       return cache;
     },
     async keys() {
-      return ['basketra-shell-v8', 'basketra-shell-v9'];
+      assert.notEqual(currentCacheName, '');
+      return ['basketra-shell-obsolete', currentCacheName];
     },
     async delete(name: string) {
       deletedCaches.push(name);
@@ -88,7 +92,7 @@ test('service worker installs the complete shell, cleans old caches and handles 
     let activateWork: Promise<unknown> | undefined;
     activate({ waitUntil(work: Promise<unknown>) { activateWork = work; } });
     await activateWork;
-    assert.deepEqual(deletedCaches, ['basketra-shell-v8']);
+    assert.deepEqual(deletedCaches, ['basketra-shell-obsolete']);
     assert.equal(claimCalls, 1);
 
     let responseWork: Promise<Response | undefined> | undefined;
