@@ -207,7 +207,12 @@ test('page provenance tolerates partial OCR layout and normalizes invalid line c
     const item = result.final.items[0];
     assert.ok(item);
     assert.equal(item.captureStorageKey, captures[0]?.storageKey);
-    assert.deepEqual(item.sourceRegion, { x: 0.2, y: 0.3, width: 0.6, height: 0.08 });
+    const region = item.sourceRegion;
+    assert.ok(region);
+    assert.equal(region.x, 0.2);
+    assert.equal(region.y, 0.3);
+    assert.ok(Math.abs(region.width - 0.6) < 1e-12);
+    assert.ok(Math.abs(region.height - 0.08) < 1e-12);
     assert.deepEqual(item.fieldConfidence, {
       description: 0.88,
       quantity: 0,
