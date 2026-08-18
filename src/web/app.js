@@ -36,8 +36,10 @@ function updateReceiptLinePresentation(root) {
     const pill = item.querySelector('.receipt-item__legend-actions .status-pill');
     if (pill) {
       const confirmed = pill.classList.contains('success');
-      pill.dataset.receiptValidation = confirmed ? 'confirmed' : 'review';
-      pill.textContent = confirmed ? 'Validada' : 'Revisar';
+      const validation = confirmed ? 'confirmed' : 'review';
+      const label = confirmed ? 'Validada' : 'Revisar';
+      if (pill.dataset.receiptValidation !== validation) pill.dataset.receiptValidation = validation;
+      if (pill.textContent !== label) pill.textContent = label;
     }
 
     const compactLabels = [
@@ -49,8 +51,8 @@ function updateReceiptLinePresentation(root) {
       const label = input?.closest('label');
       const text = label?.querySelector('span');
       if (!(input instanceof HTMLInputElement) || !(text instanceof HTMLElement)) continue;
-      input.setAttribute('aria-label', accessibleLabel);
-      text.textContent = visualLabel;
+      if (input.getAttribute('aria-label') !== accessibleLabel) input.setAttribute('aria-label', accessibleLabel);
+      if (text.textContent !== visualLabel) text.textContent = visualLabel;
     }
   });
 }
