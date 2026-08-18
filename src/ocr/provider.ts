@@ -9,7 +9,19 @@ import { asRecord, asString } from '../domain/validation.ts';
 
 export type OcrInput = Readonly<{ mimeType: string; bytes: Uint8Array; embeddedText?: string; fileName?: string }>;
 export type OcrSource = 'embedded-text' | 'local-tesseract' | 'provider';
-export type OcrResult = Readonly<{ text: string; confidence: number; source: OcrSource }>;
+export type OcrRegion = Readonly<{ x: number; y: number; width: number; height: number }>;
+export type OcrLine = Readonly<{
+  index: number;
+  text: string;
+  confidence: number;
+  region?: OcrRegion;
+}>;
+export type OcrResult = Readonly<{
+  text: string;
+  confidence: number;
+  source: OcrSource;
+  lines?: readonly OcrLine[];
+}>;
 
 export interface OcrProvider {
   readonly name: string;
@@ -61,8 +73,45 @@ export type OcrProcessRequest = Readonly<{
 export type OcrProcessResult = Readonly<{ stdout: string; stderr: string }>;
 export type OcrProcessRunner = (request: OcrProcessRequest) => Promise<OcrProcessResult>;
 
+type TesseractWord = Readonly<{
+  text: string;
+  confidence?: number;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}>;
+
 function decodeChunks(chunks: readonly Uint8Array[]): string {
   return new TextDecoder().decode(Buffer.concat(chunks));
+}
+
+function finiteNonNegative(value: string | undefined): number | undefined {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function averageConfidence(values: readonly number[], fallback = 0): number {
+  if (values.length === 0) return fallback;
+  return Math.max(0, Math.min(1, values.reduce((sum, value) => sum + value, 0) / values.length / 100));
+}
+
+function unionWordRegion(
+  words: readonly TesseractWord[],
+  pageWidth: number,
+  pageHeight: number,
+): OcrRegion | undefined {
+  if (words.length === 0 || pageWidth <= 0 || pageHeight <= 0) return undefined;
+  const left = Math.min(...words.map((word) => word.left));
+  const top = Math.min(...words.map((word) => word.top));
+  const right = Math.max(...words.map((word) => word.left + word.width));
+  const bottom = Math.max(...words.map((word) => word.top + word.height));
+  return {
+    x: Math.max(0, Math.min(1, left / pageWidth)),
+    y: Math.max(0, Math.min(1, top / pageHeight)),
+    width: Math.max(0, Math.min(1, (right - left) / pageWidth)),
+    height: Math.max(0, Math.min(1, (bottom - top) / pageHeight)),
+  };
 }
 
 export async function runTesseractProcess(request: OcrProcessRequest): Promise<OcrProcessResult> {
@@ -140,15 +189,32 @@ export async function runTesseractProcess(request: OcrProcessRequest): Promise<O
   });
 }
 
-export function parseTesseractTsv(tsv: string): Readonly<{ text: string; confidence: number }> {
-  const wordsByLine = new Map<string, string[]>();
+export function parseTesseractTsv(tsv: string): Readonly<{
+  text: string;
+  confidence: number;
+  lines: readonly OcrLine[];
+}> {
+  const wordsByLine = new Map<string, TesseractWord[]>();
   const lineOrder: string[] = [];
   const confidences: number[] = [];
+  let pageWidth = 0;
+  let pageHeight = 0;
+  let observedRight = 0;
+  let observedBottom = 0;
 
   for (const row of tsv.split(/\r?\n/u).slice(1)) {
     if (!row) continue;
     const columns = row.split('\t');
-    if (columns.length < 12 || columns[0] !== '5') continue;
+    if (columns.length < 12) continue;
+    const left = finiteNonNegative(columns[6]);
+    const top = finiteNonNegative(columns[7]);
+    const width = finiteNonNegative(columns[8]);
+    const height = finiteNonNegative(columns[9]);
+    if (columns[0] === '1' && width !== undefined && height !== undefined) {
+      pageWidth = Math.max(pageWidth, width);
+      pageHeight = Math.max(pageHeight, height);
+    }
+    if (columns[0] !== '5') continue;
     const text = columns.slice(11).join('\t').trim();
     if (!text) continue;
     const lineKey = columns.slice(1, 5).join(':');
@@ -158,21 +224,42 @@ export function parseTesseractTsv(tsv: string): Readonly<{ text: string; confide
       wordsByLine.set(lineKey, words);
       lineOrder.push(lineKey);
     }
-    words.push(text);
     const confidence = Number(columns[10]);
-    if (Number.isFinite(confidence) && confidence >= 0) confidences.push(confidence);
+    const word: TesseractWord = {
+      text,
+      ...(Number.isFinite(confidence) && confidence >= 0 ? { confidence } : {}),
+      left: left ?? 0,
+      top: top ?? 0,
+      width: width ?? 0,
+      height: height ?? 0,
+    };
+    words.push(word);
+    observedRight = Math.max(observedRight, word.left + word.width);
+    observedBottom = Math.max(observedBottom, word.top + word.height);
+    if (word.confidence !== undefined) confidences.push(word.confidence);
   }
 
-  const text = lineOrder
-    .map((lineKey) => wordsByLine.get(lineKey)?.join(' ').trim() ?? '')
-    .filter(Boolean)
-    .join('\n')
-    .trim();
+  const effectivePageWidth = pageWidth || observedRight;
+  const effectivePageHeight = pageHeight || observedBottom;
+  const lines = lineOrder.map((lineKey, index): OcrLine => {
+    const words = wordsByLine.get(lineKey) ?? [];
+    const lineConfidenceValues = words.flatMap((word) => word.confidence === undefined ? [] : [word.confidence]);
+    const region = unionWordRegion(words, effectivePageWidth, effectivePageHeight);
+    return {
+      index: index + 1,
+      text: words.map((word) => word.text).join(' ').trim(),
+      confidence: averageConfidence(lineConfidenceValues),
+      ...(region ? { region } : {}),
+    };
+  }).filter((line) => line.text.length > 0);
+
+  const text = lines.map((line) => line.text).join('\n').trim();
   if (!text) throw new OcrError('OCR_NO_TEXT_DETECTED', 'No readable text was detected in the image');
-  const average = confidences.length === 0
-    ? 0
-    : confidences.reduce((sum, confidence) => sum + confidence, 0) / confidences.length;
-  return { text, confidence: Math.max(0, Math.min(1, average / 100)) };
+  return {
+    text,
+    confidence: averageConfidence(confidences),
+    lines,
+  };
 }
 
 export type TesseractCliOcrOptions = Readonly<{

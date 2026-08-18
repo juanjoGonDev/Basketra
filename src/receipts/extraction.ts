@@ -6,6 +6,7 @@ import {
 import { StructuredAiExecutor, type RuntimeSchema } from '../ai/structured-executor.ts';
 import { validateReceiptLine, validateReceiptTotal, type ReceiptLineInput } from '../domain/receipt.ts';
 import { asArray, asEnum, asRecord, asSafeInteger, asString } from '../domain/validation.ts';
+import type { OcrLine, OcrRegion, OcrResult } from '../ocr/provider.ts';
 
 const CURRENCIES = ['EUR'] as const;
 const TAX_CATEGORIES = ['A', 'B', 'C'] as const;
@@ -14,10 +15,20 @@ const MAX_SOURCE_LINES = 20;
 
 type ReceiptTaxCategory = typeof TAX_CATEGORIES[number];
 
+export type ReceiptFieldConfidence = Readonly<{
+  description: number;
+  quantity: number;
+  unitPriceMinor: number;
+  lineTotalMinor: number;
+}>;
+
 export type ReceiptExtractionItem = ReceiptLineInput & Readonly<{
   confidence: number;
   taxCategory?: ReceiptTaxCategory;
   sourceLines?: readonly number[];
+  fieldConfidence?: ReceiptFieldConfidence;
+  sourceRegion?: OcrRegion;
+  captureStorageKey?: string;
 }>;
 
 export type ReceiptMetadata = Readonly<{
@@ -216,6 +227,22 @@ export function parseDeterministicReceiptText(text: string): ReceiptExtractionIt
   return items;
 }
 
+export function parseDeterministicReceiptOcr(
+  result: Pick<OcrResult, 'text' | 'confidence' | 'lines'>,
+): ReceiptExtractionItem[] {
+  const parsed = parseDeterministicReceiptText(result.text);
+  const availableLines = result.lines?.length
+    ? result.lines
+    : result.text.split(/\r?\n/u).map((text, index): OcrLine => ({
+        index: index + 1,
+        text,
+        confidence: normalizeConfidence(result.confidence),
+      }));
+  const linesByIndex = new Map(availableLines.map((line) => [line.index, line]));
+
+  return parsed.map((item) => addOcrEvidence(item, linesByIndex, result.confidence));
+}
+
 export function extractDeclaredTotalMinor(text: string): number | undefined {
   for (const rawLine of text.split(/\r?\n/u).reverse()) {
     const match = /^\s*(?:tot(?:al)?|importe|a pagar)\b.*?([.,]\d{2}|\d[\d.,]*[.,]\d{2})\s*(?:€|eur)?\s*$/iu.exec(rawLine);
@@ -324,6 +351,56 @@ export async function verifyReceiptWithAi(
     ...(signal ? { signal } : {}),
   });
   return result;
+}
+
+function addOcrEvidence(
+  item: ReceiptExtractionItem,
+  linesByIndex: ReadonlyMap<number, OcrLine>,
+  fallbackConfidence: number,
+): ReceiptExtractionItem {
+  const sourceLines = item.sourceLines ?? [];
+  const sourceEvidence = sourceLines.flatMap((line) => {
+    const evidence = linesByIndex.get(line);
+    return evidence ? [evidence] : [];
+  });
+  const lineConfidence = sourceEvidence.length > 0
+    ? sourceEvidence.reduce((sum, line) => sum + normalizeConfidence(line.confidence), 0) / sourceEvidence.length
+    : normalizeConfidence(fallbackConfidence);
+  const productLine = sourceEvidence.at(-1);
+  const quantityLine = sourceEvidence.length > 1 ? sourceEvidence[0] : productLine;
+  const productConfidence = normalizeConfidence(productLine?.confidence ?? lineConfidence);
+  const quantityConfidence = normalizeConfidence(quantityLine?.confidence ?? lineConfidence);
+  const sourceRegion = unionOcrRegions(sourceEvidence.flatMap((line) => line.region ? [line.region] : []));
+
+  return {
+    ...item,
+    confidence: Math.min(item.confidence, lineConfidence),
+    fieldConfidence: {
+      description: productConfidence,
+      quantity: quantityConfidence,
+      unitPriceMinor: quantityConfidence,
+      lineTotalMinor: productConfidence,
+    },
+    ...(sourceRegion ? { sourceRegion } : {}),
+  };
+}
+
+function unionOcrRegions(regions: readonly OcrRegion[]): OcrRegion | undefined {
+  if (regions.length === 0) return undefined;
+  const x = Math.min(...regions.map((region) => region.x));
+  const y = Math.min(...regions.map((region) => region.y));
+  const right = Math.max(...regions.map((region) => region.x + region.width));
+  const bottom = Math.max(...regions.map((region) => region.y + region.height));
+  return {
+    x,
+    y,
+    width: Math.max(0, right - x),
+    height: Math.max(0, bottom - y),
+  };
+}
+
+function normalizeConfidence(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
 }
 
 function parseDelimitedReceiptLine(line: string, sourceLine: number): ReceiptExtractionItem | undefined {
