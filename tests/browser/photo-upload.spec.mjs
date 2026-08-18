@@ -115,6 +115,7 @@ test('a failed distinct photo upload preserves the draft and succeeds on retry',
   await expect(page.locator('#upload-state')).toContainText('Capturas guardadas');
   await expect(page.locator('#capture-list li')).toHaveCount(2);
   await expect(page.locator('#capture-list')).toContainText('retry.png');
+  await page.getByRole('tab', { name: 'Capturas', exact: true }).click();
   await expectLoadedImages(page, 2);
   await expectNoOverflow(page);
   expect(failures).toEqual([]);
