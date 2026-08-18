@@ -18,35 +18,45 @@ function selectedTab(page, group) {
   return page.locator(`[data-tab-group="${group}"] [role="tab"][aria-selected="true"]`);
 }
 
-test('tickets expose one task stage at a time with keyboard-operable tabs', async ({ page }, testInfo) => {
+test('tickets expose three task areas with automatic processing and keyboard-operable tabs', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await navigate(page, 'Tickets');
 
   const tabs = page.locator('[data-tab-group="tickets"]');
   await expect(tabs).toBeVisible();
+  await expect(tabs.getByRole('tab')).toHaveCount(3);
+  await expect(tabs.getByRole('tab', { name: 'Progreso', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Leer con OCR local', exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('Verificar y normalizar con IA')).toHaveCount(0);
   await expect(selectedTab(page, 'tickets')).toHaveText('Capturas');
   await expect(page.locator('[data-tab-panel="captures"]')).toBeVisible();
-  await expect(page.locator('[data-tab-panel="progress"]')).toBeHidden();
   await expect(page.locator('[data-tab-panel="review"]')).toBeHidden();
   await expect(page.locator('[data-tab-panel="import"]')).toBeHidden();
 
   const capturesTab = tabs.getByRole('tab', { name: 'Capturas', exact: true });
   await capturesTab.focus();
   await page.keyboard.press('ArrowRight');
-  await expect(selectedTab(page, 'tickets')).toHaveText('Progreso');
-  await expect(tabs.getByRole('tab', { name: 'Progreso', exact: true })).toBeFocused();
+  await expect(selectedTab(page, 'tickets')).toHaveText('Revisión');
+  await expect(tabs.getByRole('tab', { name: 'Revisión', exact: true })).toBeFocused();
   await page.keyboard.press('End');
   await expect(selectedTab(page, 'tickets')).toHaveText('Importar');
   await page.keyboard.press('Home');
   await expect(selectedTab(page, 'tickets')).toHaveText('Capturas');
 
   await expectNoHorizontalOverflow(page);
-  await page.screenshot({ path: testInfo.outputPath('tickets-progressive-captures.png'), fullPage: false });
+  await page.screenshot({ path: testInfo.outputPath('tickets-automatic-captures.png'), fullPage: false });
 });
 
-test('receipt lines stay compact and edit in an accessible contextual sheet', async ({ page }, testInfo) => {
+test('upload starts processing automatically and compact receipt lines edit in a contextual sheet', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  let jobPosts = 0;
+  page.on('request', request => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/receipts/extraction-jobs') {
+      jobPosts += 1;
+    }
+  });
+
   await page.goto('/');
   await navigate(page, 'Tickets');
   await page.locator('#receipt-camera').setInputFiles({
@@ -55,9 +65,8 @@ test('receipt lines stay compact and edit in an accessible contextual sheet', as
     buffer: validPng,
   });
 
-  await page.getByRole('tab', { name: 'Progreso', exact: true }).click();
-  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
-  await expect(page.locator('.receipt-line-compact')).toHaveCount(1);
+  await expect.poll(() => jobPosts).toBe(1);
+  await expect(page.locator('.receipt-line-compact')).toHaveCount(1, { timeout: 15_000 });
   await expect(selectedTab(page, 'tickets')).toHaveText('Revisión');
 
   const line = page.locator('.receipt-item').first();
@@ -78,7 +87,7 @@ test('receipt lines stay compact and edit in an accessible contextual sheet', as
   await expect(summary).toBeFocused();
 
   await expectNoHorizontalOverflow(page);
-  await page.screenshot({ path: testInfo.outputPath('receipt-review-compact.png'), fullPage: false });
+  await page.screenshot({ path: testInfo.outputPath('receipt-review-automatic.png'), fullPage: false });
 });
 
 test('settings separate operational areas and keep technical detail on demand', async ({ page }, testInfo) => {
