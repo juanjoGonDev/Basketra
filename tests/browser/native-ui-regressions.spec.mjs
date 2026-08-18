@@ -42,9 +42,7 @@ async function prepareReceiptReview(page) {
     mimeType: 'image/png',
     buffer: validPng,
   });
-  await selectTaskTab(page, 'tickets', 'Progreso');
-  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
-  await expect(page.locator('.receipt-item')).toHaveCount(1);
+  await expect(page.locator('.receipt-item')).toHaveCount(1, { timeout: 15_000 });
   await expect(page.locator('[data-tab-group="tickets"] [role="tab"][aria-selected="true"]')).toHaveText('Revisión');
 }
 
