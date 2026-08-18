@@ -14,7 +14,7 @@ async function expectNoHorizontalOverflow(page) {
   expect(dimensions.page).toBeLessThanOrEqual(dimensions.viewport);
 }
 
-async function selectedTab(page, group) {
+function selectedTab(page, group) {
   return page.locator(`[data-tab-group="${group}"] [role="tab"][aria-selected="true"]`);
 }
 
