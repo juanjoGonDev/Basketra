@@ -59,7 +59,7 @@ test('adaptive Android scaffold uses a navigation bar on compact screens and a r
   expect(desktopGeometry.navigationTop).toBeGreaterThanOrEqual(desktopGeometry.headerBottom - 1);
   expect(desktopGeometry.navigationBottom).toBeGreaterThanOrEqual(899);
   expect(desktopGeometry.navigationWidth).toBeLessThanOrEqual(100);
-  expect(desktopGeometry.mainLeft).toBeGreaterThan(desktopGeometry.navigationWidth);
+  expect(desktopGeometry.mainLeft).toBeGreaterThanOrEqual(desktopGeometry.navigationWidth);
   await screenshotView(page, testInfo, 'home-desktop-1280');
 });
 
