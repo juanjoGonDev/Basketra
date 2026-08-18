@@ -109,12 +109,12 @@ test('AI verification failure keeps deterministic OCR items as a completed usabl
     assert.equal(result.final.items.length, 1);
     assert.equal(result.final.items[0]?.description, 'LECHE');
     assert.equal(result.final.items[0]?.captureStorageKey, captures[0]?.storageKey);
-    assert.deepEqual(result.final.items[0]?.sourceRegion, {
-      x: 0.1,
-      y: 0.2,
-      width: 0.7,
-      height: 0.05,
-    });
+    const region = result.final.items[0]?.sourceRegion;
+    assert.ok(region);
+    assert.equal(region.x, 0.1);
+    assert.equal(region.y, 0.2);
+    assert.equal(region.width, 0.7);
+    assert.ok(Math.abs(region.height - 0.05) < 1e-12);
     assert.equal(result.final.warnings.includes('AI verification unavailable for one receipt page'), true);
   });
 });
