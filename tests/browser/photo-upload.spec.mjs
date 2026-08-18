@@ -5,11 +5,6 @@ const validPng = Buffer.from(
   'base64',
 );
 
-const distinctPng = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==',
-  'base64',
-);
-
 function watchBrowser(page, allowExpectedServerError = false) {
   const failures = [];
   page.on('pageerror', error => failures.push(`pageerror: ${error.message}`));
@@ -50,7 +45,7 @@ async function expectNoOverflow(page) {
   expect(widths.content).toBeLessThanOrEqual(widths.viewport);
 }
 
-test('exact duplicate uploads collapse to one retained capture and persist after reload', async ({ page }) => {
+test('camera and gallery photos upload, deduplicate and persist after reload', async ({ page }) => {
   const failures = await openTickets(page);
   const storageKeys = [];
   page.on('response', async response => {
@@ -64,17 +59,16 @@ test('exact duplicate uploads collapse to one retained capture and persist after
     { name: 'gallery-copy.png', mimeType: 'image/png', buffer: validPng },
   ]);
 
-  await expect(page.locator('#capture-list li')).toHaveCount(1);
-  await expect(page.locator('#upload-state')).toContainText('Estas capturas ya estaban añadidas');
-  await expectLoadedImages(page, 1);
+  await expect(page.locator('#capture-list li')).toHaveCount(3);
+  await expect(page.locator('#upload-state')).toContainText('Capturas guardadas');
+  await expectLoadedImages(page, 3);
   await expect.poll(() => storageKeys.length).toBe(3);
   expect(new Set(storageKeys).size).toBe(1);
 
   await page.reload();
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
-  await page.getByRole('tab', { name: 'Capturas', exact: true }).click();
-  await expect(page.locator('#capture-list li')).toHaveCount(1);
-  await expectLoadedImages(page, 1);
+  await expect(page.locator('#capture-list li')).toHaveCount(3);
+  await expectLoadedImages(page, 3);
   await page.getByRole('button', { name: 'Ampliar camera.png' }).click();
   await expect.poll(() => page.locator('#capture-preview-image').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
   await page.getByRole('button', { name: 'Cerrar vista previa' }).click();
@@ -82,7 +76,7 @@ test('exact duplicate uploads collapse to one retained capture and persist after
   expect(failures).toEqual([]);
 });
 
-test('a failed distinct photo upload preserves the draft and succeeds on retry', async ({ page }) => {
+test('a failed photo upload preserves the draft and succeeds on retry', async ({ page }) => {
   const failures = await openTickets(page, true);
   await page.locator('#receipt-camera').setInputFiles({ name: 'existing.png', mimeType: 'image/png', buffer: validPng });
   await expect(page.locator('#capture-list li')).toHaveCount(1);
@@ -101,11 +95,7 @@ test('a failed distinct photo upload preserves the draft and succeeds on retry',
     await route.continue();
   });
 
-  const retry = {
-    name: 'retry.png',
-    mimeType: 'image/png',
-    buffer: distinctPng,
-  };
+  const retry = { name: 'retry.png', mimeType: 'image/png', buffer: validPng };
   await page.locator('#receipt-files').setInputFiles(retry);
   await expect(page.locator('#upload-state')).toContainText('incident-upload-test');
   await expect(page.locator('#capture-list li')).toHaveCount(1);
@@ -115,7 +105,6 @@ test('a failed distinct photo upload preserves the draft and succeeds on retry',
   await expect(page.locator('#upload-state')).toContainText('Capturas guardadas');
   await expect(page.locator('#capture-list li')).toHaveCount(2);
   await expect(page.locator('#capture-list')).toContainText('retry.png');
-  await page.getByRole('tab', { name: 'Capturas', exact: true }).click();
   await expectLoadedImages(page, 2);
   await expectNoOverflow(page);
   expect(failures).toEqual([]);

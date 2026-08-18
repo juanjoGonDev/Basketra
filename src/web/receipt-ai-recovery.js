@@ -24,25 +24,20 @@ function normalizedMessage(error) {
     : 'No se pudo procesar esta imagen';
 }
 
-function manualReviewEvidence(hasOcrDraft, allowBlankManualReview = false) {
-  if (hasOcrDraft) {
-    return 'El OCR de esta imagen se conserva localmente, pero no se considera un ticket estructurado válido hasta reintentar con IA o revisar manualmente todas las líneas.';
-  }
-  if (allowBlankManualReview) {
-    return 'No se obtuvo un borrador OCR utilizable; la captura original se conserva y puedes crear una entrada manual desde cero.';
-  }
-  return 'No se obtuvo un borrador OCR utilizable; la captura original se conserva para que puedas reintentar.';
+function manualReviewEvidence(hasOcrDraft) {
+  return hasOcrDraft
+    ? 'El OCR de esta imagen se conserva localmente, pero no se considera un ticket estructurado válido hasta reintentar con IA o revisar manualmente todas las líneas.'
+    : 'No se obtuvo un borrador OCR utilizable; la alternativa es una entrada manual desde cero conservando la captura original.';
 }
 
 export function buildReceiptAiRecovery(error, options = {}) {
   const code = normalizedCode(error);
   const mimeType = typeof options.mimeType === 'string' ? options.mimeType : '';
   const hasOcrDraft = options.hasOcrDraft === true;
-  const allowBlankManualReview = mimeType === 'application/pdf';
 
-  if (code === 'AI_NOT_CONFIGURED' && allowBlankManualReview) {
+  if (code === 'AI_NOT_CONFIGURED' && mimeType === 'application/pdf') {
     return {
-      message: `Este PDF necesita un proveedor compatible. ${manualReviewEvidence(false, true)}`,
+      message: `Este PDF necesita un proveedor compatible. ${manualReviewEvidence(false)}`,
       retryLabel: 'Reintentar imagen',
       manualLabel: 'Revisar manualmente',
       allowManualReview: true,
@@ -53,10 +48,10 @@ export function buildReceiptAiRecovery(error, options = {}) {
     const guidance = RECOVERY_GUIDANCE[code]
       || 'El proveedor de IA no pudo completar la verificación. Revisa su configuración y vuelve a intentarlo.';
     return {
-      message: `${guidance} ${manualReviewEvidence(hasOcrDraft, allowBlankManualReview)}`,
+      message: `${guidance} ${manualReviewEvidence(hasOcrDraft)}`,
       retryLabel: 'Reintentar imagen',
       manualLabel: 'Revisar manualmente',
-      allowManualReview: hasOcrDraft || allowBlankManualReview,
+      allowManualReview: true,
     };
   }
 

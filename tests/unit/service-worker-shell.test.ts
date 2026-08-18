@@ -41,11 +41,11 @@ test('service worker installs the complete shell, cleans old caches and handles 
   };
   const fakeCaches = {
     async open(name: string) {
-      assert.equal(name, 'basketra-shell-v14');
+      assert.equal(name, 'basketra-shell-v9');
       return cache;
     },
     async keys() {
-      return ['basketra-shell-v8', 'basketra-shell-v9', 'basketra-shell-v10', 'basketra-shell-v11', 'basketra-shell-v12', 'basketra-shell-v13', 'basketra-shell-v14'];
+      return ['basketra-shell-v8', 'basketra-shell-v9'];
     },
     async delete(name: string) {
       deletedCaches.push(name);
@@ -84,12 +84,11 @@ test('service worker installs the complete shell, cleans old caches and handles 
     assert.ok(addedShells[0]?.includes('/receipt-ai-recovery.js'));
     assert.ok(addedShells[0]?.includes('/receipts.js'));
     assert.ok(addedShells[0]?.includes('/modern.css'));
-    assert.ok(addedShells[0]?.includes('/operations.css'));
 
     let activateWork: Promise<unknown> | undefined;
     activate({ waitUntil(work: Promise<unknown>) { activateWork = work; } });
     await activateWork;
-    assert.deepEqual(deletedCaches, ['basketra-shell-v8', 'basketra-shell-v9', 'basketra-shell-v10', 'basketra-shell-v11', 'basketra-shell-v12', 'basketra-shell-v13']);
+    assert.deepEqual(deletedCaches, ['basketra-shell-v8']);
     assert.equal(claimCalls, 1);
 
     let responseWork: Promise<Response | undefined> | undefined;

@@ -37,31 +37,28 @@ test('maps every stable AI failure to redacted actionable recovery', () => {
   }
 });
 
-test('supports blank manual review when a PDF has no OCR draft', () => {
-  for (const code of ['AI_NOT_CONFIGURED', 'AI_PDF_CAPABILITY_UNAVAILABLE']) {
-    const recovery = buildReceiptAiRecovery(
-      { code, message: 'raw configuration detail' },
-      { mimeType: 'application/pdf', hasOcrDraft: false },
-    );
+test('supports blank manual review when no OCR draft exists', () => {
+  const recovery = buildReceiptAiRecovery(
+    { code: 'AI_NOT_CONFIGURED', message: 'raw configuration detail' },
+    { mimeType: 'application/pdf', hasOcrDraft: false },
+  );
 
-    assert.equal(recovery.retryLabel, 'Reintentar imagen');
-    assert.equal(recovery.allowManualReview, true);
-    assert.match(recovery.message, /PDF/u);
-    assert.match(recovery.message, /entrada manual desde cero/u);
-    assert.doesNotMatch(recovery.message, /raw configuration detail/u);
-  }
+  assert.equal(recovery.retryLabel, 'Reintentar imagen');
+  assert.equal(recovery.allowManualReview, true);
+  assert.match(recovery.message, /PDF/u);
+  assert.match(recovery.message, /entrada manual desde cero/u);
+  assert.doesNotMatch(recovery.message, /raw configuration detail/u);
 });
 
-test('uses generic redacted guidance for future AI codes without inventing image OCR', () => {
+test('uses generic redacted guidance for future AI codes', () => {
   const recovery = buildReceiptAiRecovery(
     { code: 'AI_FUTURE_FAILURE', message: 'upstream secret' },
     { mimeType: 'image/jpeg', hasOcrDraft: false },
   );
 
-  assert.equal(recovery.allowManualReview, false);
+  assert.equal(recovery.allowManualReview, true);
   assert.match(recovery.message, /proveedor de IA/u);
-  assert.match(recovery.message, /captura original se conserva para que puedas reintentar/u);
-  assert.doesNotMatch(recovery.message, /entrada manual desde cero/u);
+  assert.match(recovery.message, /entrada manual desde cero/u);
   assert.doesNotMatch(recovery.message, /upstream secret/u);
 });
 

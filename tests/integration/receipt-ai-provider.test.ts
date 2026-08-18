@@ -154,17 +154,11 @@ test('receipt page verification crosses the real OpenAI-compatible provider with
       assert.ok(responseFormat.json_schema?.schema?.required?.includes('items'));
     }
 
-    for (const [extraction, expectedStorageKey] of [
-      [imageExtraction, image.storageKey],
-      [pdfExtraction, pdf.storageKey],
-    ] as const) {
+    for (const extraction of [imageExtraction, pdfExtraction]) {
       assert.equal(extraction.final.retailerName, 'ALCAMPO ALMERIA');
       assert.equal(extraction.final.declaredTotalMinor, 20_226);
       assert.equal(extraction.final.articleCount, 88);
-      const item = extraction.final.items[0];
-      assert.ok(item);
-      const { captureStorageKey, fieldConfidence, sourceRegion, ...businessFields } = item;
-      assert.deepEqual(businessFields, {
+      assert.deepEqual(extraction.final.items[0], {
         description: 'C.LADRON MANZAN',
         quantity: 6,
         unitPriceMinor: 89,
@@ -173,9 +167,6 @@ test('receipt page verification crosses the real OpenAI-compatible provider with
         confidence: 0.94,
         sourceLines: [2, 3],
       });
-      assert.equal(captureStorageKey, expectedStorageKey);
-      assert.equal(fieldConfidence, undefined);
-      assert.equal(sourceRegion, undefined);
     }
   } finally {
     service.dispose();

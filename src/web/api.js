@@ -1,12 +1,3 @@
-const AI_PROVIDER_SETTINGS_PATH = '/api/v1/settings/ai-provider';
-const AI_PROVIDER_SETTINGS_FRESH_MS = 10_000;
-
-const aiProviderSettingsCache = {
-  value: null,
-  expiresAt: 0,
-  promise: null,
-};
-
 function emitApiLog(detail) {
   window.dispatchEvent(new CustomEvent('basketra:api-log', { detail }));
 }
@@ -19,7 +10,7 @@ function requestPath(path) {
   }
 }
 
-async function performApiRequest(path, options = {}) {
+export async function api(path, options = {}) {
   const method = options.method || 'GET';
   const started = performance.now();
   let response;
@@ -78,45 +69,6 @@ async function performApiRequest(path, options = {}) {
   return body;
 }
 
-function canShareAiProviderSettings(path, options) {
-  const method = options.method || 'GET';
-  return method === 'GET'
-    && requestPath(path) === AI_PROVIDER_SETTINGS_PATH
-    && !options.signal;
-}
-
-function invalidateAiProviderSettings() {
-  aiProviderSettingsCache.value = null;
-  aiProviderSettingsCache.expiresAt = 0;
-}
-
-async function readAiProviderSettings(path, options) {
-  const now = Date.now();
-  if (aiProviderSettingsCache.value !== null && aiProviderSettingsCache.expiresAt > now) {
-    return aiProviderSettingsCache.value;
-  }
-  if (aiProviderSettingsCache.promise) return aiProviderSettingsCache.promise;
-
-  aiProviderSettingsCache.promise = performApiRequest(path, options)
-    .then(value => {
-      aiProviderSettingsCache.value = value;
-      aiProviderSettingsCache.expiresAt = Date.now() + AI_PROVIDER_SETTINGS_FRESH_MS;
-      return value;
-    });
-  try {
-    return await aiProviderSettingsCache.promise;
-  } finally {
-    aiProviderSettingsCache.promise = null;
-  }
-}
-
-export async function api(path, options = {}) {
-  if (canShareAiProviderSettings(path, options)) {
-    return readAiProviderSettings(path, options);
-  }
-  return performApiRequest(path, options);
-}
-
 export function realtimeEndpoint() {
   return '/api/v1/realtime';
 }
@@ -160,10 +112,9 @@ function ensureProviderHealthRegion() {
   if (!(card instanceof HTMLElement) || !(reference instanceof HTMLElement)) return null;
   let region = document.querySelector('#ai-provider-health');
   if (region instanceof HTMLElement) return region;
-
   region = document.createElement('div');
   region.id = 'ai-provider-health';
-  region.className = 'provider-health';
+  region.className = 'provider-check provider-health';
   region.setAttribute('aria-live', 'polite');
   const title = document.createElement('strong');
   title.dataset.providerHealthTitle = '';
@@ -171,7 +122,6 @@ function ensureProviderHealthRegion() {
   detail.dataset.providerHealthDetail = '';
   region.append(title, detail);
   reference.before(region);
-
   const explanation = [...card.querySelectorAll('p')]
     .find(element => element.textContent?.includes('Sólo se ejecuta al pulsar el botón.'));
   if (explanation) {
@@ -191,21 +141,17 @@ function renderProviderHealth(lastCheck) {
   if (detail) detail.textContent = formatted.detail;
 }
 
-let providerHealthRefreshPromise = null;
+let providerHealthRefreshGeneration = 0;
 async function refreshProviderHealth() {
-  if (providerHealthRefreshPromise) return providerHealthRefreshPromise;
-  providerHealthRefreshPromise = (async () => {
-    try {
-      const settings = await api(AI_PROVIDER_SETTINGS_PATH, { cache: 'no-store' });
-      renderProviderHealth(settings.lastCheck);
-    } catch {
-      // Existing Settings connectivity state is the canonical transport error UI.
-    }
-  })();
+  const generation = ++providerHealthRefreshGeneration;
   try {
-    await providerHealthRefreshPromise;
-  } finally {
-    providerHealthRefreshPromise = null;
+    const response = await fetch('/api/v1/settings/ai-provider', { cache: 'no-store' });
+    if (!response.ok) return;
+    const settings = await response.json();
+    if (generation !== providerHealthRefreshGeneration) return;
+    renderProviderHealth(settings.lastCheck);
+  } catch {
+    // Existing Settings connectivity state is the canonical transport error UI.
   }
 }
 
@@ -213,22 +159,19 @@ function enhanceProviderHealth() {
   const button = document.querySelector('#test-ai-provider');
   if (!(button instanceof HTMLButtonElement)) return;
   ensureProviderHealthRegion();
-  if (button.dataset.healthObserver === 'true') return;
-
-  button.dataset.healthObserver = 'true';
-  const observer = new MutationObserver(records => {
-    const busyChanged = records.some(record => record.attributeName === 'aria-busy');
-    if (busyChanged && !button.hasAttribute('aria-busy') && !button.disabled) {
-      invalidateAiProviderSettings();
-      void refreshProviderHealth();
-    }
-  });
-  observer.observe(button, { attributes: true, attributeFilter: ['aria-busy'] });
+  if (button.dataset.healthObserver !== 'true') {
+    button.dataset.healthObserver = 'true';
+    const observer = new MutationObserver(() => {
+      if (!button.disabled) void refreshProviderHealth();
+    });
+    observer.observe(button, { attributes: true, attributeFilter: ['disabled'] });
+  }
   void refreshProviderHealth();
 }
 
+const providerHealthObserver = new MutationObserver(() => enhanceProviderHealth());
+providerHealthObserver.observe(document.documentElement, { childList: true, subtree: true });
 document.addEventListener('DOMContentLoaded', enhanceProviderHealth, { once: true });
+enhanceProviderHealth();
 
-void import('./operations.js')
-  .then(() => enhanceProviderHealth())
-  .catch(() => {});
+void import('./operations.js').catch(() => {});
