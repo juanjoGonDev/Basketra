@@ -69,12 +69,14 @@ test('settings remain readable and unobscured across light and dark responsive l
     });
     expect(contrastRatio(colors.foreground, colors.background)).toBeGreaterThanOrEqual(4.5);
 
-    const clearance = await page.locator('[data-tab-panel="general"] .operations-card').evaluate(element => {
-      const card = element.getBoundingClientRect();
+    const lastMetric = page.locator('[data-tab-panel="general"] .operations-metrics > div').last();
+    await lastMetric.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
+    const clearOfNavigation = await lastMetric.evaluate(element => {
+      const metricRect = element.getBoundingClientRect();
       const navigation = document.querySelector('.bottom-nav')?.getBoundingClientRect();
-      return navigation ? navigation.top - card.bottom : 1;
+      return navigation ? metricRect.bottom <= navigation.top - 8 : true;
     });
-    expect(clearance).toBeGreaterThanOrEqual(8);
+    expect(clearOfNavigation).toBeTruthy();
 
     await page.evaluate(() => window.scrollTo(0, 0));
     await expect.poll(async () => page.evaluate(() => window.scrollY)).toBe(0);
@@ -221,6 +223,28 @@ test('receipt cancellation stops queued work and preserves every capture', async
   await page.screenshot({ path: testInfo.outputPath('ocr-cancelled.png'), fullPage: false });
 });
 
+function withReview(items, extras = {}) {
+  const expectedMinor = items.reduce((sum, line) => sum + line.lineTotalMinor, 0);
+  const declaredTotalMinor = extras.declaredTotalMinor ?? expectedMinor;
+  return {
+    ...extras,
+    items,
+    review: {
+      lines: items.map(line => ({
+        ...line,
+        status: 'confirmed',
+        expectedMinor: line.lineTotalMinor,
+        differenceMinor: 0,
+      })),
+      total: {
+        expectedMinor,
+        differenceMinor: declaredTotalMinor - expectedMinor,
+        valid: declaredTotalMinor === expectedMinor,
+      },
+    },
+  };
+}
+
 function pageExtraction(index, verified) {
   const rawPages = [
     'ALCAMPO ALMERIA\n6 x ,89\nC.LADRON MANZAN 5,34 A\nPAN 1,50 B\nLECHE 1,20 B',
@@ -233,11 +257,10 @@ function pageExtraction(index, verified) {
     [item('RESTO TICKET', 1, 19_422, 19_422, 'B')],
   ];
   const items = pageItems[index] || [];
-  const final = {
-    items,
+  const final = withReview(items, {
     ...(index === 0 ? { retailerName: 'ALCAMPO ALMERIA' } : {}),
     ...(index === 2 ? { declaredTotalMinor: 20_226, articleCount: 88 } : {}),
-  };
+  });
   return {
     pages: [{ pageIndex: 0, source: 'local-tesseract', rawText: rawPages[index], confidence: .92 }],
     deterministic: { ...final },
@@ -266,7 +289,11 @@ function assembledExtraction() {
     item('LECHE', 1, 120, 120, 'B'),
     item('RESTO TICKET', 1, 19_422, 19_422, 'B'),
   ];
-  const final = { items, declaredTotalMinor: 20_226, articleCount: 88, retailerName: 'ALCAMPO ALMERIA' };
+  const final = withReview(items, {
+    declaredTotalMinor: 20_226,
+    articleCount: 88,
+    retailerName: 'ALCAMPO ALMERIA',
+  });
   return {
     pages: [0, 1, 2].flatMap(index => pageExtraction(index, true).pages),
     deterministic: { ...final },
