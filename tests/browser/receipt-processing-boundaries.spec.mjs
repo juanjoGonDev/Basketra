@@ -62,6 +62,7 @@ async function uploadReceipt(page, name) {
     buffer: validPng,
   });
   await expect(page.locator('.capture-card')).toHaveCount(1);
+  await page.locator('[data-tab-group="tickets"]').getByRole('tab', { name: 'Progreso', exact: true }).click();
 }
 
 async function enableAi(page) {
