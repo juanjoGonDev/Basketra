@@ -307,11 +307,14 @@ test('local OCR creates editable euro rows with accessible row actions and impor
 
   await page.getByRole('button', { name: 'Añadir línea', exact: true }).click();
   await expect(page.locator('.receipt-item')).toHaveCount(2);
-  const manualLine = page.locator('.receipt-item').last();
-  await manualLine.locator('[data-field="description"]').fill('Bread');
-  await manualLine.locator('[data-field="quantity"]').fill('1');
-  await manualLine.locator('[data-field="unitPriceEuro"]').fill('0.20');
-  await manualLine.locator('[data-field="lineTotalEuro"]').fill('0.20');
+  await expect(page.locator('.receipt-line-compact')).toHaveCount(2);
+  await page.locator('.receipt-line-compact').last().click();
+  await expect(editorDialog).toBeVisible();
+  await editorDialog.locator('[data-field="description"]').fill('Bread');
+  await editorDialog.locator('[data-field="quantity"]').fill('1');
+  await editorDialog.locator('[data-field="unitPriceEuro"]').fill('0.20');
+  await editorDialog.locator('[data-field="lineTotalEuro"]').fill('0.20');
+  await editorDialog.getByRole('button', { name: 'Guardar línea', exact: true }).click();
 
   const manualLineShell = page.locator('[data-swipe-kind="receipt-line"]').last();
   await page.getByRole('button', { name: 'Mostrar acciones de la línea 2' }).click();

@@ -437,8 +437,8 @@ details.settings-card:has(#diagnostics),
   display: none;
 }
 
-.switch-row:has(input:focus-visible),
-.capture-action:has(input:focus-visible) {
+.switch-row:focus-within,
+.capture-action:focus-within {
   outline: .1875rem solid var(--color-focus);
   outline-offset: .1875rem;
 }
