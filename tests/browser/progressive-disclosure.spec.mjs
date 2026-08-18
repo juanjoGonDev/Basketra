@@ -81,7 +81,7 @@ test('receipt lines stay compact and edit in an accessible contextual sheet', as
   await page.screenshot({ path: testInfo.outputPath('receipt-review-compact.png'), fullPage: false });
 });
 
-test('settings separate operational areas and keep transport detail collapsed', async ({ page }, testInfo) => {
+test('settings separate operational areas and keep technical detail on demand', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await navigate(page, 'Ajustes');
@@ -104,8 +104,16 @@ test('settings separate operational areas and keep transport detail collapsed', 
   await expect(page.getByRole('heading', { name: 'Copias de seguridad' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Servidor y versión' })).toBeHidden();
 
+  await settings.getByRole('tab', { name: 'Avanzado', exact: true }).click();
+  const advanced = page.locator('.settings-advanced-disclosure');
+  await expect(advanced).toBeVisible();
+  await expect(advanced).not.toHaveAttribute('open', '');
+  await advanced.getByText('Diagnóstico técnico', { exact: true }).click();
+  await expect(advanced).toHaveAttribute('open', '');
+  await expect(page.locator('#diagnostics')).toBeVisible();
+
   await expectNoHorizontalOverflow(page);
-  await page.screenshot({ path: testInfo.outputPath('settings-progressive-data.png'), fullPage: false });
+  await page.screenshot({ path: testInfo.outputPath('settings-progressive-advanced.png'), fullPage: false });
 });
 
 test('plans present recommendation, comparison and details without exposing all cards at once', async ({ page }, testInfo) => {
