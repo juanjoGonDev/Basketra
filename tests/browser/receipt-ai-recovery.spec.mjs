@@ -9,6 +9,10 @@ function navigate(page, name) {
   return page.locator('.bottom-nav').getByRole('button', { name, exact: true }).click();
 }
 
+async function selectTicketTab(page, name) {
+  await page.locator('[data-tab-group="tickets"]').getByRole('tab', { name, exact: true }).click();
+}
+
 test('background AI failure preserves the capture for retry without exposing upstream detail', async ({ page }) => {
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
@@ -34,6 +38,7 @@ test('background AI failure preserves the capture for retry without exposing ups
     buffer: validPng,
   });
 
+  await selectTicketTab(page, 'Progreso');
   const aiInput = page.getByLabel('Verificar y normalizar con IA');
   await page.locator('label.switch-row').filter({ has: aiInput }).click();
   await expect(aiInput).toBeChecked();
@@ -42,6 +47,7 @@ test('background AI failure preserves the capture for retry without exposing ups
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
   await expect(page.locator('#receipt-state')).toContainText('El análisis no terminó');
   await expect(page.getByText('raw upstream detail must not be shown')).toHaveCount(0);
+  await selectTicketTab(page, 'Capturas');
   await expect(page.getByRole('button', { name: 'Reintentar imagen', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Revisar manualmente', exact: true })).toHaveCount(0);
 });
