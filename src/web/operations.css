@@ -338,11 +338,139 @@ details.settings-card:has(#diagnostics),
   white-space: nowrap;
 }
 
+/* Receipt review uses the same tonal, compact Android hierarchy as the rest of the app. */
+[data-swipe-kind="receipt-line"] {
+  border-radius: var(--radius-lg);
+  background: transparent;
+}
+
+[data-swipe-kind="receipt-line"] [data-swipe-actions] {
+  visibility: hidden;
+  opacity: 0;
+}
+
+[data-swipe-kind="receipt-line"].is-dragging [data-swipe-actions],
+[data-swipe-kind="receipt-line"].is-swipe-committing [data-swipe-actions],
+[data-swipe-kind="receipt-line"][data-swipe-open="true"] [data-swipe-actions],
+[data-swipe-kind="receipt-line"][data-swipe-delete-armed="true"] [data-swipe-actions] {
+  visibility: visible;
+  opacity: 1;
+}
+
+.receipt-items {
+  gap: var(--space-3);
+}
+
+.receipt-item {
+  gap: var(--space-3);
+  padding: .9rem 1rem 1rem;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-container-low);
+}
+
+.receipt-item legend {
+  min-height: 2.5rem;
+  padding: 0;
+  color: var(--color-on-surface);
+  font-size: .86rem;
+  font-weight: 700;
+}
+
+.receipt-item__legend-actions {
+  gap: var(--space-2);
+}
+
+.receipt-item__legend-actions .status-pill {
+  min-height: 1.75rem;
+  padding: .3rem .65rem;
+  font-size: .7rem;
+}
+
+.receipt-item__legend-actions .status-pill[data-receipt-validation="review"] {
+  background: var(--color-warning-container);
+  color: var(--color-on-warning-container);
+}
+
+.receipt-item__legend-actions .status-pill[data-receipt-validation="confirmed"] {
+  background: var(--color-success-container);
+  color: var(--color-on-success-container);
+}
+
+.receipt-item .field {
+  gap: .3rem;
+  font-size: .72rem;
+  font-weight: 650;
+}
+
+.receipt-item .field > span {
+  padding-inline: .15rem;
+  color: var(--color-on-surface-variant);
+}
+
+.receipt-item .field input {
+  min-height: 3rem;
+  padding: .68rem .8rem;
+  border-color: var(--color-outline-variant);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font-variant-numeric: tabular-nums;
+}
+
+.receipt-item .field input:hover {
+  border-color: var(--color-outline);
+}
+
+.receipt-item .quantity-row {
+  grid-template-columns: .7fr 1.15fr 1fr;
+  gap: var(--space-2);
+}
+
+.review-total {
+  margin-block: var(--space-3);
+  padding: .8rem 1rem;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-container-high);
+}
+
+.receipt-confirm-state {
+  position: sticky;
+  bottom: calc(var(--nav) + env(safe-area-inset-bottom) + 4.4rem);
+  z-index: 21;
+  margin: var(--space-3) 0 0;
+  padding: .75rem 1rem;
+  border-radius: var(--radius-md);
+  background: var(--color-error-container);
+  color: var(--color-on-error-container);
+  box-shadow: 0 .25rem .8rem rgb(0 0 0 / .08);
+  font-size: .82rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.receipt-confirm-state[data-state="working"] {
+  background: var(--color-primary-container);
+  color: var(--color-on-primary-container);
+}
+
+.receipt-confirm-state[data-state="success"] {
+  background: var(--color-success-container);
+  color: var(--color-on-success-container);
+}
+
 @media (max-width: 359px) {
   .operations-metrics,
   .operations-log-actions,
   .provider-check > div {
     grid-template-columns: 1fr;
+  }
+
+  .receipt-item .quantity-row {
+    grid-template-columns: .7fr 1.3fr;
+  }
+
+  .receipt-item .quantity-row > :last-child {
+    grid-column: 1 / -1;
   }
 }
 
@@ -350,6 +478,10 @@ details.settings-card:has(#diagnostics),
   .operations-stack {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
+  }
+
+  .receipt-item {
+    padding: 1rem 1.1rem 1.1rem;
   }
 }
 
@@ -364,6 +496,10 @@ details.settings-card:has(#diagnostics),
 
   .operations-logs {
     max-height: 30rem;
+  }
+
+  .receipt-confirm-state {
+    bottom: 5.2rem;
   }
 }
 
