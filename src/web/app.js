@@ -31,6 +31,103 @@ document.addEventListener('basketra:swipe-action', event => {
   document.querySelector(`[data-item-action="complete"][data-item-id="${itemId}"]`)?.click();
 });
 
+function updateReceiptLinePresentation(root) {
+  root.querySelectorAll('.receipt-item').forEach(item => {
+    const pill = item.querySelector('.receipt-item__legend-actions .status-pill');
+    if (pill) {
+      const confirmed = pill.classList.contains('success');
+      pill.dataset.receiptValidation = confirmed ? 'confirmed' : 'review';
+      pill.textContent = confirmed ? 'Validada' : 'Revisar';
+    }
+
+    const compactLabels = [
+      ['unitPriceEuro', 'Unitario', 'Precio unitario (€)'],
+      ['lineTotalEuro', 'Total', 'Total (€)'],
+    ];
+    for (const [field, visualLabel, accessibleLabel] of compactLabels) {
+      const input = item.querySelector(`[data-field="${field}"]`);
+      const label = input?.closest('label');
+      const text = label?.querySelector('span');
+      if (!(input instanceof HTMLInputElement) || !(text instanceof HTMLElement)) continue;
+      input.setAttribute('aria-label', accessibleLabel);
+      text.textContent = visualLabel;
+    }
+  });
+}
+
+function installReceiptReviewPresentation() {
+  const review = $('#receipt-review');
+  const receiptState = $('#receipt-state');
+  const confirmButton = $('#confirm-receipt');
+  if (!(review instanceof HTMLElement) || !(receiptState instanceof HTMLElement) || !(confirmButton instanceof HTMLButtonElement)) return;
+
+  const feedback = document.createElement('p');
+  feedback.id = 'receipt-confirm-state';
+  feedback.className = 'receipt-confirm-state';
+  feedback.setAttribute('role', 'alert');
+  feedback.hidden = true;
+  confirmButton.before(feedback);
+
+  let confirmationActive = false;
+  let lastTerminalMessage = '';
+
+  const resetFeedback = () => {
+    confirmationActive = false;
+    lastTerminalMessage = '';
+    feedback.hidden = true;
+    feedback.textContent = '';
+    delete feedback.dataset.state;
+  };
+
+  const syncFeedback = () => {
+    if (!confirmationActive) return;
+    const message = receiptState.textContent.trim();
+    if (!message) return;
+
+    feedback.hidden = false;
+    feedback.textContent = message;
+    if (message.startsWith('Validando ticket') || message.startsWith('Importando ticket')) {
+      feedback.dataset.state = 'working';
+      return;
+    }
+    if (message.startsWith('Ticket importado')) {
+      feedback.dataset.state = 'success';
+      confirmationActive = false;
+      return;
+    }
+
+    feedback.dataset.state = 'error';
+    if (message !== lastTerminalMessage) {
+      lastTerminalMessage = message;
+      toast(message);
+    }
+  };
+
+  new MutationObserver(() => updateReceiptLinePresentation(review))
+    .observe(review, { childList: true, subtree: true });
+  new MutationObserver(syncFeedback)
+    .observe(receiptState, { childList: true, characterData: true, subtree: true });
+
+  confirmButton.addEventListener('click', () => {
+    confirmationActive = true;
+    lastTerminalMessage = '';
+    feedback.hidden = false;
+    feedback.dataset.state = 'working';
+    feedback.textContent = 'Validando ticket…';
+    queueMicrotask(syncFeedback);
+  });
+  review.addEventListener('input', resetFeedback);
+  review.addEventListener('click', event => {
+    if (event.target.closest('[data-receipt-action="add-line"], [data-receipt-action="edit"], [data-receipt-action="delete"]')) {
+      resetFeedback();
+    }
+  });
+
+  updateReceiptLinePresentation(review);
+}
+
+installReceiptReviewPresentation();
+
 function hideToast(version) {
   if (version !== toastState.version) return;
   const element = $('#toast');
