@@ -319,6 +319,9 @@ test('manual review from an OCR warning creates an evidence-linked blank row whe
   await expect(page.locator('.capture-card .status-pill')).toHaveText('OCR listo · IA pendiente');
   await page.getByRole('tab', { name: 'Capturas', exact: true }).click();
   await page.getByRole('button', { name: 'Revisar manualmente', exact: true }).click();
+  const compactRow = page.locator('.receipt-line-compact').first();
+  await expect(compactRow).toBeVisible();
+  await compactRow.click();
   const dialog = page.locator('#receipt-line-dialog');
   await expect(dialog).toBeVisible();
   await expect(dialog.locator('[data-field="description"]')).toHaveValue('');
@@ -375,8 +378,13 @@ test('receipt evidence derives a source region when possible and degrades withou
   await upload(page, 'regions.png');
   await expect(page.locator('.receipt-item')).toHaveCount(2);
   await page.getByRole('tab', { name: 'Revisión', exact: true }).click();
-  await expect(page.locator('.receipt-item').first().locator('.receipt-line-evidence__region')).toBeVisible();
-  await expect(page.locator('.receipt-item').nth(1).locator('.receipt-line-evidence__region')).toHaveCount(0);
+  const rows = page.locator('.receipt-line-compact');
+  await rows.first().click();
+  const dialog = page.locator('#receipt-line-dialog');
+  await expect(dialog.locator('.receipt-line-evidence__region')).toBeVisible();
+  await page.getByRole('button', { name: 'Cancelar', exact: true }).click();
+  await rows.nth(1).click();
+  await expect(dialog.locator('.receipt-line-evidence__region')).toHaveCount(0);
 });
 
 test('PDF review keeps the original document as textual evidence without an image region', async ({ page }) => {
@@ -415,7 +423,10 @@ test('PDF review keeps the original document as textual evidence without an imag
   await upload(page, 'evidence.pdf', minimalPdf, 'application/pdf');
   await expect(page.locator('.receipt-item')).toHaveCount(1);
   await page.getByRole('tab', { name: 'Revisión', exact: true }).click();
-  await expect(page.getByText('El PDF original se conserva como evidencia de esta línea.')).toBeVisible();
+  await page.locator('.receipt-line-compact').first().click();
+  const dialog = page.locator('#receipt-line-dialog');
+  await expect(dialog.getByText('El PDF original se conserva como evidencia de esta línea.')).toBeVisible();
+  await expect(dialog.locator('.receipt-line-evidence__region')).toHaveCount(0);
 });
 
 test('a legacy persisted job is migrated to the multi-job model and refreshed', async ({ page }) => {
