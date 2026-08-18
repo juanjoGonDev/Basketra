@@ -74,7 +74,11 @@ test('settings remain readable and unobscured across light and dark responsive l
     const clearOfNavigation = await lastMetric.evaluate(element => {
       const metricRect = element.getBoundingClientRect();
       const navigation = document.querySelector('.bottom-nav')?.getBoundingClientRect();
-      return navigation ? metricRect.bottom <= navigation.top - 8 : true;
+      if (!navigation) return true;
+      const isBottomNavigation = navigation.width > navigation.height * 2;
+      return isBottomNavigation
+        ? metricRect.bottom <= navigation.top - 8
+        : metricRect.left >= navigation.right + 8;
     });
     expect(clearOfNavigation).toBeTruthy();
 
