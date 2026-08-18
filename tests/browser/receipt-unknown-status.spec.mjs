@@ -6,11 +6,7 @@ const validPng = Buffer.from(
 );
 const storageKey = 'future-status-storage';
 
-function navigate(page, name) {
-  return page.locator('.bottom-nav').getByRole('button', { name, exact: true }).click();
-}
-
-test('an unknown future receipt-page status degrades to pending progress', async ({ page }) => {
+test('an unknown future receipt-page status degrades to queued progress', async ({ page }) => {
   await page.addInitScript(expectedKey => {
     const originalSet = Map.prototype.set;
     Map.prototype.set = function set(key, value) {
@@ -21,7 +17,15 @@ test('an unknown future receipt-page status degrades to pending progress', async
         && Object.hasOwn(value, 'rawText')
         && Object.hasOwn(value, 'recovery')
       ) {
-        value.status = 'future-status';
+        let status = 'future-status';
+        Object.defineProperty(value, 'status', {
+          configurable: true,
+          enumerable: true,
+          get: () => status,
+          set: next => {
+            status = next === 'pending' ? 'future-status' : next;
+          },
+        });
       }
       return originalSet.call(this, key, value);
     };
@@ -38,9 +42,18 @@ test('an unknown future receipt-page status degrades to pending progress', async
       },
     }),
   }));
+  await page.route('**/api/v1/receipts/extraction-jobs**', route => route.fulfill({
+    status: route.request().method() === 'POST' ? 202 : 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      job: route.request().method() === 'POST'
+        ? { id: 'receiptextractionjob_futurestatus' }
+        : { id: 'receiptextractionjob_futurestatus', status: 'queued' },
+    }),
+  }));
 
   await page.goto('/');
-  await navigate(page, 'Tickets');
+  await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
   await page.locator('#receipt-files').setInputFiles({
     name: 'future-status.png',
     mimeType: 'image/png',
@@ -48,9 +61,10 @@ test('an unknown future receipt-page status degrades to pending progress', async
   });
 
   await expect(page.locator('.capture-card')).toHaveCount(1);
-  await expect(page.locator('.capture-card .status-pill')).toHaveText('Pendiente');
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('En cola');
   await expect(page.locator('[data-capture-page-progress] [role="progressbar"]'))
     .toHaveAttribute('aria-valuenow', '0');
   await expect(page.locator('[data-capture-page-progress] .capture-card__progress-meta span').first())
     .toHaveText('');
+  await expect(page.getByRole('button', { name: 'Cancelar esta imagen', exact: true })).toBeVisible();
 });
