@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test';
 
-const validPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8//8/AwMDEwMDAwMDAwAkBgMB/DXemwAAAABJRU5ErkJggg==', 'base64');
+const validPng = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8//8/AwMDEwMDAwMDAwAkBgMB/DXemwAAAABJRU5ErkJggg==',
+  'base64',
+);
 
 function navigate(page, name) {
   return page.locator('.bottom-nav').getByRole('button', { name, exact: true }).click();
@@ -38,7 +41,7 @@ function contrastRatio(foreground, background) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-test('settings remain readable and unobscured across light and dark responsive layouts', async ({ page }, testInfo) => {
+test('settings remain readable and reserve space for compact navigation across responsive layouts', async ({ page }, testInfo) => {
   const scenarios = [
     ['light', { width: 320, height: 700 }],
     ['dark', { width: 360, height: 780 }],
@@ -69,18 +72,18 @@ test('settings remain readable and unobscured across light and dark responsive l
     });
     expect(contrastRatio(colors.foreground, colors.background)).toBeGreaterThanOrEqual(4.5);
 
-    const lastMetric = page.locator('[data-tab-panel="general"] .operations-metrics > div').last();
-    await lastMetric.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
-    const clearOfNavigation = await lastMetric.evaluate(element => {
-      const metricRect = element.getBoundingClientRect();
-      const navigation = document.querySelector('.bottom-nav')?.getBoundingClientRect();
-      if (!navigation) return true;
-      const isBottomNavigation = navigation.width > navigation.height * 2;
-      return isBottomNavigation
-        ? metricRect.bottom <= navigation.top - 8
-        : metricRect.left >= navigation.right + 8;
-    });
-    expect(clearOfNavigation).toBeTruthy();
+    const reservedSpace = await page.locator('[data-view="settings"]')
+      .evaluate((settings, expectedGap) => {
+        const navigation = document.querySelector('.bottom-nav');
+        if (!navigation) return { enough: true, padding: 0, required: 0 };
+        const navigationRect = navigation.getBoundingClientRect();
+        const isBottomNavigation = navigationRect.width > navigationRect.height * 2;
+        if (!isBottomNavigation) return { enough: true, padding: 0, required: 0 };
+        const padding = Number.parseFloat(getComputedStyle(settings).paddingBottom);
+        const required = navigationRect.height + expectedGap;
+        return { enough: padding >= required, padding, required };
+      }, 8);
+    expect(reservedSpace.enough, `settings bottom padding ${reservedSpace.padding}px must clear ${reservedSpace.required}px navigation`).toBeTruthy();
 
     await page.evaluate(() => window.scrollTo(0, 0));
     await expect.poll(async () => page.evaluate(() => window.scrollY)).toBe(0);
@@ -91,13 +94,18 @@ test('settings remain readable and unobscured across light and dark responsive l
   }
 });
 
-test('OCR exposes a two-slot per-image pipeline with retry and retailer autofill', async ({ page }, testInfo) => {
+test('automatic OCR and AI pipeline exposes live progress and retailer-confirmed review', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({ configured: true }),
+  }));
+  await page.route('**/api/v1/receipts/extract', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ extraction: assembledExtraction() }),
   }));
 
   let releaseBackgroundJob = () => {};
@@ -121,7 +129,11 @@ test('OCR exposes a two-slot per-image pipeline with retry and retailer autofill
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        job: { id: 'receipt-job-pipeline', status: 'completed', extraction: assembledExtraction() },
+        job: {
+          id: 'receipt-job-pipeline',
+          status: 'completed',
+          extraction: backgroundJobExtraction(),
+        },
       }),
     });
   });
@@ -133,18 +145,15 @@ test('OCR exposes a two-slot per-image pipeline with retry and retailer autofill
     mimeType: 'image/png',
     buffer: Buffer.concat([validPng, Buffer.from([index])]),
   })));
-  await expect(page.locator('.capture-card')).toHaveCount(3);
-  await selectTaskTab(page, 'tickets', 'Progreso');
-  const aiInput = page.getByLabel('Verificar y normalizar con IA');
-  const aiSwitch = page.locator('label.switch-row').filter({ has: aiInput });
-  await aiSwitch.click();
-  await expect(aiInput).toBeChecked();
-  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
 
-  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Preparando imagen' })).toHaveCount(3);
-  await expect(page.locator('#receipt-progress-detail')).toContainText('3 procesando');
+  await expect(page.locator('.capture-card')).toHaveCount(3);
+  await expect(page.getByRole('tab', { name: 'Progreso', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Leer con OCR local', exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('Verificar y normalizar con IA')).toHaveCount(0);
+  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'En cola' })).toHaveCount(3);
+  await expect(page.locator('#receipt-progress-detail')).toContainText('3 pendientes');
   await expectNoHorizontalOverflow(page);
-  await page.screenshot({ path: testInfo.outputPath('background-job-running.png'), fullPage: false });
+  await page.screenshot({ path: testInfo.outputPath('automatic-pipeline-queued.png'), fullPage: false });
 
   releaseBackgroundJob();
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Completada' })).toHaveCount(3);
@@ -168,7 +177,7 @@ test('OCR exposes a two-slot per-image pipeline with retry and retailer autofill
   await expect(page.locator('#receipt-state')).toContainText('Ticket importado');
 });
 
-test('receipt cancellation stops queued work and preserves every capture', async ({ page }, testInfo) => {
+test('receipt cancellation requeues surviving captures and cancel-all preserves the draft', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 360, height: 780 });
   await page.emulateMedia({ colorScheme: 'light' });
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
@@ -177,23 +186,28 @@ test('receipt cancellation stops queued work and preserves every capture', async
     body: JSON.stringify({ configured: false }),
   }));
 
-  let started = 0;
-  let releaseRequests = () => {};
-  const requestGate = new Promise(resolve => {
-    releaseRequests = resolve;
-  });
-  await page.route('**/api/v1/receipts/extract', async route => {
-    started += 1;
-    await requestGate;
-    try {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ extraction: pageExtraction(0, false) }),
-      });
-    } catch {
-      // The expected AbortController cancellation closes intercepted requests.
+  let jobCounter = 0;
+  let deleteRequests = 0;
+  await page.route('**/api/v1/receipts/extraction-jobs**', route => {
+    const method = route.request().method();
+    if (method === 'DELETE') {
+      deleteRequests += 1;
+      return route.fulfill({ status: 204 });
     }
+    if (method === 'POST') {
+      jobCounter += 1;
+      return route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({ job: { id: `receipt-job-cancel-${jobCounter}` } }),
+      });
+    }
+    const id = new URL(route.request().url()).pathname.split('/').at(-1);
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ job: { id, status: 'running' } }),
+    });
   });
 
   await page.goto('/');
@@ -203,28 +217,25 @@ test('receipt cancellation stops queued work and preserves every capture', async
     mimeType: 'image/png',
     buffer: Buffer.concat([validPng, Buffer.from([10 + index])]),
   })));
-  await selectTaskTab(page, 'tickets', 'Progreso');
-  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
-  await expect.poll(() => started).toBe(2);
-  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'OCR local' })).toHaveCount(2);
-  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Pendiente' })).toHaveCount(1);
 
-  await selectTaskTab(page, 'tickets', 'Capturas');
+  await expect(page.locator('.capture-card')).toHaveCount(3);
+  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Procesando' })).toHaveCount(3);
   await page.locator('.capture-card').first().getByRole('button', { name: 'Cancelar esta imagen', exact: true }).click();
   await expect(page.locator('.capture-card').first().locator('.status-pill')).toHaveText('Cancelada');
-  await expect.poll(() => started).toBe(3);
+  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Procesando' })).toHaveCount(2);
+  await expect.poll(() => jobCounter).toBe(2);
+  expect(deleteRequests).toBe(1);
 
-  await selectTaskTab(page, 'tickets', 'Progreso');
   await page.getByRole('button', { name: 'Cancelar todo', exact: true }).click();
-  releaseRequests();
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Cancelada' })).toHaveCount(3);
   await expect(page.locator('.capture-card')).toHaveCount(3);
   await expect(page.locator('#receipt-progress-detail')).toContainText('3 canceladas');
   await expect(page.locator('#receipt-review')).toBeHidden();
-  await expect(page.getByRole('button', { name: 'Leer con OCR local', exact: true })).toBeEnabled();
-  await expect(page.locator('#receipt-state')).toContainText('capturas, los OCR parciales y las páginas completadas se conservan');
+  await expect(page.getByRole('button', { name: 'Leer con OCR local', exact: true })).toHaveCount(0);
+  await expect(page.locator('#receipt-state')).toContainText('Las capturas y cualquier OCR completado se conservan');
+  await expect.poll(() => deleteRequests).toBe(2);
   await expectNoHorizontalOverflow(page);
-  await page.screenshot({ path: testInfo.outputPath('ocr-cancelled.png'), fullPage: false });
+  await page.screenshot({ path: testInfo.outputPath('automatic-processing-cancelled.png'), fullPage: false });
 });
 
 function withReview(items, extras = {}) {
@@ -249,7 +260,7 @@ function withReview(items, extras = {}) {
   };
 }
 
-function pageExtraction(index, verified) {
+function pageEvidence(index) {
   const rawPages = [
     'ALCAMPO ALMERIA\n6 x ,89\nC.LADRON MANZAN 5,34 A\nPAN 1,50 B\nLECHE 1,20 B',
     'PAN 1,50 B\nLECHE 1,20 B\nRESTO TICKET 194,22 B',
@@ -260,29 +271,37 @@ function pageExtraction(index, verified) {
     [item('PAN', 1, 150, 150, 'B'), item('LECHE', 1, 120, 120, 'B'), item('RESTO TICKET', 1, 19_422, 19_422, 'B')],
     [item('RESTO TICKET', 1, 19_422, 19_422, 'B')],
   ];
-  const items = pageItems[index] || [];
-  const final = withReview(items, {
+  const metadata = {
     ...(index === 0 ? { retailerName: 'ALCAMPO ALMERIA' } : {}),
     ...(index === 2 ? { declaredTotalMinor: 20_226, articleCount: 88 } : {}),
-  });
+  };
   return {
-    pages: [{ pageIndex: 0, source: 'local-tesseract', rawText: rawPages[index], confidence: .92 }],
-    deterministic: { ...final },
-    final,
-    originalText: rawPages[index],
-    ...(verified ? {
-      ai: {
-        interpretation: {
-          correctedText: rawPages[index],
-          items,
-          declaredTotalMinor: final.declaredTotalMinor,
-          articleCount: final.articleCount,
-          retailerName: final.retailerName,
-          notes: [],
-          confidence: .97,
-        },
+    position: index,
+    storageKey: `evidence-${index}`,
+    source: 'local-tesseract',
+    text: rawPages[index],
+    confidence: .92,
+    deterministic: { items: pageItems[index], metadata },
+    ai: {
+      attempts: 1,
+      interpretation: {
+        correctedText: rawPages[index],
+        items: pageItems[index],
+        ...metadata,
+        notes: [],
+        confidence: .97,
       },
-    } : {}),
+    },
+  };
+}
+
+function backgroundJobExtraction() {
+  const pages = [0, 1, 2].map(pageEvidence);
+  return {
+    pages,
+    originalText: pages.map(page => page.text).join('\n'),
+    deterministic: { items: pages.flatMap(page => page.deterministic.items) },
+    final: withReview(pages.flatMap(page => page.deterministic.items)),
   };
 }
 
@@ -299,21 +318,10 @@ function assembledExtraction() {
     retailerName: 'ALCAMPO ALMERIA',
   });
   return {
-    pages: [0, 1, 2].flatMap(index => pageExtraction(index, true).pages),
+    pages: [0, 1, 2].map(pageEvidence),
     deterministic: { ...final },
     final,
-    originalText: [0, 1, 2].map(index => pageExtraction(index, true).originalText).join('\n'),
-    ai: {
-      interpretation: {
-        correctedText: 'ALCAMPO ALMERIA\n6 x ,89\nC.LADRON MANZAN 5,34 A\nPAN 1,50 B\nLECHE 1,20 B\nRESTO TICKET 194,22 B\nTOT 202,26\nNUM. TOTAL ART. VENDIDOS = 88',
-        items,
-        declaredTotalMinor: 20_226,
-        articleCount: 88,
-        retailerName: 'ALCAMPO ALMERIA',
-        notes: [],
-        confidence: .97,
-      },
-    },
+    originalText: [0, 1, 2].map(index => pageEvidence(index).text).join('\n'),
   };
 }
 
