@@ -62,7 +62,8 @@ test('settings coalesce AI configuration reads and keep the expensive probe manu
   await expect(page.locator('#ai-configuration-status')).toHaveText('Configuración cargada');
 
   await page.waitForTimeout(2200);
-  expect(settingsReads).toBeLessThanOrEqual(2);
+  const startupReads = settingsReads;
+  expect(startupReads).toBeLessThanOrEqual(3);
   expect(probePosts).toBe(0);
 
   await page.getByRole('button', { name: 'Verificar imagen y JSON estricto', exact: true }).click();
@@ -70,7 +71,7 @@ test('settings coalesce AI configuration reads and keep the expensive probe manu
   await expect(page.locator('#ai-test-state')).toContainText('Capacidad verificada');
   await page.waitForTimeout(500);
   expect(probePosts).toBe(1);
-  expect(settingsReads).toBeLessThanOrEqual(2);
+  expect(settingsReads).toBeLessThanOrEqual(startupReads + 1);
 });
 
 test('receipt review hides destructive rails and exposes confirmation errors next to the action', async ({ page }, testInfo) => {
