@@ -5,7 +5,7 @@ details.settings-card:has(#diagnostics),
 
 .view[data-view="settings"] {
   min-width: 0;
-  padding-bottom: var(--space-6);
+  padding-bottom: calc(var(--nav) + env(safe-area-inset-bottom) + var(--space-8));
 }
 
 .view[data-view="settings"] > .page-header {
