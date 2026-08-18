@@ -277,7 +277,6 @@ export class TesseractCliOcrProvider implements OcrProvider {
   readonly #timeoutMs: number;
   readonly #maxOutputBytes: number;
   readonly #runner: OcrProcessRunner;
-  #queue: Promise<void> = Promise.resolve();
 
   constructor(options: TesseractCliOcrOptions = {}) {
     this.#command = options.command ?? 'tesseract';
@@ -296,35 +295,30 @@ export class TesseractCliOcrProvider implements OcrProvider {
       throw new OcrError('OCR_INPUT_UNSUPPORTED', 'Local OCR supports JPEG and PNG images');
     }
 
-    const recognition = this.#queue.then(async () => {
-      signal?.throwIfAborted();
-      const result = await this.#runner({
-        command: this.#command,
-        args: [
-          'stdin',
-          'stdout',
-          '--oem',
-          '1',
-          '--psm',
-          '6',
-          '--dpi',
-          '300',
-          '-l',
-          this.#language,
-          '-c',
-          'preserve_interword_spaces=1',
-          'tsv',
-        ],
-        input: input.bytes,
-        timeoutMs: this.#timeoutMs,
-        maxOutputBytes: this.#maxOutputBytes,
-        ...(signal ? { signal } : {}),
-      });
-      const parsed = parseTesseractTsv(result.stdout);
-      return { ...parsed, source: 'local-tesseract' as const };
+    const result = await this.#runner({
+      command: this.#command,
+      args: [
+        'stdin',
+        'stdout',
+        '--oem',
+        '1',
+        '--psm',
+        '6',
+        '--dpi',
+        '300',
+        '-l',
+        this.#language,
+        '-c',
+        'preserve_interword_spaces=1',
+        'tsv',
+      ],
+      input: input.bytes,
+      timeoutMs: this.#timeoutMs,
+      maxOutputBytes: this.#maxOutputBytes,
+      ...(signal ? { signal } : {}),
     });
-    this.#queue = recognition.then(() => undefined, () => undefined);
-    return await recognition;
+    const parsed = parseTesseractTsv(result.stdout);
+    return { ...parsed, source: 'local-tesseract' };
   }
 
   dispose(): void {}
