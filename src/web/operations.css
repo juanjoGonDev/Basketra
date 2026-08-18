@@ -14,7 +14,7 @@ details.settings-card:has(#diagnostics),
 
 .operations-stack {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-5);
   min-width: 0;
 }
 
@@ -29,9 +29,9 @@ details.settings-card:has(#diagnostics),
   min-width: 0;
   padding: var(--space-5);
   overflow: hidden;
-  border: 0;
+  border: 1px solid color-mix(in srgb, var(--color-on-surface) 10%, transparent);
   border-radius: var(--radius-lg);
-  background: var(--color-surface-container-low);
+  background: var(--color-surface);
   box-shadow: none;
 }
 
@@ -51,6 +51,10 @@ details.settings-card:has(#diagnostics),
   overflow-wrap: break-word;
 }
 
+.operations-card p:last-child {
+  margin-bottom: 0;
+}
+
 .operations-metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -63,23 +67,24 @@ details.settings-card:has(#diagnostics),
   align-content: start;
   gap: .25rem;
   min-width: 0;
-  min-height: 5rem;
-  padding: .8rem;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: var(--color-surface-container-high);
+  min-height: 5.5rem;
+  padding: .9rem;
+  border: 1px solid color-mix(in srgb, var(--color-on-surface) 8%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-container-low);
   color: var(--color-on-surface);
 }
 
 .operations-metrics small,
-.operations-secondary,
-.operations-log small {
+.operations-secondary {
   color: var(--color-on-surface-variant);
 }
 
-.operations-metrics strong,
-.operations-log strong {
+.operations-metrics strong {
   overflow-wrap: break-word;
+  color: var(--color-on-surface);
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
 }
 
 #server-started-at {
@@ -89,11 +94,12 @@ details.settings-card:has(#diagnostics),
 
 #ai-configuration-status {
   width: fit-content;
-  padding: .35rem .65rem;
+  max-width: 100%;
+  padding: .4rem .75rem;
   border-radius: var(--radius-full);
   background: var(--color-surface-container-high);
   color: var(--color-on-surface-variant);
-  font-size: .82rem;
+  font-size: .78rem;
   font-weight: 700;
 }
 
@@ -114,19 +120,23 @@ details.settings-card:has(#diagnostics),
 
 #ai-test-state:not(:empty) {
   min-height: 0;
-  padding: .7rem .85rem;
-  border-radius: var(--radius-md);
-  background: var(--color-surface-container-high);
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--color-on-surface) 10%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-container-low);
   color: var(--color-on-surface-variant);
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 #ai-test-state[data-state="success"] {
+  border-color: color-mix(in srgb, var(--color-success) 20%, transparent);
   background: var(--color-success-container);
   color: var(--color-on-success-container);
 }
 
 #ai-test-state[data-state="recoverable-error"] {
+  border-color: color-mix(in srgb, var(--color-error) 20%, transparent);
   background: var(--color-error-container);
   color: var(--color-on-error-container);
 }
@@ -134,17 +144,18 @@ details.settings-card:has(#diagnostics),
 #ai-test-state[data-state="preparing"],
 #ai-test-state[data-state="uploading"],
 #ai-test-state[data-state="waiting"] {
-  background: var(--color-primary-container);
-  color: var(--color-on-primary-container);
+  border-color: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  background: color-mix(in srgb, var(--color-primary-container) 24%, var(--color-surface));
+  color: var(--color-primary);
 }
 
 .provider-check {
   display: grid;
-  gap: 1px;
   margin: 0;
   overflow: hidden;
-  border-radius: var(--radius-md);
-  background: var(--color-outline-variant);
+  border: 1px solid color-mix(in srgb, var(--color-on-surface) 10%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
 }
 
 .provider-check > div {
@@ -152,32 +163,39 @@ details.settings-card:has(#diagnostics),
   grid-template-columns: minmax(7.5rem, auto) minmax(0, 1fr);
   gap: var(--space-3);
   align-items: start;
-  padding: .8rem .9rem;
-  background: var(--color-surface-container-high);
+  padding: .85rem 1rem;
+  background: var(--color-surface);
+}
+
+.provider-check > div + div {
+  border-top: 1px solid color-mix(in srgb, var(--color-on-surface) 8%, transparent);
 }
 
 .provider-check dt {
   color: var(--color-on-surface-variant);
-  font-size: .75rem;
-  font-weight: 650;
+  font-size: .72rem;
+  font-weight: 700;
 }
 
 .provider-check dd {
   min-width: 0;
   margin: 0;
+  overflow-wrap: anywhere;
   color: var(--color-on-surface);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: .76rem;
+  font-size: .75rem;
 }
 
 .provider-health {
   display: grid;
-  gap: .2rem;
-  padding: .8rem .95rem;
-  border-radius: var(--radius-md);
-  background: var(--color-surface-container-high);
+  gap: .3rem;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--color-on-surface) 10%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-container-low);
   color: var(--color-on-surface);
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 .provider-health strong {
@@ -191,6 +209,7 @@ details.settings-card:has(#diagnostics),
 }
 
 .provider-health[data-state="ok"] {
+  border-color: color-mix(in srgb, var(--color-success) 20%, transparent);
   background: var(--color-success-container);
   color: var(--color-on-success-container);
 }
@@ -200,6 +219,7 @@ details.settings-card:has(#diagnostics),
 }
 
 .provider-health[data-state="error"] {
+  border-color: color-mix(in srgb, var(--color-error) 20%, transparent);
   background: var(--color-error-container);
   color: var(--color-on-error-container);
 }
@@ -209,12 +229,14 @@ details.settings-card:has(#diagnostics),
 }
 
 .operations-help {
-  padding: .85rem 1rem;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: var(--color-primary-container);
-  color: var(--color-on-primary-container);
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 16%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-primary-container) 20%, var(--color-surface));
+  color: var(--color-on-surface);
   font-size: .82rem;
+  line-height: 1.5;
 }
 
 .operations-help:empty {
@@ -227,28 +249,46 @@ details.settings-card:has(#diagnostics),
 
 .operations-logs {
   display: grid;
-  gap: 1px;
   max-width: 100%;
   max-height: 24rem;
   margin: 0;
   padding: 0;
   overflow: auto;
   overscroll-behavior: contain;
-  border-radius: var(--radius-md);
-  background: var(--color-outline-variant);
+  border: 1px solid color-mix(in srgb, var(--color-on-surface) 16%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--color-on-surface);
   list-style: none;
 }
 
 .operations-log {
   display: grid;
-  gap: .2rem;
+  gap: .25rem;
   min-width: 0;
-  padding: .8rem .9rem;
+  padding: .8rem 1rem;
   border: 0;
-  border-inline-start: .25rem solid var(--color-outline);
+  border-inline-start: .25rem solid color-mix(in srgb, var(--color-surface) 45%, transparent);
   border-radius: 0;
-  background: var(--color-surface-container-high);
-  color: var(--color-on-surface);
+  background: transparent;
+  color: var(--color-surface);
+}
+
+.operations-log + .operations-log {
+  border-top: 1px solid color-mix(in srgb, var(--color-surface) 12%, transparent);
+}
+
+.operations-log strong {
+  overflow-wrap: anywhere;
+  color: var(--color-surface);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .76rem;
+}
+
+.operations-log small {
+  overflow-wrap: anywhere;
+  color: color-mix(in srgb, var(--color-surface) 72%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .72rem;
 }
 
 .operations-log--warn {
@@ -263,7 +303,7 @@ details.settings-card:has(#diagnostics),
   width: 100%;
   margin: .25rem 0;
   border: 0;
-  border-top: 1px solid var(--color-outline-variant);
+  border-top: 1px solid color-mix(in srgb, var(--color-on-surface) 10%, transparent);
 }
 
 #backup-import-file {
@@ -274,23 +314,18 @@ details.settings-card:has(#diagnostics),
 #backup-import-file::file-selector-button {
   min-height: 2.5rem;
   margin-right: var(--space-3);
-  padding: .5rem .85rem;
+  padding: .5rem .9rem;
   border: 0;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-interactive);
   background: var(--color-surface-container-high);
   color: var(--color-on-surface);
   font: inherit;
-  font-weight: 650;
+  font-weight: 700;
   cursor: pointer;
 }
 
 #backup-import-file:hover::file-selector-button {
   background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface-container-high));
-}
-
-.status-pill.error {
-  background: var(--color-error-container);
-  color: var(--color-on-error-container);
 }
 
 .retailer-field {
@@ -300,14 +335,13 @@ details.settings-card:has(#diagnostics),
 
 .retailer-suggestions {
   display: grid;
-  gap: 1px;
   margin: -.1rem 0 0;
   padding: 0;
   overflow: hidden;
-  border: 1px solid var(--color-outline-variant);
-  border-radius: var(--radius-md);
-  background: var(--color-outline-variant);
-  box-shadow: 0 .4rem 1.25rem rgb(0 0 0 / .12);
+  border: 1px solid color-mix(in srgb, var(--color-on-surface) 12%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: none;
 }
 
 .retailer-suggestion {
@@ -316,15 +350,20 @@ details.settings-card:has(#diagnostics),
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-3);
   align-items: center;
-  padding: .7rem .85rem;
+  padding: .75rem 1rem;
+  border: 0;
   border-radius: 0;
-  background: var(--color-surface-container-low);
+  background: var(--color-surface);
   color: var(--color-on-surface);
   text-align: left;
 }
 
+.retailer-suggestion + .retailer-suggestion {
+  border-top: 1px solid color-mix(in srgb, var(--color-on-surface) 8%, transparent);
+}
+
 .retailer-suggestion:hover {
-  background: var(--color-surface-container-high);
+  background: var(--color-surface-container-low);
 }
 
 .retailer-suggestion strong {
@@ -338,139 +377,11 @@ details.settings-card:has(#diagnostics),
   white-space: nowrap;
 }
 
-/* Receipt review uses the same tonal, compact Android hierarchy as the rest of the app. */
-[data-swipe-kind="receipt-line"] {
-  border-radius: var(--radius-lg);
-  background: transparent;
-}
-
-[data-swipe-kind="receipt-line"] [data-swipe-actions] {
-  visibility: hidden;
-  opacity: 0;
-}
-
-[data-swipe-kind="receipt-line"].is-dragging [data-swipe-actions],
-[data-swipe-kind="receipt-line"].is-swipe-committing [data-swipe-actions],
-[data-swipe-kind="receipt-line"][data-swipe-open="true"] [data-swipe-actions],
-[data-swipe-kind="receipt-line"][data-swipe-delete-armed="true"] [data-swipe-actions] {
-  visibility: visible;
-  opacity: 1;
-}
-
-.receipt-items {
-  gap: var(--space-3);
-}
-
-.receipt-item {
-  gap: var(--space-3);
-  padding: .9rem 1rem 1rem;
-  border: 0;
-  border-radius: var(--radius-lg);
-  background: var(--color-surface-container-low);
-}
-
-.receipt-item legend {
-  min-height: 2.5rem;
-  padding: 0;
-  color: var(--color-on-surface);
-  font-size: .86rem;
-  font-weight: 700;
-}
-
-.receipt-item__legend-actions {
-  gap: var(--space-2);
-}
-
-.receipt-item__legend-actions .status-pill {
-  min-height: 1.75rem;
-  padding: .3rem .65rem;
-  font-size: .7rem;
-}
-
-.receipt-item__legend-actions .status-pill[data-receipt-validation="review"] {
-  background: var(--color-warning-container);
-  color: var(--color-on-warning-container);
-}
-
-.receipt-item__legend-actions .status-pill[data-receipt-validation="confirmed"] {
-  background: var(--color-success-container);
-  color: var(--color-on-success-container);
-}
-
-.receipt-item .field {
-  gap: .3rem;
-  font-size: .72rem;
-  font-weight: 650;
-}
-
-.receipt-item .field > span {
-  padding-inline: .15rem;
-  color: var(--color-on-surface-variant);
-}
-
-.receipt-item .field input {
-  min-height: 3rem;
-  padding: .68rem .8rem;
-  border-color: var(--color-outline-variant);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  font-variant-numeric: tabular-nums;
-}
-
-.receipt-item .field input:hover {
-  border-color: var(--color-outline);
-}
-
-.receipt-item .quantity-row {
-  grid-template-columns: .7fr 1.15fr 1fr;
-  gap: var(--space-2);
-}
-
-.review-total {
-  margin-block: var(--space-3);
-  padding: .8rem 1rem;
-  border-radius: var(--radius-md);
-  background: var(--color-surface-container-high);
-}
-
-.receipt-confirm-state {
-  position: sticky;
-  bottom: calc(var(--nav) + env(safe-area-inset-bottom) + 4.4rem);
-  z-index: 21;
-  margin: var(--space-3) 0 0;
-  padding: .75rem 1rem;
-  border-radius: var(--radius-md);
-  background: var(--color-error-container);
-  color: var(--color-on-error-container);
-  box-shadow: 0 .25rem .8rem rgb(0 0 0 / .08);
-  font-size: .82rem;
-  font-weight: 600;
-  line-height: 1.4;
-}
-
-.receipt-confirm-state[data-state="working"] {
-  background: var(--color-primary-container);
-  color: var(--color-on-primary-container);
-}
-
-.receipt-confirm-state[data-state="success"] {
-  background: var(--color-success-container);
-  color: var(--color-on-success-container);
-}
-
 @media (max-width: 359px) {
   .operations-metrics,
   .operations-log-actions,
   .provider-check > div {
     grid-template-columns: 1fr;
-  }
-
-  .receipt-item .quantity-row {
-    grid-template-columns: .7fr 1.3fr;
-  }
-
-  .receipt-item .quantity-row > :last-child {
-    grid-column: 1 / -1;
   }
 }
 
@@ -480,8 +391,8 @@ details.settings-card:has(#diagnostics),
     align-items: start;
   }
 
-  .receipt-item {
-    padding: 1rem 1.1rem 1.1rem;
+  .operations-card {
+    min-height: 100%;
   }
 }
 
@@ -496,10 +407,6 @@ details.settings-card:has(#diagnostics),
 
   .operations-logs {
     max-height: 30rem;
-  }
-
-  .receipt-confirm-state {
-    bottom: 5.2rem;
   }
 }
 
