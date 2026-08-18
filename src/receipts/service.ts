@@ -458,7 +458,8 @@ function resolvePageItems(page: ReceiptPageEvidence): ReceiptExtractionItem[] {
 }
 
 function addPageProvenance(item: ReceiptExtractionItem, page: ReceiptPageEvidence): ReceiptExtractionItem {
-  const sourceLines = item.sourceLines ?? [];
+  // Deterministic parsing and the AI receipt schema both require source lines before items reach this boundary.
+  const sourceLines = item.sourceLines!;
   const lineEvidence = sourceLines.flatMap((index) => {
     const line = page.lines?.find((candidate) => candidate.index === index);
     return line ? [line] : [];
@@ -478,8 +479,8 @@ function fieldConfidenceFromLines(
   lines: readonly OcrLine[],
 ): ReceiptFieldConfidence | undefined {
   if (lines.length === 0) return item.fieldConfidence;
-  const product = lines.at(-1)?.confidence ?? item.confidence;
-  const quantity = (lines.length > 1 ? lines[0]?.confidence : product) ?? item.confidence;
+  const product = lines[lines.length - 1]!.confidence;
+  const quantity = lines.length > 1 ? lines[0]!.confidence : product;
   return {
     description: Math.min(item.confidence, normalizeConfidence(product)),
     quantity: Math.min(item.confidence, normalizeConfidence(quantity)),
