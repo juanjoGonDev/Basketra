@@ -4,6 +4,10 @@ function navigate(page, name) {
   return page.locator('.bottom-nav').getByRole('button', { name, exact: true }).click();
 }
 
+async function selectSettingsTab(page, name) {
+  await page.locator('[data-tab-group="settings"]').getByRole('tab', { name, exact: true }).click();
+}
+
 async function expectNoHorizontalOverflow(page) {
   const dimensions = await page.evaluate(() => ({
     viewport: document.documentElement.clientWidth,
@@ -31,10 +35,10 @@ function configuredAiSettings() {
 test.afterEach(async ({ page }, testInfo) => {
   if (page.isClosed()) return;
   await page.evaluate(() => window.scrollTo(0, 0));
-  await page.screenshot({ path: testInfo.outputPath('operations-viewport.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('operations-viewport.png'), fullPage: false });
 });
 
-test('settings show live runtime, redacted copyable logs and downloadable importable backups', async ({ page, request }, testInfo) => {
+test('settings keep runtime, logs and backups in focused task areas without losing behavior', async ({ page, request }, testInfo) => {
   const failures = [];
   await page.addInitScript(() => {
     window.__basketraCopiedLogs = '';
@@ -56,7 +60,6 @@ test('settings show live runtime, redacted copyable logs and downloadable import
   await page.goto('/');
   await navigate(page, 'Ajustes');
   await expect(page.getByRole('heading', { name: 'Servidor y versión' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Copiar logs', exact: true })).toBeVisible();
   await expect(page.locator('#runtime-version')).toHaveText('1.4.2-test');
   await expect(page.locator('#runtime-revision')).toContainText('abcdef123456');
   await expect(page.locator('#server-started-at')).not.toHaveText('Cargando…');
@@ -64,11 +67,15 @@ test('settings show live runtime, redacted copyable logs and downloadable import
   const firstUptime = await page.locator('#server-uptime').textContent();
   await expect.poll(async () => page.locator('#server-uptime').textContent(), { timeout: 3500 })
     .not.toBe(firstUptime);
+
+  await selectSettingsTab(page, 'IA');
   await expect(page.locator('#ai-configuration-status')).toHaveText('Configuración no cargada');
   await expect(page.locator('#ai-configuration-detail')).toContainText('BASKETRA_AI_BASE_URL');
+  await page.getByText('Detalles técnicos de la conexión', { exact: true }).click();
   await expect(page.locator('#ai-provider-request')).toHaveText('Pendiente de configuración');
   await expect(page.locator('#test-ai-provider')).toBeDisabled();
 
+  await selectSettingsTab(page, 'Datos');
   await page.getByRole('button', { name: 'Crear copia', exact: true }).click();
   const downloadLink = page.locator('#backup-download-link');
   await expect(downloadLink).toBeVisible();
@@ -97,6 +104,8 @@ test('settings show live runtime, redacted copyable logs and downloadable import
   await page.getByRole('button', { name: 'Restaurar tras reinicio', exact: true }).click();
   await expect(page.locator('#restore-state')).toContainText('escribe RESTAURAR exactamente');
 
+  await selectSettingsTab(page, 'Diagnóstico');
+  await expect(page.getByRole('button', { name: 'Copiar logs', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Actualizar logs', exact: true }).click();
   await expect(page.locator('#application-logs')).toContainText('server.started');
   await expect(page.locator('#application-logs')).toContainText('backup.imported');
@@ -116,12 +125,12 @@ test('settings show live runtime, redacted copyable logs and downloadable import
     expect(line).toBe(JSON.stringify(JSON.parse(line)));
   }
 
-  await page.screenshot({ path: testInfo.outputPath('runtime-backups-logs.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('runtime-backups-logs.png'), fullPage: false });
   await expectNoHorizontalOverflow(page);
   expect(failures).toEqual([]);
 });
 
-test('settings verify the managed-token image and strict JSON capability', async ({ page }) => {
+test('settings verify the managed-token image and strict JSON capability on demand', async ({ page }) => {
   let probeRequests = 0;
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
@@ -146,6 +155,10 @@ test('settings verify the managed-token image and strict JSON capability', async
 
   await page.goto('/');
   await navigate(page, 'Ajustes');
+  await selectSettingsTab(page, 'IA');
+  const technical = page.locator('.technical-disclosure');
+  await expect(technical).not.toHaveAttribute('open', '');
+  await technical.getByText('Detalles técnicos de la conexión', { exact: true }).click();
   await expect(page.locator('#ai-provider-request')).toHaveText('POST http://host.docker.internal:3001/v1/chat/completions');
   await expect(page.locator('#ai-provider-authorization')).toHaveText('Bearer con token gestionado');
   await expect(page.getByText('imagen sintética sin datos personales')).toBeVisible();
@@ -158,7 +171,7 @@ test('settings verify the managed-token image and strict JSON capability', async
   await expectNoHorizontalOverflow(page);
 });
 
-test('desktop settings explain the webApi probe and use the expanded navigation rail', async ({ page }, testInfo) => {
+test('desktop settings keep the webApi probe focused and preserve the expanded navigation rail', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1664, height: 900 });
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
@@ -179,6 +192,8 @@ test('desktop settings explain the webApi probe and use the expanded navigation 
 
   await page.goto('/');
   await navigate(page, 'Ajustes');
+  await selectSettingsTab(page, 'IA');
+  await page.getByText('Detalles técnicos de la conexión', { exact: true }).click();
   await expect(page.locator('#ai-provider-request')).toHaveText('POST http://host.docker.internal:3001/v1/chat/completions');
   await expect(page.locator('#ai-provider-authorization')).toHaveText('Bearer con token gestionado');
   await expect(page.locator('#ai-provider-network-note')).toContainText('apunta al host Docker de Basketra');
@@ -187,6 +202,9 @@ test('desktop settings explain the webApi probe and use the expanded navigation 
   await page.getByRole('button', { name: 'Verificar imagen y JSON estricto', exact: true }).click();
   await expect(page.locator('#ai-test-state')).toContainText('No se pudo abrir una conexión');
   await expect(page.locator('#ai-test-state')).toContainText('IP privada');
+  await page.screenshot({ path: testInfo.outputPath('desktop-provider-diagnostics.png'), fullPage: false });
+
+  await selectSettingsTab(page, 'General');
   await page.evaluate(async () => {
     document.documentElement.style.scrollBehavior = 'auto';
     document.documentElement.style.overflowAnchor = 'none';
@@ -201,9 +219,9 @@ test('desktop settings explain the webApi probe and use the expanded navigation 
   const geometry = await page.evaluate(() => {
     const header = document.querySelector('.app-header').getBoundingClientRect();
     const navigation = document.querySelector('.bottom-nav').getBoundingClientRect();
-    const firstCard = document.querySelector('.operations-card').getBoundingClientRect();
+    const firstCard = document.querySelector('[data-tab-panel="general"] .operations-card').getBoundingClientRect();
     const stack = document.querySelector('.operations-stack').getBoundingClientRect();
-    const metrics = [...document.querySelectorAll('.operations-metrics > div')].map(element => element.getBoundingClientRect());
+    const metrics = [...document.querySelectorAll('[data-tab-panel="general"] .operations-metrics > div')].map(element => element.getBoundingClientRect());
     return {
       headerBottom: header.bottom,
       navigationLeft: navigation.left,
@@ -223,8 +241,6 @@ test('desktop settings explain the webApi probe and use the expanded navigation 
   expect(geometry.stackWidth).toBeGreaterThan(1000);
   expect(geometry.metricColumns[0]).toBe(geometry.metricColumns[2]);
   expect(geometry.metricColumns[1]).toBe(geometry.metricColumns[3]);
-
-  await page.screenshot({ path: testInfo.outputPath('desktop-provider-diagnostics.png'), fullPage: true });
   await expectNoHorizontalOverflow(page);
 });
 
@@ -249,10 +265,11 @@ test('private-route heartbeat recovers after VPN connectivity returns without a 
   await expect(page.locator('#connection-state')).toHaveAttribute('data-ok', 'true');
   await page.waitForTimeout(1700);
   await navigate(page, 'Ajustes');
+  await selectSettingsTab(page, 'Diagnóstico');
   await page.getByRole('button', { name: 'Actualizar logs', exact: true }).click();
   await expect(page.locator('#application-logs')).toContainText('client.connection_lost');
   await expect(page.locator('#application-logs')).toContainText('client.connection_restored');
-  await page.screenshot({ path: testInfo.outputPath('vpn-reconnected.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('vpn-reconnected.png'), fullPage: false });
   await expectNoHorizontalOverflow(page);
   expect(unexpectedFailures).toEqual([]);
 });
