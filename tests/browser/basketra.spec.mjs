@@ -289,7 +289,7 @@ test('automatic local OCR creates editable euro rows with source context and imp
   await expect(page.getByLabel('Precio unitario (€)').first()).toHaveValue('1.20');
   await expect(page.getByLabel('Total (€)').first()).toHaveValue('1.20');
   await expect(page.getByLabel('Total declarado (€)')).toHaveValue('1.20');
-  await expect(page.locator('#receipt-review')).toContainText('1,20 €');
+  await expect(page.locator('#receipt-review-sticky-summary')).toContainText('1,20 €');
   await expect(page.getByText(/céntimos|cént\./i)).toHaveCount(0);
 
   const firstLineShell = page.locator('[data-swipe-kind="receipt-line"]').first();
