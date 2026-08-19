@@ -18,7 +18,7 @@ Follow-up feedback requires the sticky review context to visibly use Basketra's 
 - Tests-only head `67d1b420d99088b38656027e45fb6459de6a5407` reproduced the feedback: all 42 existing browser flows passed and only the new icon acceptance test failed because `Ampliar captura` had no `.icon` descendant.
 - Implementation head `cf971e7b09309db9a23d1ed299dffe8b5434a140` rendered the canonical icons and passed all 43 browser flows. The browser diff-coverage gate then identified one unexercised branch for the warning-state icon, so the tests were extended rather than weakening coverage.
 - Follow-up head `b98b01166d919e0013dab8f1bc55faca8e4e3853` covers both validated and warning states and passed 43/43 Chromium tests with 100% changed-code coverage across 228 lines, 14 functions and 25 branches.
-- Final validated head `a493eeba2a0196ece2370771301e218e22d2971e` repeated the full canonical gates successfully. Exact-head artifact `9384471263` was downloaded and manually inspected: mobile review visibly shows the existing image glyph beside `Ampliar`, the check glyph beside `Total validado`, the current capture identity and sticky calculated total while the preview action remains usable.
+- Exact-head artifact from `a493eeba2a0196ece2370771301e218e22d2971e` was downloaded and manually inspected. Mobile review visibly shows the existing image glyph beside `Ampliar`, the check glyph beside `Total validado`, the current capture identity and sticky calculated total while the preview action remains usable.
 
 ## Decision
 
@@ -54,14 +54,14 @@ Follow-up feedback requires the sticky review context to visibly use Basketra's 
 
 ## Checks
 
-Final validated head `a493eeba2a0196ece2370771301e218e22d2971e`:
+Final code/documentation head before this status-only record, `a246bc805d5151c75b55ca1ff4dff8ec1a99b39a`:
 
-- Pull Request Quality run `32305072332`: Quality, Browser E2E, Security, container smoke, linux/amd64 and linux/arm64 all passed.
-- Browser E2E job `96235955994`: 43/43 Chromium tests passed.
+- Pull Request Quality run `32305647611`: Quality, Browser E2E, Security, container smoke, linux/amd64 and linux/arm64 all passed.
+- Browser E2E job `96237705473`: 43/43 Chromium tests passed.
 - Browser changed-code coverage: 100% across 228 changed lines, 14 functions and 25 branches.
-- CodeQL Advanced run `32305072315`: passed.
-- Publish PR visual evidence run `32305072309`: passed against the same head.
-- Exact-head browser artifact `9384471263` was downloaded and manually inspected for visible sticky review icons and unchanged mobile review geometry.
+- CodeQL Advanced run `32305647634`: passed.
+- Publish PR visual evidence run `32305647630`: passed against the same head.
+- The preceding exact-head browser artifact was manually inspected for visible sticky review icons and unchanged mobile review geometry; this status-only documentation commit does not alter runtime assets, tests or workflows.
 
 ## Delivery
 
@@ -80,9 +80,10 @@ Implemented on PR #32 (`agent/ui-android-native-redesign`) through atomic Conven
 - `cf971e7b` `fix(receipts): show sticky review icons`
 - `b98b0116` `test(receipts): cover sticky warning icon`
 - `a493eeba` `docs(spec): finalize sticky review icon feedback`
+- `a246bc80` `docs(spec): mark sticky review icons complete`
 
 No merge, release, deployment, migration, dependency or API-contract operation is part of this task.
 
 ## Status
 
-Complete. Sticky review behavior and icon feedback are implemented, regression-covered, exact-head CI validated and visually inspected. Merge remains gated by explicit user approval.
+Complete. Sticky review behavior and icon feedback are implemented, regression-covered, CI validated and visually inspected. Merge remains gated by explicit user approval.
