@@ -16,6 +16,7 @@ test('service worker installs the complete shell, cleans old caches and handles 
   let currentCacheName = '';
   let skipWaitingCalls = 0;
   let claimCalls = 0;
+  let cachePutFails = false;
   let fetchImplementation: typeof fetch = async request => new Response(String(request), { status: 200 });
   let matchImplementation = async (_request: RequestInfo | URL): Promise<Response | undefined> => undefined;
 
@@ -25,6 +26,7 @@ test('service worker installs the complete shell, cleans old caches and handles 
     },
     async put(request: RequestInfo | URL) {
       cacheWrites.push(requestAddress(request));
+      if (cachePutFails) throw new Error('cache unavailable');
     },
   };
   const fakeSelf = {
@@ -131,10 +133,19 @@ test('service worker installs the complete shell, cleans old caches and handles 
     assert.deepEqual(cacheWrites, [freshRequest.url]);
 
     responseWork = undefined;
+    cachePutFails = true;
+    const cacheFailureRequest = new Request('http://basketra.test/app.js');
+    fetchListener({ request: cacheFailureRequest, respondWith });
+    assert.equal((await responseWork)?.status, 200);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(cacheWrites, [freshRequest.url, cacheFailureRequest.url]);
+    cachePutFails = false;
+
+    responseWork = undefined;
     fetchImplementation = async () => new Response('missing', { status: 404 });
     fetchListener({ request: new Request('http://basketra.test/missing.js'), respondWith });
     assert.equal((await responseWork)?.status, 404);
-    assert.deepEqual(cacheWrites, [freshRequest.url]);
+    assert.deepEqual(cacheWrites, [freshRequest.url, cacheFailureRequest.url]);
 
     responseWork = undefined;
     fetchImplementation = async () => { throw new TypeError('offline'); };
