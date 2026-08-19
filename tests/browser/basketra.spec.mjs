@@ -339,7 +339,7 @@ test('automatic local OCR creates editable euro rows with source context and imp
   await page.getByRole('button', { name: 'Validar líneas e importes', exact: true }).click();
   await expect(page.locator('#receipt-state')).toContainText('Líneas y total validados');
 
-  await page.getByRole('button', { name: 'Confirmar e importar', exact: true }).click();
+  await page.locator('#confirm-receipt').click();
   await expect(page.locator('#receipt-state')).toContainText('Ticket importado');
   await expect(page.locator('#capture-list li')).toHaveCount(0);
   await expectNoHorizontalOverflow(page);

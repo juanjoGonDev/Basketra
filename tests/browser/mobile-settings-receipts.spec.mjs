@@ -155,7 +155,7 @@ test('automatic OCR and optional AI correction preserve the two-slot pool and re
   await page.screenshot({ path: testInfo.outputPath('retailer-confirmed.png'), fullPage: true });
 
   const confirmationRequest = page.waitForRequest(request => new URL(request.url()).pathname === '/api/v1/receipts/confirm');
-  await page.getByRole('button', { name: 'Confirmar e importar', exact: true }).click();
+  await page.locator('#confirm-receipt').click();
   const payload = (await confirmationRequest).postDataJSON();
   expect(payload.retailerName).toBe('ALCAMPO ALMERIA');
   expect(payload.declaredTotalMinor).toBe(20_226);
