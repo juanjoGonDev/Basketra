@@ -129,6 +129,12 @@ async function expectNoHorizontalOverflow(page) {
   expect(dimensions.page).toBeLessThanOrEqual(dimensions.viewport);
 }
 
+async function openCaptureDetails(page, index = 0) {
+  const details = page.locator('.capture-card__details').nth(index);
+  if (!(await details.evaluate(element => element.open))) await details.locator('summary').click();
+  return details;
+}
+
 test.afterEach(async ({ page }, testInfo) => {
   if (page.isClosed()) return;
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -257,7 +263,7 @@ test('local suggestions ignore stale responses and never require AI', async ({ p
   expect(failures).toEqual([]);
 });
 
-test('local OCR creates editable euro rows with accessible row actions and imports without AI', async ({ page }, testInfo) => {
+test('automatic local OCR creates editable euro rows with source context and imports without AI', async ({ page }, testInfo) => {
   const failures = await gotoApp(page);
   await navigate(page, 'Tickets');
 
@@ -265,24 +271,20 @@ test('local OCR creates editable euro rows with accessible row actions and impor
   await expect(page.locator('#receipt-camera')).toHaveAttribute('accept', 'image/jpeg,image/png');
   await expect(page.locator('#receipt-files')).toHaveAttribute('accept', 'image/jpeg,image/png,application/pdf');
   await expect(page.locator('#receipt-text')).toHaveCount(0);
-  await expect(page.getByLabel('Verificar y normalizar con IA')).toBeDisabled();
+  await expect(page.getByLabel('Corregir OCR con IA')).toBeDisabled();
   await expect(page.locator('#receipt-ai-help')).toContainText('OCR local en español activo');
+  await expect(page.getByRole('button', { name: 'Leer con OCR local', exact: true })).toHaveCount(0);
 
-  const pdf = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00]);
-  await page.locator('#receipt-camera').setInputFiles({ name: 'camera.png', mimeType: 'image/png', buffer: validPng });
   await page.locator('#receipt-files').setInputFiles([
+    { name: 'camera.png', mimeType: 'image/png', buffer: validPng },
     { name: 'gallery.png', mimeType: 'image/png', buffer: validPng },
-    { name: 'receipt.pdf', mimeType: 'application/pdf', buffer: pdf },
   ]);
 
-  await expect(page.locator('#capture-list li')).toHaveCount(3);
-  await expect(page.locator('#capture-list img[data-capture-preview-image]')).toHaveCount(2);
-  await expect(page.locator('#capture-list')).toContainText('PDF');
-  await page.getByRole('button', { name: 'Retirar receipt.pdf del borrador' }).click();
   await expect(page.locator('#capture-list li')).toHaveCount(2);
-
-  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
+  await expect(page.locator('#capture-list img[data-capture-preview-image]')).toHaveCount(2);
   await expect(page.locator('#receipt-state')).toContainText('Todas las imágenes están combinadas');
+  await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
+  await expect(page.locator('#receipt-review-reference-image')).toBeVisible();
   await expect(page.locator('.receipt-item')).toHaveCount(1);
   await expect(page.getByLabel('Precio unitario (€)').first()).toHaveValue('1.20');
   await expect(page.getByLabel('Total (€)').first()).toHaveValue('1.20');
@@ -340,10 +342,9 @@ test('local OCR creates editable euro rows with accessible row actions and impor
   expect(failures).toEqual([]);
 });
 
-test('local OCR failure preserves captures and supports page retry', async ({ page }) => {
+test('automatic local OCR failure preserves captures and supports per-image retry', async ({ page }) => {
   const failures = await gotoApp(page, { allowExpectedOcrFailure: true });
   await navigate(page, 'Tickets');
-  await page.locator('#receipt-camera').setInputFiles({ name: 'manual.png', mimeType: 'image/png', buffer: validPng });
   let failOnce = true;
   await page.route('**/api/v1/receipts/extract', async route => {
     if (failOnce) {
@@ -353,14 +354,16 @@ test('local OCR failure preserves captures and supports page retry', async ({ pa
     }
     await route.continue();
   });
-  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
+
+  await page.locator('#receipt-camera').setInputFiles({ name: 'manual.png', mimeType: 'image/png', buffer: validPng });
   await expect(page.locator('#receipt-state')).toContainText('1 imágenes con error');
   await expect(page.locator('#capture-list li')).toHaveCount(1);
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
-  await expect(page.getByRole('button', { name: 'Reintentar imagen', exact: true })).toBeVisible();
+  const details = await openCaptureDetails(page);
+  await expect(details.getByRole('button', { name: 'Reintentar imagen', exact: true })).toBeVisible();
   await expect(page.locator('.receipt-item')).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Reintentar imagen', exact: true }).click();
+  await details.getByRole('button', { name: 'Reintentar imagen', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada');
   await expect(page.locator('#receipt-state')).toContainText('Todas las imágenes están combinadas');
   await expect(page.locator('.receipt-item')).toHaveCount(1);
