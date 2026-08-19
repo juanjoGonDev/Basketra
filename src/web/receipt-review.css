@@ -122,8 +122,7 @@
 }
 
 .receipt-review-panel {
-  --receipt-mobile-evidence-height: 4.25rem;
-  --receipt-mobile-summary-height: 7.25rem;
+  --receipt-mobile-summary-height: 3.5rem;
   min-width: 0;
 }
 
@@ -156,10 +155,6 @@
   display: grid;
   align-content: start;
   gap: var(--space-3);
-}
-
-.receipt-review-evidence__compact {
-  display: none;
 }
 
 .receipt-review-reference {
@@ -200,6 +195,14 @@
   border: 1px solid var(--color-outline-variant);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
+}
+
+.receipt-review-expand {
+  display: none;
+}
+
+.confirm-receipt__label-compact {
+  display: none;
 }
 
 .receipt-review-sticky-summary .review-total {
@@ -249,67 +252,65 @@
 }
 
 @media (max-width: 49.99rem) {
-  .receipt-review-evidence__compact {
+  .receipt-review-sticky-summary {
     position: sticky;
     z-index: 18;
     top: calc(var(--header) + env(safe-area-inset-top) + var(--space-2));
-    display: grid;
-    height: var(--receipt-mobile-evidence-height);
-    grid-template-columns: 3rem minmax(0, 1fr) auto;
-    align-items: center;
+    min-height: var(--receipt-mobile-summary-height);
+    grid-template-columns: var(--touch) minmax(0, 1fr) auto;
     gap: var(--space-2);
-    overflow: hidden;
-    padding: var(--space-2);
-    border: 1px solid var(--color-outline-variant);
-    border-radius: var(--radius-lg);
-    background: var(--color-surface);
-  }
-
-  .receipt-review-evidence__compact img {
-    width: 3rem;
-    height: 3rem;
-    border-radius: var(--radius-md);
-    background: var(--color-surface-container-low);
-    object-fit: cover;
-  }
-
-  .receipt-review-evidence__identity {
-    display: grid;
-    min-width: 0;
-    gap: var(--space-1);
-  }
-
-  .receipt-review-evidence__identity strong,
-  .receipt-review-evidence__identity small {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .receipt-review-evidence__identity strong {
-    font-size: .8rem;
-  }
-
-  .receipt-review-evidence__identity small {
-    font-size: .7rem;
+    padding: var(--space-1) var(--space-2);
   }
 
   .receipt-review-expand {
+    display: inline-grid;
+    width: var(--touch);
+    min-width: var(--touch);
+    height: var(--touch);
     min-height: var(--touch);
-    padding-inline: var(--space-3);
-    white-space: nowrap;
+    place-items: center;
+    padding: 0;
+  }
+
+  .receipt-review-sticky-summary .review-total {
+    display: flex;
+    justify-content: center;
     font-size: .75rem;
   }
 
-  .receipt-review-sticky-summary {
-    position: sticky;
-    z-index: 17;
-    top: calc(var(--header) + env(safe-area-inset-top) + var(--receipt-mobile-evidence-height) + var(--space-4));
-    min-height: var(--receipt-mobile-summary-height);
+  .receipt-review-sticky-summary .review-total > span {
+    display: none;
+  }
+
+  .receipt-review-sticky-summary .review-total strong {
+    margin-left: 0;
+    font-size: 1.05rem;
+  }
+
+  .receipt-review-sticky-summary .status-pill {
+    display: none;
+  }
+
+  .receipt-review-sticky-summary #confirm-receipt {
+    grid-column: auto;
+    width: auto;
+    min-width: 0;
+    min-height: var(--touch);
+    justify-self: end;
+    padding-inline: var(--space-3);
+    white-space: nowrap;
+  }
+
+  .confirm-receipt__label-expanded {
+    display: none;
+  }
+
+  .confirm-receipt__label-compact {
+    display: inline;
   }
 
   .receipt-review-editor :is(input, select, textarea, button, summary, .receipt-line-compact) {
-    scroll-margin-top: calc(var(--header) + env(safe-area-inset-top) + var(--receipt-mobile-evidence-height) + var(--receipt-mobile-summary-height) + var(--space-6));
+    scroll-margin-top: calc(var(--header) + env(safe-area-inset-top) + var(--receipt-mobile-summary-height) + var(--space-6));
   }
 }
 
@@ -378,21 +379,17 @@
   }
 
   .receipt-review-sticky-summary {
-    gap: var(--space-1) var(--space-2);
-    padding: var(--space-2);
-  }
-
-  .receipt-review-sticky-summary .review-total {
-    font-size: .7rem;
+    gap: var(--space-1);
+    padding-inline: var(--space-1);
   }
 
   .receipt-review-sticky-summary .review-total strong {
-    font-size: .82rem;
+    font-size: .95rem;
   }
 
-  .receipt-review-sticky-summary .status-pill {
-    padding: .25rem .4rem;
-    font-size: .6rem;
+  .receipt-review-sticky-summary #confirm-receipt {
+    padding-inline: var(--space-2);
+    font-size: .75rem;
   }
 }
 

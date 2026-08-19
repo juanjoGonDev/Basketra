@@ -66,36 +66,29 @@ export function createReceiptProgressPanel() {
 }
 
 export function syncCompactReviewEvidence() {
-  const compact = $('.receipt-review-evidence__compact');
+  const expand = $('#receipt-review-expand');
   const capture = selectedReviewCapture();
-  if (!compact || !capture) {
-    if (compact) compact.hidden = true;
+  if (!expand || !capture) {
+    if (expand) expand.hidden = true;
     return;
   }
 
-  const index = state.captures.indexOf(capture);
-  const thumbnail = $('#receipt-review-evidence-thumbnail');
-  const expand = $('#receipt-review-expand');
-  compact.hidden = false;
-  $('#receipt-review-evidence-title').textContent = `Imagen ${index + 1} de ${state.captures.length}`;
-  $('#receipt-review-evidence-name').textContent = capture.name;
-  thumbnail.src = `/api/v1/files/${encodeURIComponent(capture.storageKey)}`;
-  thumbnail.alt = `Miniatura de ${capture.name}`;
-  thumbnail.hidden = !capture.mimeType.startsWith('image/');
-  expand.hidden = thumbnail.hidden;
+  expand.hidden = !capture.mimeType.startsWith('image/');
+  expand.setAttribute('aria-label', `Ampliar captura ${capture.name}`);
 }
 
 export function syncStickyReviewSummary() {
   const sticky = $('#receipt-review-sticky-summary');
   const review = $('#receipt-review');
   const confirm = $('#confirm-receipt');
+  const expand = $('#receipt-review-expand');
   if (!sticky || !review || !confirm) return;
 
   const total = review.querySelector('.review-total') || sticky.querySelector('.review-total');
   const status = review.querySelector('.review-summary .status-pill') || sticky.querySelector('.status-pill');
   if (!total || !status) {
     sticky.hidden = true;
-    sticky.replaceChildren(confirm);
+    sticky.replaceChildren(...[expand, confirm].filter(Boolean));
     return;
   }
 
@@ -105,7 +98,8 @@ export function syncStickyReviewSummary() {
   }
 
   sticky.hidden = false;
-  sticky.replaceChildren(total, status, confirm);
+  sticky.replaceChildren(...[expand, total, status, confirm].filter(Boolean));
+  syncCompactReviewEvidence();
 }
 
 export function installReviewContextObservers() {
@@ -128,7 +122,10 @@ export function keepMobileReviewFocusVisible(target) {
     const targetRect = target.getBoundingClientRect();
     const summaryRect = $('#receipt-review-sticky-summary').getBoundingClientRect();
     const navigationRect = $('.bottom-nav').getBoundingClientRect();
-    const viewportBottom = window.visualViewport.offsetTop + window.visualViewport.height;
+    const visualViewport = window.visualViewport;
+    const viewportBottom = visualViewport
+      ? visualViewport.offsetTop + visualViewport.height
+      : window.innerHeight;
     const visibleTop = summaryRect.bottom + 8;
     const visibleBottom = Math.min(navigationRect.top, viewportBottom) - 8;
     const targetCenter = targetRect.top + targetRect.height / 2;
@@ -147,6 +144,10 @@ export function installReceiptEnhancements() {
   const receiptState = $('#receipt-state');
   const aiSwitch = workflow?.querySelector('.switch-row');
   if (!captureSource || !workflow || !manualEntry || !review || !confirm || !receiptState || !aiSwitch) return;
+
+  if (!confirm.querySelector('.confirm-receipt__label-expanded')) {
+    confirm.innerHTML = `${icon('check')}<span class="confirm-receipt__label-expanded">Confirmar e importar</span><span class="confirm-receipt__label-compact">Validar</span>`;
+  }
 
   const captureHeading = captureSource.querySelector('.panel-heading');
   if (captureHeading) {
@@ -203,23 +204,19 @@ export function installReceiptEnhancements() {
     const body = document.createElement('div');
     body.className = 'receipt-review-panel__body';
 
-    const compactEvidence = document.createElement('div');
-    compactEvidence.className = 'receipt-review-evidence__compact';
-    compactEvidence.hidden = true;
-    compactEvidence.setAttribute('aria-live', 'polite');
-    compactEvidence.innerHTML = `
-      <img id="receipt-review-evidence-thumbnail" alt="" hidden>
-      <span class="receipt-review-evidence__identity">
-        <strong id="receipt-review-evidence-title"></strong>
-        <small id="receipt-review-evidence-name"></small>
-      </span>
-      <button id="receipt-review-expand" class="button secondary receipt-review-expand" type="button" aria-label="Ampliar captura">${icon('image')}<span>Ampliar</span></button>`;
-
     const stickySummary = document.createElement('div');
     stickySummary.id = 'receipt-review-sticky-summary';
     stickySummary.className = 'receipt-review-sticky-summary';
     stickySummary.hidden = true;
-    stickySummary.append(confirm);
+
+    const expand = document.createElement('button');
+    expand.id = 'receipt-review-expand';
+    expand.className = 'icon-button receipt-review-expand';
+    expand.type = 'button';
+    expand.hidden = true;
+    expand.setAttribute('aria-label', 'Ampliar captura');
+    expand.innerHTML = icon('image');
+    stickySummary.append(expand, confirm);
 
     const evidence = document.createElement('aside');
     evidence.className = 'receipt-review-evidence';
@@ -236,7 +233,7 @@ export function installReceiptEnhancements() {
     manualEntry.querySelector('summary').textContent = 'Datos, total y acciones manuales';
     review.className = 'receipt-review-content';
     editor.append(manualEntry, review);
-    body.append(compactEvidence, stickySummary, evidence, editor);
+    body.append(stickySummary, evidence, editor);
     panel.append(summary, body);
     workflow.replaceChildren(panel);
   }
@@ -270,7 +267,7 @@ export function bindEvents() {
     state.selectedReviewCaptureKey = event.target.value;
     renderReviewReference();
   });
-  $('#receipt-review-expand').addEventListener('click', () => {
+  $('#receipt-review-expand')?.addEventListener('click', () => {
     showPreview(state.captures.indexOf(selectedReviewCapture()));
   });
   $('#receipt-review-panel').addEventListener('focusin', event => {

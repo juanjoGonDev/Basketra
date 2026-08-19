@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
-test('sticky receipt review exposes visible canonical icons without replacing text labels', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
+test('desktop sticky receipt review keeps canonical validation icons and full action labels', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/');
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
 
@@ -46,14 +46,11 @@ test('sticky receipt review exposes visible canonical icons without replacing te
     syncStickyReviewSummary();
   });
 
-  const expand = page.getByRole('button', { name: 'Ampliar captura', exact: true });
+  const expand = page.getByRole('button', { name: 'Ampliar captura icon-review.png', exact: true });
   const validation = page.locator('#receipt-review-sticky-summary .status-pill');
   const confirm = page.getByRole('button', { name: 'Confirmar e importar', exact: true });
 
-  await expect(expand).toBeVisible();
-  await expect(expand).toContainText('Ampliar');
-  await expect(expand.locator('.icon')).toBeVisible();
-
+  await expect(expand).toBeHidden();
   await expect(validation).toBeVisible();
   await expect(validation).toContainText('Total validado');
   await expect(validation).toHaveClass(/success/u);

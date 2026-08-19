@@ -200,7 +200,7 @@ test('AI correction failure keeps OCR reviewable with source image, manual revie
   await expect(page.locator('.capture-card__details')).not.toHaveAttribute('open', '');
 });
 
-test('mobile review pins compact evidence and total action without bottom overlays', async ({ page }) => {
+test('mobile review keeps preview, calculated amount and final action in one sticky row', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
@@ -219,21 +219,23 @@ test('mobile review pins compact evidence and total action without bottom overla
   await upload(page, ['sticky-mobile-1.png', 'sticky-mobile-2.png']);
   await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
 
-  const evidence = page.locator('.receipt-review-evidence__compact');
   const stickySummary = page.locator('#receipt-review-sticky-summary');
-  await expect(evidence).toBeVisible();
-  await expect(page.locator('#receipt-review-evidence-thumbnail')).toBeVisible();
-  await expect(page.locator('#receipt-review-evidence-title')).toContainText('Imagen 1 de 2');
-  await expect(page.locator('#receipt-review-evidence-name')).toContainText('sticky-mobile-1.png');
-  await expect(page.getByRole('button', { name: 'Ampliar captura', exact: true })).toBeVisible();
+  const preview = page.getByRole('button', { name: 'Ampliar captura sticky-mobile-1.png', exact: true });
+  const amount = stickySummary.locator('.review-total strong');
+  const finalize = stickySummary.getByRole('button', { name: 'Validar', exact: true });
+
+  await expect(page.locator('.receipt-review-evidence__compact')).toBeHidden();
+  await expect(preview).toBeVisible();
+  await expect(preview).toHaveText('');
+  await expect(preview.locator('.icon')).toBeVisible();
   await expect(page.locator('.receipt-review-reference')).toBeVisible();
-  await expect(stickySummary).toContainText('Total calculado');
-  await expect(stickySummary.getByRole('button', { name: 'Confirmar e importar', exact: true })).toBeVisible();
+  await expect(stickySummary.getByText('Total calculado', { exact: true })).toBeHidden();
+  await expect(stickySummary.locator('.status-pill')).toBeHidden();
+  await expect(amount).toContainText(/€|euros?/u);
+  await expect(finalize).toBeVisible();
 
   await page.locator('#receipt-review-capture').selectOption({ label: 'Imagen 2: sticky-mobile-2.png' });
-  await expect(page.locator('#receipt-review-evidence-title')).toContainText('Imagen 2 de 2');
-  await expect(page.locator('#receipt-review-evidence-name')).toContainText('sticky-mobile-2.png');
-  await expect(page.locator('#receipt-review-evidence-thumbnail')).toHaveAttribute('alt', /sticky-mobile-2\.png/u);
+  await expect(page.getByRole('button', { name: 'Ampliar captura sticky-mobile-2.png', exact: true })).toBeVisible();
 
   const compactLine = page.locator('.receipt-line-compact').first();
   await compactLine.click();
@@ -242,35 +244,36 @@ test('mobile review pins compact evidence and total action without bottom overla
   await editor.getByRole('button', { name: 'Guardar línea', exact: true }).click();
   await page.locator('#receipt-review-capture').selectOption({ label: 'Imagen 1: sticky-mobile-1.png' });
   await expect(compactLine).toContainText('PRODUCTO EDITADO');
+  await expect(page.getByRole('button', { name: 'Ampliar captura sticky-mobile-1.png', exact: true })).toBeVisible();
 
   await page.locator('.receipt-line-compact').last().scrollIntoViewIfNeeded();
   const geometry = await page.evaluate(() => {
-    const evidenceElement = document.querySelector('.receipt-review-evidence__compact');
     const summaryElement = document.querySelector('#receipt-review-sticky-summary');
+    const previewElement = document.querySelector('#receipt-review-expand');
+    const amountElement = summaryElement.querySelector('.review-total strong');
+    const finalizeElement = document.querySelector('#confirm-receipt');
     const navElement = document.querySelector('.bottom-nav');
-    const evidenceRect = evidenceElement.getBoundingClientRect();
     const summaryRect = summaryElement.getBoundingClientRect();
     const navRect = navElement.getBoundingClientRect();
-    const evidenceStyle = getComputedStyle(evidenceElement);
-    const summaryStyle = getComputedStyle(summaryElement);
+    const centers = [previewElement, amountElement, finalizeElement].map(element => {
+      const rect = element.getBoundingClientRect();
+      return rect.top + rect.height / 2;
+    });
     return {
-      evidencePosition: evidenceStyle.position,
-      evidenceTop: evidenceStyle.top,
-      summaryPosition: summaryStyle.position,
-      summaryTop: summaryStyle.top,
-      summaryBottom: summaryStyle.bottom,
-      evidenceBottom: evidenceRect.bottom,
-      summaryY: summaryRect.y,
+      summaryPosition: getComputedStyle(summaryElement).position,
+      summaryTop: getComputedStyle(summaryElement).top,
+      summaryBottom: getComputedStyle(summaryElement).bottom,
+      summaryHeight: summaryRect.height,
       summaryBottomEdge: summaryRect.bottom,
       navTop: navRect.top,
+      centerSpread: Math.max(...centers) - Math.min(...centers),
     };
   });
-  expect(geometry.evidencePosition).toBe('sticky');
-  expect(geometry.evidenceTop).not.toBe('auto');
   expect(geometry.summaryPosition).toBe('sticky');
   expect(geometry.summaryTop).not.toBe('auto');
   expect(geometry.summaryBottom).toBe('auto');
-  expect(geometry.summaryY).toBeGreaterThanOrEqual(geometry.evidenceBottom - 1);
+  expect(geometry.summaryHeight).toBeLessThanOrEqual(72);
+  expect(geometry.centerSpread).toBeLessThanOrEqual(8);
   expect(geometry.summaryBottomEdge).toBeLessThan(geometry.navTop);
 
   await page.locator('.manual-entry > summary').click();
@@ -283,7 +286,7 @@ test('mobile review pins compact evidence and total action without bottom overla
     return input.top >= summary.bottom && input.bottom <= nav.top;
   })).toBe(true);
 
-  await page.getByRole('button', { name: 'Ampliar captura', exact: true }).click();
+  await preview.click();
   await expect(page.locator('#capture-preview-dialog')).toBeVisible();
   await expect(page.locator('#capture-preview-name')).toContainText('sticky-mobile-1.png');
 });
@@ -335,6 +338,9 @@ test('desktop review keeps evidence and total summary sticky and preserves confi
   await expect(page.locator('.receipt-review-reference')).toBeVisible();
   await expect(page.locator('#receipt-review-reference-image')).toBeVisible();
   await expect(page.locator('#receipt-review-sticky-summary')).toContainText('Total calculado');
+  await expect(page.locator('#receipt-review-sticky-summary .status-pill')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Confirmar e importar', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Ampliar captura/u })).toBeHidden();
 
   await page.locator('.receipt-line-compact').last().scrollIntoViewIfNeeded();
   const geometry = await page.evaluate(() => {
