@@ -1,4 +1,4 @@
-const CACHE = 'basketra-shell-v15';
+const CACHE = 'basketra-shell-v16';
 const SHELL = [
   '/',
   '/index.html',
@@ -9,6 +9,12 @@ const SHELL = [
   '/state.js',
   '/lists.js',
   '/receipts.js',
+  '/receipt-state.js',
+  '/receipt-capture.js',
+  '/receipt-lifecycle.js',
+  '/receipt-processing.js',
+  '/receipt-review.js',
+  '/receipt-review.css',
   '/receipt-ai-recovery.js',
   '/ui.js',
   '/styles.css',
