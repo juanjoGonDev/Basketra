@@ -23,6 +23,7 @@
   --color-warning-container: #ffdfa0;
   --color-on-warning-container: #261a00;
   --color-error: #ba1a1a;
+  --color-on-error: #ffffff;
   --color-error-container: #ffdad6;
   --color-on-error-container: #410002;
   --color-focus: #006b55;
@@ -100,6 +101,7 @@
     --color-warning-container: #5c4300;
     --color-on-warning-container: #ffdfa0;
     --color-error: #ffb4ab;
+    --color-on-error: #690005;
     --color-error-container: #93000a;
     --color-on-error-container: #ffdad6;
     --color-focus: #9ef3d7;
