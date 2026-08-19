@@ -85,11 +85,27 @@ jobs:
           fi
 
       - name: Install the media converter
+        timeout-minutes: 5
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends ffmpeg
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            if [ -f /etc/apt/apt-mirrors.txt ]; then
+              sudo sed -i \
+                's#http://azure.archive.ubuntu.com/ubuntu#https://archive.ubuntu.com/ubuntu#g' \
+                /etc/apt/apt-mirrors.txt
+            fi
+            sudo apt-get \
+              -o Acquire::Retries=3 \
+              -o Acquire::http::Timeout=20 \
+              -o Acquire::https::Timeout=20 \
+              update
+            sudo apt-get \
+              -o Acquire::Retries=3 \
+              -o Acquire::http::Timeout=20 \
+              -o Acquire::https::Timeout=20 \
+              install --yes --no-install-recommends ffmpeg
+          fi
           ffmpeg -version
 
       - name: Prepare directly viewable media
