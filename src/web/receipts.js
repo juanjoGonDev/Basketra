@@ -17,6 +17,7 @@ import {
   watchReceiptExtractionJob,
 } from './receipt-lifecycle.js';
 import { cancelReceiptExtraction } from './receipt-processing.js';
+import { icon } from './ui.js';
 import {
   addBlankLine,
   confirmReceipt,
@@ -96,6 +97,11 @@ export function syncStickyReviewSummary() {
     sticky.hidden = true;
     sticky.replaceChildren(confirm);
     return;
+  }
+
+  if (!status.querySelector('.icon')) {
+    const statusIcon = status.classList.contains('warning') ? 'alert' : 'check';
+    status.insertAdjacentHTML('afterbegin', icon(statusIcon));
   }
 
   sticky.hidden = false;
@@ -207,7 +213,7 @@ export function installReceiptEnhancements() {
         <strong id="receipt-review-evidence-title"></strong>
         <small id="receipt-review-evidence-name"></small>
       </span>
-      <button id="receipt-review-expand" class="button secondary receipt-review-expand" type="button" aria-label="Ampliar captura">Ampliar</button>`;
+      <button id="receipt-review-expand" class="button secondary receipt-review-expand" type="button" aria-label="Ampliar captura">${icon('image')}<span>Ampliar</span></button>`;
 
     const stickySummary = document.createElement('div');
     stickySummary.id = 'receipt-review-sticky-summary';
