@@ -117,6 +117,7 @@ export async function runAiCorrection(capture, page, entry, signal) {
     if (!isCurrentPageEntry(page, entry) || signal.aborted) return false;
     page.result = aiResponse.extraction;
     clearAiFailure(page);
+    if (state.expandedCaptureKey === captureKey(capture)) state.expandedCaptureKey = '';
     return true;
   } catch (error) {
     if (error.name === 'AbortError') throw error;
