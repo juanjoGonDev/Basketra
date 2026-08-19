@@ -204,7 +204,11 @@ test('receipt cancellation stops queued automatic work and preserves every captu
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'OCR local' })).toHaveCount(2);
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Pendiente' })).toHaveCount(1);
 
-  await page.locator('.capture-card').first().getByRole('button', { name: 'Cancelar esta imagen', exact: true }).click();
+  const firstDetails = page.locator('.capture-card__details').first();
+  await expect(firstDetails).not.toHaveAttribute('open', '');
+  await firstDetails.locator('summary').click();
+  await expect(firstDetails).toHaveAttribute('open', '');
+  await firstDetails.getByRole('button', { name: 'Cancelar esta imagen', exact: true }).click();
   await expect(page.locator('.capture-card').first().locator('.status-pill')).toHaveText('Cancelada');
   await expect.poll(() => started).toBe(3);
 
