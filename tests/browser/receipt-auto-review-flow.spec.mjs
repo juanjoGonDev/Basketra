@@ -219,14 +219,14 @@ test('mobile review pins compact evidence and total action without bottom overla
   await upload(page, ['sticky-mobile-1.png', 'sticky-mobile-2.png']);
   await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
 
-  const evidence = page.locator('.receipt-review-evidence');
+  const evidence = page.locator('.receipt-review-evidence__compact');
   const stickySummary = page.locator('#receipt-review-sticky-summary');
-  await expect(page.locator('.receipt-review-evidence__compact')).toBeVisible();
+  await expect(evidence).toBeVisible();
   await expect(page.locator('#receipt-review-evidence-thumbnail')).toBeVisible();
   await expect(page.locator('#receipt-review-evidence-title')).toContainText('Imagen 1 de 2');
   await expect(page.locator('#receipt-review-evidence-name')).toContainText('sticky-mobile-1.png');
   await expect(page.getByRole('button', { name: 'Ampliar captura', exact: true })).toBeVisible();
-  await expect(page.locator('.receipt-review-reference')).toBeHidden();
+  await expect(page.locator('.receipt-review-reference')).toBeVisible();
   await expect(stickySummary).toContainText('Total calculado');
   await expect(stickySummary.getByRole('button', { name: 'Confirmar e importar', exact: true })).toBeVisible();
 
@@ -245,7 +245,7 @@ test('mobile review pins compact evidence and total action without bottom overla
 
   await page.locator('.receipt-line-compact').last().scrollIntoViewIfNeeded();
   const geometry = await page.evaluate(() => {
-    const evidenceElement = document.querySelector('.receipt-review-evidence');
+    const evidenceElement = document.querySelector('.receipt-review-evidence__compact');
     const summaryElement = document.querySelector('#receipt-review-sticky-summary');
     const navElement = document.querySelector('.bottom-nav');
     const evidenceRect = evidenceElement.getBoundingClientRect();
