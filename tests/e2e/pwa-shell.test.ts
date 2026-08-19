@@ -15,6 +15,12 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   const state = read('src/web/state.js');
   const lists = read('src/web/lists.js');
   const receipts = read('src/web/receipts.js');
+  const receiptState = read('src/web/receipt-state.js');
+  const receiptCapture = read('src/web/receipt-capture.js');
+  const receiptLifecycle = read('src/web/receipt-lifecycle.js');
+  const receiptProcessing = read('src/web/receipt-processing.js');
+  const receiptReview = read('src/web/receipt-review.js');
+  const receiptReviewCss = read('src/web/receipt-review.css');
   const ui = read('src/web/ui.js');
   const css = read('src/web/styles.css');
   const modernCss = read('src/web/modern.css');
@@ -42,7 +48,21 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.equal(manifest.display, 'standalone');
   assert.ok(manifest.icons.length > 0);
 
-  for (const asset of ['/api.js', '/state.js', '/lists.js', '/receipts.js', '/ui.js', '/styles.css', '/modern.css']) {
+  for (const asset of [
+    '/api.js',
+    '/state.js',
+    '/lists.js',
+    '/receipts.js',
+    '/receipt-state.js',
+    '/receipt-capture.js',
+    '/receipt-lifecycle.js',
+    '/receipt-processing.js',
+    '/receipt-review.js',
+    '/receipt-review.css',
+    '/ui.js',
+    '/styles.css',
+    '/modern.css',
+  ]) {
     assert.ok(serviceWorker.includes(`'${asset}'`));
   }
   assert.match(serviceWorker, /url\.pathname\.startsWith\('\/api\/'\)/);
@@ -61,12 +81,21 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.match(lists, /suggestionController\?\.abort/);
   assert.match(lists, /items\/order/);
   assert.match(lists, /completed/);
-  assert.match(receipts, /capture="environment"|receipt-camera/);
-  assert.match(receipts, /\/api\/v1\/files\//);
-  assert.match(receipts, /El borrador se conserva/);
-  assert.match(receipts, /\/api\/v1\/receipts\/extraction-jobs/);
-  assert.match(receipts, /new EventSource\(realtimeEndpoint\(\)\)/);
-  assert.match(receipts, /análisis continúa aunque cierres esta página/);
+
+  assert.match(receipts, /startAutomaticCaptureProcessing/);
+  assert.match(receipts, /Opciones de análisis/);
+  assert.doesNotMatch(receipts, /extract-receipt/);
+  assert.match(receiptState, /PAGE_CONCURRENCY = 2/);
+  assert.match(receiptCapture, /\/api\/v1\/files\//);
+  assert.match(receiptCapture, /OCR ha empezado automáticamente/);
+  assert.match(receiptLifecycle, /\/api\/v1\/receipts\/extraction-jobs/);
+  assert.match(receiptLifecycle, /new EventSource\(realtimeEndpoint\(\)\)/);
+  assert.match(receiptProcessing, /Volver a analizar con IA/);
+  assert.match(receiptProcessing, /embeddedText/);
+  assert.match(receiptReview, /receipt-review-reference-image/);
+  assert.match(receiptReview, /El borrador se conserva/);
+  assert.match(receiptReviewCss, /receipt-review-panel__body/);
+  assert.match(receiptReviewCss, /receipt-review-evidence/);
   assert.match(ui, /export function shoppingListItem/);
   assert.match(ui, /export function receiptReview/);
   assert.match(ui, /data-capture-preview-image/);
