@@ -28,6 +28,7 @@ test('service worker installs the complete shell, cleans old caches and handles 
     },
   };
   const fakeSelf = {
+    location: { origin: 'http://basketra.test' },
     addEventListener(name: string, listener: Listener) {
       listeners.set(name, listener);
     },
@@ -106,6 +107,18 @@ test('service worker installs the complete shell, cleans old caches and handles 
 
     fetchListener({
       request: new Request('http://basketra.test/', { method: 'POST', body: 'x' }),
+      respondWith,
+    });
+    assert.equal(responseWork, undefined);
+
+    fetchListener({
+      request: { method: 'GET', url: 'chrome-extension://example/content.js' },
+      respondWith,
+    });
+    assert.equal(responseWork, undefined);
+
+    fetchListener({
+      request: new Request('https://example.com/third-party.js'),
       respondWith,
     });
     assert.equal(responseWork, undefined);
