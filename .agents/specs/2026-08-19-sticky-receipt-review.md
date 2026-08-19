@@ -73,4 +73,4 @@ No merge, release, deployment, migration, dependency or API-contract operation i
 
 ## Status
 
-Implementation, regression coverage, exact-head CI and manual visual inspection are complete. Final documentation head still requires its exact CI pass. Merge remains gated by explicit user approval.
+Complete. Implementation, regression coverage, exact-head CI and manual visual inspection are complete. Merge remains gated by explicit user approval.
