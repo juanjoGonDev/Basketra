@@ -28,7 +28,6 @@ import {
   validateRows,
 } from './receipt-review.js';
 
-
 export function installReceiptStylesheet() {
   if (document.querySelector('link[data-receipt-review-styles]')) return;
   const link = document.createElement('link');
@@ -103,10 +102,7 @@ export function installReceiptEnhancements() {
     captureSource.insertBefore(analysisOptions, captureSource.querySelector('.capture-actions'));
   }
 
-  if (!$('#receipt-progress')) {
-    const progress = createReceiptProgressPanel();
-    captureSource.insertBefore(progress, receiptState);
-  }
+  if (!$('#receipt-progress')) captureSource.append(createReceiptProgressPanel());
   captureSource.append(receiptState);
 
   if (!$('#receipt-review-panel')) {
