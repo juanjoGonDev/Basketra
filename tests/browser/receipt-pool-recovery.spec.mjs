@@ -6,7 +6,21 @@ function navigate(page, name) {
   return page.locator('.bottom-nav').getByRole('button', { name, exact: true }).click();
 }
 
-test('a fresh OCR run ignores stale tasks that never settle after cancellation', async ({ page }) => {
+async function upload(page, names) {
+  await page.locator('#receipt-files').setInputFiles(names.map((name, index) => ({
+    name,
+    mimeType: 'image/png',
+    buffer: Buffer.concat([validPng, Buffer.from([30 + index])]),
+  })));
+}
+
+async function openCaptureDetails(page, index) {
+  const details = page.locator('.capture-card__details').nth(index);
+  if (!(await details.evaluate(element => element.open))) await details.locator('summary').click();
+  return details;
+}
+
+test('per-image retries ignore stale tasks from a cancelled automatic OCR run', async ({ page }) => {
   await page.addInitScript(() => {
     const nativeFetch = window.fetch.bind(window);
     let blockReceiptExtraction = true;
@@ -50,31 +64,25 @@ test('a fresh OCR run ignores stale tasks that never settle after cancellation',
 
   await page.goto('/');
   await navigate(page, 'Tickets');
-  await page.locator('#receipt-files').setInputFiles([0, 1, 2].map(index => ({
-    name: `restart-${index + 1}.png`,
-    mimeType: 'image/png',
-    buffer: Buffer.concat([validPng, Buffer.from([30 + index])]),
-  })));
+  await upload(page, ['restart-1.png', 'restart-2.png', 'restart-3.png']);
 
   await expect(page.locator('.capture-card')).toHaveCount(3);
-  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Lista' })).toHaveCount(3);
-  await expect(page.locator('.capture-card__progress-meta').filter({ hasText: 'Lista para procesar' })).toHaveCount(3);
-
-  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'OCR local' })).toHaveCount(2);
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Pendiente' })).toHaveCount(1);
 
-  await page.getByRole('button', { name: 'Cancelar todo', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancelar procesamiento', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Cancelada' })).toHaveCount(3);
 
   await page.evaluate(() => window.__basketraAllowFreshReceiptExtraction());
-  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
+  for (const index of [0, 1]) {
+    const details = await openCaptureDetails(page, index);
+    await details.getByRole('button', { name: 'Reintentar imagen', exact: true }).click();
+  }
 
   await expect.poll(() => freshStarted).toBe(2);
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'OCR local' })).toHaveCount(2);
-  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Pendiente' })).toHaveCount(1);
+  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Cancelada' })).toHaveCount(1);
   await expect(page.locator('#receipt-progress-detail')).toContainText('2 procesando');
-  await expect(page.locator('#receipt-progress-detail')).toContainText('1 pendientes');
 
   releaseFreshRequests();
 });
@@ -125,18 +133,15 @@ test('a same-run retry waits for its cancelled task before reusing the capture s
 
   await page.goto('/');
   await navigate(page, 'Tickets');
-  await page.locator('#receipt-files').setInputFiles({
-    name: 'same-run-retry.png',
-    mimeType: 'image/png',
-    buffer: validPng,
-  });
+  await upload(page, ['same-run-retry.png']);
 
-  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill')).toHaveText('OCR local');
-  await page.getByRole('button', { name: 'Cancelar esta imagen', exact: true }).click();
+  let details = await openCaptureDetails(page, 0);
+  await details.getByRole('button', { name: 'Cancelar esta imagen', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Cancelada');
 
-  await page.getByRole('button', { name: 'Reintentar imagen', exact: true }).click();
+  details = await openCaptureDetails(page, 0);
+  await details.getByRole('button', { name: 'Reintentar imagen', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Pendiente');
   expect(retryStarted).toBe(0);
 
