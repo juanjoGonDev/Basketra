@@ -30,6 +30,8 @@ import {
   validateRows,
 } from './receipt-review.js';
 
+const MOBILE_REVIEW_MEDIA = '(max-width: 49.99rem)';
+const SOFTWARE_KEYBOARD_SETTLE_MS = 280;
 let reviewReferenceObserver;
 let reviewSummaryObserver;
 
@@ -113,6 +115,20 @@ export function installReviewContextObservers() {
   }
   syncCompactReviewEvidence();
   syncStickyReviewSummary();
+}
+
+export function keepMobileReviewFocusVisible(target) {
+  requestAnimationFrame(() => {
+    const targetRect = target.getBoundingClientRect();
+    const summaryRect = $('#receipt-review-sticky-summary').getBoundingClientRect();
+    const navigationRect = $('.bottom-nav').getBoundingClientRect();
+    const viewportBottom = window.visualViewport.offsetTop + window.visualViewport.height;
+    const visibleTop = summaryRect.bottom + 8;
+    const visibleBottom = Math.min(navigationRect.top, viewportBottom) - 8;
+    const targetCenter = targetRect.top + targetRect.height / 2;
+    const visibleCenter = (visibleTop + visibleBottom) / 2;
+    window.scrollBy({ top: targetCenter - visibleCenter, left: 0, behavior: 'auto' });
+  });
 }
 
 export function installReceiptEnhancements() {
@@ -250,6 +266,12 @@ export function bindEvents() {
   });
   $('#receipt-review-expand').addEventListener('click', () => {
     showPreview(state.captures.indexOf(selectedReviewCapture()));
+  });
+  $('#receipt-review-panel').addEventListener('focusin', event => {
+    if (!window.matchMedia(MOBILE_REVIEW_MEDIA).matches) return;
+    if (!event.target.matches('input, select, textarea')) return;
+    keepMobileReviewFocusVisible(event.target);
+    window.setTimeout(() => keepMobileReviewFocusVisible(event.target), SOFTWARE_KEYBOARD_SETTLE_MS);
   });
   $('#close-capture-preview').addEventListener('click', () => {
     $('#capture-preview-image').removeAttribute('src');
