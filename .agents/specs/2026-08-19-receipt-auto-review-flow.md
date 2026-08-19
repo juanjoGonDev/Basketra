@@ -1,89 +1,63 @@
-# Automatic receipt review flow
+# Automatic Receipt Review Flow
 
 ## Request
 
-Restore the agreed ticket workflow after the current UI/runtime regression:
-
-- uploading a receipt image starts processing automatically; there is no explicit second processing step;
-- receipt controls and secondary information use progressive disclosure instead of rendering every control and every page detail at once;
-- local OCR is the recoverable baseline for JPEG/PNG pages;
-- configured AI is an optional correction layer and must never turn a successfully OCR'd image into a blocking page error;
-- after an AI correction failure, keep the OCR result reviewable, keep the original capture visible during manual correction, and always offer both manual review and an AI-only retry;
-- retrying AI must reuse the existing OCR draft plus the original attachment instead of repeating OCR.
+Make the Tickets workflow continuous and review-first instead of presenting a separate processing step. Uploading a capture starts OCR automatically. AI remains an optional correction layer: its failure must never discard or block usable local OCR. Manual correction must keep the original capture available as visual evidence, and an AI failure must expose explicit manual-review and AI-only retry actions.
 
 ## Evidence
 
-- The deployed screenshot shows a permanent `Paso 2 / Extrae y revisa` region, a manual `Leer con OCR local` button, an always-visible AI switch, aggregate progress and manual-review controls simultaneously.
-- The deployed screenshot also shows all three captures as `Error` after an optional AI/background failure, even though the UI says the capture and partial OCR were preserved.
-- `src/web/index.html` still owns the explicit `Paso 1` / `Paso 2` layout and exposes the AI switch, extraction button and manual-review section together.
-- `uploadFiles()` stores captures but only marks them ready; processing starts later through `processReceipt()`.
-- `processCapture()` already performs the desired page-local sequence: OCR first, then AI with the original attachment plus bounded OCR text. Its single outer error boundary currently converts an AI failure into the same fatal `error` state as an OCR failure.
-- The AI-enabled manual action routes through the persisted aggregate background job; `failBackgroundJob()` marks every page `error`, so that path cannot preserve successful page-local OCR when AI fails.
-- The canonical product spec requires local OCR for JPEG/PNG, preservation of the draft after OCR or AI failure, editable receipt rows and human review before persistence.
-- The accepted receipt-pool UI spec requires a real two-slot OCR pool and a flatter, less card-heavy, mobile-first interface.
+- The previous UI exposed `Paso 2`, `Leer con OCR local`, the AI switch, global progress, manual fields, and expanded per-image status as simultaneous top-level controls.
+- The receipt pipeline already had a bounded two-slot page queue, local OCR support for JPEG/PNG, persisted captures, and recovery metadata, but the UI still required a separate manual processing action.
+- AI verification failures were represented as page failures even after usable OCR had been produced, which made an optional correction layer block review.
+- The receipt redesign introduced split frontend modules; every new module and stylesheet must remain in the server static allowlist and service-worker shell cache.
+- Manual visual review of browser evidence found that keeping a completed global progress panel visible duplicated the per-capture status and review state, so successful processing now removes that transient summary before review.
 
 ## Decision
 
-1. Remove numbered processing steps from the ticket UI. Capture is the initiating action; no `Leer con OCR local` button is required for the normal flow.
-2. After each successful upload batch, enqueue only newly stored captures into the existing browser page pool. Preserve already completed/in-flight page work when more captures are appended.
-3. Keep the existing two-slot `activePageTasks`/`runToken` scheduler as the single browser concurrency owner.
-4. The normal automatic flow uses page-local OCR followed by optional AI. Do not route new uploads through the aggregate background job because that contract cannot degrade an AI-only failure to the page's valid OCR result.
-5. Treat AI correction as best-effort after OCR success:
-   - preserve `rawText` and the OCR extraction as the page result;
-   - record AI correction state/error separately from the primary page status;
-   - keep the page reviewable/completed when AI fails;
-   - continue final deterministic assembly from the OCR result.
-6. Add an AI-only retry action. It sends the original stored capture plus the existing page OCR text to AI and never repeats OCR.
-7. AI correction failure always exposes two recovery actions for that capture: `Revisar manualmente` and `Volver a analizar con IA`.
-8. Manual review opens the grouped ticket editor and selects the affected capture as visual evidence. JPEG/PNG show the stored image beside/above editable rows; PDF shows an accessible document reference without pretending the image preview endpoint supports PDF.
-9. Use progressive disclosure:
-   - `Opciones de análisis` contains the optional AI toggle and is collapsed by default;
-   - capture cards keep a compact summary and collapse verbose progress/error detail by default except the affected active/recovery card;
-   - retailer, total, rows and confirmation live in one grouped review panel that opens when a reviewable result is ready or the user explicitly requests manual review.
-10. Preserve persisted background-job restoration for pre-existing drafts if needed for compatibility, but it is no longer the owner of the normal upload workflow.
-11. Bump the service-worker shell revision with the changed frontend assets.
+- There is no visible primary `Paso 2` and no `Leer con OCR local` start button.
+- A successful upload automatically starts the bounded two-slot OCR pool for the newly stored captures.
+- AI configuration lives under collapsed `Opciones de análisis`. When available it may be enabled as an optional correction pass, but local image OCR always remains the first durable result.
+- For JPEG/PNG, an `AI_*` failure after OCR is non-blocking: the page remains reviewable, the sanitized failure is attached to the AI state, and the card exposes both `Revisar manualmente` and `Volver a analizar con IA`.
+- `Volver a analizar con IA` reuses the preserved OCR text and attachment; it does not rerun OCR.
+- PDF keeps its existing provider/manual boundary because there is no local PDF OCR implementation. Provider failure preserves the original capture and offers manual recovery.
+- Capture cards keep primary file identity/actions compact. Processing/recovery details are collapsed by default except for currently active or failed work that needs user attention.
+- The combined review is a progressive `Revisión del ticket` section. It keeps a selectable original capture next to the editable receipt model; switching reference capture must not discard edits.
+- `Datos, total y acciones manuales` is a nested disclosure rather than permanently visible form chrome.
+- The transient global processing summary is visible only while work is active; once all pages are assembled it is hidden so the review becomes the single primary task.
+- Source image URLs continue using the existing same-origin `/api/v1/files/<storageKey>` route with private/no-store semantics. PDF remains a non-preview document reference.
+- No database, receipt-confirmation contract, authentication model, provider protocol, or dependency is changed.
 
 ## Acceptance
 
-- There is no visible `Paso 1`, `Paso 2` or `Leer con OCR local` control in the normal Tickets workflow.
-- Uploading three JPEG/PNG captures starts processing without another click, immediately fills at most two page-pool slots and leaves only overflow captures pending.
-- Adding a later capture does not reset or repeat OCR for already completed captures.
-- Analysis options are grouped/collapsed by default; enabling AI remains possible before a capture is uploaded.
-- A successful OCR followed by `AI_UNREACHABLE`, timeout, rate limit, capability or other `AI_*` failure remains a reviewable page rather than `Error`.
-- An AI-only failure does not block assembly, editable rows, total validation or confirmation.
-- The affected capture exposes `Revisar manualmente` and `Volver a analizar con IA`.
-- `Volver a analizar con IA` sends the original attachment and existing OCR draft without issuing a second local-OCR request.
-- Manual review keeps the selected image visible while editable ticket rows are available; switching the selected capture updates the reference without losing edits.
-- A genuine OCR failure remains an actionable blocking error for that page.
-- Existing cancellation, stale-run isolation, same-run duplicate protection, retailer detection, arithmetic validation, idempotent confirmation and evidence preservation remain intact.
-- The grouped workflow has no horizontal overflow at 320/360/390/430/768 CSS px, preserves browser zoom, keyboard focus and reduced motion.
+1. Uploading one or more supported images starts OCR without another user action.
+2. At most two image OCR tasks run concurrently and queued captures advance as slots become free.
+3. The Tickets view contains no visible `Paso 2` or `Leer con OCR local` processing gate.
+4. AI options and completed per-capture details do not occupy primary screen space by default.
+5. If AI correction fails after OCR, the capture is not marked as a fatal page error and OCR-derived rows remain reviewable.
+6. AI failure exposes `Revisar manualmente` and `Volver a analizar con IA`; upstream/private provider detail is not exposed.
+7. AI-only retry reuses the OCR draft and does not issue another OCR request.
+8. Manual review opens with the affected original capture selected and editable rows available.
+9. Changing the reference capture preserves current manual edits.
+10. Successful assembly hides the transient processing summary before review.
+11. PDF provider failure preserves the PDF and permits manual entry/review.
+12. Existing cancellation, retry, confirmation, evidence preservation, retailer detection, offline shell, accessibility, and no-horizontal-overflow behavior remain covered.
+13. All split receipt assets are served by the static allowlist and included in the versioned service-worker shell.
 
-## Tests
+## Checks
 
-- Playwright: upload auto-starts OCR and there is no explicit second-step/process button.
-- Playwright: three captures still fill exactly two pool slots and the third waits.
-- Playwright: append a capture after an earlier page completed without reprocessing the earlier page.
-- Playwright: AI failure after OCR keeps the page reviewable, opens manual review with the image reference and exposes AI-only retry.
-- Playwright: AI-only retry reuses OCR and does not create another OCR request.
-- Playwright: genuine OCR failure still blocks that page and remains retryable.
-- Existing receipt cancellation, pool recovery, unknown-state, responsive and confirmation suites.
-- `pnpm quality`, Browser E2E changed-code coverage, container smoke/builds, Security and CodeQL.
+Canonical delivery requires the exact PR head to pass:
 
-## Risks
+- `pnpm quality`, including diff coverage and browser diff coverage.
+- Browser E2E covering automatic two-slot OCR, grouped controls, local OCR recovery, AI non-blocking recovery, AI-only retry, manual source switching, cancellation, responsive layouts, keyboard focus, and offline shell.
+- Security, container smoke, amd64/arm64 container builds, and CodeQL.
+- PR visual-evidence publication followed by manual inspection of the Tickets workflow at mobile width.
 
-- Auto-start can accidentally reset in-flight work when users add another batch. Mitigation: enqueue only new capture keys and separate combined-review invalidation from page-task invalidation.
-- Treating AI failure as nonfatal could hide loss of correction quality. Mitigation: explicit per-capture warning state plus visible manual and AI-retry actions; never present failed AI as successful AI verification.
-- AI-only retry can race an existing page task. Mitigation: reuse the same task registry, run token, page version and duplicate-task guard.
-- A source image beside editable rows can consume mobile space. Mitigation: stacked compact reference on small screens and split/sticky evidence layout only when width permits.
-
-## Rollback
-
-Revert the focused frontend workflow/UI/test commits. No database migration, API contract, dependency, deployment or persistent-data rewrite is required.
+Concrete workflow run IDs and the exact validated commit belong in the PR delivery description so this task specification does not duplicate volatile CI metadata.
 
 ## Delivery
 
-Continue branch `agent/ui-android-native-redesign` and PR #32. Use atomic Conventional Commits. Keep the PR open and unmerged until final visual/runtime review is accepted.
+Implemented on PR #32 (`agent/ui-android-native-redesign`) through atomic commits covering the workflow contract, browser regressions, receipt module/static-asset fixes, grouped review UX, CI browser setup hardening, and completed-progress cleanup. No merge, release, deployment, migration, dependency, or API-contract operation is part of this task.
 
 ## Status
 
-Regression confirmed on head `9dfb7272d6502d4a4251359f5416416ccb0231a1`. Implementation pending.
+Implementation complete. Merge remains gated by exact-head CI, final visual evidence review, and explicit user approval.
