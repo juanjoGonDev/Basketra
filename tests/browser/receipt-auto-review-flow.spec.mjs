@@ -197,4 +197,5 @@ test('AI correction failure keeps OCR reviewable with source image, manual revie
   await expect.poll(() => aiCalls).toBe(2);
   expect(ocrCalls).toBe(1);
   await expect(page.getByRole('button', { name: 'Volver a analizar con IA', exact: true })).toHaveCount(0);
+  await expect(page.locator('.capture-card__details')).not.toHaveAttribute('open', '');
 });
