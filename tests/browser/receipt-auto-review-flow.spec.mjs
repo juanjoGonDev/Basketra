@@ -97,6 +97,10 @@ test('receipt upload starts the two-slot OCR pool without exposing a second proc
 
   await page.goto('/');
   await navigate(page, 'Tickets');
+  await page.evaluate(async () => {
+    const { installReceiptEnhancements } = await import('/receipts.js');
+    installReceiptEnhancements();
+  });
 
   await expect(page.getByText('Paso 1', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Paso 2', { exact: true })).toHaveCount(0);
@@ -112,6 +116,13 @@ test('receipt upload starts the two-slot OCR pool without exposing a second proc
   await expect(page.locator('#receipt-progress-detail')).toContainText('1 pendientes');
 
   releaseOcr();
+  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Completada' })).toHaveCount(3);
+  await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
+  const description = page.locator('.receipt-item [data-field="description"]').first();
+  await description.fill('PAN EDITADO');
+  await page.locator('#receipt-review-capture').selectOption({ label: 'Imagen 2: auto-2.png' });
+  await expect(page.locator('#receipt-review-reference-image')).toHaveAttribute('alt', /auto-2\.png/u);
+  await expect(description).toHaveValue('PAN EDITADO');
 });
 
 test('AI correction failure keeps OCR reviewable with source image, manual review and AI-only retry', async ({ page }) => {
