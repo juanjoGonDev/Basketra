@@ -118,11 +118,16 @@ test('receipt upload starts the two-slot OCR pool without exposing a second proc
   releaseOcr();
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Completada' })).toHaveCount(3);
   await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
-  const description = page.locator('.receipt-item [data-field="description"]').first();
-  await description.fill('PAN EDITADO');
+  const compactLine = page.locator('.receipt-line-compact').first();
+  await compactLine.click();
+  const editor = page.locator('#receipt-line-dialog');
+  await expect(editor).toBeVisible();
+  await editor.locator('[data-field="description"]').fill('PAN EDITADO');
+  await editor.getByRole('button', { name: 'Guardar línea', exact: true }).click();
+  await expect(compactLine).toContainText('PAN EDITADO');
   await page.locator('#receipt-review-capture').selectOption({ label: 'Imagen 2: auto-2.png' });
   await expect(page.locator('#receipt-review-reference-image')).toHaveAttribute('alt', /auto-2\.png/u);
-  await expect(description).toHaveValue('PAN EDITADO');
+  await expect(compactLine).toContainText('PAN EDITADO');
 });
 
 test('AI correction failure keeps OCR reviewable with source image, manual review and AI-only retry', async ({ page }) => {
