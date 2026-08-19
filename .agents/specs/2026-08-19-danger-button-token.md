@@ -7,7 +7,7 @@ Continue PR #32 and close any remaining UI/UX regressions before final visual re
 ## Evidence
 
 - `src/web/modern.css` makes `.button.danger` consume `var(--color-on-error)`.
-- The semantic palette defines error backgrounds and container foregrounds but does not define `--color-on-error` in either light or dark mode.
+- The semantic palette defined error backgrounds and container foregrounds but did not define `--color-on-error` in either light or dark mode.
 - An unresolved custom property makes the `color` declaration invalid at computed-value time, so destructive buttons can inherit an unintended foreground color.
 - The canonical frontend guide requires semantic state tokens and verified contrast instead of implicit or arbitrary fallbacks.
 
@@ -41,4 +41,4 @@ Atomic commits. PR #32 remains unmerged pending final visual review.
 
 ## Status
 
-Regression reproduced by static inspection on head `6ca34339bcc3586140c2d757870d87156f25e1dd`. Regression test added in `c85f9114dbe87efbf8c1d0fd16897885cac186f1`; implementation pending.
+Regression reproduced by static inspection on head `6ca34339bcc3586140c2d757870d87156f25e1dd`. Regression test added in `c85f9114dbe87efbf8c1d0fd16897885cac186f1`. Semantic foreground tokens implemented in `8c96ad9d00af530224620a4c3a902c540e088ec8`. Remote CI and exact-head visual evidence remain pending validation.
