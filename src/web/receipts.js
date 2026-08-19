@@ -7,6 +7,7 @@ const PAGE_CONCURRENCY = 2;
 const ACTIVE_PAGE_STATUSES = new Set(['preparing', 'ocr', 'ai']);
 const REVIEWABLE_PAGE_STATUSES = new Set(['completed', 'manual']);
 const PAGE_LABELS = {
+  ready: 'Lista',
   pending: 'Pendiente',
   preparing: 'Preparando imagen',
   ocr: 'OCR local',
@@ -27,7 +28,6 @@ const state = {
   pageStates: new Map(),
   pageQueue: [],
   activePageTasks: new Map(),
-  activePageCount: 0,
   nextTaskId: 1,
   runToken: 0,
   processing: false,
@@ -73,7 +73,7 @@ function captureByKey(key) {
 
 function createPageState(previous = {}) {
   return {
-    status: 'pending',
+    status: 'ready',
     version: Number(previous.version || 0) + 1,
     startedAt: 0,
     elapsedMs: 0,
@@ -83,7 +83,7 @@ function createPageState(previous = {}) {
     errorCode: '',
     recovery: null,
     ...previous,
-    status: 'pending',
+    status: 'ready',
     startedAt: 0,
     elapsedMs: 0,
     rawText: '',
@@ -111,7 +111,9 @@ function abortPageWork({ markCancelled = false } = {}) {
   state.assemblyController?.abort();
   state.assemblyController = null;
   state.finalizing = false;
-  for (const task of state.activePageTasks.values()) task.controller.abort();
+  const obsoleteTasks = [...state.activePageTasks.values()];
+  state.activePageTasks.clear();
+  for (const task of obsoleteTasks) task.controller.abort();
   if (markCancelled) {
     for (const page of state.pageStates.values()) {
       if (page.status === 'pending' || ACTIVE_PAGE_STATUSES.has(page.status)) {
@@ -184,7 +186,7 @@ function renderCaptureProgress(card, capture, index) {
   position.textContent = `Imagen ${index + 1} de ${state.captures.length}`;
   const status = document.createElement('span');
   status.className = `status-pill ${pageStatusClass(page.status)}`;
-  status.textContent = PAGE_LABELS[page.status] || PAGE_LABELS.pending;
+  status.textContent = PAGE_LABELS[page.status] || PAGE_LABELS.ready;
   heading.append(position, status);
 
   const meta = document.createElement('div');
@@ -260,7 +262,7 @@ function pageStatusClass(status) {
 }
 
 function pageStageValue(status) {
-  if (status === 'preparing' || status === 'pending' || status === 'cancelled' || status === 'error') return 0;
+  if (status === 'ready' || status === 'preparing' || status === 'pending' || status === 'cancelled' || status === 'error') return 0;
   if (status === 'ocr') return 1;
   if (status === 'ai') return 2;
   if (status === 'completed' || status === 'manual') return 3;
@@ -268,6 +270,7 @@ function pageStageValue(status) {
 }
 
 function pageStageDescription(page) {
+  if (page.status === 'ready') return 'Lista para procesar';
   if (page.status === 'pending') return 'En espera de un hueco del pool';
   if (page.status === 'preparing') return 'Preparando la captura almacenada';
   if (page.status === 'ocr') return 'Reconociendo el texto localmente';
@@ -736,6 +739,7 @@ async function startReceiptBackgroundJob() {
 function enqueueCapture(capture, verifyWithAi, token = state.runToken) {
   const page = state.pageStates.get(captureKey(capture));
   if (!page) return;
+  page.status = 'pending';
   state.pageQueue.push({
     key: captureKey(capture),
     version: page.version,
@@ -744,14 +748,20 @@ function enqueueCapture(capture, verifyWithAi, token = state.runToken) {
   });
 }
 
+function currentActivePageCount() {
+  return [...state.activePageTasks.values()]
+    .filter(task => task.token === state.runToken)
+    .length;
+}
+
 function pumpPageQueue() {
-  while (state.activePageCount < PAGE_CONCURRENCY && state.pageQueue.length > 0) {
+  while (currentActivePageCount() < PAGE_CONCURRENCY && state.pageQueue.length > 0) {
     const entry = state.pageQueue.shift();
     if (!entry || entry.token !== state.runToken) continue;
     const capture = captureByKey(entry.key);
     const page = state.pageStates.get(entry.key);
     if (!capture || !page || page.version !== entry.version || page.status !== 'pending') continue;
-    if ([...state.activePageTasks.values()].some(task => task.key === entry.key)) {
+    if ([...state.activePageTasks.values()].some(task => task.token === entry.token && task.key === entry.key)) {
       state.pageQueue.push(entry);
       break;
     }
@@ -764,12 +774,10 @@ function startPageTask(capture, entry) {
   const controller = new AbortController();
   const taskId = state.nextTaskId;
   state.nextTaskId += 1;
-  state.activePageCount += 1;
   state.activePageTasks.set(taskId, { key: entry.key, token: entry.token, controller });
   void processCapture(capture, entry, controller.signal)
     .finally(() => {
       state.activePageTasks.delete(taskId);
-      state.activePageCount -= 1;
       pumpPageQueue();
       updateGlobalProgress();
     });
