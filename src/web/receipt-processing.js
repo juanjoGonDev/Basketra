@@ -26,6 +26,7 @@ import {
   renderReviewReference,
   showReviewPanelForCapture,
 } from './receipt-review.js';
+
 export function enqueueCapture(capture, verifyWithAi, token = state.runToken, mode = 'full') {
   const page = state.pageStates.get(captureKey(capture));
   if (!page) return;
@@ -440,7 +441,7 @@ export async function assembleCompletedPages(token) {
       state.processing = false;
       state.finalizing = false;
       state.assemblyController = null;
-          stopReceiptProgress();
+      stopReceiptProgress({ hide: true });
       updateGlobalProgress();
       persistAndRenderCaptures();
     }
