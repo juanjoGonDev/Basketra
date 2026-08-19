@@ -331,6 +331,10 @@ test('automatic local OCR creates editable euro rows with source context and imp
   await expect(page.locator('.receipt-item').last().locator('[data-field="description"]')).toHaveValue('Bread');
   await expect(page.locator('.receipt-item').last().locator('[data-field="unitPriceEuro"]')).toHaveValue('0.20');
 
+  const manualDetails = page.locator('.manual-entry');
+  await expect(manualDetails).not.toHaveAttribute('open', '');
+  await manualDetails.locator('summary').click();
+  await expect(manualDetails).toHaveAttribute('open', '');
   await page.getByLabel('Total declarado (€)').fill('1.40');
   await page.getByRole('button', { name: 'Validar líneas e importes', exact: true }).click();
   await expect(page.locator('#receipt-state')).toContainText('Líneas y total validados');
