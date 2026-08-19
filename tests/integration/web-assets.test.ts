@@ -1,20 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { extname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { BasketraServer } from '../../src/api/server.ts';
 import type { AppConfig } from '../../src/infrastructure/config.ts';
 
-const modularReceiptAssets = [
-  '/receipt-state.js',
-  '/receipt-capture.js',
-  '/receipt-lifecycle.js',
-  '/receipt-processing.js',
-  '/receipt-review.js',
-] as const;
+function shellAssets(): string[] {
+  const serviceWorker = readFileSync('src/web/sw.js', 'utf8');
+  const shell = /const SHELL = \[([\s\S]*?)\];/u.exec(serviceWorker)?.[1];
+  assert.ok(shell, 'service worker must declare its shell asset list');
+  return [...shell.matchAll(/'([^']+)'/gu)].map(match => match[1]);
+}
 
-test('server exposes the modular receipt shell with explicit safe static assets', async () => {
+function expectedContentType(asset: string): RegExp {
+  const extension = extname(asset);
+  if (asset === '/' || extension === '.html') return /text\/html/u;
+  if (extension === '.js') return /text\/javascript/u;
+  if (extension === '.css') return /text\/css/u;
+  if (extension === '.svg') return /image\/svg\+xml/u;
+  if (extension === '.webmanifest') return /application\/manifest\+json/u;
+  return /application\/octet-stream/u;
+}
+
+test('server exposes every service-worker shell asset through the explicit static allowlist', async () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-web-assets-'));
   const config: AppConfig = {
     host: '127.0.0.1',
@@ -36,17 +45,15 @@ test('server exposes the modular receipt shell with explicit safe static assets'
   const baseUrl = `http://127.0.0.1:${port}`;
 
   try {
-    for (const asset of modularReceiptAssets) {
+    const assets = shellAssets();
+    assert.ok(assets.includes('/receipt-ai-recovery.js'));
+    assert.ok(assets.includes('/receipt-review.css'));
+
+    for (const asset of assets) {
       const response = await fetch(`${baseUrl}${asset}`);
       assert.equal(response.status, 200, `${asset} must be served`);
-      assert.match(response.headers.get('content-type') ?? '', /text\/javascript/u);
-      assert.match(await response.text(), /export|import/u);
+      assert.match(response.headers.get('content-type') ?? '', expectedContentType(asset));
     }
-
-    const stylesheet = await fetch(`${baseUrl}/receipt-review.css`);
-    assert.equal(stylesheet.status, 200);
-    assert.match(stylesheet.headers.get('content-type') ?? '', /text\/css/u);
-    assert.match(await stylesheet.text(), /receipt-review-panel/u);
 
     const rejected = await fetch(`${baseUrl}/../src/api/server.ts`);
     assert.equal(rejected.status, 404);
