@@ -117,6 +117,7 @@ test('receipt upload starts the two-slot OCR pool without exposing a second proc
 
   releaseOcr();
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Completada' })).toHaveCount(3);
+  await expect(page.locator('#receipt-progress')).toBeHidden();
   await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
   const compactLine = page.locator('.receipt-line-compact').first();
   await compactLine.click();
