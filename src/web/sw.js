@@ -1,4 +1,4 @@
-const CACHE = 'basketra-shell-v14';
+const CACHE = 'basketra-shell-v15';
 const SHELL = [
   '/',
   '/index.html',
@@ -35,13 +35,17 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
-  if (event.request.method !== 'GET' || url.pathname.startsWith('/api/')) return;
+  const supportedProtocol = url.protocol === 'http:' || url.protocol === 'https:';
+  const sameOrigin = supportedProtocol && url.origin === self.location.origin;
+  if (event.request.method !== 'GET' || !sameOrigin || url.pathname.startsWith('/api/')) return;
   event.respondWith(
     fetch(event.request)
       .then(response => {
         if (!response.ok) return response;
         const copy = response.clone();
-        void caches.open(CACHE).then(cache => cache.put(event.request, copy));
+        void caches.open(CACHE)
+          .then(cache => cache.put(event.request, copy))
+          .catch(() => {});
         return response;
       })
       .catch(() => caches.match(event.request).then(cached => cached || caches.match('/index.html'))),
