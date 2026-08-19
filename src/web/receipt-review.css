@@ -122,6 +122,8 @@
 }
 
 .receipt-review-panel {
+  --receipt-mobile-evidence-height: 4.25rem;
+  --receipt-mobile-summary-height: 7.25rem;
   min-width: 0;
 }
 
@@ -139,12 +141,14 @@
   display: grid;
   min-width: 0;
   gap: var(--space-4);
+  isolation: isolate;
   border-top: 1px solid var(--color-outline-variant);
   padding: var(--space-4);
 }
 
 .receipt-review-evidence,
-.receipt-review-editor {
+.receipt-review-editor,
+.receipt-review-sticky-summary {
   min-width: 0;
 }
 
@@ -152,6 +156,10 @@
   display: grid;
   align-content: start;
   gap: var(--space-3);
+}
+
+.receipt-review-evidence__compact {
+  display: none;
 }
 
 .receipt-review-reference {
@@ -183,6 +191,49 @@
   color: var(--color-on-surface-variant);
 }
 
+.receipt-review-sticky-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.receipt-review-sticky-summary .review-total {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  align-items: center;
+  background: transparent;
+  font-size: .75rem;
+}
+
+.receipt-review-sticky-summary .review-total strong {
+  margin-left: var(--space-2);
+  white-space: nowrap;
+  font-size: .9rem;
+}
+
+.receipt-review-sticky-summary .status-pill {
+  justify-self: end;
+  white-space: nowrap;
+  font-size: .65rem;
+}
+
+.receipt-review-sticky-summary #confirm-receipt {
+  grid-column: 1 / -1;
+}
+
+.receipt-review-sticky-summary .sticky-action {
+  position: static;
+  bottom: auto;
+  z-index: auto;
+  box-shadow: none;
+}
+
 .receipt-review-editor {
   display: grid;
   align-content: start;
@@ -197,15 +248,104 @@
   min-width: 0;
 }
 
+@media (max-width: 49.99rem) {
+  .receipt-review-evidence__compact {
+    position: sticky;
+    z-index: 18;
+    top: calc(var(--header) + env(safe-area-inset-top) + var(--space-2));
+    display: grid;
+    height: var(--receipt-mobile-evidence-height);
+    grid-template-columns: 3rem minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-2);
+    overflow: hidden;
+    padding: var(--space-2);
+    border: 1px solid var(--color-outline-variant);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+  }
+
+  .receipt-review-evidence__compact img {
+    width: 3rem;
+    height: 3rem;
+    border-radius: var(--radius-md);
+    background: var(--color-surface-container-low);
+    object-fit: cover;
+  }
+
+  .receipt-review-evidence__identity {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-1);
+  }
+
+  .receipt-review-evidence__identity strong,
+  .receipt-review-evidence__identity small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .receipt-review-evidence__identity strong {
+    font-size: .8rem;
+  }
+
+  .receipt-review-evidence__identity small {
+    font-size: .7rem;
+  }
+
+  .receipt-review-expand {
+    min-height: var(--touch);
+    padding-inline: var(--space-3);
+    white-space: nowrap;
+    font-size: .75rem;
+  }
+
+  .receipt-review-sticky-summary {
+    position: sticky;
+    z-index: 17;
+    top: calc(var(--header) + env(safe-area-inset-top) + var(--receipt-mobile-evidence-height) + var(--space-4));
+    min-height: var(--receipt-mobile-summary-height);
+  }
+
+  .receipt-review-editor :is(input, select, textarea, button, summary, .receipt-line-compact) {
+    scroll-margin-top: calc(var(--header) + env(safe-area-inset-top) + var(--receipt-mobile-evidence-height) + var(--receipt-mobile-summary-height) + var(--space-6));
+  }
+}
+
 @media (min-width: 50rem) {
   .receipt-review-panel__body {
     grid-template-columns: minmax(16rem, .8fr) minmax(0, 1.6fr);
+    grid-template-rows: auto 1fr;
     align-items: start;
   }
 
   .receipt-review-evidence {
     position: sticky;
-    top: calc(var(--header) + var(--space-4));
+    top: calc(var(--header) + env(safe-area-inset-top) + var(--space-4));
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+
+  .receipt-review-sticky-summary {
+    position: sticky;
+    z-index: 16;
+    top: calc(var(--header) + env(safe-area-inset-top) + var(--space-4));
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .receipt-review-sticky-summary .review-total {
+    font-size: .82rem;
+  }
+
+  .receipt-review-sticky-summary .review-total strong {
+    font-size: 1rem;
+  }
+
+  .receipt-review-editor {
+    grid-column: 2;
+    grid-row: 2;
   }
 
   .receipt-review-reference img {
@@ -235,6 +375,24 @@
 
   .receipt-analysis-options > summary {
     flex-direction: column;
+  }
+
+  .receipt-review-sticky-summary {
+    gap: var(--space-1) var(--space-2);
+    padding: var(--space-2);
+  }
+
+  .receipt-review-sticky-summary .review-total {
+    font-size: .7rem;
+  }
+
+  .receipt-review-sticky-summary .review-total strong {
+    font-size: .82rem;
+  }
+
+  .receipt-review-sticky-summary .status-pill {
+    padding: .25rem .4rem;
+    font-size: .6rem;
   }
 }
 
