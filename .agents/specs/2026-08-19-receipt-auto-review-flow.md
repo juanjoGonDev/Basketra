@@ -11,6 +11,7 @@ Make the Tickets workflow continuous and review-first instead of presenting a se
 - AI verification failures were represented as page failures even after usable OCR had been produced, which made an optional correction layer block review.
 - The receipt redesign introduced split frontend modules; every new module and stylesheet must remain in the server static allowlist and service-worker shell cache.
 - Manual visual review of browser evidence found that keeping a completed global progress panel visible duplicated the per-capture status and review state, so successful processing now removes that transient summary before review.
+- Exact-head browser evidence for implementation head `562e917ff62324c57bc5925f8216f65dc8c53f4a` was manually inspected after the successful browser workflow. It shows collapsed analysis options, automatic OCR without a second processing step, compact per-capture summaries, the grouped `Revisión del ticket` disclosure, source-capture context, editable receipt rows, and the recovered AI state collapsed after a successful AI-only retry.
 
 ## Decision
 
@@ -56,8 +57,8 @@ Concrete workflow run IDs and the exact validated commit belong in the PR delive
 
 ## Delivery
 
-Implemented on PR #32 (`agent/ui-android-native-redesign`) through atomic commits covering the workflow contract, browser regressions, receipt module/static-asset fixes, grouped review UX, CI browser setup hardening, and completed-progress cleanup. No merge, release, deployment, migration, dependency, or API-contract operation is part of this task.
+Implemented on PR #32 (`agent/ui-android-native-redesign`) through atomic commits covering the workflow contract, browser regressions, receipt module/static-asset fixes, grouped review UX, CI browser setup hardening, completed-progress cleanup, and visual-evidence publisher maintenance. No merge, release, deployment, migration, dependency, or API-contract operation is part of this task.
 
 ## Status
 
-Implementation complete. Merge remains gated by exact-head CI, final visual evidence review, and explicit user approval.
+Implementation and manual visual review are complete. The implementation head passed the full quality matrix and CodeQL, and its exact-head visual-evidence publisher completed successfully. This documentation-only closeout commit must pass the same exact-head checks; after that, merge remains gated only by explicit user approval.
