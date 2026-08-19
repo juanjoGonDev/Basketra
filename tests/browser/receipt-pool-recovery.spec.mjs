@@ -78,3 +78,69 @@ test('a fresh OCR run ignores stale tasks that never settle after cancellation',
 
   releaseFreshRequests();
 });
+
+test('a same-run retry waits for its cancelled task before reusing the capture slot', async ({ page }) => {
+  await page.addInitScript(() => {
+    const nativeFetch = window.fetch.bind(window);
+    let blockFirstReceiptExtraction = true;
+    let releaseBlockedRequest = null;
+    window.__basketraReleaseCancelledReceipt = () => {
+      blockFirstReceiptExtraction = false;
+      releaseBlockedRequest?.(new Response(
+        JSON.stringify({ error: { code: 'STALE_TEST_REQUEST', message: 'stale request released' } }),
+        { status: 503, headers: { 'content-type': 'application/json' } },
+      ));
+    };
+    window.fetch = (input, init) => {
+      const address = typeof input === 'string'
+        ? input
+        : input instanceof Request
+          ? input.url
+          : String(input);
+      const url = new URL(address, window.location.href);
+      if (blockFirstReceiptExtraction && url.pathname === '/api/v1/receipts/extract') {
+        return new Promise(resolve => {
+          releaseBlockedRequest = resolve;
+        });
+      }
+      return nativeFetch(input, init);
+    };
+  });
+
+  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ configured: false }),
+  }));
+
+  let retryStarted = 0;
+  await page.route('**/api/v1/receipts/extract', route => {
+    retryStarted += 1;
+    return route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'TEST_STOP', message: 'test stop' } }),
+    });
+  });
+
+  await page.goto('/');
+  await navigate(page, 'Tickets');
+  await page.locator('#receipt-files').setInputFiles({
+    name: 'same-run-retry.png',
+    mimeType: 'image/png',
+    buffer: validPng,
+  });
+
+  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('OCR local');
+  await page.getByRole('button', { name: 'Cancelar esta imagen', exact: true }).click();
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Cancelada');
+
+  await page.getByRole('button', { name: 'Reintentar imagen', exact: true }).click();
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Pendiente');
+  expect(retryStarted).toBe(0);
+
+  await page.evaluate(() => window.__basketraReleaseCancelledReceipt());
+  await expect.poll(() => retryStarted).toBe(1);
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
+});
