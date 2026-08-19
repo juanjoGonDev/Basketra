@@ -55,4 +55,4 @@ Atomic Conventional Commits. PR #32 remains unmerged pending final visual review
 
 ## Status
 
-Root cause confirmed from cancelled run `32197206419`. Regression contract added in `6be70f4c2093293daae089ecf48054dc89049a5a`. Workflow fix pending.
+Root cause confirmed from cancelled run `32197206419`. Regression contract added in `6be70f4c2093293daae089ecf48054dc89049a5a`. Workflow reliability fix implemented in `08f1cf1a8fdb24dbdd66aa75a06b6640d1639bad`. Implementation is complete; the final PR head must satisfy the checks above before merge.
