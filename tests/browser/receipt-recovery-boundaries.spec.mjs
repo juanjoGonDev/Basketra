@@ -203,7 +203,7 @@ test('unknown page states and stale delegated actions fail closed without mutati
     Map.prototype.set = function set(key, value) {
       if (
         window.__injectUnknownReceiptPageStatus
-        && value?.status === 'pending'
+        && value?.status === 'ready'
         && typeof value.version === 'number'
         && Object.hasOwn(value, 'rawText')
         && Object.hasOwn(value, 'recovery')
