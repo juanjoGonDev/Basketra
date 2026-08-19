@@ -56,8 +56,30 @@ test('sticky receipt review exposes visible canonical icons without replacing te
 
   await expect(validation).toBeVisible();
   await expect(validation).toContainText('Total validado');
+  await expect(validation).toHaveClass(/success/u);
   await expect(validation.locator('.icon')).toBeVisible();
 
   await expect(confirm).toBeVisible();
   await expect(confirm.locator('.icon')).toBeVisible();
+
+  await page.evaluate(async () => {
+    const { renderReview } = await import('/receipt-review.js');
+    const { syncStickyReviewSummary } = await import('/receipts.js');
+    renderReview([
+      {
+        status: 'confirmed',
+        expectedMinor: 150,
+        differenceMinor: 0,
+      },
+    ], {
+      expectedMinor: 175,
+      differenceMinor: 25,
+      valid: false,
+    });
+    syncStickyReviewSummary();
+  });
+
+  await expect(validation).toContainText('Revisar total');
+  await expect(validation).toHaveClass(/warning/u);
+  await expect(validation.locator('.icon')).toBeVisible();
 });
