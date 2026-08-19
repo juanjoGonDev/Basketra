@@ -186,7 +186,7 @@ function renderCaptureProgress(card, capture, index) {
   position.textContent = `Imagen ${index + 1} de ${state.captures.length}`;
   const status = document.createElement('span');
   status.className = `status-pill ${pageStatusClass(page.status)}`;
-  status.textContent = PAGE_LABELS[page.status] || PAGE_LABELS.ready;
+  status.textContent = PAGE_LABELS[page.status] || PAGE_LABELS.pending;
   heading.append(position, status);
 
   const meta = document.createElement('div');
