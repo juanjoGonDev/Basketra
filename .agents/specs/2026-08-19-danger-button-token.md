@@ -41,4 +41,4 @@ Atomic commits. PR #32 remains unmerged pending final visual review.
 
 ## Status
 
-Regression reproduced by static inspection on head `6ca34339bcc3586140c2d757870d87156f25e1dd`. Regression test added in `c85f9114dbe87efbf8c1d0fd16897885cac186f1`. Semantic foreground tokens implemented in `8c96ad9d00af530224620a4c3a902c540e088ec8`. Remote CI and exact-head visual evidence remain pending validation.
+Regression reproduced by static inspection on head `6ca34339bcc3586140c2d757870d87156f25e1dd`. Regression test added in `c85f9114dbe87efbf8c1d0fd16897885cac186f1`. Semantic foreground tokens implemented in `8c96ad9d00af530224620a4c3a902c540e088ec8`. Implementation is complete; the final PR head must satisfy the checks above before merge.
