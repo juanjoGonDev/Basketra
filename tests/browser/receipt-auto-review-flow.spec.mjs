@@ -276,15 +276,12 @@ test('mobile review pins compact evidence and total action without bottom overla
   await page.locator('.manual-entry > summary').click();
   const totalInput = page.locator('#receipt-total');
   await totalInput.focus();
-  await totalInput.evaluate(element => element.scrollIntoView({ block: 'center' }));
-  const focusGeometry = await page.evaluate(() => {
+  await expect.poll(() => page.evaluate(() => {
     const input = document.querySelector('#receipt-total').getBoundingClientRect();
+    const summary = document.querySelector('#receipt-review-sticky-summary').getBoundingClientRect();
     const nav = document.querySelector('.bottom-nav').getBoundingClientRect();
-    const header = document.querySelector('.app-header').getBoundingClientRect();
-    return { inputTop: input.top, inputBottom: input.bottom, headerBottom: header.bottom, navTop: nav.top };
-  });
-  expect(focusGeometry.inputTop).toBeGreaterThanOrEqual(focusGeometry.headerBottom);
-  expect(focusGeometry.inputBottom).toBeLessThanOrEqual(focusGeometry.navTop);
+    return input.top >= summary.bottom && input.bottom <= nav.top;
+  })).toBe(true);
 
   await page.getByRole('button', { name: 'Ampliar captura', exact: true }).click();
   await expect(page.locator('#capture-preview-dialog')).toBeVisible();
