@@ -90,8 +90,9 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.match(receiptCapture, /OCR ha empezado automáticamente/);
   assert.match(receiptLifecycle, /\/api\/v1\/receipts\/extraction-jobs/);
   assert.match(receiptLifecycle, /new EventSource\(realtimeEndpoint\(\)\)/);
+  assert.match(receiptLifecycle, /embeddedText/);
   assert.match(receiptProcessing, /Volver a analizar con IA/);
-  assert.match(receiptProcessing, /embeddedText/);
+  assert.match(receiptProcessing, /captureRequest\(capture, page\.rawText\)/);
   assert.match(receiptReview, /receipt-review-reference-image/);
   assert.match(receiptReview, /El borrador se conserva/);
   assert.match(receiptReviewCss, /receipt-review-panel__body/);
