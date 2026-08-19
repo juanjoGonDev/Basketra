@@ -208,7 +208,6 @@ test('unknown page states and stale delegated actions fail closed without mutati
         && Object.hasOwn(value, 'rawText')
         && Object.hasOwn(value, 'recovery')
       ) {
-        window.__injectUnknownReceiptPageStatus = false;
         value.status = 'future-status';
       }
       return originalSet.call(this, key, value);
@@ -219,6 +218,7 @@ test('unknown page states and stale delegated actions fail closed without mutati
   await navigate(page, 'Tickets');
   await page.evaluate(() => { window.__injectUnknownReceiptPageStatus = true; });
   await uploadPng(page, 'future-status.png');
+  await page.evaluate(() => { window.__injectUnknownReceiptPageStatus = false; });
 
   const progress = page.locator('[data-capture-page-progress] [role="progressbar"]');
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Pendiente');
