@@ -4,6 +4,8 @@
 
 Keep receipt evidence and the calculated total continuously available while users review and correct ticket lines. Desktop should behave like a two-column review workspace with sticky evidence and sticky summary. Mobile should preserve editing space with compact sticky evidence and a sticky total/action summary, without covering focused controls, the bottom navigation, or the software keyboard.
 
+Follow-up feedback: the sticky review context must visibly use the project's iconography rather than reading as a text-only add-on. The compact evidence action and validation state must expose clear, consistent SVG affordances while retaining visible text.
+
 ## Evidence
 
 - The previous review already used a two-column layout from 50rem upward and made the desktop evidence column sticky, but the calculated total scrolled away with the receipt rows.
@@ -11,6 +13,8 @@ Keep receipt evidence and the calculated total continuously available while user
 - `#confirm-receipt` is the single canonical confirmation action and `.review-total` is the canonical calculated-total presentation; the implementation moves/reuses these nodes rather than duplicating calculation or confirmation logic.
 - Multi-image review persists `state.selectedReviewCaptureKey`, and `renderReviewReference()` remains the owner that updates the selected evidence.
 - The existing capture preview dialog is the canonical enlarged-image viewer and is reused rather than introducing a second preview implementation.
+- `src/web/ui.js` already owns Basketra's inline SVG icon library and renders scalable `currentColor` SVGs. The project UI guide requires reusing this library rather than adding a second icon family. fileciteturn174file1
+- Exact-head visual evidence shows navigation, capture and confirmation icons rendering correctly elsewhere, but the newly added compact `Ampliar` control and sticky validation pill are text-only. That inconsistency makes the sticky review chrome look unfinished even though the underlying icon system works.
 - A tests-only run reproduced the missing feature without regressions: all 39 pre-existing browser flows passed while only the two new sticky-context acceptance tests failed because the compact evidence strip and sticky summary did not yet exist.
 - The first implementation run reduced the remaining failures to mobile focus visibility plus a stale legacy locator. Desktop sticky review already passed. The legacy test was corrected to consume the moved canonical total, while production received explicit mobile focus recovery based on the sticky summary, bottom navigation and `VisualViewport`.
 - The next run executed all 41 functional browser flows successfully and exposed only one uncovered defensive branch in sticky-summary teardown; dedicated boundary coverage was added without weakening the branch threshold.
@@ -24,10 +28,12 @@ Keep receipt evidence and the calculated total continuously available while user
 - Compact/mobile layouts retain the full selected evidence in normal document flow for direct review, but add a separate compact sticky evidence strip containing a thumbnail, selected capture identity and an explicit `Ampliar captura` action. The existing capture selector remains available for multi-image switching.
 - Mobile places the sticky total/confirmation summary below the compact evidence using a top sticky offset rather than a fixed bottom overlay. This keeps the summary continuously visible while avoiding bottom-navigation and virtual-keyboard collisions.
 - The existing `.review-total` node and `#confirm-receipt` button are moved into one `#receipt-review-sticky-summary` container after every review render; total calculation and confirm behavior remain single-source.
-- `Ampliar captura` reuses the existing capture preview dialog. PDF evidence remains represented as a document reference and does not invent an image preview.
+- `Ampliar captura` reuses the existing capture preview dialog and gains a dedicated expand glyph from the canonical `ICONS` registry. PDF evidence remains represented as a document reference and does not invent an image preview.
+- Validation pills keep their existing visible Spanish label and semantic color, but also render the canonical `check` or `alert` SVG so the state is not communicated by color alone.
+- No icon-only replacement is introduced for important actions; text and accessible names remain intact. SVGs continue using the project `icon()` renderer, `viewBox` and `currentColor` conventions.
 - Mobile editable controls use sticky-aware scroll margins plus focused-control recentering inside the actual visual viewport, repeated after the keyboard-settle interval, so focus cannot remain hidden below the review context or software keyboard.
 - Sticky-summary synchronization keeps a defensive partial-DOM-teardown guard because the review can be reset while observers are active; browser boundary coverage exercises each missing-node path.
-- Service-worker shell revision `basketra-shell-v17` carries the new receipt JS/CSS into installed PWA clients without changing caching policy.
+- Service-worker shell revision `basketra-shell-v17` carries the new receipt JS/CSS into installed PWA clients without changing caching policy; any production icon change that alters cached JS/CSS must advance the shell revision again.
 - No OCR, AI, backend, database, confirmation API, persistence, authentication or dependency contract changes are part of this task.
 
 ## Acceptance
@@ -35,19 +41,21 @@ Keep receipt evidence and the calculated total continuously available while user
 1. Desktop review at >= 50rem remains a two-column layout with selected evidence sticky while receipt rows scroll.
 2. Desktop calculated total, validation state and `Confirmar e importar` remain visible in a sticky editor summary while reviewing long receipts.
 3. Mobile review has a compact sticky evidence strip rather than a large sticky image; it includes a thumbnail, current capture identity and `Ampliar captura` for images while the full evidence remains available in normal flow.
-4. Mobile calculated total, validation state and the canonical confirmation button remain sticky and visible without overlapping bottom navigation.
-5. The mobile sticky strategy uses top offsets, focus scroll margins and visual-viewport-aware focus recovery so focused controls are not hidden behind sticky review UI or the software keyboard.
-6. Switching the selected reference capture updates the sticky evidence identity/thumbnail and preserves edited receipt rows.
-7. Enlarged image review uses the existing capture preview dialog.
-8. Confirm/import continues to use the existing `#confirm-receipt` action and `/api/v1/receipts/confirm` flow.
-9. Automatic OCR, optional non-blocking AI correction, manual recovery, grouped disclosures, two-slot pool behavior and completed-progress cleanup remain unchanged.
-10. Browser zoom, safe-area handling, touch targets, keyboard focus, reduced motion and no-horizontal-overflow behavior remain intact.
-11. Browser E2E covers compact mobile sticky evidence/summary, desktop sticky evidence/summary, capture switching with preserved edits, focus visibility, defensive teardown and successful confirmation.
-12. Canonical quality, browser diff coverage, security, container smoke/builds, CodeQL and exact-head visual evidence pass before delivery.
+4. `Ampliar captura` contains a visible canonical SVG expand icon plus visible text; the icon is not a separate library, font or external asset.
+5. Sticky validation state contains a visible canonical success/warning SVG plus the existing text label; meaning never depends only on icon or color.
+6. Mobile calculated total, validation state and the canonical confirmation button remain sticky and visible without overlapping bottom navigation.
+7. The mobile sticky strategy uses top offsets, focus scroll margins and visual-viewport-aware focus recovery so focused controls are not hidden behind sticky review UI or the software keyboard.
+8. Switching the selected reference capture updates the sticky evidence identity/thumbnail and preserves edited receipt rows.
+9. Enlarged image review uses the existing capture preview dialog.
+10. Confirm/import continues to use the existing `#confirm-receipt` action and `/api/v1/receipts/confirm` flow.
+11. Automatic OCR, optional non-blocking AI correction, manual recovery, grouped disclosures, two-slot pool behavior and completed-progress cleanup remain unchanged.
+12. Browser zoom, safe-area handling, touch targets, keyboard focus, reduced motion and no-horizontal-overflow behavior remain intact.
+13. Browser E2E covers compact mobile sticky evidence/summary, visible sticky-context icons, desktop sticky evidence/summary, capture switching with preserved edits, focus visibility, defensive teardown and successful confirmation.
+14. Canonical quality, browser diff coverage, security, container smoke/builds, CodeQL and exact-head visual evidence pass before delivery.
 
 ## Checks
 
-Implementation head `10e7d57aec3d7217ba35ffdf622f62e8629c8f57`:
+Previous completed implementation head `10e7d57aec3d7217ba35ffdf622f62e8629c8f57`:
 
 - Pull Request Quality run `32297618360`: Quality, Browser E2E, Security, container smoke, linux/amd64 and linux/arm64 all passed.
 - Browser E2E job `96212516049`: 42/42 Chromium tests passed.
@@ -56,9 +64,11 @@ Implementation head `10e7d57aec3d7217ba35ffdf622f62e8629c8f57`:
 - Publish PR visual evidence run `32297618192`: passed against the same implementation head.
 - Exact-head browser artifact `9381859558` was downloaded and manually inspected for mobile and desktop sticky review behavior.
 
+Follow-up icon feedback must repeat the same canonical gates and visually inspect exact-head mobile and desktop review evidence.
+
 ## Delivery
 
-Implemented on PR #32 (`agent/ui-android-native-redesign`) through atomic Conventional Commits:
+Implemented on PR #32 (`agent/ui-android-native-redesign`) through atomic Conventional Commits. Existing sticky-review commits remain:
 
 - `06a7422a` `docs(spec): define sticky receipt review context`
 - `775475d1` `test(receipts): require sticky review context`
@@ -73,4 +83,4 @@ No merge, release, deployment, migration, dependency or API-contract operation i
 
 ## Status
 
-Complete. Implementation, regression coverage, exact-head CI and manual visual inspection are complete. Merge remains gated by explicit user approval.
+Reopened for icon-visibility feedback. Sticky behavior is complete; icon acceptance tests, implementation, exact-head CI and visual inspection are pending. Merge remains gated by explicit user approval.
