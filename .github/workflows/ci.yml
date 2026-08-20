@@ -147,7 +147,7 @@ jobs:
       - name: Build local image
         run: docker build --tag basketra:ci .
       - name: Scan container vulnerabilities
-        uses: aquasecurity/trivy-action@c07df6fec6fa692e6fd1200d50aaa1fdd66f03c8 # pinned 2026-07
+        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # pinned 2026-07
         with:
           image-ref: basketra:ci
           format: table
