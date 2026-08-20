@@ -6,12 +6,12 @@ Generate and publish pull-request visual evidence only when the current PR chang
 
 ## Evidence
 
-- `.github/workflows/pr-visual-evidence.yml` is triggered directly by `pull_request` events (`opened`, `synchronize`, `reopened`, `ready_for_review`) and currently starts for every trusted same-repository PR.
-- The workflow currently waits for the authoritative `Pull Request Quality` run for the PR `HEAD_SHA`, downloads `basketra-browser-evidence`, prepares media, replaces a temporary prerelease, and updates the PR comment without first classifying changed files.
+- `.github/workflows/pr-visual-evidence.yml` is triggered directly by `pull_request` events (`opened`, `synchronize`, `reopened`, `ready_for_review`) and previously started for every trusted same-repository PR.
+- Before this change the workflow waited for the authoritative `Pull Request Quality` run for the PR `HEAD_SHA`, downloaded `basketra-browser-evidence`, prepared media, replaced a temporary prerelease, and updated the PR comment without first classifying changed files.
 - Basketra uses `pnpm@10.15.0` from root `package.json`.
 - The repository has one root dependency manifest (`package.json`), one lockfile (`pnpm-lock.yaml`), and one pnpm workspace manifest (`pnpm-workspace.yaml`). The workspace currently contains only `.` and there are no nested package manifests.
 - GitHub PR file records expose the current `filename` and, for renames, `previous_filename`; both paths must be considered so moving a web file out of `src/web/**` cannot incorrectly skip evidence.
-- Existing exact-head protection uses the event `HEAD_SHA`, same-SHA quality-run lookup, and workflow concurrency. Publication should additionally re-read the PR head immediately before release/comment mutation.
+- Existing exact-head protection uses the event `HEAD_SHA`, same-SHA quality-run lookup, and workflow concurrency. Publication now also re-reads the PR head immediately before release/comment mutation.
 
 ## Scope
 
@@ -60,25 +60,37 @@ Do not use broad extensions such as every JSON/YAML/lock file, commit messages, 
 
 ## Tests
 
-- Unit table tests for every required RUN/SKIP path class.
-- Unit coverage for renamed-file `previous_filename` extraction and classification.
-- Workflow contract tests for read-only early classification, privileged-job gating, all-page PR file retrieval, current-head verification, same-SHA Quality lookup, and preservation of existing media reliability safeguards.
+- Unit table tests cover every required RUN/SKIP path class.
+- Unit coverage verifies renamed-file `previous_filename` extraction and classification.
+- Workflow contract tests verify read-only early classification, privileged-job gating, all-page PR file retrieval, current-head verification, same-SHA Quality lookup, and preservation of existing media reliability safeguards.
+- PR #33 itself is the live SKIP case because it changes only workflow/spec/test/helper files and no `src/web/**` or dependency/workspace owner file.
+
+## Validation
+
+Implementation head `4e4efd390a0ce7f9a4b4668164093d81b69118d0`:
+
+- Pull Request Quality run `32355122708`: passed. Quality, Security, container smoke, `linux/amd64`, `linux/arm64`, and Browser E2E all completed successfully.
+- Browser E2E job `96382697853`: **48/48 Chromium tests passed**. The changed-code coverage gate correctly reported that no browser production paths changed.
+- CodeQL Advanced run `32355122766`: passed.
+- Publish PR visual evidence run `32355122811`: passed as the intended no-op. `🔎 Classify visual impact` completed successfully and `🖼️ Publish direct PR evidence` was skipped, so no authoritative-browser wait, artifact download, `ffmpeg` setup, media processing, temporary release mutation, or PR evidence comment mutation ran.
+- The live classifier log reported: `Visual evidence skipped: no src/web/** or canonical dependency/workspace files changed.`
+- The classifier used only `contents: read` and `pull-requests: read`, checked out the exact PR head, retrieved paginated PR-file metadata, and removed `GH_TOKEN` from the policy-helper process.
+- The first CI pass on the preceding head exposed one overly strict workflow-test regex while all new policy RUN/SKIP tests passed; commit `4e4efd390a0ce7f9a4b4668164093d81b69118d0` corrected that test without changing production behavior, and the complete canonical gate then passed.
 
 ## Checks
 
-- `pnpm test`
-- `pnpm quality`
-- Pull Request Quality
-- CodeQL Advanced
-- Publish PR visual evidence
-- Manual inspection of workflow logs proving the workflow/spec/test-only PR is a successful visual-evidence no-op.
+- `pnpm quality`: executed by the canonical Quality job and passed; this includes the repository unit-test command and the new policy/workflow contracts.
+- Pull Request Quality: passed on the implementation head.
+- CodeQL Advanced: passed on the implementation head.
+- Publish PR visual evidence: passed as a classification-only no-op on the implementation head.
+- Manual workflow-log inspection: confirmed the nonvisual PR does not schedule the privileged publisher.
 
 ## Risks
 
-- GitHub's PR-files endpoint is paginated; missing pagination could produce false SKIP decisions on large PRs.
-- Renames expose the new path as `filename`; ignoring `previous_filename` could miss a web file moved outside `src/web/**`.
-- A stale run could mutate release/comment state after a newer push unless the head is revalidated immediately before publication.
-- Running PR-head policy code inside a write-capable job would violate the privileged-job trust boundary; the classifier is therefore isolated in a read-only job and removes `GH_TOKEN` from the helper process.
+- GitHub's PR-files endpoint is paginated; missing pagination could produce false SKIP decisions on large PRs. The workflow uses `--paginate` and regression coverage protects that contract.
+- Renames expose the new path as `filename`; ignoring `previous_filename` could miss a web file moved outside `src/web/**`. The helper and tests consume both paths.
+- A stale run could mutate release/comment state after a newer push unless the head is revalidated immediately before publication. The publisher now fails closed before both mutation boundaries.
+- Running PR-head policy code inside a write-capable job would violate the privileged-job trust boundary; the classifier is isolated in a read-only job and removes `GH_TOKEN` from the helper process.
 
 ## Rollback
 
@@ -88,8 +100,10 @@ Revert the workflow gate, policy helper, tests, and this spec. No application st
 
 Branch: `agent/ci-visual-evidence-impact`.
 
-Create a new non-draft PR to `main` using atomic Conventional Commits. Do not merge.
+PR: #33, `fix(ci): gate visual evidence by frontend impact`, targeting `main` as a non-draft pull request.
+
+Do not merge without explicit user approval.
 
 ## Status
 
-Recon, policy implementation, trust-boundary split, and regression contracts are complete. Pull-request and exact-head CI validation are pending.
+Complete. The implementation behavior and the live nonvisual SKIP path are validated; this closing documentation-only commit remains subject to the same exact-head CI gate before delivery is reported final.
