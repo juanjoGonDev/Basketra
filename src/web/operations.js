@@ -535,6 +535,13 @@ async function testAiProvider() {
   }
 }
 
+function installGlobalActionIcons() {
+  const planButton = $('#run-demo-comparison');
+  if (planButton && !planButton.querySelector('.icon')) {
+    planButton.insertAdjacentHTML('afterbegin', icon('prices'));
+  }
+}
+
 function installOperationsUi() {
   const settings = $('.view[data-view="settings"]');
   if (!settings || $('#runtime-operations')) return;
@@ -547,10 +554,10 @@ function installOperationsUi() {
     <section class="surface operations-card" aria-labelledby="runtime-title">
       <div class="panel-heading"><div><p class="eyebrow">Ejecución</p><h2 id="runtime-title">Servidor y versión</h2></div></div>
       <div class="operations-metrics">
-        <div class="operations-metric"><span class="operations-metric__icon">${icon('refresh')}</span><span class="operations-metric__copy"><small>Versión</small><strong id="runtime-version">Cargando…</strong></span></div>
-        <div class="operations-metric"><span class="operations-metric__icon">${icon('checkCircle')}</span><span class="operations-metric__copy"><small>Activo</small><strong id="server-uptime">00:00:00</strong></span></div>
-        <div class="operations-metric"><span class="operations-metric__icon">${icon('clock')}</span><span class="operations-metric__copy"><small>Inicio</small><strong id="server-started-at">Cargando…</strong></span></div>
-        <div class="operations-metric"><span class="operations-metric__icon">${icon('memory')}</span><span class="operations-metric__copy"><small>Memoria</small><strong id="runtime-memory">Cargando…</strong></span></div>
+        <div class="operations-metric"><span class="operations-metric__icon section-icon">${icon('refresh')}</span><small>Versión</small><strong id="runtime-version">Cargando…</strong></div>
+        <div class="operations-metric"><span class="operations-metric__icon section-icon">${icon('checkCircle')}</span><small>Activo</small><strong id="server-uptime">00:00:00</strong></div>
+        <div class="operations-metric"><span class="operations-metric__icon section-icon">${icon('clock')}</span><small>Inicio</small><strong id="server-started-at">Cargando…</strong></div>
+        <div class="operations-metric"><span class="operations-metric__icon section-icon">${icon('memory')}</span><small>Memoria</small><strong id="runtime-memory">Cargando…</strong></div>
       </div>
       <p class="operations-secondary">Revisión: <span id="runtime-revision">Cargando…</span></p>
       <p id="runtime-state" class="inline-status" role="status"></p>
@@ -642,6 +649,7 @@ function init() {
   link.rel = 'stylesheet';
   link.href = '/operations.css';
   document.head.append(link);
+  installGlobalActionIcons();
   installOperationsUi();
   installClientLogging();
   installHeartbeat();
