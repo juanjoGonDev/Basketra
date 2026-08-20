@@ -90,11 +90,23 @@ Operational:
 - workflow contract test proving classifier precedes and gates the privileged publisher;
 - workflow contract test preserving direct protected-main push and immutable `github.sha` semantics.
 
+## Checks
+
+Implementation head `4b9646952edb87f94fba46e3b52b85517500f5b3` passed:
+
+- Pull Request Quality run `32359313964`: success;
+- Quality, Security, Container smoke, linux/amd64 and linux/arm64: success;
+- Browser E2E: success;
+- CodeQL Advanced run `32359313980`: success;
+- Publish PR visual evidence run `32359314041`: success with the visual publisher skipped as expected because this PR has no visual/dependency trigger.
+
+The final documentation-only head must repeat the canonical exact-head checks before delivery.
+
 ## Risks
 
 - A path allowlist can become stale when Docker build inputs change. Contract tests must tie the policy to the explicit current Docker build inputs and publication-owned scripts.
 - Misclassifying arbitrary workflow edits as dependency updates could suppress validation of publication behavior. Only changed content lines that are `uses:` declarations are eligible for the mechanical-update exception.
-- `github.event.before` can be the all-zero SHA on branch creation. The policy must fail safe and run rather than silently skip in an unclassifiable push.
+- `github.event.before` can be the all-zero SHA on branch creation. The policy fails safe to RUN rather than silently skipping an unclassifiable push.
 
 ## Rollback
 
@@ -104,8 +116,8 @@ Revert the classifier, helper/tests, workflow gate and this spec. No application
 
 Branch: `agent/ci-ghcr-impact-gate`.
 
-Open a new non-draft PR to `main` using atomic Conventional Commits. Do not merge.
+PR #34 targets `main` and remains non-draft. Do not merge.
 
 ## Status
 
-Recon and policy decision complete. Implementation and exact-head CI validation pending.
+Implementation and regression coverage are complete. First exact-head CI passed. Final documentation-only exact-head CI is pending before delivery.
