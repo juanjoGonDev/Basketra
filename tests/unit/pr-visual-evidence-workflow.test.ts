@@ -8,7 +8,7 @@ const workflow = readFileSync(
 );
 
 test("visual evidence bounds media converter installation and avoids the flaky Azure mirror", () => {
-  assert.match(workflow, /- name: Install the media converter\n\s+timeout-minutes: 5/u);
+  assert.match(workflow, /- name: Install the media converter\n\s+if: steps\.visual-impact\.outputs\.required == 'true'\n\s+timeout-minutes: 5/u);
   assert.match(workflow, /if ! command -v ffmpeg >\/dev\/null 2>&1; then/u);
   assert.match(workflow, /\/etc\/apt\/apt-mirrors\.txt/u);
   assert.match(
@@ -27,4 +27,67 @@ test("visual evidence follows the current automatic receipt flow names", () => {
   assert.match(workflow, /retailer-autofill/u);
   assert.match(workflow, /receipt-auto-review-flow-r/u);
   assert.match(workflow, /12-auto-ocr-review\.png/u);
+});
+
+test("visual evidence classifies all current and previous PR paths before expensive work", () => {
+  const classifyIndex = workflow.indexOf("- name: Classify visual evidence impact");
+  const waitIndex = workflow.indexOf("- name: Wait for the authoritative browser run");
+  assert.ok(classifyIndex >= 0);
+  assert.ok(waitIndex > classifyIndex);
+  assert.match(
+    workflow,
+    /uses: actions\/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1/u,
+  );
+  assert.match(workflow, /ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/u);
+  assert.match(
+    workflow,
+    /gh api --paginate "repos\/\$REPOSITORY\/pulls\/\$PR_NUMBER\/files\?per_page=100"/u,
+  );
+  assert.match(
+    workflow,
+    /--jq '\.\[\] \| \.filename, \(\.previous_filename \/\/ empty\)'/u,
+  );
+  assert.match(
+    workflow,
+    /node scripts\/pr-visual-evidence-policy\.mjs "\$changed_paths"/u,
+  );
+  assert.match(workflow, /Visual evidence skipped: no src\/web\/\*\*/u);
+});
+
+test("visual evidence gates every expensive or publishing step on the canonical classification", () => {
+  for (const step of [
+    "Wait for the authoritative browser run",
+    "Download browser output for the validated head",
+    "Install the media converter",
+    "Prepare directly viewable media",
+    "Replace the temporary visual-evidence release",
+    "Publish or update the visual-evidence comment",
+  ]) {
+    assert.match(
+      workflow,
+      new RegExp(
+        `- name: ${step.replace(/[.*+?^${}()|[\\]\\]/gu, "\\$&")}\\n\\s+if: steps\\.visual-impact\\.outputs\\.required == 'true'`,
+        "u",
+      ),
+    );
+  }
+});
+
+test("visual evidence preserves same-head Quality lookup and fails closed before release and comment mutation", () => {
+  assert.match(workflow, /-f head_sha="\$HEAD_SHA"/u);
+  assert.match(
+    workflow,
+    /current_head=\$\(gh api "repos\/\$REPOSITORY\/pulls\/\$PR_NUMBER" --jq '\.head\.sha'\)/u,
+  );
+  assert.match(
+    workflow,
+    /if \[ "\$current_head" != "\$HEAD_SHA" \]; then\n\s+echo "Refusing stale visual evidence publication:/u,
+  );
+
+  const releaseIndex = workflow.indexOf("gh release delete");
+  const firstHeadCheck = workflow.indexOf("current_head=$(gh api");
+  const commentMutationIndex = workflow.indexOf("gh api --method PATCH");
+  const secondHeadCheck = workflow.indexOf("current_head=$(gh api", firstHeadCheck + 1);
+  assert.ok(firstHeadCheck >= 0 && firstHeadCheck < releaseIndex);
+  assert.ok(secondHeadCheck >= 0 && secondHeadCheck < commentMutationIndex);
 });
