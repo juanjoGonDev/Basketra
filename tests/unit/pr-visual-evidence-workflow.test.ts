@@ -10,7 +10,7 @@ const workflow = readFileSync(
 test("visual evidence bounds media converter installation and avoids the flaky Azure mirror", () => {
   assert.match(
     workflow,
-    /- name: Install the media converter\n\s+if: steps\.visual-impact\.outputs\.required == 'true'\n\s+timeout-minutes: 5/u,
+    /- name: Install the media converter\n\s+timeout-minutes: 5/u,
   );
   assert.match(workflow, /if ! command -v ffmpeg >\/dev\/null 2>&1; then/u);
   assert.match(workflow, /\/etc\/apt\/apt-mirrors\.txt/u);
@@ -32,11 +32,11 @@ test("visual evidence follows the current automatic receipt flow names", () => {
   assert.match(workflow, /12-auto-ocr-review\.png/u);
 });
 
-test("visual evidence classifies all current and previous PR paths before expensive work", () => {
-  const classifyIndex = workflow.indexOf("- name: Classify visual evidence impact");
-  const waitIndex = workflow.indexOf("- name: Wait for the authoritative browser run");
+test("visual evidence classifies all current and previous PR paths before privileged work", () => {
+  const classifyIndex = workflow.indexOf("classify:");
+  const publishIndex = workflow.indexOf("publish:");
   assert.ok(classifyIndex >= 0);
-  assert.ok(waitIndex > classifyIndex);
+  assert.ok(publishIndex > classifyIndex);
   assert.match(
     workflow,
     /uses: actions\/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1/u,
@@ -55,27 +55,24 @@ test("visual evidence classifies all current and previous PR paths before expens
   );
   assert.match(
     workflow,
-    /node scripts\/pr-visual-evidence-policy\.mjs "\$changed_files"/u,
+    /env -u GH_TOKEN node scripts\/pr-visual-evidence-policy\.mjs "\$changed_files"/u,
   );
   assert.match(workflow, /Visual evidence skipped: no src\/web\/\*\*/u);
 });
 
-test("visual evidence gates every expensive or publishing step on the canonical classification", () => {
-  for (const step of [
-    "Wait for the authoritative browser run",
-    "Download browser output for the validated head",
-    "Install the media converter",
-    "Prepare directly viewable media",
-    "Replace the temporary visual-evidence release",
-    "Publish or update the visual-evidence comment",
-  ]) {
-    assert.ok(
-      workflow.includes(
-        `- name: ${step}\n        if: steps.visual-impact.outputs.required == 'true'`,
-      ),
-      `${step} must be gated by visual impact`,
-    );
-  }
+test("visual evidence gates the privileged publisher as one unit", () => {
+  assert.match(
+    workflow,
+    /publish:\n\s+name: "🖼️ Publish direct PR evidence"\n\s+needs: classify\n\s+if: needs\.classify\.outputs\.required == 'true'/u,
+  );
+
+  const publishIndex = workflow.indexOf("  publish:");
+  const waitIndex = workflow.indexOf("- name: Wait for the authoritative browser run");
+  const downloadIndex = workflow.indexOf("- name: Download browser output for the validated head");
+  const mediaIndex = workflow.indexOf("- name: Install the media converter");
+  assert.ok(publishIndex >= 0 && waitIndex > publishIndex);
+  assert.ok(downloadIndex > waitIndex);
+  assert.ok(mediaIndex > downloadIndex);
 });
 
 test("visual evidence preserves same-head Quality lookup and fails closed before release and comment mutation", () => {
