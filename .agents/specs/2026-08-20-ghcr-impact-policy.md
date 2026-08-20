@@ -6,7 +6,7 @@ Publish a new Basketra GHCR image/release only when the protected `main` push ca
 
 ## Evidence
 
-- `.github/workflows/publish-ghcr.yml` currently runs on every push to `main` and immediately resolves a release, logs in to GHCR, builds/pushes multi-arch, smoke-tests, promotes tags and creates/verifies a GitHub release.
+- `.github/workflows/publish-ghcr.yml` previously ran on every push to `main` and immediately resolved a release, logged in to GHCR, built/pushed multi-arch, smoke-tested, promoted tags and created/verified a GitHub release.
 - Merging PR #33, which contained only visual-evidence CI/spec/test/helper changes, therefore generated GHCR even though the application/container artifact was unchanged.
 - `Dockerfile` builds the production artifact from `package.json`, `tsconfig.json`, `tsconfig.build.json`, `scripts/build.mjs` and `src/**`, then copies only `dist` into the runtime stage.
 - `.dockerignore` can change which Docker build-context files are available and is therefore container-impacting.
@@ -100,11 +100,17 @@ Implementation head `4b9646952edb87f94fba46e3b52b85517500f5b3` passed:
 - CodeQL Advanced run `32359313980`: success;
 - Publish PR visual evidence run `32359314041`: success with the visual publisher skipped as expected because this PR has no visual/dependency trigger.
 
-The final documentation-only head must repeat the canonical exact-head checks before delivery.
+Documentation head `e1c27ccd08481bfb87b24921280519d7b9da49f0` also passed the complete exact-head gate:
+
+- Pull Request Quality run `32359651210`: success, including Quality, Security, Browser E2E, Container smoke, linux/amd64 and linux/arm64;
+- CodeQL Advanced run `32359651151`: success;
+- Publish PR visual evidence run `32359651238`: success, with the visual publisher skipped.
+
+Any subsequent documentation-only status commit must still pass its exact-head PR checks before delivery.
 
 ## Risks
 
-- A path allowlist can become stale when Docker build inputs change. Contract tests must tie the policy to the explicit current Docker build inputs and publication-owned scripts.
+- A path allowlist can become stale when Docker build inputs change. Contract tests tie the policy to the explicit current Docker build inputs and publication-owned scripts.
 - Misclassifying arbitrary workflow edits as dependency updates could suppress validation of publication behavior. Only changed content lines that are `uses:` declarations are eligible for the mechanical-update exception.
 - `github.event.before` can be the all-zero SHA on branch creation. The policy fails safe to RUN rather than silently skipping an unclassifiable push.
 
@@ -120,4 +126,4 @@ PR #34 targets `main` and remains non-draft. Do not merge.
 
 ## Status
 
-Implementation and regression coverage are complete. First exact-head CI passed. Final documentation-only exact-head CI is pending before delivery.
+Implementation, regression coverage, trust-boundary gating and exact-head validation are complete. Delivery remains limited to the open PR; no merge, release, deployment or GHCR publication is performed by this task.
