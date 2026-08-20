@@ -49,9 +49,10 @@ test("visual evidence classifies all current and previous PR paths before privil
     workflow,
     /gh api --paginate "repos\/\$REPOSITORY\/pulls\/\$PR_NUMBER\/files\?per_page=100"/u,
   );
-  assert.match(
-    workflow,
-    /--jq '\.\[\] \| \{filename, previous_filename\}' \|\n\s+jq -s '\.' > "\$changed_files"/u,
+  assert.ok(
+    workflow.includes(
+      "--jq '.[] | {filename, previous_filename}' | \\\n            jq -s '.' > \"$changed_files\"",
+    ),
   );
   assert.match(
     workflow,
