@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   VISUAL_EVIDENCE_DEPENDENCY_FILES,
+  pullRequestFilePaths,
   requiresVisualEvidence,
 } from "../../scripts/pr-visual-evidence-policy.mjs";
 
@@ -52,6 +53,22 @@ test("visual evidence dependency files are explicit Basketra owners", () => {
     "pnpm-lock.yaml",
     "pnpm-workspace.yaml",
   ]);
+});
+
+test("pull request file metadata preserves current and previous rename paths", () => {
+  assert.deepEqual(
+    pullRequestFilePaths([
+      { filename: "docs/archive/legacy.css", previous_filename: "src/web/legacy.css" },
+      { filename: "tests/unit/example.test.ts" },
+      { filename: "package.json", previous_filename: null },
+    ]),
+    [
+      "docs/archive/legacy.css",
+      "src/web/legacy.css",
+      "tests/unit/example.test.ts",
+      "package.json",
+    ],
+  );
 });
 
 for (const [name, paths] of RUN_CASES) {
