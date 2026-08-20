@@ -15,11 +15,58 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  publish:
-    name: "🖼️ Publish direct PR evidence"
+  classify:
+    name: "🔎 Classify visual impact"
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      required: ${{ steps.visual-impact.outputs.required }}
+    env:
+      REPOSITORY: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Checkout visual evidence policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Classify visual evidence impact
+        id: visual-impact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          changed_files="$RUNNER_TEMP/pr-files.json"
+          gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" \
+            --jq '.[] | {filename, previous_filename}' | \
+            jq -s '.' > "$changed_files"
+
+          required=$(env -u GH_TOKEN node scripts/pr-visual-evidence-policy.mjs "$changed_files")
+          if [ "$required" != "true" ] && [ "$required" != "false" ]; then
+            echo "Visual evidence policy returned an invalid decision: $required" >&2
+            exit 1
+          fi
+
+          echo "required=$required" >> "$GITHUB_OUTPUT"
+          if [ "$required" = "true" ]; then
+            echo "Visual evidence required: src/web/** or a canonical dependency/workspace file changed."
+          else
+            echo "Visual evidence skipped: no src/web/** or canonical dependency/workspace files changed."
+          fi
+
+  publish:
+    name: "🖼️ Publish direct PR evidence"
+    needs: classify
+    if: needs.classify.outputs.required == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -184,10 +231,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          current_head=$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha')
+          if [ "$current_head" != "$HEAD_SHA" ]; then
+            echo "Refusing stale visual evidence publication: event head $HEAD_SHA, current PR head $current_head" >&2
+            exit 1
+          fi
+
           gh release delete "$EVIDENCE_TAG" \
             --repo "$REPOSITORY" \
             --cleanup-tag \
             --yes >/dev/null 2>&1 || true
+
+          current_head=$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha')
+          if [ "$current_head" != "$HEAD_SHA" ]; then
+            echo "Refusing stale visual evidence publication: event head $HEAD_SHA, current PR head $current_head" >&2
+            exit 1
+          fi
 
           gh release create "$EVIDENCE_TAG" evidence-assets/* \
             --repo "$REPOSITORY" \
@@ -202,6 +261,12 @@ jobs:
           RUN_ID: ${{ steps.quality-run.outputs.run_id }}
         run: |
           set -euo pipefail
+          current_head=$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha')
+          if [ "$current_head" != "$HEAD_SHA" ]; then
+            echo "Refusing stale visual evidence publication: event head $HEAD_SHA, current PR head $current_head" >&2
+            exit 1
+          fi
+
           base="https://github.com/$REPOSITORY/releases/download/$EVIDENCE_TAG"
           run_url="https://github.com/$REPOSITORY/actions/runs/$RUN_ID"
 
