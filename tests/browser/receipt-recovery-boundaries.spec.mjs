@@ -10,76 +10,6 @@ function navigate(page, name) {
   return page.locator('.bottom-nav').getByRole('button', { name, exact: true }).click();
 }
 
-function receiptItem(description, lineTotalMinor) {
-  return {
-    description,
-    quantity: 1,
-    unitPriceMinor: lineTotalMinor,
-    lineTotalMinor,
-    confidence: 0.8,
-    sourceLines: [1],
-  };
-}
-
-function extraction(items = [receiptItem('PAN', 150)], options = {}) {
-  const declaredTotalMinor = items.reduce((total, item) => total + item.lineTotalMinor, 0);
-  const originalText = options.originalText ?? items
-    .map(item => `${item.description} ${(item.lineTotalMinor / 100).toFixed(2)}`)
-    .concat(`TOTAL ${(declaredTotalMinor / 100).toFixed(2)}`)
-    .join('\n');
-  return {
-    pages: options.withPage === false ? [] : [{
-      position: 0,
-      source: 'local-tesseract',
-      text: originalText,
-      confidence: 0.8,
-    }],
-    originalText,
-    deterministic: { items, declaredTotalMinor },
-    final: {
-      items,
-      declaredTotalMinor,
-      articleCount: items.length,
-      warnings: [],
-      review: {
-        lines: items.map(item => ({
-          ...item,
-          status: 'confirmed',
-          expectedMinor: item.lineTotalMinor,
-          differenceMinor: 0,
-        })),
-        total: {
-          expectedMinor: declaredTotalMinor,
-          differenceMinor: 0,
-          valid: true,
-        },
-      },
-    },
-  };
-}
-
-function emptyExtraction() {
-  return {
-    pages: [],
-    originalText: '',
-    deterministic: { items: [] },
-    final: {
-      items: [],
-      warnings: [],
-      review: {
-        lines: [],
-        total: { expectedMinor: 0, differenceMinor: 0, valid: true },
-      },
-    },
-  };
-}
-
-async function enableAi(page) {
-  const input = page.getByLabel('Verificar y normalizar con IA');
-  await page.locator('label.switch-row').filter({ has: input }).click();
-  await expect(input).toBeChecked();
-}
-
 async function uploadPng(page, name) {
   await page.locator('#receipt-files').setInputFiles({
     name,
@@ -89,7 +19,18 @@ async function uploadPng(page, name) {
   await expect(page.locator('.capture-card')).toHaveCount(1);
 }
 
-test('an API failure without a stable code remains recoverable without inventing manual AI recovery', async ({ page }) => {
+async function openCaptureDetails(page) {
+  const details = page.locator('.capture-card__details').first();
+  if (!(await details.evaluate(element => element.open))) await details.locator('summary').click();
+  return details;
+}
+
+test('an OCR API failure without a stable code remains retryable without inventing AI recovery', async ({ page }) => {
+  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ configured: false }),
+  }));
   await page.route('**/api/v1/receipts/extract', route => route.fulfill({
     status: 500,
     contentType: 'application/json',
@@ -99,41 +40,13 @@ test('an API failure without a stable code remains recoverable without inventing
   await page.goto('/');
   await navigate(page, 'Tickets');
   await uploadPng(page, 'missing-code.png');
-  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
 
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
-  await expect(page.getByText('Fallo de extracción sin código estable', { exact: false })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Reintentar imagen', exact: true })).toBeVisible();
+  const details = await openCaptureDetails(page);
+  await expect(details.getByText('Fallo de extracción sin código estable', { exact: false })).toBeVisible();
+  await expect(details.getByRole('button', { name: 'Reintentar imagen', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Volver a analizar con IA', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Revisar manualmente', exact: true })).toHaveCount(0);
-});
-
-test('background AI failure keeps multiple captures retryable without manufacturing OCR rows', async ({ page }) => {
-  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({ configured: true }),
-  }));
-  await page.route('**/api/v1/receipts/extraction-jobs**', route => route.fulfill({
-    status: route.request().method() === 'POST' ? 202 : 200,
-    contentType: 'application/json',
-    body: JSON.stringify({
-      job: route.request().method() === 'POST'
-        ? { id: 'background-ai-failure' }
-        : { id: 'background-ai-failure', status: 'failed', errorCode: 'AI_UNREACHABLE' },
-    }),
-  }));
-
-  await page.goto('/');
-  await navigate(page, 'Tickets');
-  await uploadPng(page, 'plural-manual-review.png');
-  await enableAi(page);
-  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
-  await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
-
-  await expect(page.locator('#receipt-state')).toContainText('El análisis no terminó');
-  await expect(page.getByRole('button', { name: 'Reintentar imagen', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Revisar manualmente', exact: true })).toHaveCount(0);
-  await expect(page.locator('.receipt-item')).toHaveCount(0);
 });
 
 test('a PDF provider failure permits blank manual entry while preserving the original capture', async ({ page }) => {
@@ -184,14 +97,16 @@ test('a PDF provider failure permits blank manual entry while preserving the ori
     buffer: minimalPdf,
   });
   await expect(page.locator('.capture-card')).toHaveCount(1);
-  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
 
-  await page.getByRole('button', { name: 'Revisar manualmente', exact: true }).click();
+  const details = await openCaptureDetails(page);
+  await details.getByRole('button', { name: 'Revisar manualmente', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Revisión manual');
   await expect(page.getByText('Entrada manual pendiente; la captura original se conserva', { exact: true })).toBeVisible();
   await expect(page.locator('.capture-card')).toHaveCount(1);
   await expect(page.getByText('private provider PDF detail')).toHaveCount(0);
+  await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
+  await expect(page.locator('#receipt-review-reference')).toContainText('ticket-without-ocr.pdf');
 });
 
 test('unknown page states and stale delegated actions fail closed without mutating captures', async ({ page }) => {
@@ -203,12 +118,11 @@ test('unknown page states and stale delegated actions fail closed without mutati
     Map.prototype.set = function set(key, value) {
       if (
         window.__injectUnknownReceiptPageStatus
-        && value?.status === 'pending'
+        && value?.status === 'ready'
         && typeof value.version === 'number'
         && Object.hasOwn(value, 'rawText')
         && Object.hasOwn(value, 'recovery')
       ) {
-        window.__injectUnknownReceiptPageStatus = false;
         value.status = 'future-status';
       }
       return originalSet.call(this, key, value);
@@ -219,6 +133,7 @@ test('unknown page states and stale delegated actions fail closed without mutati
   await navigate(page, 'Tickets');
   await page.evaluate(() => { window.__injectUnknownReceiptPageStatus = true; });
   await uploadPng(page, 'future-status.png');
+  await page.evaluate(() => { window.__injectUnknownReceiptPageStatus = false; });
 
   const progress = page.locator('[data-capture-page-progress] [role="progressbar"]');
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Pendiente');
@@ -241,3 +156,19 @@ test('unknown page states and stale delegated actions fail closed without mutati
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Pendiente');
   expect(pageErrors).toEqual([]);
 });
+
+function emptyExtraction() {
+  return {
+    pages: [],
+    originalText: '',
+    deterministic: { items: [] },
+    final: {
+      items: [],
+      warnings: [],
+      review: {
+        lines: [],
+        total: { expectedMinor: 0, differenceMinor: 0, valid: true },
+      },
+    },
+  };
+}

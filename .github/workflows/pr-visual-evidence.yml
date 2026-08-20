@@ -85,11 +85,27 @@ jobs:
           fi
 
       - name: Install the media converter
+        timeout-minutes: 5
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends ffmpeg
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            if [ -f /etc/apt/apt-mirrors.txt ]; then
+              sudo sed -i \
+                's#http://azure.archive.ubuntu.com/ubuntu#https://archive.ubuntu.com/ubuntu#g' \
+                /etc/apt/apt-mirrors.txt
+            fi
+            sudo apt-get \
+              -o Acquire::Retries=3 \
+              -o Acquire::http::Timeout=20 \
+              -o Acquire::https::Timeout=20 \
+              update
+            sudo apt-get \
+              -o Acquire::Retries=3 \
+              -o Acquire::http::Timeout=20 \
+              -o Acquire::https::Timeout=20 \
+              install --yes --no-install-recommends ffmpeg
+          fi
           ffmpeg -version
 
       - name: Prepare directly viewable media
@@ -138,23 +154,23 @@ jobs:
           prepare_flow mobile-PWA-loads 01-mobile-navigation
           prepare_flow shopping-lists-su 02-shopping-list-lifecycle swipe-reveal.png
           prepare_flow local-suggestions 03-stale-suggestions
-          prepare_flow local-OCR-creates 04-local-ocr-editable-rows swipe-reveal.png
-          prepare_flow local-OCR-failure 05-local-ocr-manual-recovery
+          prepare_flow imports-without-AI 04-local-ocr-editable-rows swipe-reveal.png
+          prepare_flow supports-per-image-retry 05-local-ocr-manual-recovery
           prepare_flow comparison-renders 06-comparison-plans
           prepare_flow AI-unavailability 07-ai-unavailable-recovery
           prepare_flow offline-shell 08-offline-keyboard
           prepare_flow operations-settings-show-l 09-runtime-operations runtime-backups-logs.png
           prepare_flow operations-private-route-h 10-vpn-recovery vpn-reconnected.png
           prepare_flow mobile-settings-receipts-s 11-responsive-settings settings-dark-430.png
-          prepare_flow mobile-settings-receipts-O 12-ocr-retailer retailer-confirmed.png
+          prepare_flow retailer-autofill 12-ocr-retailer retailer-confirmed.png
 
           copy_flow_capture shopping-lists-su swipe-delete.png 02-shopping-list-full-delete.png
-          copy_flow_capture local-OCR-creates swipe-delete.png 04-local-ocr-full-delete.png
+          copy_flow_capture imports-without-AI swipe-delete.png 04-local-ocr-full-delete.png
           copy_flow_capture mobile-settings-receipts-s settings-light-320.png 11-settings-light-320.png
           copy_flow_capture mobile-settings-receipts-s settings-dark-360.png 11-settings-dark-360.png
           copy_flow_capture mobile-settings-receipts-s settings-light-390.png 11-settings-light-390.png
           copy_flow_capture mobile-settings-receipts-s settings-light-768.png 11-settings-light-768.png
-          copy_flow_capture mobile-settings-receipts-O background-job-running.png 12-background-job-running.png
+          copy_flow_capture receipt-auto-review-flow-r test-finished-1.png 12-auto-ocr-review.png
 
           test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 19
           test "$(find evidence-assets -maxdepth 1 -type f -name '*.gif' | wc -l)" -eq 12
@@ -206,7 +222,7 @@ jobs:
           <tr>
           <td><strong>Settings · dark · 430 px</strong><br><img src="$base/11-responsive-settings.png" width="240" alt="Basketra Settings at 430 pixels in dark mode"></td>
           <td><strong>Settings · tablet · 768 px</strong><br><img src="$base/11-settings-light-768.png" width="280" alt="Basketra Settings at tablet width in light mode"></td>
-          <td><strong>OCR running progress</strong><br><img src="$base/12-background-job-running.png" width="240" alt="Basketra receipt OCR showing elapsed progress and cancellation"></td>
+          <td><strong>Automatic OCR review</strong><br><img src="$base/12-auto-ocr-review.png" width="240" alt="Basketra automatic OCR review with grouped capture controls and source evidence"></td>
           </tr>
           <tr>
           <td colspan="3"><strong>Retailer suggestion and confirmed receipt</strong><br><img src="$base/12-ocr-retailer.png" width="360" alt="Basketra receipt review with a saved retailer suggestion and successful confirmation"></td>
@@ -219,9 +235,9 @@ jobs:
 
           [Open the full responsive Settings video]($base/11-responsive-settings.webm)
 
-          **OCR progress, cancellation and retailer flow**
+          **Automatic OCR, grouped review and retailer flow**
 
-          ![OCR progress and retailer suggestion flow]($base/12-ocr-retailer.gif)
+          ![Automatic OCR and retailer suggestion flow]($base/12-ocr-retailer.gif)
 
           [Open the full OCR and retailer video]($base/12-ocr-retailer.webm)
 

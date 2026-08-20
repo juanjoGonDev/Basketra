@@ -129,6 +129,12 @@ async function expectNoHorizontalOverflow(page) {
   expect(dimensions.page).toBeLessThanOrEqual(dimensions.viewport);
 }
 
+async function openCaptureDetails(page, index = 0) {
+  const details = page.locator('.capture-card__details').nth(index);
+  if (!(await details.evaluate(element => element.open))) await details.locator('summary').click();
+  return details;
+}
+
 test.afterEach(async ({ page }, testInfo) => {
   if (page.isClosed()) return;
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -195,6 +201,9 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
 
   let riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
   await swipe(page, riceRow, 'right');
+  const completedSection = page.locator('#completed-section');
+  await completedSection.locator('summary').click();
+  await expect(completedSection).toHaveAttribute('open', '');
   await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Devolver Arroz 1 kg a pendientes' }).click());
   await expect(page.locator('#pending-items')).toContainText('Arroz 1 kg');
 
@@ -254,7 +263,7 @@ test('local suggestions ignore stale responses and never require AI', async ({ p
   expect(failures).toEqual([]);
 });
 
-test('local OCR creates editable euro rows with accessible row actions and imports without AI', async ({ page }, testInfo) => {
+test('automatic local OCR creates editable euro rows with source context and imports without AI', async ({ page }, testInfo) => {
   const failures = await gotoApp(page);
   await navigate(page, 'Tickets');
 
@@ -262,54 +271,57 @@ test('local OCR creates editable euro rows with accessible row actions and impor
   await expect(page.locator('#receipt-camera')).toHaveAttribute('accept', 'image/jpeg,image/png');
   await expect(page.locator('#receipt-files')).toHaveAttribute('accept', 'image/jpeg,image/png,application/pdf');
   await expect(page.locator('#receipt-text')).toHaveCount(0);
-  await expect(page.getByLabel('Verificar y normalizar con IA')).toBeDisabled();
+  await expect(page.getByLabel('Corregir OCR con IA')).toBeDisabled();
   await expect(page.locator('#receipt-ai-help')).toContainText('OCR local en español activo');
+  await expect(page.getByRole('button', { name: 'Leer con OCR local', exact: true })).toHaveCount(0);
 
-  const pdf = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00]);
-  await page.locator('#receipt-camera').setInputFiles({ name: 'camera.png', mimeType: 'image/png', buffer: validPng });
   await page.locator('#receipt-files').setInputFiles([
+    { name: 'camera.png', mimeType: 'image/png', buffer: validPng },
     { name: 'gallery.png', mimeType: 'image/png', buffer: validPng },
-    { name: 'receipt.pdf', mimeType: 'application/pdf', buffer: pdf },
   ]);
 
-  await expect(page.locator('#capture-list li')).toHaveCount(3);
-  await expect(page.locator('#capture-list img[data-capture-preview-image]')).toHaveCount(2);
-  await expect(page.locator('#capture-list')).toContainText('PDF');
-  await page.getByRole('button', { name: 'Retirar receipt.pdf del borrador' }).click();
   await expect(page.locator('#capture-list li')).toHaveCount(2);
-
-  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
+  await expect(page.locator('#capture-list img[data-capture-preview-image]')).toHaveCount(2);
   await expect(page.locator('#receipt-state')).toContainText('Todas las imágenes están combinadas');
+  await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
+  await expect(page.locator('#receipt-review-reference-image')).toBeVisible();
   await expect(page.locator('.receipt-item')).toHaveCount(1);
   await expect(page.getByLabel('Precio unitario (€)').first()).toHaveValue('1.20');
   await expect(page.getByLabel('Total (€)').first()).toHaveValue('1.20');
   await expect(page.getByLabel('Total declarado (€)')).toHaveValue('1.20');
-  await expect(page.locator('#receipt-review')).toContainText('1,20 €');
+  await expect(page.locator('#receipt-review-sticky-summary')).toContainText('1,20 €');
   await expect(page.getByText(/céntimos|cént\./i)).toHaveCount(0);
 
   const firstLineShell = page.locator('[data-swipe-kind="receipt-line"]').first();
-  const firstLine = firstLineShell.locator('.receipt-item');
   await page.getByRole('button', { name: 'Mostrar acciones de la línea 1' }).click();
   await expect(firstLineShell).toHaveAttribute('data-swipe-open', 'true');
-  await expect(page.getByRole('button', { name: 'Editar línea 1' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Eliminar línea 1' })).toBeVisible();
+  const firstLineEdit = firstLineShell.getByRole('button', { name: 'Editar línea 1', exact: true });
+  await expect(firstLineEdit).toBeVisible();
+  await expect(firstLineShell.getByRole('button', { name: 'Eliminar línea 1', exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('swipe-reveal.png') });
-  await page.getByRole('button', { name: 'Editar línea 1' }).click();
-  await expect(firstLine.locator('[data-field="description"]')).toBeFocused();
-  await firstLine.locator('[data-field="description"]').fill('Whole milk');
+  await firstLineEdit.click();
+  const editorDialog = page.locator('#receipt-line-dialog');
+  await expect(editorDialog).toBeVisible();
+  const editorDescription = editorDialog.locator('[data-field="description"]');
+  await expect(editorDescription).toBeFocused();
+  await editorDescription.fill('Whole milk');
+  await editorDialog.getByRole('button', { name: 'Guardar línea', exact: true }).click();
 
   await page.getByRole('button', { name: 'Añadir línea', exact: true }).click();
   await expect(page.locator('.receipt-item')).toHaveCount(2);
-  const manualLine = page.locator('.receipt-item').last();
-  await manualLine.locator('[data-field="description"]').fill('Bread');
-  await manualLine.locator('[data-field="quantity"]').fill('1');
-  await manualLine.locator('[data-field="unitPriceEuro"]').fill('0.20');
-  await manualLine.locator('[data-field="lineTotalEuro"]').fill('0.20');
+  await expect(page.locator('.receipt-line-compact')).toHaveCount(2);
+  await page.locator('.receipt-line-compact').last().click();
+  await expect(editorDialog).toBeVisible();
+  await editorDialog.locator('[data-field="description"]').fill('Bread');
+  await editorDialog.locator('[data-field="quantity"]').fill('1');
+  await editorDialog.locator('[data-field="unitPriceEuro"]').fill('0.20');
+  await editorDialog.locator('[data-field="lineTotalEuro"]').fill('0.20');
+  await editorDialog.getByRole('button', { name: 'Guardar línea', exact: true }).click();
 
   const manualLineShell = page.locator('[data-swipe-kind="receipt-line"]').last();
   await page.getByRole('button', { name: 'Mostrar acciones de la línea 2' }).click();
   await expect(manualLineShell).toHaveAttribute('data-swipe-open', 'true');
-  await page.getByRole('button', { name: 'Eliminar línea 2' }).click();
+  await page.getByRole('button', { name: 'Eliminar línea 2', exact: true }).click();
   await expect(page.locator('.receipt-item')).toHaveCount(1);
   await expect(page.locator('#toast-message')).toHaveText('Línea eliminada');
   await expect(page.getByRole('button', { name: 'Deshacer' })).toBeVisible();
@@ -319,21 +331,24 @@ test('local OCR creates editable euro rows with accessible row actions and impor
   await expect(page.locator('.receipt-item').last().locator('[data-field="description"]')).toHaveValue('Bread');
   await expect(page.locator('.receipt-item').last().locator('[data-field="unitPriceEuro"]')).toHaveValue('0.20');
 
+  const manualDetails = page.locator('.manual-entry');
+  await expect(manualDetails).not.toHaveAttribute('open', '');
+  await manualDetails.locator('summary').click();
+  await expect(manualDetails).toHaveAttribute('open', '');
   await page.getByLabel('Total declarado (€)').fill('1.40');
   await page.getByRole('button', { name: 'Validar líneas e importes', exact: true }).click();
   await expect(page.locator('#receipt-state')).toContainText('Líneas y total validados');
 
-  await page.getByRole('button', { name: 'Confirmar e importar', exact: true }).click();
+  await page.locator('#confirm-receipt').click();
   await expect(page.locator('#receipt-state')).toContainText('Ticket importado');
   await expect(page.locator('#capture-list li')).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
   expect(failures).toEqual([]);
 });
 
-test('local OCR failure preserves captures and supports page retry', async ({ page }) => {
+test('automatic local OCR failure preserves captures and supports per-image retry', async ({ page }) => {
   const failures = await gotoApp(page, { allowExpectedOcrFailure: true });
   await navigate(page, 'Tickets');
-  await page.locator('#receipt-camera').setInputFiles({ name: 'manual.png', mimeType: 'image/png', buffer: validPng });
   let failOnce = true;
   await page.route('**/api/v1/receipts/extract', async route => {
     if (failOnce) {
@@ -343,14 +358,16 @@ test('local OCR failure preserves captures and supports page retry', async ({ pa
     }
     await route.continue();
   });
-  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
+
+  await page.locator('#receipt-camera').setInputFiles({ name: 'manual.png', mimeType: 'image/png', buffer: validPng });
   await expect(page.locator('#receipt-state')).toContainText('1 imágenes con error');
   await expect(page.locator('#capture-list li')).toHaveCount(1);
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
-  await expect(page.getByRole('button', { name: 'Reintentar imagen', exact: true })).toBeVisible();
+  const details = await openCaptureDetails(page);
+  await expect(details.getByRole('button', { name: 'Reintentar imagen', exact: true })).toBeVisible();
   await expect(page.locator('.receipt-item')).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Reintentar imagen', exact: true }).click();
+  await details.getByRole('button', { name: 'Reintentar imagen', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada');
   await expect(page.locator('#receipt-state')).toContainText('Todas las imágenes están combinadas');
   await expect(page.locator('.receipt-item')).toHaveCount(1);
@@ -362,11 +379,13 @@ test('comparison renders all deterministic plans in euros', async ({ page }) => 
   const failures = await gotoApp(page);
   await navigate(page, 'Planes');
   await page.getByRole('button', { name: 'Generar ejemplo verificable', exact: true }).click();
-  await expect(page.locator('#plans article')).toHaveCount(3);
-  await expect(page.getByRole('heading', { name: 'Un solo comercio' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Equilibrio recomendado' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Máximo ahorro' })).toBeVisible();
-  await expect(page.locator('.plan-total').first()).toContainText('€');
+  await page.getByRole('tab', { name: 'Comparativa', exact: true }).click();
+  const rows = page.locator('.plan-comparison-row');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.filter({ hasText: 'Un solo comercio' })).toBeVisible();
+  await expect(rows.filter({ hasText: 'Equilibrio recomendado' })).toBeVisible();
+  await expect(rows.filter({ hasText: 'Máximo ahorro' })).toBeVisible();
+  await expect(rows.first()).toContainText('€');
   await expect(page.getByText(/cént\./i)).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
   expect(failures).toEqual([]);

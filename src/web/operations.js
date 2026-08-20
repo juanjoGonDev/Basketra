@@ -1,3 +1,5 @@
+import { icon } from './ui.js';
+
 const MAX_BACKUP_IMPORT_BYTES = 512 * 1024 * 1024;
 const LOG_COPY_LIMIT = 500;
 const LOG_RENDER_LIMIT = 120;
@@ -53,8 +55,8 @@ function setConnection(connected) {
   if (element) {
     element.dataset.ok = connected ? 'true' : 'false';
     element.innerHTML = connected
-      ? '<span data-icon="wifi"></span>Conectado'
-      : '<span data-icon="wifi-off"></span>Desconectado';
+      ? `${icon('wifi')}<span>Conectado</span>`
+      : `${icon('wifiOff')}<span>Desconectado</span>`;
   }
   if (connected && previous === false) {
     window.dispatchEvent(new CustomEvent('basketra:connection-restored'));
@@ -416,7 +418,7 @@ async function createBackup() {
     link.href = `/api/v1/backups/${encodeURIComponent(result.backup.name)}`;
     link.download = result.backup.name;
     link.hidden = false;
-    link.textContent = `Descargar ${result.backup.name}`;
+    $('#backup-download-label').textContent = `Descargar ${result.backup.name}`;
     $('#backup-state').textContent = `Copia creada (${Math.ceil(result.backup.bytes / 1024)} KB). Decide si quieres descargarla.`;
     await loadLogs();
   } catch (error) {
@@ -533,6 +535,13 @@ async function testAiProvider() {
   }
 }
 
+function installGlobalActionIcons() {
+  const planButton = $('#run-demo-comparison');
+  if (planButton && !planButton.querySelector('.icon')) {
+    planButton.insertAdjacentHTML('afterbegin', icon('prices'));
+  }
+}
+
 function installOperationsUi() {
   const settings = $('.view[data-view="settings"]');
   if (!settings || $('#runtime-operations')) return;
@@ -545,10 +554,10 @@ function installOperationsUi() {
     <section class="surface operations-card" aria-labelledby="runtime-title">
       <div class="panel-heading"><div><p class="eyebrow">Ejecución</p><h2 id="runtime-title">Servidor y versión</h2></div></div>
       <div class="operations-metrics">
-        <div><small>Versión</small><strong id="runtime-version">Cargando…</strong></div>
-        <div><small>Activo</small><strong id="server-uptime">00:00:00</strong></div>
-        <div><small>Inicio</small><strong id="server-started-at">Cargando…</strong></div>
-        <div><small>Memoria</small><strong id="runtime-memory">Cargando…</strong></div>
+        <div class="operations-metric"><span class="operations-metric__icon section-icon">${icon('refresh')}</span><small>Versión</small><strong id="runtime-version">Cargando…</strong></div>
+        <div class="operations-metric"><span class="operations-metric__icon section-icon">${icon('checkCircle')}</span><small>Activo</small><strong id="server-uptime">00:00:00</strong></div>
+        <div class="operations-metric"><span class="operations-metric__icon section-icon">${icon('clock')}</span><small>Inicio</small><strong id="server-started-at">Cargando…</strong></div>
+        <div class="operations-metric"><span class="operations-metric__icon section-icon">${icon('memory')}</span><small>Memoria</small><strong id="runtime-memory">Cargando…</strong></div>
       </div>
       <p class="operations-secondary">Revisión: <span id="runtime-revision">Cargando…</span></p>
       <p id="runtime-state" class="inline-status" role="status"></p>
@@ -563,15 +572,15 @@ function installOperationsUi() {
       </dl>
       <p>La prueba envía una imagen sintética sin datos personales y exige una respuesta JSON conforme a un esquema estricto. Sólo se ejecuta al pulsar el botón.</p>
       <p id="ai-provider-network-note" class="operations-help"></p>
-      <button id="test-ai-provider" class="button secondary full" type="button">Verificar imagen y JSON estricto</button>
+      <button id="test-ai-provider" class="button secondary full" type="button">${icon('sparkles')}<span>Verificar imagen y JSON estricto</span></button>
       <p id="ai-test-state" class="inline-status" role="status"></p>
     </section>
     <section class="surface operations-card" aria-labelledby="logs-title">
       <div class="panel-heading"><div><p class="eyebrow">Observabilidad</p><h2 id="logs-title">Logs de aplicación</h2></div></div>
       <p>Sólo se muestran eventos estructurados y censurados; nunca contenido de tickets, claves o cuerpos de petición.</p>
       <div class="inline-actions operations-log-actions">
-        <button id="refresh-logs" class="button secondary" type="button">Actualizar logs</button>
-        <button id="copy-logs" class="button secondary" type="button" disabled>Copiar logs</button>
+        <button id="refresh-logs" class="button secondary" type="button">${icon('refresh')}<span>Actualizar logs</span></button>
+        <button id="copy-logs" class="button secondary" type="button" disabled>${icon('copy')}<span>Copiar logs</span></button>
       </div>
       <small>La copia incluye hasta ${LOG_COPY_LIMIT} eventos completos en JSON por línea, con los mismos campos censurados del backend.</small>
       <p id="copy-logs-state" class="inline-status" role="status">Preparando logs…</p>
@@ -579,15 +588,15 @@ function installOperationsUi() {
     </section>
     <section class="surface operations-card" aria-labelledby="backup-title">
       <div class="panel-heading"><div><p class="eyebrow">Recuperación</p><h2 id="backup-title">Copias de seguridad</h2></div></div>
-      <button id="create-operational-backup" class="button secondary full" type="button">Crear copia</button>
-      <a id="backup-download-link" class="button primary full" hidden>Descargar copia</a>
+      <button id="create-operational-backup" class="button secondary full" type="button">${icon('backup')}<span>Crear copia</span></button>
+      <a id="backup-download-link" class="button primary full" hidden>${icon('download')}<span id="backup-download-label">Descargar copia</span></a>
       <p id="backup-state" class="inline-status" role="status"></p>
       <hr>
       <label class="field"><span>Importar copia SQLite (.db)</span><input id="backup-import-file" type="file" accept=".db,application/vnd.sqlite3,application/octet-stream"></label>
-      <button id="import-backup" class="button secondary full" type="button">Importar y validar</button>
+      <button id="import-backup" class="button secondary full" type="button">${icon('upload')}<span>Importar y validar</span></button>
       <label class="field"><span>Copia validada</span><select id="restore-backup-select"><option value="">Cargando…</option></select></label>
       <label class="field"><span>Confirmación</span><input id="restore-confirmation" autocomplete="off" placeholder="Escribe RESTAURAR"></label>
-      <button id="stage-restore" class="button danger full" type="button" disabled>Restaurar tras reinicio</button>
+      <button id="stage-restore" class="button danger full" type="button" disabled>${icon('backup')}<span>Restaurar tras reinicio</span></button>
       <p id="restore-state" class="inline-status" role="status"></p>
     </section>`;
   settings.append(section);
@@ -640,6 +649,7 @@ function init() {
   link.rel = 'stylesheet';
   link.href = '/operations.css';
   document.head.append(link);
+  installGlobalActionIcons();
   installOperationsUi();
   installClientLogging();
   installHeartbeat();

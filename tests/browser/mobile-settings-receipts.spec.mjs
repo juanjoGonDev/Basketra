@@ -82,7 +82,7 @@ test('settings remain readable and unobscured across light and dark responsive l
   }
 });
 
-test('OCR exposes a two-slot per-image pipeline with retry and retailer autofill', async ({ page }, testInfo) => {
+test('automatic OCR and optional AI correction preserve the two-slot pool and retailer autofill', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
@@ -91,63 +91,71 @@ test('OCR exposes a two-slot per-image pipeline with retry and retailer autofill
     body: JSON.stringify({ configured: true }),
   }));
 
-  let releaseBackgroundJob = () => {};
-  const backgroundJobGate = new Promise(resolve => {
-    releaseBackgroundJob = resolve;
-  });
-  await page.route('**/api/v1/receipts/extraction-jobs**', async route => {
-    if (route.request().method() === 'POST') {
-      const body = route.request().postDataJSON();
-      expect(body.verifyWithAi).toBe(true);
-      expect(body.captures).toHaveLength(3);
-      await backgroundJobGate;
+  let activeOcr = 0;
+  let maximumActiveOcr = 0;
+  await page.route('**/api/v1/receipts/extract', async route => {
+    const body = route.request().postDataJSON();
+    const captures = body.captures ?? [];
+    const single = captures.length === 1;
+    const embeddedText = single && typeof captures[0].embeddedText === 'string';
+    const match = /alcampo-(\d+)\.png/u.exec(captures[0]?.originalName ?? '');
+    const index = match ? Number(match[1]) - 1 : 0;
+
+    if (single && body.verifyWithAi === false && !embeddedText) {
+      activeOcr += 1;
+      maximumActiveOcr = Math.max(maximumActiveOcr, activeOcr);
+      await new Promise(resolve => setTimeout(resolve, 80));
+      activeOcr -= 1;
       await route.fulfill({
-        status: 202,
+        status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ job: { id: 'receipt-job-pipeline' } }),
+        body: JSON.stringify({ extraction: pageExtraction(index, false) }),
       });
       return;
     }
+
+    if (single && body.verifyWithAi === true && embeddedText) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ extraction: pageExtraction(index, true) }),
+      });
+      return;
+    }
+
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        job: { id: 'receipt-job-pipeline', status: 'completed', extraction: assembledExtraction() },
-      }),
+      body: JSON.stringify({ extraction: assembledExtraction() }),
     });
   });
 
   await page.goto('/');
   await navigate(page, 'Tickets');
+  await expect(page.getByRole('button', { name: 'Leer con OCR local', exact: true })).toHaveCount(0);
+  await expect(page.locator('#receipt-analysis-options')).not.toHaveAttribute('open', '');
+  await expect(page.locator('#verify-receipt-ai')).toBeChecked();
+
   await page.locator('#receipt-files').setInputFiles([0, 1, 2].map(index => ({
     name: `alcampo-${index + 1}.png`,
     mimeType: 'image/png',
     buffer: Buffer.concat([validPng, Buffer.from([index])]),
   })));
+
   await expect(page.locator('.capture-card')).toHaveCount(3);
-  const aiInput = page.getByLabel('Verificar y normalizar con IA');
-  const aiSwitch = page.locator('label.switch-row').filter({ has: aiInput });
-  await aiSwitch.scrollIntoViewIfNeeded();
-  await aiSwitch.click();
-  await expect(aiInput).toBeChecked();
-  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
-
-  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Preparando imagen' })).toHaveCount(3);
-  await expect(page.locator('#receipt-progress-detail')).toContainText('3 procesando');
-  await expectNoHorizontalOverflow(page);
-  await page.screenshot({ path: testInfo.outputPath('background-job-running.png'), fullPage: true });
-
-  releaseBackgroundJob();
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Completada' })).toHaveCount(3);
+  expect(maximumActiveOcr).toBe(2);
   await expect(page.locator('#receipt-state')).toContainText('88 artículos');
   await expect(page.getByLabel('Comercio (opcional)', { exact: true })).toHaveValue('ALCAMPO ALMERIA');
   await expect(page.locator('#receipt-total')).toHaveValue('202.26');
   await expect(page.locator('.receipt-item')).toHaveCount(4);
+  await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
+  await expect(page.locator('#receipt-review-reference-image')).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await page.screenshot({ path: testInfo.outputPath('retailer-confirmed.png'), fullPage: true });
 
   const confirmationRequest = page.waitForRequest(request => new URL(request.url()).pathname === '/api/v1/receipts/confirm');
-  await page.getByRole('button', { name: 'Confirmar e importar', exact: true }).click();
+  await page.locator('#confirm-receipt').click();
   const payload = (await confirmationRequest).postDataJSON();
   expect(payload.retailerName).toBe('ALCAMPO ALMERIA');
   expect(payload.declaredTotalMinor).toBe(20_226);
@@ -156,7 +164,7 @@ test('OCR exposes a two-slot per-image pipeline with retry and retailer autofill
   await expect(page.locator('#receipt-state')).toContainText('Ticket importado');
 });
 
-test('receipt cancellation stops queued work and preserves every capture', async ({ page }, testInfo) => {
+test('receipt cancellation stops queued automatic work and preserves every capture', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 360, height: 780 });
   await page.emulateMedia({ colorScheme: 'light' });
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
@@ -191,22 +199,26 @@ test('receipt cancellation stops queued work and preserves every capture', async
     mimeType: 'image/png',
     buffer: Buffer.concat([validPng, Buffer.from([10 + index])]),
   })));
-  await page.getByRole('button', { name: 'Leer con OCR local', exact: true }).click();
+
   await expect.poll(() => started).toBe(2);
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'OCR local' })).toHaveCount(2);
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Pendiente' })).toHaveCount(1);
 
-  await page.locator('.capture-card').first().getByRole('button', { name: 'Cancelar esta imagen', exact: true }).click();
+  const firstDetails = page.locator('.capture-card__details').first();
+  await expect(firstDetails).not.toHaveAttribute('open', '');
+  await firstDetails.locator('summary').click();
+  await expect(firstDetails).toHaveAttribute('open', '');
+  await firstDetails.getByRole('button', { name: 'Cancelar esta imagen', exact: true }).click();
   await expect(page.locator('.capture-card').first().locator('.status-pill')).toHaveText('Cancelada');
   await expect.poll(() => started).toBe(3);
 
-  await page.getByRole('button', { name: 'Cancelar todo', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancelar procesamiento', exact: true }).click();
   releaseRequests();
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Cancelada' })).toHaveCount(3);
   await expect(page.locator('.capture-card')).toHaveCount(3);
   await expect(page.locator('#receipt-progress-detail')).toContainText('3 canceladas');
   await expect(page.locator('#receipt-review')).toBeHidden();
-  await expect(page.getByRole('button', { name: 'Leer con OCR local', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Leer con OCR local', exact: true })).toHaveCount(0);
   await expect(page.locator('#receipt-state')).toContainText('capturas, los OCR parciales y las páginas completadas se conservan');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({ path: testInfo.outputPath('ocr-cancelled.png'), fullPage: true });
@@ -326,15 +338,13 @@ function review(items, declaredTotalMinor) {
     lines: items.map(entry => ({
       ...entry,
       status: 'confirmed',
-      expectedMinor: entry.quantity * entry.unitPriceMinor,
+      expectedMinor: entry.lineTotalMinor,
       differenceMinor: 0,
     })),
-    ...(declaredTotalMinor === undefined ? {} : {
-      total: {
-        expectedMinor,
-        differenceMinor: declaredTotalMinor - expectedMinor,
-        valid: declaredTotalMinor === expectedMinor,
-      },
-    }),
+    total: {
+      expectedMinor,
+      differenceMinor: declaredTotalMinor === undefined ? 0 : declaredTotalMinor - expectedMinor,
+      valid: declaredTotalMinor === undefined || declaredTotalMinor === expectedMinor,
+    },
   };
 }

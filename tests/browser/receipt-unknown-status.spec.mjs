@@ -16,7 +16,7 @@ test('an unknown future receipt-page status degrades to pending progress', async
     Map.prototype.set = function set(key, value) {
       if (
         key === expectedKey
-        && value?.status === 'pending'
+        && value?.status === 'ready'
         && typeof value.version === 'number'
         && Object.hasOwn(value, 'rawText')
         && Object.hasOwn(value, 'recovery')
