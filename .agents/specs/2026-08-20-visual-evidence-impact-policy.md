@@ -33,14 +33,14 @@ The policy is true when any changed/current/previous path is:
    - `pnpm-lock.yaml`
    - `pnpm-workspace.yaml`
 
-The workflow will:
+Split the workflow by trust boundary:
 
-1. check out the exact PR head with the repository's already-pinned `actions/checkout` action;
-2. query all PR file pages with `gh api --paginate`, emitting both `filename` and `previous_filename` where present;
-3. execute the canonical helper before waiting for Quality or downloading artifacts;
-4. emit a clear successful no-op message when the helper returns false;
-5. condition every expensive/publication step on the helper result;
-6. re-read `.head.sha` from the PR immediately before replacing the evidence prerelease and publishing/updating the comment, failing closed if it differs from the event `HEAD_SHA`.
+1. A read-only `classify` job runs only for the same trusted same-repository actor set already accepted by the publisher.
+2. That job checks out the exact PR head using the repository's pinned `actions/checkout`, queries every PR-files page with `gh api --paginate`, serializes only `filename` and `previous_filename`, and executes the dependency-free policy helper with `GH_TOKEN` removed from the helper process environment.
+3. The classifier emits `required=true|false` and a clear reason. A false result ends as a successful no-op; the privileged publisher job is not scheduled.
+4. The existing write-capable `publish` job depends on `classify` and runs only when `required == 'true'`. It does not check out or execute PR code.
+5. The publisher retains the same-SHA authoritative Quality lookup before artifact/media work.
+6. The publisher re-reads `.head.sha` immediately before release mutation and again before comment mutation, failing closed if it differs from the event `HEAD_SHA`.
 
 Do not use broad extensions such as every JSON/YAML/lock file, commit messages, labels, workflow names, or Browser E2E execution as impact signals.
 
@@ -54,14 +54,15 @@ Do not use broad extensions such as every JSON/YAML/lock file, commit messages, 
 - SKIP runs do not wait for Quality, download browser artifacts, install `ffmpeg`, process media, mutate the temporary release, or create/update the visual-evidence comment.
 - RUN behavior preserves the existing exact-head authoritative Browser E2E and media publication flow.
 - Publication fails closed when the PR current head differs from the event head.
+- The write-capable publisher does not check out or execute PR-head code.
 - No third-party changed-files action or dependency is added.
 - Canonical project quality/security checks and final exact-head PR CI are green.
 
 ## Tests
 
 - Unit table tests for every required RUN/SKIP path class.
-- Unit coverage for renamed-file previous-path handling through the path list supplied to the helper.
-- Workflow contract tests for early classification, no-op behavior, gating of expensive steps, all-page PR file retrieval, current-head verification, and preservation of existing media reliability safeguards.
+- Unit coverage for renamed-file `previous_filename` extraction and classification.
+- Workflow contract tests for read-only early classification, privileged-job gating, all-page PR file retrieval, current-head verification, same-SHA Quality lookup, and preservation of existing media reliability safeguards.
 
 ## Checks
 
@@ -70,13 +71,14 @@ Do not use broad extensions such as every JSON/YAML/lock file, commit messages, 
 - Pull Request Quality
 - CodeQL Advanced
 - Publish PR visual evidence
-- Manual inspection of workflow logs proving the workflow-only/spec/test PR is a successful visual-evidence no-op.
+- Manual inspection of workflow logs proving the workflow/spec/test-only PR is a successful visual-evidence no-op.
 
 ## Risks
 
 - GitHub's PR-files endpoint is paginated; missing pagination could produce false SKIP decisions on large PRs.
 - Renames expose the new path as `filename`; ignoring `previous_filename` could miss a web file moved outside `src/web/**`.
 - A stale run could mutate release/comment state after a newer push unless the head is revalidated immediately before publication.
+- Running PR-head policy code inside a write-capable job would violate the privileged-job trust boundary; the classifier is therefore isolated in a read-only job and removes `GH_TOKEN` from the helper process.
 
 ## Rollback
 
@@ -90,4 +92,4 @@ Create a new non-draft PR to `main` using atomic Conventional Commits. Do not me
 
 ## Status
 
-Recon and decision complete. Implementation and exact-head validation pending.
+Recon, policy implementation, trust-boundary split, and regression contracts are complete. Pull-request and exact-head CI validation are pending.
