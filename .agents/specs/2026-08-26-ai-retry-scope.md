@@ -11,7 +11,7 @@ Stop Basketra from replaying the original receipt OCR request and uploading the 
 - That correction failed with a ChatGPT renderer liveness error.
 - Basketra currently maps every generic provider HTTP 5xx to `AI_PROVIDER_FAILED` with `retryable: true`.
 - `StructuredAiExecutor` then calls `provider.executeStructured()` again with the original input, including its image attachment.
-- The receipt schema requires every warning to be at most 240 characters, but the receipt verification system prompt does not state that bound explicitly.
+- The receipt schema requires every warning to be at most 240 characters, but the receipt verification system prompt did not state that bound explicitly.
 
 ## Decision
 
@@ -34,16 +34,17 @@ Stop Basketra from replaying the original receipt OCR request and uploading the 
 
 ## Acceptance
 
-- [ ] `validated_output_correction_failed` maps to a non-retryable `AI_PROVIDER_FAILED`.
-- [ ] `StructuredAiExecutor` makes one provider call for that error even when configured with retries.
-- [ ] Generic transient 5xx behavior remains bounded and retryable.
-- [ ] Receipt verification tells the model each warning must be at most 240 characters.
+- [x] `validated_output_correction_failed` maps to a non-retryable `AI_PROVIDER_FAILED`.
+- [x] `StructuredAiExecutor` makes one provider call for that error even when configured with retries.
+- [x] Generic transient 5xx behavior remains bounded and retryable.
+- [x] Receipt verification tells the model each warning must be at most 240 characters.
 - [ ] Exact-head quality and CI pass.
 
 ## Tests
 
-- Unit provider/error regression in `tests/unit/ai-provider-errors.test.ts`.
-- Receipt extraction/prompt regression in the existing receipt AI tests.
+- Provider/error and executor regression in `tests/unit/ai-retry-scope.test.ts`.
+- Receipt prompt regression in `tests/unit/receipt-ai-warning-contract.test.ts`.
+- Existing provider retry tests continue to cover bounded generic transient 5xx behavior.
 - Existing integration, browser, security, container, AMD64, ARM64, and CodeQL checks remain authoritative.
 
 ## Rollback
@@ -56,4 +57,4 @@ Target a new PR from `agent/fix-ai-retry-scope` to `main`. Do not merge, release
 
 ## Status
 
-In progress.
+Implementation complete; exact-head quality and CI pending.
