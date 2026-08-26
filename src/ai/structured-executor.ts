@@ -28,15 +28,18 @@ export class StructuredAiExecutor {
         return { value: input.schema.parse(raw), attempts: attempt };
       } catch (error) {
         lastError = error;
-        if (!isRetryable(error) || attempt > this.maxRetries) break;
+        if (!isOriginalRequestRetryAllowed(error) || attempt > this.maxRetries) break;
       }
     }
     throw lastError;
   }
 }
 
-function isRetryable(error: unknown): boolean {
-  if (error instanceof AiProviderError) return error.retryable;
+function isOriginalRequestRetryAllowed(error: unknown): boolean {
+  if (error instanceof AiProviderError) {
+    if (error.originalRequestReplaySafe === false) return false;
+    return error.retryable;
+  }
   if (!(error instanceof Error)) return false;
   return !['AI_AUTHENTICATION_FAILED', 'AI_UNSUPPORTED_CAPABILITY', 'AI_INVALID_CONFIGURATION'].includes(error.message);
 }
