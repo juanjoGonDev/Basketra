@@ -39,8 +39,8 @@ test('provider classifies exhausted structured correction as non-retryable', asy
       baseUrl: new URL('http://provider.test/v1/'),
       model: 'test-model',
     },
-    (async (input) => {
-      const request = new Request(input);
+    (async (input, init) => {
+      const request = new Request(input, init);
       if (request.method === 'GET') return new Response('{}', { status: 404 });
       return correctionFailureResponse();
     }) as typeof fetch,
