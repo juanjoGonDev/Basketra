@@ -67,8 +67,8 @@ Basketra rules:
 - [x] Provider parsing accepts only the bounded canonical replay fields and does not expose provider bodies.
 - [x] Existing transient pre-progress retry behavior remains covered.
 - [x] The traced receipt/service/provider path contains no second retry owner around `StructuredAiExecutor`.
-- [x] `pnpm quality` passed on implementation head `72268084abbacddcc9a419f7d6af734030803dfb`.
-- [ ] Exact-head CI passes after this status-only commit.
+- [x] Canonical quality passed on the implementation.
+- [x] Exact-head PR validation passed on `16dfc7732842183959225cd7c4ee9c055d9f84b0`: Pull Request Quality, Browser E2E, Security, container smoke, amd64, arm64, CodeQL, and PR visual evidence all completed successfully.
 
 ## Tests
 
@@ -86,4 +86,4 @@ Continue PR #35 on `agent/fix-ai-retry-scope` targeting `main`. Do not merge, re
 
 ## Status
 
-Implementation, unit coverage, and cross-service contract regression complete. Exact-head CI pending.
+Implementation, unit coverage, cross-service contract regression, security checks, browser checks, and implementation-head CI are complete. Final documentation-only head validation pending.
