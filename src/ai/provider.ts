@@ -172,6 +172,9 @@ const PROVIDER_REQUEST_REJECTION_CODES = new Set([
   'attachment_upload_rejected',
   'structured_output_streaming_unsupported',
 ]);
+const PROVIDER_TERMINAL_FAILURE_CODES = new Set([
+  'validated_output_correction_failed',
+]);
 
 type ProviderErrorMetadata = Readonly<{
   code?: string;
@@ -621,6 +624,9 @@ function providerProbeFailure(value: unknown): AiProviderErrorCode | undefined {
 
 function mapProviderHttpError(status: number, metadata?: ProviderErrorMetadata): AiProviderError {
   const providerCode = metadata?.code ?? metadata?.type;
+  if (providerCode && PROVIDER_TERMINAL_FAILURE_CODES.has(providerCode)) {
+    return new AiProviderError('AI_PROVIDER_FAILED', { status });
+  }
   if (providerCode && PROVIDER_ATTACHMENT_UPLOAD_CODES.has(providerCode)) {
     return new AiProviderError('AI_ATTACHMENT_UPLOAD_FAILED', {
       status,
