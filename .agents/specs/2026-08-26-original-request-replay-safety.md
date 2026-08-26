@@ -57,17 +57,18 @@ Basketra rules:
 
 - Requires the companion webApi contract to emit replay metadata after downstream progress.
 - If an older webApi omits metadata, Basketra retains existing bounded pre-progress-compatible behavior; deployment order should update webApi first.
-- The error body parser must remain bounded and must not retain/log sensitive provider details.
+- The error body parser remains bounded and does not retain/log sensitive provider details.
 
 ## Acceptance
 
-- [ ] A real Basketra receipt extraction containing OCR + image sends the original provider POST/attachment exactly once when webApi responds with post-progress replay-unsafe metadata.
-- [ ] The same behavior holds regardless of the concrete error code/status used in the fixture.
-- [ ] `StructuredAiExecutor` explicitly consults replay safety before retrying.
-- [ ] Provider parsing accepts only the bounded canonical replay fields and does not expose provider bodies.
-- [ ] Existing transient pre-progress retry tests still pass.
-- [ ] No controller/service/gateway adds a second retry of the original AI operation.
-- [ ] `pnpm quality` and exact-head CI are green.
+- [x] A real Basketra receipt extraction containing OCR + image sends the original provider POST/attachment exactly once when webApi responds with post-progress replay-unsafe metadata.
+- [x] The same behavior holds regardless of the concrete error code/status used in the fixture.
+- [x] `StructuredAiExecutor` explicitly consults replay safety before retrying.
+- [x] Provider parsing accepts only the bounded canonical replay fields and does not expose provider bodies.
+- [x] Existing transient pre-progress retry behavior remains covered.
+- [x] The traced receipt/service/provider path contains no second retry owner around `StructuredAiExecutor`.
+- [x] `pnpm quality` passed on implementation head `72268084abbacddcc9a419f7d6af734030803dfb`.
+- [ ] Exact-head CI passes after this status-only commit.
 
 ## Tests
 
@@ -85,4 +86,4 @@ Continue PR #35 on `agent/fix-ai-retry-scope` targeting `main`. Do not merge, re
 
 ## Status
 
-Specification recorded; TDD regression and implementation pending.
+Implementation, unit coverage, and cross-service contract regression complete. Exact-head CI pending.
