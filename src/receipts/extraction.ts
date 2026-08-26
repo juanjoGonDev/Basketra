@@ -304,6 +304,7 @@ export async function verifyReceiptWithAi(
       'Return monetary fields as integer euro cents.',
       'Return sourceLines with the numbered OCR lines supporting every item, even when the attachment corrects OCR characters.',
       'Return correctedText in page order, retailerName, declaredTotalMinor and articleCount only when visible in the attachment or OCR.',
+      'Keep each warning within 240 characters.',
       'Mark uncertainty through confidence and warnings. Return JSON only.',
       ...(session
         ? [`This is page ${String(session.pagePosition + 1)} of ${String(session.pageCount)} of one receipt. Return only this page; do not repeat or modify prior pages.`]
