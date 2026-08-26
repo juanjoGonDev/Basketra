@@ -23,7 +23,8 @@ ENV NODE_ENV=production \
 LABEL org.opencontainers.image.version=${BASKETRA_VERSION} \
       org.opencontainers.image.revision=${BASKETRA_REVISION}
 WORKDIR /app
-RUN apk add --no-cache tesseract-ocr tesseract-ocr-data-spa \
+RUN apk upgrade --no-cache libcrypto3 libssl3 \
+    && apk add --no-cache tesseract-ocr tesseract-ocr-data-spa \
     && apk add --no-cache --virtual .ocr-smoke-deps imagemagick font-dejavu \
     && tesseract --version \
     && tesseract --list-langs | grep -qx spa \
