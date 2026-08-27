@@ -17,7 +17,7 @@ const ocrPage = {
   mimeType: 'image/png',
   text: 'ALCAMPO\nTOTAL 1,20',
   confidence: 0.91,
-  source: 'tesseract' as const,
+  source: 'local-tesseract' as const,
   deterministic: {
     items: [],
     metadata: {
