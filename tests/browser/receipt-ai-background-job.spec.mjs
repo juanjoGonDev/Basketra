@@ -176,7 +176,7 @@ test('cancelling during job creation deletes the created job without replaying A
 
   await expect.poll(() => jobDeletes).toBe(1);
   expect(jobCreates).toBe(1);
-  await expect(page.locator('.capture-card .status-pill')).toHaveText('OCR listo');
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada');
 });
 
 test('failed AI job exposes a copyable redacted diagnostic', async ({ page }) => {
