@@ -1,4 +1,5 @@
 import { api, realtimeEndpoint } from './api.js';
+import { requestAiExtractionJob } from './receipt-ai-job.js';
 import { saveReceiptExtractionJobId } from './state.js';
 import {
   ACTIVE_PAGE_STATUSES,
@@ -131,9 +132,10 @@ export function rebuildCombinedReview() {
 }
 
 export function requestExtraction(captures, verifyWithAi, signal) {
+  if (verifyWithAi) return requestAiExtractionJob(captures, signal);
   return api('/api/v1/receipts/extract', {
     method: 'POST',
-    body: JSON.stringify({ captures, verifyWithAi }),
+    body: JSON.stringify({ captures, verifyWithAi: false }),
     signal,
   });
 }
