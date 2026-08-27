@@ -23,7 +23,7 @@ function abortError() {
   return new DOMException('Receipt AI correction was cancelled', 'AbortError');
 }
 
-function jobError(job, fallbackCode = 'RECEIPT_EXTRACTION_FAILED') {
+function jobError(job, fallbackCode = 'AI_EXTRACTION_JOB_FAILED') {
   const error = new Error('Receipt AI correction did not complete');
   error.code = typeof job?.errorCode === 'string' && job.errorCode ? job.errorCode : fallbackCode;
   if (typeof job?.id === 'string' && job.id) error.jobId = job.id;
@@ -35,7 +35,7 @@ function terminalJobResult(job, jobId) {
   if (job.status === 'completed') {
     return job.extraction
       ? { kind: 'completed', value: { extraction: job.extraction } }
-      : { kind: 'failed', error: jobError(job, 'RECEIPT_EXTRACTION_RESULT_MISSING') };
+      : { kind: 'failed', error: jobError(job, 'AI_EXTRACTION_RESULT_MISSING') };
   }
   if (job.status === 'failed') return { kind: 'failed', error: jobError(job) };
   if (job.status === 'cancelled') return { kind: 'cancelled' };
@@ -74,7 +74,7 @@ function waitForAiExtractionJob(jobId, signal) {
       else if (terminal.kind === 'failed') settle(() => reject(terminal.error));
       else if (terminal.kind === 'cancelled') settle(() => reject(abortError()));
       else if (terminal.kind === 'invalid') {
-        settle(() => reject(jobError({ id: jobId }, 'RECEIPT_EXTRACTION_JOB_INVALID')));
+        settle(() => reject(jobError({ id: jobId }, 'AI_EXTRACTION_JOB_INVALID')));
       }
     };
     const refresh = async () => {
@@ -126,14 +126,15 @@ function waitForAiExtractionJob(jobId, signal) {
 
 async function requestAiExtractionJob(captures, signal) {
   if (signal?.aborted) throw abortError();
+  // Do not abort job creation once sent: the server may have persisted the job before
+  // the response arrives. Waiting for its id lets an already-aborted caller delete it.
   const created = await api('/api/v1/receipts/extraction-jobs', {
     method: 'POST',
     body: JSON.stringify({ captures, verifyWithAi: true }),
-    signal,
   });
   const jobId = created?.job?.id;
   if (typeof jobId !== 'string' || !jobId) {
-    throw jobError(undefined, 'RECEIPT_EXTRACTION_JOB_INVALID');
+    throw jobError(undefined, 'AI_EXTRACTION_JOB_INVALID');
   }
   return waitForAiExtractionJob(jobId, signal);
 }
