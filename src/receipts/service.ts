@@ -357,18 +357,13 @@ export class ReceiptExtractionService {
     let deadlineTimer!: NodeJS.Timeout;
     const deadline = new Promise<never>((_resolve, reject) => {
       deadlineTimer = setTimeout(() => {
-        deadlineController.abort();
         reject(new ReceiptAiVerificationTimeoutError());
+        deadlineController.abort();
       }, this.#aiVerificationBudgetMs);
     });
 
     try {
       return await Promise.race([operation(operationSignal), deadline]);
-    } catch (error) {
-      if (deadlineController.signal.aborted) {
-        throw new ReceiptAiVerificationTimeoutError();
-      }
-      throw error;
     } finally {
       clearTimeout(deadlineTimer);
     }
