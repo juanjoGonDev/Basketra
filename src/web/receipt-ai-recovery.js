@@ -15,6 +15,9 @@ const RECOVERY_GUIDANCE = Object.freeze({
   AI_PROVIDER_FAILED: 'El proveedor falló durante la verificación. Revisa webApi y reintenta cuando esté estable.',
 });
 
+const SAFE_DIAGNOSTIC_IDENTIFIER = /^[A-Za-z0-9._:-]{1,160}$/u;
+const SAFE_AI_CODE = /^AI_[A-Z0-9_]{1,76}$/u;
+
 function normalizedCode(error) {
   return typeof error?.code === 'string' ? error.code.trim() : '';
 }
@@ -23,6 +26,27 @@ function normalizedMessage(error) {
   return typeof error?.message === 'string' && error.message.trim()
     ? error.message.trim()
     : 'No se pudo procesar esta imagen';
+}
+
+function safeDiagnosticIdentifier(value) {
+  if (typeof value !== 'string') return '';
+  const normalized = value.trim();
+  return SAFE_DIAGNOSTIC_IDENTIFIER.test(normalized) ? normalized : '';
+}
+
+export function buildReceiptAiDiagnostic(error) {
+  const code = normalizedCode(error);
+  if (!SAFE_AI_CODE.test(code)) return '';
+
+  const lines = ['Basketra receipt AI diagnostic', `code=${code}`];
+  const jobId = safeDiagnosticIdentifier(error?.jobId);
+  const requestId = safeDiagnosticIdentifier(error?.requestId);
+  if (jobId) lines.push(`jobId=${jobId}`);
+  if (requestId) lines.push(`requestId=${requestId}`);
+  if (Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599) {
+    lines.push(`status=${error.status}`);
+  }
+  return lines.join('\n');
 }
 
 function manualReviewEvidence(hasOcrDraft) {
@@ -42,6 +66,7 @@ export function buildReceiptAiRecovery(error, options = {}) {
       retryLabel: 'Reintentar imagen',
       manualLabel: 'Revisar manualmente',
       allowManualReview: true,
+      diagnostic: buildReceiptAiDiagnostic(error),
     };
   }
 
@@ -53,6 +78,7 @@ export function buildReceiptAiRecovery(error, options = {}) {
       retryLabel: 'Reintentar imagen',
       manualLabel: 'Revisar manualmente',
       allowManualReview: true,
+      diagnostic: buildReceiptAiDiagnostic(error),
     };
   }
 
