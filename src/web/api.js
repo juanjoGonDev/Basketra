@@ -53,6 +53,7 @@ export async function api(path, options = {}) {
     }
     error.status = response.status;
     const requestId = response.headers.get('x-request-id') || (typeof body === 'object' && body !== null ? body.error?.requestId : undefined);
+    if (requestId) error.requestId = requestId;
     emitApiLog({
       event: 'client.api_error',
       level: response.status >= 500 ? 'error' : 'warn',
