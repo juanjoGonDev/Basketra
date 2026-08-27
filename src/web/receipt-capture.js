@@ -51,6 +51,16 @@ export function persistAndRenderCaptures() {
   updateGlobalProgress();
 }
 
+function pageDiagnostic(page) {
+  if (page.aiStatus === 'error' && typeof page.aiRecovery?.diagnostic === 'string') {
+    return page.aiRecovery.diagnostic;
+  }
+  if (page.status === 'error' && typeof page.recovery?.diagnostic === 'string') {
+    return page.recovery.diagnostic;
+  }
+  return '';
+}
+
 export function renderCaptureProgress(card, capture, index) {
   const key = captureKey(capture);
   const page = state.pageStates.get(key) ?? createPageState();
@@ -156,6 +166,16 @@ export function renderCaptureProgress(card, capture, index) {
       aiButton.dataset.captureAction = 'retry-ai';
       aiButton.textContent = 'Volver a analizar con IA';
       actions.append(aiButton);
+    }
+
+    if (pageDiagnostic(page)) {
+      const diagnosticButton = document.createElement('button');
+      diagnosticButton.type = 'button';
+      diagnosticButton.className = 'button secondary';
+      diagnosticButton.dataset.captureIndex = String(index);
+      diagnosticButton.dataset.captureAction = 'copy-ai-diagnostic';
+      diagnosticButton.textContent = 'Copiar diagnóstico';
+      actions.append(diagnosticButton);
     }
 
     section.append(actions);
@@ -314,6 +334,23 @@ export function deleteCapture(index) {
   $('#upload-state').textContent = 'Captura retirada del borrador; la evidencia original se conserva';
 }
 
+async function copyAiDiagnostic(index) {
+  const capture = state.captures[index];
+  if (!capture) return;
+  const page = state.pageStates.get(captureKey(capture));
+  const diagnostic = page ? pageDiagnostic(page) : '';
+  if (!diagnostic || typeof navigator.clipboard?.writeText !== 'function') {
+    toast('No se pudo copiar el diagnóstico');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(diagnostic);
+    toast('Diagnóstico copiado');
+  } catch {
+    toast('No se pudo copiar el diagnóstico');
+  }
+}
+
 export function handleCaptureAction(event) {
   const button = event.target.closest('[data-capture-action]');
   if (!button) return;
@@ -327,4 +364,5 @@ export function handleCaptureAction(event) {
   if (action === 'retry-processing') retryCaptureProcessing(index);
   if (action === 'retry-ai') retryAiCorrection(index);
   if (action === 'manual-review') useManualReview(index);
+  if (action === 'copy-ai-diagnostic') void copyAiDiagnostic(index);
 }
