@@ -14,21 +14,22 @@ This product decision supersedes the earlier Basketra receipt-path assumption th
 - `AiStructuredInput.signal` already reaches `OpenAiCompatibleProvider`, runtime-capability discovery, and the final provider request.
 - `OpenAiCompatibleProvider` intentionally has no internal wall-clock deadline; caller cancellation is the supported ownership boundary.
 - Current replay-safety semantics forbid replaying the original multimodal request after webApi declares `originalRequestReplaySafe=false` / `retryScope=continuation_only`.
-- `StructuredAiExecutor` currently treats a generic `AbortError` as retryable, which conflicts with explicit cancellation and with a terminal Basketra-owned receipt deadline.
-- The current receipt recovery copy says Basketra imposes no verification time limit; that statement becomes stale under this decision.
+- `StructuredAiExecutor` previously treated a generic `AbortError` as retryable, which conflicted with explicit cancellation and with a terminal Basketra-owned receipt deadline.
+- The previous receipt recovery copy said Basketra imposed no verification time limit; that statement became stale under this decision.
+- CI on code head `a6bd8c3e75c14cb2c6ee1f2ca7d08ac6d2d360a4` passed format, lint, strict TypeScript, dead-code, dependency policy, unit/integration/E2E tests, differential coverage, resource/growth budgets, security, container smoke, and amd64/arm64 image builds before the documentation follow-up.
 
 ## Decision
 
 1. Basketra receipt AI verification has one hard total budget of 300,000 ms (five minutes).
-2. The budget starts once the `verifyWithAi` receipt verification stage begins and spans queue wait, ordered pages, provider calls, and all executor retries. It is created once and is never reset per page or retry.
+2. The budget starts once the `verifyWithAi` receipt verification stage begins and spans OCR work queued for that verified extraction, AI queue wait, ordered pages, provider calls, and all executor retries. It is created once and is never reset per page or retry.
 3. The budget is receipt-specific. Do not restore a generic provider timeout or change webApi's timeout semantics.
-4. When the budget expires, abort the currently active receipt AI work through the existing `AbortSignal` path and terminate the receipt verification with a stable Basketra-owned `AI_RECEIPT_TIMEOUT` error.
+4. When the budget expires, settle the Basketra-owned deadline result first, abort the currently active receipt work through the existing `AbortSignal` path, and terminate the verification with stable `AI_RECEIPT_TIMEOUT`.
 5. Deadline expiry is terminal. No outer retry may rebuild or resend the original OCR/image/PDF request after expiry.
-6. Explicit caller cancellation remains distinct and must continue to propagate as `AbortError`; it must not be reclassified as the five-minute receipt timeout unless the receipt deadline itself actually expired.
-7. `StructuredAiExecutor` must treat abort/cancellation as terminal and never retry an already-aborted original request.
+6. Explicit caller cancellation remains distinct and continues to propagate as `AbortError`; it is not reclassified as the five-minute receipt timeout when the receipt deadline has not expired.
+7. `StructuredAiExecutor` treats abort/cancellation as terminal and never retries an already-aborted original request.
 8. Existing webApi replay-safety metadata remains authoritative and unchanged.
 9. The API maps `AI_RECEIPT_TIMEOUT` to HTTP 504 with redacted, actionable copy; the receipt recovery UI explains that Basketra stopped this receipt verification after five minutes while preserving the OCR/manual-review path.
-10. No receipt content, OCR text, attachment bytes, provider body, credentials, or filesystem paths may be added to timeout logs/errors.
+10. No receipt content, OCR text, attachment bytes, provider body, credentials, or filesystem paths are added to timeout logs/errors.
 
 ## Scope
 
@@ -47,6 +48,8 @@ This product decision supersedes the earlier Basketra receipt-path assumption th
 - Treating caller cancellation and deadline expiry identically would produce incorrect user feedback.
 - Aborting during a provider request must not trigger `StructuredAiExecutor` to replay the original multimodal request.
 - The receipt AI queue is shared; the deadline signal must also cancel a receipt verification that is still waiting for the AI slot.
+- The deadline timer must stay referenced while work is pending; `unref()` would allow an isolated Node process to exit before the budget can fire.
+- Deadline rejection is scheduled before abort propagation so a synchronous abort listener cannot win the race and leak a generic `AbortError` for a locally expired budget.
 
 ## Tests
 
@@ -55,22 +58,30 @@ This product decision supersedes the earlier Basketra receipt-path assumption th
 - Prove the timeout is not reset by a retry or by moving to a later receipt page.
 - Prove no provider invocation occurs after the receipt deadline expires.
 - Prove caller cancellation remains `AbortError` and is not reported as `AI_RECEIPT_TIMEOUT` when the deadline has not expired.
+- Prove invalid injected test budgets cannot exceed the production five-minute policy or use invalid/non-integer values.
 - Prove `AI_RECEIPT_TIMEOUT` maps to HTTP 504 and UI recovery offers preserved OCR/manual review.
 - Preserve existing replay-safety integration proving original receipt attachment POST count remains one after downstream progress.
 - Run canonical quality, backend differential coverage, browser tests as applicable, security/container gates, and exact-head CI.
 
 ## Acceptance
 
-- [ ] Basketra receipt AI verification cannot exceed a single 300,000 ms total budget.
-- [ ] The same deadline spans queue wait, pages, and all retries without reset.
-- [ ] Deadline expiry aborts in-flight provider work and terminates with `AI_RECEIPT_TIMEOUT`.
-- [ ] No original OCR/image/PDF request is rebuilt or resent after deadline expiry.
-- [ ] Generic provider/probe/list/photo operations remain without a Basketra wall-clock deadline.
-- [ ] webApi remains free to run longer than five minutes according to its own inactivity and sub-operation contracts.
-- [ ] Caller cancellation remains distinct and terminal.
-- [ ] Existing replay-safety semantics remain intact.
-- [ ] User-facing recovery copy accurately describes the Basketra-owned five-minute receipt limit.
-- [ ] Exact-head required CI is green.
+- [x] Basketra receipt AI verification cannot exceed a single 300,000 ms total budget.
+- [x] The same deadline spans receipt OCR/queue wait, pages, and all retries without reset.
+- [x] Deadline expiry aborts in-flight provider work and terminates with `AI_RECEIPT_TIMEOUT`.
+- [x] No original OCR/image/PDF request is rebuilt or resent after deadline expiry.
+- [x] Generic provider/probe/list/photo operations remain without a Basketra wall-clock deadline.
+- [x] webApi remains free to run longer than five minutes according to its own inactivity and sub-operation contracts.
+- [x] Caller cancellation remains distinct and terminal.
+- [x] Existing replay-safety semantics remain intact.
+- [x] User-facing recovery copy accurately describes the Basketra-owned five-minute receipt limit.
+- [ ] Final documentation head passes exact-head required CI before delivery.
+
+## Checks
+
+- Code head `a6bd8c3e75c14cb2c6ee1f2ca7d08ac6d2d360a4`: `✅ Quality` passed after the timer lifecycle and differential-coverage fixes.
+- The same code head passed security, container smoke, and both amd64/arm64 container builds; browser/CodeQL workflow completion remains subject to the final exact-head run after documentation is committed.
+- The quality gate executed format, lint, `tsc --noEmit`, dead-code, dependency policy, unit/integration/E2E tests, domain coverage, combined changed-source coverage, differential coverage, and resource/growth budgets without weakening any gate.
+- No deployment, release, publication, secret change, production mutation, or migration was performed.
 
 ## Rollback
 
@@ -82,4 +93,4 @@ Branch `agent/fix-receipt-ai-five-minute-budget` targeting `main`. Do not merge,
 
 ## Status
 
-Recon complete. Implementation and exact-head validation pending.
+Implementation and code-level validation are complete. Stable documentation is being aligned with the new ownership rule; delivery remains pending the final branch head's exact-head CI.
