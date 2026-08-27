@@ -24,6 +24,20 @@ import {
 const DEFAULT_PAGE_CONCURRENCY = 2;
 const DEFAULT_AI_CONCURRENCY = 1;
 const MAX_RECEIPT_CONVERSATION_PAGES = 20;
+export const RECEIPT_AI_VERIFICATION_BUDGET_MS = 5 * 60 * 1000;
+
+type ReceiptExtractionServiceOptions = Readonly<{
+  aiVerificationBudgetMs?: number;
+}>;
+
+export class ReceiptAiVerificationTimeoutError extends Error {
+  readonly code = 'AI_RECEIPT_TIMEOUT' as const;
+
+  constructor() {
+    super('AI_RECEIPT_TIMEOUT');
+    this.name = 'ReceiptAiVerificationTimeoutError';
+  }
+}
 
 export type ReceiptCaptureRequest = Readonly<{
   storageKey: string;
@@ -143,6 +157,7 @@ export class ReceiptExtractionService {
   readonly #localOcrProvider: OcrProvider;
   readonly #pageQueue: ReceiptPageTaskQueue;
   readonly #aiQueue: ReceiptPageTaskQueue;
+  readonly #aiVerificationBudgetMs: number;
   #aiOcrProvider: MultimodalAiOcrProvider | undefined;
 
   constructor(
@@ -152,13 +167,23 @@ export class ReceiptExtractionService {
     localOcrProvider: OcrProvider = new TesseractCliOcrProvider(),
     pageQueue: ReceiptPageTaskQueue = new ReceiptPageTaskQueue(),
     aiQueue: ReceiptPageTaskQueue = new ReceiptPageTaskQueue(DEFAULT_AI_CONCURRENCY),
+    options: ReceiptExtractionServiceOptions = {},
   ) {
+    const aiVerificationBudgetMs = options.aiVerificationBudgetMs ?? RECEIPT_AI_VERIFICATION_BUDGET_MS;
+    if (
+      !Number.isSafeInteger(aiVerificationBudgetMs)
+      || aiVerificationBudgetMs <= 0
+      || aiVerificationBudgetMs > RECEIPT_AI_VERIFICATION_BUDGET_MS
+    ) {
+      throw new RangeError('Receipt AI verification budget must be between one millisecond and five minutes');
+    }
     this.#fileStore = fileStore;
     this.#getAiProvider = getAiProvider;
     this.#maxRetries = maxRetries;
     this.#localOcrProvider = localOcrProvider;
     this.#pageQueue = pageQueue;
     this.#aiQueue = aiQueue;
+    this.#aiVerificationBudgetMs = aiVerificationBudgetMs;
   }
 
   parseRequest(value: unknown): ReceiptExtractionRequest {
@@ -215,14 +240,12 @@ export class ReceiptExtractionService {
   }>> {
     signal?.throwIfAborted();
     const captures = uniqueCaptures(request.captures);
-    const ocrPages = captures.map((capture, position) =>
-      this.#pageQueue.run(
-        () => this.extractOcrPage(capture, position, signal),
-        signal,
-      ));
     const pages = request.verifyWithAi
-      ? await this.verifyOcrPagesInOrder(captures, ocrPages, signal)
-      : await Promise.all(ocrPages);
+      ? await this.runWithinAiVerificationBudget(async (verificationSignal) => {
+          const ocrPages = this.queueOcrPages(captures, verificationSignal);
+          return await this.verifyOcrPagesInOrder(captures, ocrPages, verificationSignal);
+        }, signal)
+      : await Promise.all(this.queueOcrPages(captures, signal));
     const originalText = pages.map((page) => page.text).join('\n').trim();
 
     const deterministicItems = mergeReceiptPageItems(
@@ -309,6 +332,41 @@ export class ReceiptExtractionService {
     this.#localOcrProvider.dispose();
     this.#aiOcrProvider?.dispose();
     this.#aiOcrProvider = undefined;
+  }
+
+  private queueOcrPages(
+    captures: readonly ReceiptCaptureRequest[],
+    signal?: AbortSignal,
+  ): Promise<ReceiptOcrPageEvidence>[] {
+    return captures.map((capture, position) =>
+      this.#pageQueue.run(
+        () => this.extractOcrPage(capture, position, signal),
+        signal,
+      ));
+  }
+
+  private async runWithinAiVerificationBudget<T>(
+    operation: (signal: AbortSignal) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    signal?.throwIfAborted();
+    const deadlineController = new AbortController();
+    const operationSignal = signal
+      ? AbortSignal.any([signal, deadlineController.signal])
+      : deadlineController.signal;
+    let deadlineTimer!: NodeJS.Timeout;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      deadlineTimer = setTimeout(() => {
+        reject(new ReceiptAiVerificationTimeoutError());
+        deadlineController.abort();
+      }, this.#aiVerificationBudgetMs);
+    });
+
+    try {
+      return await Promise.race([operation(operationSignal), deadline]);
+    } finally {
+      clearTimeout(deadlineTimer);
+    }
   }
 
   private async extractOcrPage(
@@ -402,6 +460,7 @@ export class ReceiptExtractionService {
     const verified: ReceiptPageEvidence[] = [];
 
     for (const [position, ocrPage] of ocrPages.entries()) {
+      signal?.throwIfAborted();
       const page = await ocrPage;
       const capture = captures[position]!;
       verified.push(await this.#aiQueue.run(

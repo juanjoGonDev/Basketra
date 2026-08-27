@@ -6,7 +6,8 @@ import { buildReceiptAiRecovery } from '../../src/web/receipt-ai-recovery.js';
 const expectedGuidance = new Map([
   ['AI_AUTHENTICATION_FAILED', 'token gestionado'],
   ['AI_UNREACHABLE', 'conectividad'],
-  ['AI_TIMEOUT', 'Basketra no impone un límite de tiempo'],
+  ['AI_TIMEOUT', 'webApi o el proveedor'],
+  ['AI_RECEIPT_TIMEOUT', 'límite total de cinco minutos'],
   ['AI_RATE_LIMITED', 'límite de solicitudes'],
   ['AI_ATTACHMENT_TOO_LARGE', 'tamaño'],
   ['AI_ATTACHMENT_UPLOAD_FAILED', 'sesión de navegador'],

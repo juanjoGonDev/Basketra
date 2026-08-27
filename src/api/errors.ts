@@ -3,6 +3,7 @@ import { AiProviderError } from '../ai/provider.ts';
 import { ValidationError } from '../domain/validation.ts';
 import { ShoppingConflictError } from '../infrastructure/database.ts';
 import { OcrError } from '../ocr/provider.ts';
+import { ReceiptAiVerificationTimeoutError } from '../receipts/service.ts';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -121,6 +122,13 @@ function mapAiProviderError(error: AiProviderError): ApiError {
 
 export function mapError(error: unknown): ApiError {
   if (error instanceof ApiError) return error;
+  if (error instanceof ReceiptAiVerificationTimeoutError) {
+    return new ApiError(
+      504,
+      error.code,
+      'La verificación de IA del ticket superó el límite total de cinco minutos; el borrador se conserva',
+    );
+  }
   if (error instanceof ShoppingConflictError) {
     return new ApiError(409, 'SHOPPING_CONFLICT', 'La lista cambió en otro dispositivo', {
       kind: error.kind,

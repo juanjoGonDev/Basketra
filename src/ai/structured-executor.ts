@@ -19,6 +19,7 @@ export class StructuredAiExecutor {
     let lastError: unknown;
     const correlationId = input.correlationId ?? randomUUID();
     for (let attempt = 1; attempt <= this.maxRetries + 1; attempt += 1) {
+      input.signal?.throwIfAborted();
       try {
         const raw = await this.provider.executeStructured({
           ...input,
@@ -41,5 +42,6 @@ function isOriginalRequestRetryAllowed(error: unknown): boolean {
     return error.retryable;
   }
   if (!(error instanceof Error)) return false;
+  if (error.name === 'AbortError') return false;
   return !['AI_AUTHENTICATION_FAILED', 'AI_UNSUPPORTED_CAPABILITY', 'AI_INVALID_CONFIGURATION'].includes(error.message);
 }

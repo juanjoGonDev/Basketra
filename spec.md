@@ -178,7 +178,7 @@ La migración 2 registra backups previos a migraciones. La migración 3 añade `
 - Tesseract se ejecuta sin shell, con argumentos fijos, un hilo OpenMP, una única operación simultánea, timeout, cancelación y límites de salida.
 - No existe worker OCR residente; el proceso nace durante la petición y se libera al terminar.
 - El contenido del ticket, salida OCR, nombre de archivo, rutas y errores crudos del proceso no se registran.
-- El ejecutor IA centraliza cancelación propagada por el caller, selección de capacidad, validación, reintentos finitos, redacción y errores; Basketra no reintroduce un deadline interno de inferencia.
+- The generic AI executor centralizes caller cancellation, capability selection, validation, bounded retries, redaction, and stable errors without imposing a product deadline. Receipt verification owns one separate five-minute total budget across OCR, queue wait, ordered pages, provider calls, retries, and continuation; expiry preserves OCR/manual recovery and surfaces `AI_RECEIPT_TIMEOUT`.
 - La URL del proveedor procede exclusivamente de configuración administrativa; no se acepta por petición.
 - En Docker, `127.0.0.1` apunta al contenedor Basketra. Un proveedor del host usa `host.docker.internal` con mapeo explícito al host gateway.
 - Cambiar `.env` requiere validar Compose y recrear el contenedor; la aplicación no finge que una configuración no inyectada está activa.
