@@ -354,7 +354,7 @@ export class ReceiptExtractionService {
     const operationSignal = signal
       ? AbortSignal.any([signal, deadlineController.signal])
       : deadlineController.signal;
-    let deadlineTimer: NodeJS.Timeout | undefined;
+    let deadlineTimer!: NodeJS.Timeout;
     const deadline = new Promise<never>((_resolve, reject) => {
       deadlineTimer = setTimeout(() => {
         deadlineController.abort();
@@ -370,7 +370,7 @@ export class ReceiptExtractionService {
       }
       throw error;
     } finally {
-      if (deadlineTimer) clearTimeout(deadlineTimer);
+      clearTimeout(deadlineTimer);
     }
   }
 
