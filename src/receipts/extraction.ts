@@ -11,6 +11,7 @@ const CURRENCIES = ['EUR'] as const;
 const TAX_CATEGORIES = ['A', 'B', 'C'] as const;
 const REVIEW_CONFIDENCE_THRESHOLD = 0.75;
 const MAX_SOURCE_LINES = 20;
+export const RECEIPT_PAGE_VERIFICATION_SCHEMA_NAME = 'receipt_page_verification';
 
 type ReceiptTaxCategory = typeof TAX_CATEGORIES[number];
 
@@ -55,7 +56,7 @@ export type ReceiptReview = Readonly<{
   total?: Readonly<{ expectedMinor: number; differenceMinor: number; valid: boolean }>;
 }>;
 
-const RECEIPT_SCHEMA: RuntimeSchema<AiReceiptInterpretation> = {
+export const RECEIPT_SCHEMA: RuntimeSchema<AiReceiptInterpretation> = {
   jsonSchema: {
     type: 'object',
     additionalProperties: false,
@@ -149,6 +150,34 @@ const RECEIPT_SCHEMA: RuntimeSchema<AiReceiptInterpretation> = {
     };
   },
 };
+
+export function buildNumberedReceiptText(originalText: string): string {
+  return originalText
+    .split(/\r?\n/u)
+    .map((line, index) => `${index + 1}: ${line}`)
+    .join('\n');
+}
+
+export function buildReceiptVerificationInstructions(
+  page?: Readonly<{ pageCount: number; pagePosition: number }>,
+): string {
+  return [
+    'Verify one grocery-receipt page using both the original attached capture and its OCR transcription.',
+    'Treat the attachment as the visual or document source of truth and the numbered OCR as editable evidence for source-line references.',
+    'Do not invent unreadable products, quantities, prices, totals or retailer names.',
+    'Preserve physical line order and reconstruct a quantity prefix only when the immediately following product line supports it.',
+    'For example, `6 x ,89` followed by `C.LADRON MANZAN 5,34 A` means quantity 6, unit price 89 cents, line total 534 cents and tax category A.',
+    'Separate trailing tax letters A, B or C from monetary values.',
+    'Return monetary fields as integer euro cents.',
+    'Return sourceLines with the numbered OCR lines supporting every item, even when the attachment corrects OCR characters.',
+    'Return correctedText in page order, retailerName, declaredTotalMinor and articleCount only when visible in the attachment or OCR.',
+    'Keep each warning within 240 characters.',
+    'Mark uncertainty through confidence and warnings. Return JSON only.',
+    ...(page
+      ? [`This is page ${String(page.pagePosition + 1)} of ${String(page.pageCount)} of one receipt. Return only this page; do not repeat or modify prior pages.`]
+      : []),
+  ].join(' ');
+}
 
 export function parseDeterministicReceiptText(text: string): ReceiptExtractionItem[] {
   const items: ReceiptExtractionItem[] = [];
@@ -287,35 +316,16 @@ export async function verifyReceiptWithAi(
 ): Promise<Readonly<{ value: AiReceiptInterpretation; attempts: number }>> {
   const executor = new StructuredAiExecutor(provider, maxRetries);
   const attachmentPart = buildAiAttachmentContentPart(attachment, await provider.getCapabilities());
-  const numberedText = originalText
-    .split(/\r?\n/u)
-    .map((line, index) => `${index + 1}: ${line}`)
-    .join('\n');
   const result = await executor.execute({
     operation: 'receipt-page-verification',
-    schemaName: 'receipt_page_verification',
-    systemPrompt: [
-      'Verify one grocery-receipt page using both the original attached capture and its OCR transcription.',
-      'Treat the attachment as the visual or document source of truth and the numbered OCR as editable evidence for source-line references.',
-      'Do not invent unreadable products, quantities, prices, totals or retailer names.',
-      'Preserve physical line order and reconstruct a quantity prefix only when the immediately following product line supports it.',
-      'For example, `6 x ,89` followed by `C.LADRON MANZAN 5,34 A` means quantity 6, unit price 89 cents, line total 534 cents and tax category A.',
-      'Separate trailing tax letters A, B or C from monetary values.',
-      'Return monetary fields as integer euro cents.',
-      'Return sourceLines with the numbered OCR lines supporting every item, even when the attachment corrects OCR characters.',
-      'Return correctedText in page order, retailerName, declaredTotalMinor and articleCount only when visible in the attachment or OCR.',
-      'Keep each warning within 240 characters.',
-      'Mark uncertainty through confidence and warnings. Return JSON only.',
-      ...(session
-        ? [`This is page ${String(session.pagePosition + 1)} of ${String(session.pageCount)} of one receipt. Return only this page; do not repeat or modify prior pages.`]
-        : []),
-    ].join(' '),
+    schemaName: RECEIPT_PAGE_VERIFICATION_SCHEMA_NAME,
+    systemPrompt: buildReceiptVerificationInstructions(session),
     content: [
       {
         type: 'text',
         text: [
           'Numbered OCR transcription for this same attachment:',
-          numberedText,
+          buildNumberedReceiptText(originalText),
         ].join('\n'),
       },
       attachmentPart,
