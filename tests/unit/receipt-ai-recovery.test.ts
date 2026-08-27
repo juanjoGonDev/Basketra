@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildReceiptAiRecovery } from '../../src/web/receipt-ai-recovery.js';
+import {
+  buildReceiptAiDiagnostic,
+  buildReceiptAiRecovery,
+} from '../../src/web/receipt-ai-recovery.js';
 
 const expectedGuidance = new Map([
   ['AI_AUTHENTICATION_FAILED', 'token gestionado'],
@@ -36,6 +39,37 @@ test('maps every stable AI failure to redacted actionable recovery', () => {
     assert.doesNotMatch(recovery.message, /secret provider body/u);
     assert.doesNotMatch(recovery.message, /desactiva IA/u);
   }
+});
+
+test('builds diagnostics only from bounded correlation metadata', () => {
+  const diagnostic = buildReceiptAiDiagnostic({
+    code: 'AI_PROVIDER_FAILED',
+    jobId: 'receiptextractionjob_diag123',
+    requestId: '9712f274-bc37-4a8f-a383-a24162fc4e1e',
+    status: 503,
+    message: 'SECRET OCR PAN 1,50',
+    details: { filename: 'private-ticket.jpeg', storageKey: 'secret-storage-key' },
+  });
+
+  assert.match(diagnostic, /code=AI_PROVIDER_FAILED/u);
+  assert.match(diagnostic, /jobId=receiptextractionjob_diag123/u);
+  assert.match(diagnostic, /requestId=9712f274-bc37-4a8f-a383-a24162fc4e1e/u);
+  assert.match(diagnostic, /status=503/u);
+  assert.doesNotMatch(diagnostic, /SECRET OCR/u);
+  assert.doesNotMatch(diagnostic, /private-ticket/u);
+  assert.doesNotMatch(diagnostic, /secret-storage-key/u);
+});
+
+test('drops malformed diagnostic identifiers instead of serializing arbitrary values', () => {
+  const diagnostic = buildReceiptAiDiagnostic({
+    code: 'AI_TIMEOUT',
+    jobId: 'safe-id\nreceipt=secret',
+    requestId: 'request id with spaces',
+    status: 200,
+  });
+
+  assert.equal(diagnostic, 'Basketra receipt AI diagnostic\ncode=AI_TIMEOUT');
+  assert.equal(buildReceiptAiDiagnostic({ code: 'OCR_TIMEOUT', jobId: 'safe-id' }), '');
 });
 
 test('supports blank manual review when no OCR draft exists', () => {

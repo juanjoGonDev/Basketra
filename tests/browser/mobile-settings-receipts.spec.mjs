@@ -93,6 +93,8 @@ test('automatic OCR and optional AI correction preserve the two-slot pool and re
 
   let activeOcr = 0;
   let maximumActiveOcr = 0;
+  let createdAiJobs = 0;
+  const aiJobIndexes = new Map();
   await page.route('**/api/v1/receipts/extract', async route => {
     const body = route.request().postDataJSON();
     const captures = body.captures ?? [];
@@ -114,19 +116,38 @@ test('automatic OCR and optional AI correction preserve the two-slot pool and re
       return;
     }
 
-    if (single && body.verifyWithAi === true && embeddedText) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ extraction: pageExtraction(index, true) }),
-      });
-      return;
-    }
-
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ extraction: assembledExtraction() }),
+    });
+  });
+  await page.route('**/api/v1/receipts/extraction-jobs', async route => {
+    const body = route.request().postDataJSON();
+    const capture = body.captures?.[0];
+    const match = /alcampo-(\d+)\.png/u.exec(capture?.originalName ?? '');
+    const index = match ? Number(match[1]) - 1 : 0;
+    expect(body.verifyWithAi).toBe(true);
+    expect(capture?.embeddedText).toBe(pageExtraction(index, false).originalText);
+    const id = `receipt_ai_${index}`;
+    aiJobIndexes.set(id, index);
+    createdAiJobs += 1;
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ job: { id, status: 'queued' } }),
+    });
+  });
+  await page.route('**/api/v1/receipts/extraction-jobs/*', async route => {
+    const id = new URL(route.request().url()).pathname.split('/').at(-1);
+    const index = aiJobIndexes.get(id);
+    expect(index).not.toBeUndefined();
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        job: { id, status: 'completed', extraction: pageExtraction(index, true) },
+      }),
     });
   });
 
@@ -145,6 +166,7 @@ test('automatic OCR and optional AI correction preserve the two-slot pool and re
   await expect(page.locator('.capture-card')).toHaveCount(3);
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Completada' })).toHaveCount(3);
   expect(maximumActiveOcr).toBe(2);
+  expect(createdAiJobs).toBe(3);
   await expect(page.locator('#receipt-state')).toContainText('88 artículos');
   await expect(page.getByLabel('Comercio (opcional)', { exact: true })).toHaveValue('ALCAMPO ALMERIA');
   await expect(page.locator('#receipt-total')).toHaveValue('202.26');

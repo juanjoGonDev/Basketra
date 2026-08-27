@@ -144,30 +144,46 @@ test('AI correction failure keeps OCR reviewable with source image, manual revie
   await page.route('**/api/v1/receipts/extract', async route => {
     const body = route.request().postDataJSON();
     const capture = body.captures?.[0];
-    if (body.verifyWithAi === true) {
-      aiCalls += 1;
-      expect(capture.embeddedText).toContain('PAN');
-      if (failAi) {
-        await route.fulfill({
-          status: 503,
-          contentType: 'application/json',
-          body: JSON.stringify({ error: { code: 'AI_UNREACHABLE', message: 'private upstream detail' } }),
-        });
-        return;
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ extraction: extraction('PAN CORREGIDO 1,50\nTOTAL 1,50', { verified: true }) }),
-      });
-      return;
-    }
-
+    expect(body.verifyWithAi).toBe(false);
     if (body.captures?.length === 1 && !capture.embeddedText) ocrCalls += 1;
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ extraction: extraction() }),
+    });
+  });
+  await page.route('**/api/v1/receipts/extraction-jobs', async route => {
+    const body = route.request().postDataJSON();
+    const capture = body.captures?.[0];
+    aiCalls += 1;
+    expect(body.verifyWithAi).toBe(true);
+    expect(capture.embeddedText).toContain('PAN');
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ job: { id: `receipt_ai_${aiCalls}`, status: 'queued' } }),
+    });
+  });
+  await page.route('**/api/v1/receipts/extraction-jobs/*', async route => {
+    const id = new URL(route.request().url()).pathname.split('/').at(-1);
+    if (failAi) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ job: { id, status: 'failed', errorCode: 'AI_UNREACHABLE' } }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        job: {
+          id,
+          status: 'completed',
+          extraction: extraction('PAN CORREGIDO 1,50\nTOTAL 1,50', { verified: true }),
+        },
+      }),
     });
   });
 
