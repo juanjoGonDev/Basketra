@@ -128,7 +128,7 @@ test('automatic OCR and optional AI correction preserve the two-slot pool and re
     const match = /alcampo-(\d+)\.png/u.exec(capture?.originalName ?? '');
     const index = match ? Number(match[1]) - 1 : 0;
     expect(body.verifyWithAi).toBe(true);
-    expect(capture?.embeddedText).toContain('ALCAMPO');
+    expect(capture?.embeddedText).toBe(pageExtraction(index, false).originalText);
     const id = `receipt_ai_${index}`;
     aiJobIndexes.set(id, index);
     createdAiJobs += 1;
