@@ -178,8 +178,11 @@ export class ReceiptDurableExtractionRunner {
       });
       return remote.interpretation;
     }
+    if (remote.status === 'queued' || remote.status === 'in_progress') {
+      throw new AiProviderError('AI_PROVIDER_FAILED');
+    }
 
-    const errorCode = remote.errorCode ?? remoteTerminalCode(remote.status);
+    const errorCode = normalizeRemoteErrorCode(remote.errorCode) ?? remoteTerminalCode(remote.status);
     this.#durableStore.saveRemoteFailure(jobId, position, {
       status: remote.status,
       errorCode,
@@ -289,15 +292,16 @@ function isAbortFromCaller(error: unknown, signal?: AbortSignal): boolean {
   return signal?.aborted === true && error instanceof Error && error.name === 'AbortError';
 }
 
-function remoteTerminalCode(status: ReceiptRemoteResponse['status']): string {
+function normalizeRemoteErrorCode(value: string | undefined): string | undefined {
+  if (!value || !/^[A-Za-z0-9_.:-]{1,80}$/u.test(value)) return undefined;
+  return value.toUpperCase();
+}
+
+function remoteTerminalCode(status: 'failed' | 'cancelled' | 'incomplete'): string {
   switch (status) {
     case 'failed': return 'REMOTE_RESPONSE_FAILED';
     case 'cancelled': return 'REMOTE_RESPONSE_CANCELLED';
     case 'incomplete': return 'REMOTE_RESPONSE_INCOMPLETE';
-    case 'queued':
-    case 'in_progress':
-    case 'completed':
-      return 'REMOTE_RESPONSE_INVALID_TERMINAL_STATE';
   }
 }
 
