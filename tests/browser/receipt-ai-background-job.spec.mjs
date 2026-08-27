@@ -134,6 +134,51 @@ test('AI job state is recovered on realtime reconnect without interval polling',
   expect(statusReads).toBe(2);
 });
 
+test('cancelling during job creation deletes the created job without replaying AI', async ({ page }) => {
+  await installControlledEventSource(page);
+  let jobCreates = 0;
+  let jobDeletes = 0;
+  let releaseCreation = () => {};
+  const creationResponseGate = new Promise(resolve => { releaseCreation = resolve; });
+
+  await page.route('**/api/v1/receipts/extract', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ extraction: localExtraction() }),
+  }));
+  await page.route('**/api/v1/receipts/extraction-jobs', async route => {
+    jobCreates += 1;
+    await creationResponseGate;
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ job: { id: 'receiptextractionjob_cancel', status: 'queued' } }),
+    }).catch(() => {});
+  });
+  await page.route('**/api/v1/receipts/extraction-jobs/receiptextractionjob_cancel', route => {
+    if (route.request().method() === 'DELETE') {
+      jobDeletes += 1;
+      return route.fulfill({ status: 204, body: '' });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ job: { id: 'receiptextractionjob_cancel', status: 'running' } }),
+    });
+  });
+
+  await prepareReceipt(page, 'cancel-during-create.png');
+  await expect.poll(() => jobCreates).toBe(1);
+  const details = page.locator('.capture-card__details');
+  if (!await details.getAttribute('open')) await details.locator('summary').click();
+  await details.getByRole('button', { name: 'Cancelar corrección con IA', exact: true }).click();
+  releaseCreation();
+
+  await expect.poll(() => jobDeletes).toBe(1);
+  expect(jobCreates).toBe(1);
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('OCR listo');
+});
+
 test('failed AI job exposes a copyable redacted diagnostic', async ({ page }) => {
   await installControlledEventSource(page);
   await page.addInitScript(() => {
