@@ -39,20 +39,33 @@ export type AiProviderErrorCode =
   | 'AI_TIMEOUT'
   | 'AI_UNREACHABLE';
 
+export type AiRetryScope = 'continuation_only';
+
 export class AiProviderError extends Error {
   readonly code: AiProviderErrorCode;
   readonly status?: number;
   readonly retryable: boolean;
+  readonly originalRequestReplaySafe?: false;
+  readonly retryScope?: AiRetryScope;
 
   constructor(
     code: AiProviderErrorCode,
-    options: Readonly<{ status?: number; retryable?: boolean }> = {},
+    options: Readonly<{
+      status?: number;
+      retryable?: boolean;
+      originalRequestReplaySafe?: false;
+      retryScope?: AiRetryScope;
+    }> = {},
   ) {
     super(code);
     this.name = 'AiProviderError';
     this.code = code;
     this.retryable = options.retryable ?? false;
     if (options.status !== undefined) this.status = options.status;
+    if (options.originalRequestReplaySafe === false) {
+      this.originalRequestReplaySafe = false;
+    }
+    if (options.retryScope !== undefined) this.retryScope = options.retryScope;
   }
 }
 
@@ -176,6 +189,8 @@ const PROVIDER_REQUEST_REJECTION_CODES = new Set([
 type ProviderErrorMetadata = Readonly<{
   code?: string;
   type?: string;
+  originalRequestReplaySafe?: false;
+  retryScope?: AiRetryScope;
 }>;
 
 type BinaryMultipartAttachment = Readonly<{
@@ -264,7 +279,22 @@ async function readProviderErrorMetadata(response: Response): Promise<ProviderEr
     const record = error as Record<string, unknown>;
     const code = readBoundedProviderField(record['code']);
     const type = readBoundedProviderField(record['type']);
-    return code || type ? { ...(code ? { code } : {}), ...(type ? { type } : {}) } : undefined;
+    const details = isRecord(record['details']) ? record['details'] : undefined;
+    const replayUnsafe =
+      details?.['originalRequestReplaySafe'] === false &&
+      details['retryScope'] === 'continuation_only';
+    return code || type || replayUnsafe
+      ? {
+          ...(code ? { code } : {}),
+          ...(type ? { type } : {}),
+          ...(replayUnsafe
+            ? {
+                originalRequestReplaySafe: false as const,
+                retryScope: 'continuation_only' as const,
+              }
+            : {}),
+        }
+      : undefined;
   } catch {
     return undefined;
   }
@@ -621,31 +651,50 @@ function providerProbeFailure(value: unknown): AiProviderErrorCode | undefined {
 
 function mapProviderHttpError(status: number, metadata?: ProviderErrorMetadata): AiProviderError {
   const providerCode = metadata?.code ?? metadata?.type;
+  const replaySafety = metadata?.originalRequestReplaySafe === false
+    ? {
+        originalRequestReplaySafe: false as const,
+        retryScope: 'continuation_only' as const,
+      }
+    : {};
   if (providerCode && PROVIDER_ATTACHMENT_UPLOAD_CODES.has(providerCode)) {
     return new AiProviderError('AI_ATTACHMENT_UPLOAD_FAILED', {
       status,
       retryable: status === 503 || status === 504,
+      ...replaySafety,
     });
   }
   if (providerCode && PROVIDER_REQUEST_REJECTION_CODES.has(providerCode)) {
-    return new AiProviderError('AI_REQUEST_REJECTED', { status });
+    return new AiProviderError('AI_REQUEST_REJECTED', { status, ...replaySafety });
   }
   if (status === 401 || status === 403) {
-    return new AiProviderError('AI_AUTHENTICATION_FAILED', { status });
+    return new AiProviderError('AI_AUTHENTICATION_FAILED', { status, ...replaySafety });
   }
   if (status === 408 || status === 504) {
-    return new AiProviderError('AI_TIMEOUT', { status, retryable: true });
+    return new AiProviderError('AI_TIMEOUT', {
+      status,
+      retryable: true,
+      ...replaySafety,
+    });
   }
   if (status === 413) {
-    return new AiProviderError('AI_ATTACHMENT_TOO_LARGE', { status });
+    return new AiProviderError('AI_ATTACHMENT_TOO_LARGE', { status, ...replaySafety });
   }
   if (status === 429) {
-    return new AiProviderError('AI_RATE_LIMITED', { status, retryable: true });
+    return new AiProviderError('AI_RATE_LIMITED', {
+      status,
+      retryable: true,
+      ...replaySafety,
+    });
   }
   if (status >= 500) {
-    return new AiProviderError('AI_PROVIDER_FAILED', { status, retryable: true });
+    return new AiProviderError('AI_PROVIDER_FAILED', {
+      status,
+      retryable: true,
+      ...replaySafety,
+    });
   }
-  return new AiProviderError('AI_REQUEST_REJECTED', { status });
+  return new AiProviderError('AI_REQUEST_REJECTED', { status, ...replaySafety });
 }
 
 function parseProviderJson(value: string, errorCode: AiProviderErrorCode): unknown {
