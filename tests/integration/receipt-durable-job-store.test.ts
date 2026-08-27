@@ -87,7 +87,7 @@ test('schema v6 persists receipt OCR and remote response checkpoints across stor
     assert.equal(state?.pages[0]?.idempotencyKey, `basketra-receipt:${job.id}:g1:p0`);
     assert.equal(state?.pages[0]?.responseId, 'resp_1234567');
     assert.equal(state?.pages[0]?.remoteStatus, 'completed');
-    assert.equal(state?.pages[0]?.remoteResult?.currency, 'EUR');
+    assert.equal((state?.pages[0]?.remoteResult as { currency?: string } | undefined)?.currency, 'EUR');
   } finally {
     reopened.close();
     database.close();
