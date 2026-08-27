@@ -14,6 +14,7 @@ import { mapError } from '../../src/api/errors.ts';
 import { FileStore } from '../../src/infrastructure/files.ts';
 import type { OcrProvider } from '../../src/ocr/provider.ts';
 import {
+  RECEIPT_AI_VERIFICATION_BUDGET_MS,
   ReceiptAiVerificationTimeoutError,
   ReceiptExtractionService,
   ReceiptPageTaskQueue,
@@ -88,6 +89,25 @@ function serviceWithBudget(
     { aiVerificationBudgetMs: budgetMs },
   );
 }
+
+test('receipt AI verification budget rejects invalid local policy values', () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-receipt-ai-budget-bounds-'));
+  const store = new FileStore(join(root, 'files'), join(root, 'tmp'), 4096);
+  const aiProvider = provider(async () => interpretedPage());
+  try {
+    for (const budgetMs of [0, 1.5, RECEIPT_AI_VERIFICATION_BUDGET_MS + 1]) {
+      assert.throws(
+        () => serviceWithBudget(store, aiProvider, 0, budgetMs),
+        {
+          name: 'RangeError',
+          message: 'Receipt AI verification budget must be between one millisecond and five minutes',
+        },
+      );
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('structured executor treats abort as terminal even when retries remain', async () => {
   let attempts = 0;
