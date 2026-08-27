@@ -10,16 +10,18 @@ import {
   type OcrResult,
 } from '../ocr/provider.ts';
 import {
-  buildReceiptReview,
   extractReceiptMetadata,
-  mergeReceiptPageItems,
   parseDeterministicReceiptText,
   verifyReceiptWithAi,
-  type AiReceiptInterpretation,
   type ReceiptAiSession,
-  type ReceiptExtractionItem,
-  type ReceiptMetadata,
 } from './extraction.ts';
+import {
+  assembleReceiptExtraction,
+  type ReceiptExtractionResult,
+  type ReceiptPageEvidence,
+} from './result.ts';
+
+export type { ReceiptExtractionResult, ReceiptPageEvidence } from './result.ts';
 
 const DEFAULT_PAGE_CONCURRENCY = 2;
 const DEFAULT_AI_CONCURRENCY = 1;
@@ -48,23 +50,6 @@ export type ReceiptCaptureRequest = Readonly<{
 export type ReceiptExtractionRequest = Readonly<{
   captures: readonly ReceiptCaptureRequest[];
   verifyWithAi: boolean;
-}>;
-
-export type ReceiptPageEvidence = Readonly<{
-  position: number;
-  storageKey: string;
-  mimeType: string;
-  text: string;
-  confidence: number;
-  source: OcrResult['source'];
-  deterministic: Readonly<{
-    items: readonly ReceiptExtractionItem[];
-    metadata: ReceiptMetadata;
-  }>;
-  ai?: Readonly<{
-    interpretation: AiReceiptInterpretation;
-    attempts: number;
-  }>;
 }>;
 
 type ReceiptOcrPageEvidence = ReceiptPageEvidence;
@@ -211,33 +196,7 @@ export class ReceiptExtractionService {
     };
   }
 
-  async extract(request: ReceiptExtractionRequest, signal?: AbortSignal): Promise<Readonly<{
-    pages: readonly ReceiptPageEvidence[];
-    originalText: string;
-    deterministic: Readonly<{
-      items: readonly ReceiptExtractionItem[];
-      retailerName?: string;
-      declaredTotalMinor?: number;
-      articleCount?: number;
-    }>;
-    ai?: Readonly<{
-      interpretation: AiReceiptInterpretation;
-      attempts: number;
-      pages: readonly Readonly<{
-        position: number;
-        interpretation: AiReceiptInterpretation;
-        attempts: number;
-      }>[];
-    }>;
-    final: Readonly<{
-      items: readonly ReceiptExtractionItem[];
-      retailerName?: string;
-      declaredTotalMinor?: number;
-      articleCount?: number;
-      warnings: readonly string[];
-      review: ReturnType<typeof buildReceiptReview>;
-    }>;
-  }>> {
+  async extract(request: ReceiptExtractionRequest, signal?: AbortSignal): Promise<ReceiptExtractionResult> {
     signal?.throwIfAborted();
     const captures = uniqueCaptures(request.captures);
     const pages = request.verifyWithAi
@@ -246,84 +205,21 @@ export class ReceiptExtractionService {
           return await this.verifyOcrPagesInOrder(captures, ocrPages, verificationSignal);
         }, signal)
       : await Promise.all(this.queueOcrPages(captures, signal));
-    const originalText = pages.map((page) => page.text).join('\n').trim();
+    return assembleReceiptExtraction(pages);
+  }
 
-    const deterministicItems = mergeReceiptPageItems(
-      pages.map((page) => page.deterministic.items),
-    );
-    const deterministicMetadata = combineMetadata(
-      pages.map((page) => page.deterministic.metadata),
-    );
-    const deterministic = {
-      items: deterministicItems,
-      ...(deterministicMetadata.retailerName
-        ? { retailerName: deterministicMetadata.retailerName }
-        : {}),
-      ...(deterministicMetadata.declaredTotalMinor === undefined
-        ? {}
-        : { declaredTotalMinor: deterministicMetadata.declaredTotalMinor }),
-      ...(deterministicMetadata.articleCount === undefined
-        ? {}
-        : { articleCount: deterministicMetadata.articleCount }),
-    };
-
-    const aiPages = pages.flatMap((page) => page.ai
-      ? [{ position: page.position, ...page.ai }]
-      : []);
-    const aiInterpretations = aiPages.map((page) => page.interpretation);
-    const aiMetadata = combineMetadata(aiInterpretations);
-    const aiItemsByPage = pages.map((page) => page.ai?.interpretation.items ?? page.deterministic.items);
-    const aiItems = mergeReceiptPageItems(aiItemsByPage);
-    const warnings = aiInterpretations.flatMap((interpretation) => interpretation.warnings);
-
-    let ai: Readonly<{
-      interpretation: AiReceiptInterpretation;
-      attempts: number;
-      pages: readonly Readonly<{
-        position: number;
-        interpretation: AiReceiptInterpretation;
-        attempts: number;
-      }>[];
-    }> | undefined;
-    if (aiPages.length > 0) {
-      ai = {
-        interpretation: {
-          ...(aiMetadata.retailerName ? { retailerName: aiMetadata.retailerName } : {}),
-          ...(aiMetadata.declaredTotalMinor === undefined
-            ? {}
-            : { declaredTotalMinor: aiMetadata.declaredTotalMinor }),
-          ...(aiMetadata.articleCount === undefined
-            ? {}
-            : { articleCount: aiMetadata.articleCount }),
-          currency: 'EUR',
-          correctedText: aiInterpretations.map((interpretation) => interpretation.correctedText).join('\n').trim(),
-          items: aiItems,
-          warnings,
-        },
-        attempts: aiPages.reduce((sum, page) => sum + page.attempts, 0),
-        pages: aiPages,
-      };
+  async extractOcrPage(
+    capture: ReceiptCaptureRequest,
+    position: number,
+    signal?: AbortSignal,
+  ): Promise<ReceiptOcrPageEvidence> {
+    if (!Number.isSafeInteger(position) || position < 0 || position >= MAX_RECEIPT_CONVERSATION_PAGES) {
+      throw new RangeError('Receipt OCR page position is invalid');
     }
-
-    const finalItems = ai?.interpretation.items.length ? ai.interpretation.items : deterministicItems;
-    const finalRetailerName = ai?.interpretation.retailerName ?? deterministicMetadata.retailerName;
-    const finalTotal = ai?.interpretation.declaredTotalMinor ?? deterministicMetadata.declaredTotalMinor;
-    const finalArticleCount = ai?.interpretation.articleCount ?? deterministicMetadata.articleCount;
-
-    return {
-      pages,
-      originalText,
-      deterministic,
-      ...(ai ? { ai } : {}),
-      final: {
-        items: finalItems,
-        ...(finalRetailerName ? { retailerName: finalRetailerName } : {}),
-        ...(finalTotal === undefined ? {} : { declaredTotalMinor: finalTotal }),
-        ...(finalArticleCount === undefined ? {} : { articleCount: finalArticleCount }),
-        warnings,
-        review: buildReceiptReview(finalItems, finalTotal),
-      },
-    };
+    return await this.#pageQueue.run(
+      () => this.readOcrPage(capture, position, signal),
+      signal,
+    );
   }
 
   dispose(): void {
@@ -338,11 +234,7 @@ export class ReceiptExtractionService {
     captures: readonly ReceiptCaptureRequest[],
     signal?: AbortSignal,
   ): Promise<ReceiptOcrPageEvidence>[] {
-    return captures.map((capture, position) =>
-      this.#pageQueue.run(
-        () => this.extractOcrPage(capture, position, signal),
-        signal,
-      ));
+    return captures.map((capture, position) => this.extractOcrPage(capture, position, signal));
   }
 
   private async runWithinAiVerificationBudget<T>(
@@ -369,7 +261,7 @@ export class ReceiptExtractionService {
     }
   }
 
-  private async extractOcrPage(
+  private async readOcrPage(
     capture: ReceiptCaptureRequest,
     position: number,
     signal?: AbortSignal,
@@ -483,7 +375,7 @@ export class ReceiptExtractionService {
   }
 }
 
-function uniqueCaptures(captures: readonly ReceiptCaptureRequest[]): ReceiptCaptureRequest[] {
+export function uniqueReceiptCaptures(captures: readonly ReceiptCaptureRequest[]): ReceiptCaptureRequest[] {
   const seen = new Set<string>();
   return captures.filter((capture) => {
     if (seen.has(capture.storageKey)) return false;
@@ -492,15 +384,8 @@ function uniqueCaptures(captures: readonly ReceiptCaptureRequest[]): ReceiptCapt
   });
 }
 
-function combineMetadata(values: readonly ReceiptMetadata[]): ReceiptMetadata {
-  const retailerName = values.find((value) => value.retailerName)?.retailerName;
-  const declaredTotalMinor = values.findLast((value) => value.declaredTotalMinor !== undefined)?.declaredTotalMinor;
-  const articleCount = values.findLast((value) => value.articleCount !== undefined)?.articleCount;
-  return {
-    ...(retailerName ? { retailerName } : {}),
-    ...(declaredTotalMinor === undefined ? {} : { declaredTotalMinor }),
-    ...(articleCount === undefined ? {} : { articleCount }),
-  };
+function uniqueCaptures(captures: readonly ReceiptCaptureRequest[]): ReceiptCaptureRequest[] {
+  return uniqueReceiptCaptures(captures);
 }
 
 function abortError(): DOMException {
