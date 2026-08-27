@@ -360,7 +360,6 @@ export class ReceiptExtractionService {
         deadlineController.abort();
         reject(new ReceiptAiVerificationTimeoutError());
       }, this.#aiVerificationBudgetMs);
-      deadlineTimer.unref();
     });
 
     try {
