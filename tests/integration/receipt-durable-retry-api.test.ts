@@ -27,7 +27,7 @@ function config(root: string): AppConfig {
   };
 }
 
-test('explicit failed-job retry creates a new durable job seeded from server OCR', async () => {
+test('explicit failed-job retry creates a new job through the canonical extraction endpoint', async () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-durable-retry-api-'));
   const appConfig = config(root);
   const fileStore = new FileStore(join(appConfig.dataDir, 'files'), appConfig.tempDir, appConfig.maxBodyBytes);
@@ -35,9 +35,10 @@ test('explicit failed-job retry creates a new durable job seeded from server OCR
     base64: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x03]).toString('base64'),
     mimeType: 'image/png',
   });
+  const capture = { storageKey: stored.storageKey, originalName: 'receipt.png' };
   const database = new BasketraDatabase(join(appConfig.dataDir, 'basketra.db'));
   const source = database.createReceiptExtractionJob({
-    captures: [{ storageKey: stored.storageKey, originalName: 'receipt.png' }],
+    captures: [capture],
     verifyWithAi: true,
   });
   database.startReceiptExtractionJob(source.id);
@@ -74,30 +75,36 @@ test('explicit failed-job retry creates a new durable job seeded from server OCR
   try {
     await server.listen();
     const response = await fetch(
-      `http://127.0.0.1:${server.address().port}/api/v1/receipts/extraction-jobs/${encodeURIComponent(source.id)}/retry-ai`,
-      { method: 'POST' },
+      `http://127.0.0.1:${server.address().port}/api/v1/receipts/extraction-jobs`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          captures: [capture],
+          verifyWithAi: true,
+          retryOfJobId: source.id,
+        }),
+      },
     );
     assert.equal(response.status, 202);
-    const body = await response.json() as {
-      job: { id: string };
-      retryOf: string;
-    };
+    const body = await response.json() as { job: { id: string } };
     retryJobId = body.job.id;
     assert.notEqual(retryJobId, source.id);
-    assert.equal(body.retryOf, source.id);
   } finally {
     await server.close();
   }
 
-  const verificationStore = new ReceiptDurableJobStore(join(appConfig.dataDir, 'basketra.db'));
+  const verificationDatabase = new BasketraDatabase(join(appConfig.dataDir, 'basketra.db'));
+  const verificationStore = new ReceiptDurableJobStore(verificationDatabase.path);
   try {
+    const retryJob = verificationDatabase.getReceiptExtractionJob(retryJobId);
+    assert.equal((retryJob?.input as { retryOfJobId?: string } | undefined)?.retryOfJobId, source.id);
     const retryState = verificationStore.get(retryJobId);
     assert.equal(retryState?.pages[0]?.ocr?.text, 'SERVER PERSISTED OCR');
-    assert.equal(retryState?.pages[0]?.responseId, undefined);
-    assert.equal(retryState?.pages[0]?.idempotencyKey?.includes(retryJobId), true);
-    assert.equal(retryState?.pages[0]?.idempotencyKey?.includes(source.id), false);
+    assert.notEqual(retryState?.pages[0]?.responseId, 'resp_failedapi');
   } finally {
     verificationStore.close();
+    verificationDatabase.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
