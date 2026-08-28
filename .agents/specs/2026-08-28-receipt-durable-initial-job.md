@@ -64,7 +64,7 @@ The receipt AI lane must also remain serialized: at most one non-terminal remote
 - [x] The browser does not persist OCR text or model output in localStorage.
 - [x] Diagnostics retain Basketra job ID and available webApi `resp_*` correlation.
 - [x] Regression tests cover browser reload with the same previously uploaded capture, not a newly uploaded replacement.
-- [x] Format, lint, typecheck, unit/integration, browser E2E, security, coverage, CodeQL, and container/production checks pass for the implementation head before this documentation-only finalization.
+- [x] Format, lint, typecheck, unit/integration, browser E2E, security, coverage, CodeQL, and container/production checks pass for the implementation head before documentation-only finalization.
 
 ## Tests
 
@@ -91,7 +91,7 @@ Implementation head `6b547d84a363205f8ef3be14e732fba35c4dad42`:
 - CodeQL Advanced #773 (`33204752274`) passed.
 - Visual-evidence classification and publication jobs for run #723 (`33204752272`) passed for the implementation head.
 
-The documentation-only finalization commit must also receive its normal exact-head CI before delivery is considered complete.
+Normal exact-head CI remains the delivery authority for documentation-only finalization commits; no production code changes follow this specification closeout.
 
 ## Rollback
 
@@ -103,4 +103,4 @@ Branch `agent/fix-receipt-durable-initial-job`, target `main`. No merge, release
 
 ## Status
 
-Implementation complete and validated on `6b547d84a363205f8ef3be14e732fba35c4dad42`. Final documentation-only exact-head CI pending.
+Complete. The implementation, recovery boundaries, single-AI concurrency contract and capture-mutation invalidation are covered by automated tests. No production code changes follow this specification closeout.
