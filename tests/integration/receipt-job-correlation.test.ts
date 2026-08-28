@@ -26,7 +26,7 @@ function config(root: string): AppConfig {
   };
 }
 
-test('receipt job response exposes persisted webApi response identities without receipt content', async () => {
+test('receipt job response exposes persisted progressive OCR while AI remains non-terminal', async () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-receipt-correlation-'));
   const appConfig = config(root);
   const database = new BasketraDatabase(join(appConfig.dataDir, 'basketra.db'));
@@ -52,8 +52,7 @@ test('receipt job response exposes persisted webApi response identities without 
     responseId: 'resp_1234567',
     status: 'in_progress',
   });
-  durableStore.markPhase(job.id, 'failed');
-  database.failReceiptExtractionJob(job.id, 'AI_PROVIDER_FAILED');
+  durableStore.markPhase(job.id, 'ai_running');
   durableStore.close();
   database.close();
 
@@ -65,12 +64,49 @@ test('receipt job response exposes persisted webApi response identities without 
     );
     assert.equal(response.status, 200);
     const body = await response.json() as {
-      job: { id: string; webApiResponseIds?: string[] };
+      job: {
+        id: string;
+        status: string;
+        webApiResponseIds?: string[];
+        progress?: {
+          phase: string;
+          pages: Array<{
+            position: number;
+            stage: string;
+            ocr?: {
+              text: string;
+              confidence: number;
+              source: string;
+              deterministic: { items: unknown[]; metadata: Record<string, unknown> };
+            };
+          }>;
+        };
+        extraction?: unknown;
+        errorCode?: string;
+      };
     };
 
     assert.equal(body.job.id, job.id);
+    assert.equal(body.job.status, 'running');
     assert.deepEqual(body.job.webApiResponseIds, ['resp_1234567']);
-    assert.doesNotMatch(JSON.stringify(body), /PRIVATE RECEIPT TEXT/u);
+    assert.deepEqual(body.job.progress, {
+      phase: 'ai_running',
+      pages: [{
+        position: 0,
+        stage: 'ai',
+        ocr: {
+          text: 'PRIVATE RECEIPT TEXT',
+          confidence: 0.9,
+          source: 'local-tesseract',
+          deterministic: { items: [], metadata: {} },
+        },
+      }],
+    });
+    assert.equal('extraction' in body.job, false);
+    assert.equal('errorCode' in body.job, false);
+    const publicProgress = JSON.stringify(body.job.progress);
+    assert.equal(publicProgress.includes(capture.storageKey), false);
+    assert.equal(publicProgress.includes('image/png'), false);
   } finally {
     await server.close();
     rmSync(root, { recursive: true, force: true });
