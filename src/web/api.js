@@ -158,6 +158,9 @@ export function createRequestCoordinator({
 
 const nativeFetch = globalThis.fetch.bind(globalThis);
 const requestCoordinator = createRequestCoordinator({ fetchImpl: nativeFetch });
+let applicationApiRequests = 0;
+let operationsBootstrapTimer = null;
+let operationsBootstrapStarted = false;
 
 function emitApiLog(detail) {
   window.dispatchEvent(new CustomEvent('basketra:api-log', { detail }));
@@ -187,64 +190,84 @@ export function coordinatedFetch(path, options = {}) {
     : nativeFetch(path, options);
 }
 
+function scheduleOperationsBootstrap() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  if (operationsBootstrapStarted || operationsBootstrapTimer !== null) return;
+  operationsBootstrapTimer = setTimeout(() => {
+    operationsBootstrapTimer = null;
+    if (applicationApiRequests > 0) {
+      scheduleOperationsBootstrap();
+      return;
+    }
+    operationsBootstrapStarted = true;
+    void import('./operations.js').catch(() => {});
+  }, 0);
+}
+
 export async function api(path, options = {}) {
-  const method = options.method || 'GET';
-  const started = performance.now();
-  let response;
+  applicationApiRequests += 1;
   try {
-    response = await coordinatedFetch(path, {
-      ...options,
-      headers: {
-        ...(options.body ? { 'content-type': 'application/json' } : {}),
-        ...(options.headers || {}),
-      },
-    });
-  } catch (error) {
-    if (error?.name !== 'AbortError') {
+    const method = options.method || 'GET';
+    const started = performance.now();
+    let response;
+    try {
+      response = await coordinatedFetch(path, {
+        ...options,
+        headers: {
+          ...(options.body ? { 'content-type': 'application/json' } : {}),
+          ...(options.headers || {}),
+        },
+      });
+    } catch (error) {
+      if (error?.name !== 'AbortError') {
+        emitApiLog({
+          event: 'client.network_error',
+          level: 'error',
+          method,
+          path: requestPath(path),
+          durationMs: Math.round(performance.now() - started),
+          code: 'NETWORK_ERROR',
+        });
+      }
+      throw error;
+    }
+
+    if (response.status === 204) return undefined;
+    const contentType = response.headers.get('content-type') || '';
+    const body = contentType.includes('application/json')
+      ? await response.json().catch(() => ({}))
+      : await response.text();
+
+    if (!response.ok) {
+      const message = typeof body === 'object' && body !== null && body.error?.message
+        ? body.error.message
+        : `HTTP ${response.status}`;
+      const error = new Error(message);
+      if (typeof body === 'object' && body !== null) {
+        error.code = body.error?.code;
+        error.details = body.error?.details;
+      }
+      error.status = response.status;
+      const requestId = response.headers.get('x-request-id') || (typeof body === 'object' && body !== null ? body.error?.requestId : undefined);
+      if (requestId) error.requestId = requestId;
       emitApiLog({
-        event: 'client.network_error',
-        level: 'error',
+        event: 'client.api_error',
+        level: response.status >= 500 ? 'error' : 'warn',
         method,
         path: requestPath(path),
+        status: response.status,
         durationMs: Math.round(performance.now() - started),
-        code: 'NETWORK_ERROR',
+        ...(error.code ? { code: error.code } : {}),
+        ...(requestId ? { requestId } : {}),
       });
+      throw error;
     }
-    throw error;
+
+    return body;
+  } finally {
+    applicationApiRequests -= 1;
+    scheduleOperationsBootstrap();
   }
-
-  if (response.status === 204) return undefined;
-  const contentType = response.headers.get('content-type') || '';
-  const body = contentType.includes('application/json')
-    ? await response.json().catch(() => ({}))
-    : await response.text();
-
-  if (!response.ok) {
-    const message = typeof body === 'object' && body !== null && body.error?.message
-      ? body.error.message
-      : `HTTP ${response.status}`;
-    const error = new Error(message);
-    if (typeof body === 'object' && body !== null) {
-      error.code = body.error?.code;
-      error.details = body.error?.details;
-    }
-    error.status = response.status;
-    const requestId = response.headers.get('x-request-id') || (typeof body === 'object' && body !== null ? body.error?.requestId : undefined);
-    if (requestId) error.requestId = requestId;
-    emitApiLog({
-      event: 'client.api_error',
-      level: response.status >= 500 ? 'error' : 'warn',
-      method,
-      path: requestPath(path),
-      status: response.status,
-      durationMs: Math.round(performance.now() - started),
-      ...(error.code ? { code: error.code } : {}),
-      ...(requestId ? { requestId } : {}),
-    });
-    throw error;
-  }
-
-  return body;
 }
 
 export function realtimeEndpoint() {
@@ -260,5 +283,5 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   // Keep api.js as the browser HTTP SSOT even when a feature accidentally calls fetch directly.
   // EventSource and service-worker traffic run in different transport paths and are not wrapped here.
   globalThis.fetch = coordinatedFetch;
-  void import('./operations.js').catch(() => {});
+  scheduleOperationsBootstrap();
 }
