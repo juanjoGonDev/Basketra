@@ -44,6 +44,7 @@ export type ReceiptDurableJobState = Readonly<{
 }>;
 
 const MAX_CHECKPOINT_JSON_BYTES = 2 * 1024 * 1024;
+const MAX_ADOPTION_CANDIDATES = 100;
 const RESPONSE_ID_PATTERN = /^resp_[A-Za-z0-9]{7,128}$/u;
 const REMOTE_ERROR_CODE_PATTERN = /^[A-Za-z0-9._:-]{1,80}$/u;
 
@@ -162,6 +163,54 @@ export class ReceiptDurableJobStore {
       ORDER BY jobs.created_at ASC, state.job_id ASC
     `).all() as Array<{ jobId: string }>;
     return rows.map((row) => row.jobId);
+  }
+
+  findAdoptableJobId(storageKeys: readonly string[]): string | undefined {
+    if (storageKeys.length < 1 || storageKeys.length > 20) {
+      throw new RangeError('Receipt adoption requires between one and twenty captures');
+    }
+    for (const storageKey of storageKeys) assertStorageKey(storageKey);
+
+    const rows = this.#database.prepare(`
+      SELECT jobs.id AS jobId, jobs.input_json AS inputJson
+      FROM receipt_extraction_jobs AS jobs
+      INNER JOIN receipt_extraction_job_state AS state ON state.job_id = jobs.id
+      WHERE jobs.status IN ('queued', 'running', 'completed', 'failed')
+        AND state.phase <> 'cancelled'
+        AND state.page_count = ?
+      ORDER BY
+        CASE jobs.status
+          WHEN 'running' THEN 0
+          WHEN 'queued' THEN 1
+          WHEN 'completed' THEN 2
+          ELSE 3
+        END ASC,
+        CASE state.phase
+          WHEN 'ai_running' THEN 0
+          WHEN 'ai_pending' THEN 1
+          WHEN 'ocr_running' THEN 2
+          WHEN 'queued' THEN 3
+          WHEN 'completed' THEN 4
+          WHEN 'failed' THEN 5
+          ELSE 6
+        END ASC,
+        jobs.updated_at DESC,
+        jobs.created_at DESC,
+        jobs.id DESC
+      LIMIT ?
+    `).all(storageKeys.length, MAX_ADOPTION_CANDIDATES) as Array<{
+      jobId: string;
+      inputJson: string;
+    }>;
+
+    for (const row of rows) {
+      const candidateStorageKeys = parseAdoptableJobStorageKeys(row.inputJson);
+      if (!candidateStorageKeys || candidateStorageKeys.length !== storageKeys.length) continue;
+      if (candidateStorageKeys.every((storageKey, index) => storageKey === storageKeys[index])) {
+        return row.jobId;
+      }
+    }
+    return undefined;
   }
 
   recoverNonDurableActiveJobs(): number {
@@ -404,6 +453,32 @@ function parseJson(value: string): unknown {
   return JSON.parse(value) as unknown;
 }
 
+function parseAdoptableJobStorageKeys(value: string): string[] | undefined {
+  if (Buffer.byteLength(value) > MAX_CHECKPOINT_JSON_BYTES) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value) as unknown;
+  } catch {
+    return undefined;
+  }
+  if (!isRecord(parsed) || parsed['verifyWithAi'] !== true || !Array.isArray(parsed['captures'])) {
+    return undefined;
+  }
+  const captures = parsed['captures'];
+  if (captures.length < 1 || captures.length > 20) return undefined;
+  const storageKeys: string[] = [];
+  for (const capture of captures) {
+    if (!isRecord(capture) || typeof capture['storageKey'] !== 'string') return undefined;
+    try {
+      assertStorageKey(capture['storageKey']);
+    } catch {
+      return undefined;
+    }
+    storageKeys.push(capture['storageKey']);
+  }
+  return storageKeys;
+}
+
 function parseOcrPage(value: string): PersistedReceiptOcrPage {
   const parsed = parseJson(value);
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
@@ -481,6 +556,10 @@ function assertRetryPageCompatible(
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function sameJson(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -494,6 +573,12 @@ function assertPositiveInteger(value: number, name: string): void {
 function assertJobId(value: string): void {
   if (!/^[A-Za-z0-9_-]{8,128}$/u.test(value)) {
     throw new RangeError('Receipt job id is invalid');
+  }
+}
+
+function assertStorageKey(value: string): void {
+  if (!/^[a-f0-9]{64}\.(?:jpg|png|pdf)$/u.test(value)) {
+    throw new RangeError('Receipt storage key is invalid');
   }
 }
 

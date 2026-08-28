@@ -21,6 +21,7 @@ import {
 } from './receipt-processing.js';
 
 let durableRetryPending = false;
+let durableInitialJobPending = false;
 
 function abortError() {
   return new DOMException('Receipt AI correction was cancelled', 'AbortError');
@@ -213,6 +214,67 @@ export function clearCombinedReview({ keepPanel = false } = {}) {
   if (total) total.value = '0.00';
 }
 
+async function startDurableAutomaticCaptureProcessing() {
+  if (durableInitialJobPending || state.captures.length === 0) return;
+  durableInitialJobPending = true;
+  abortPageWork();
+  const token = state.runToken;
+  clearCombinedReview();
+  ensurePageStates();
+  state.verifyWithAi = true;
+  state.processing = true;
+  setPagesForBackgroundJob('queued');
+  if (!state.progressTimer) startReceiptProgress();
+  persistAndRenderCaptures();
+  $('#receipt-state').textContent = 'Iniciando análisis durable. OCR y corrección IA se conservarán para continuar tras una recarga.';
+
+  try {
+    const created = await api('/api/v1/receipts/extraction-jobs', {
+      method: 'POST',
+      body: JSON.stringify({
+        captures: state.captures.map(capture => captureRequest(capture)),
+        verifyWithAi: true,
+      }),
+    });
+    const jobId = created?.job?.id;
+    if (typeof jobId !== 'string' || !jobId) {
+      throw jobError(undefined, 'AI_EXTRACTION_JOB_INVALID');
+    }
+    if (token !== state.runToken) {
+      try {
+        await api(`/api/v1/receipts/extraction-jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
+      } catch {
+        state.activeJobId = jobId;
+        saveReceiptExtractionJobId(jobId);
+        $('#receipt-state').textContent = 'La cancelación no pudo confirmarse. El job durable se conserva para recuperarlo sin duplicar OCR ni IA.';
+      }
+      return;
+    }
+
+    state.activeJobId = jobId;
+    state.failedBackgroundJobId = '';
+    saveReceiptExtractionJobId(jobId);
+    setPagesForBackgroundJob(created.job?.status ?? 'queued');
+    persistAndRenderCaptures();
+    watchReceiptExtractionJob();
+    await refreshReceiptExtractionJob();
+  } catch (error) {
+    if (!state.activeJobId && token === state.runToken) {
+      state.processing = false;
+      stopReceiptProgress();
+      for (const page of state.pageStates.values()) {
+        page.status = 'error';
+        page.errorCode = typeof error?.code === 'string' ? error.code : 'AI_EXTRACTION_JOB_CREATE_FAILED';
+        page.error = 'No se pudo crear el análisis durable. Las capturas siguen guardadas y no se ha iniciado un OCR alternativo.';
+      }
+      persistAndRenderCaptures();
+      $('#receipt-state').textContent = 'No se pudo crear el job durable. Las capturas se conservan sin relanzar OCR ni IA.';
+    }
+  } finally {
+    durableInitialJobPending = false;
+  }
+}
+
 export function startAutomaticCaptureProcessing(captures, { resetAll = false } = {}) {
   if (captures.length === 0) return;
   if (resetAll) {
@@ -225,6 +287,11 @@ export function startAutomaticCaptureProcessing(captures, { resetAll = false } =
   clearCombinedReview();
   ensurePageStates();
   state.verifyWithAi = state.aiConfigured && $('#verify-receipt-ai').checked;
+  if (state.verifyWithAi) {
+    void startDurableAutomaticCaptureProcessing();
+    return;
+  }
+
   state.processing = true;
   if (!state.progressTimer) startReceiptProgress();
 
@@ -233,14 +300,12 @@ export function startAutomaticCaptureProcessing(captures, { resetAll = false } =
   for (const capture of captures) {
     const page = state.pageStates.get(captureKey(capture));
     if (!page || page.status !== 'ready') continue;
-    enqueueCapture(capture, state.verifyWithAi, token);
+    enqueueCapture(capture, false, token);
     enqueued += 1;
   }
 
   persistAndRenderCaptures();
-  $('#receipt-state').textContent = state.verifyWithAi
-    ? 'OCR iniciado automáticamente. La IA corregirá cada imagen cuando termine su OCR; si falla, el OCR seguirá disponible.'
-    : 'OCR iniciado automáticamente. Hasta dos imágenes se procesan a la vez.';
+  $('#receipt-state').textContent = 'OCR iniciado automáticamente. Hasta dos imágenes se procesan a la vez.';
   if (enqueued === 0) void finishCurrentRunWhenIdle();
   else pumpPageQueue();
 }
@@ -389,6 +454,7 @@ export function failBackgroundJob(errorCode = 'RECEIPT_EXTRACTION_FAILED', job) 
       : null;
     page.error = page.recovery?.message || 'No se pudo completar el análisis en segundo plano. Puedes volver a intentarlo.';
     page.elapsedMs = Date.now() - page.startedAt;
+    if (page.recovery) state.expandedCaptureKey ||= captureKey(capture);
     if (index === 0 && page.recovery) page.aiRecovery = page.recovery;
   }
   state.processing = false;
@@ -428,15 +494,20 @@ export async function refreshReceiptExtractionJob() {
 export function watchReceiptExtractionJob() {
   const source = new EventSource(realtimeEndpoint());
   state.jobRealtime = source;
+  const refresh = () => {
+    if (state.jobRealtime !== source || !state.activeJobId) return;
+    void refreshReceiptExtractionJob().catch(() => {});
+  };
+  source.addEventListener('open', refresh);
   source.addEventListener('invalidate', event => {
     if (state.jobRealtime !== source) return;
     try {
       const invalidation = JSON.parse(event.data);
       if (invalidation?.entityType === 'receipt-extraction-job' && invalidation.entityId === state.activeJobId) {
-        void refreshReceiptExtractionJob().catch(() => {});
+        refresh();
       }
     } catch {
-      // The next valid invalidation reconnects through EventSource without leaking job contents.
+      // The next valid invalidation or reconnect refreshes the canonical job state.
     }
   });
 }

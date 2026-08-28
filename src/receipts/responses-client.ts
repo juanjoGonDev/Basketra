@@ -53,6 +53,8 @@ export class ReceiptResponsesClient {
   readonly #model: string;
   readonly #maxResponseBytes: number;
   readonly #fetch: typeof fetch;
+  #responseSlotTail: Promise<void> = Promise.resolve();
+  readonly #responseSlotReleases = new Map<string, () => void>();
 
   constructor(options: ReceiptResponsesClientOptions) {
     this.#baseUrl = ensureTrailingSlash(options.baseUrl);
@@ -74,6 +76,7 @@ export class ReceiptResponsesClient {
       throw new RangeError('pagePosition must identify a page in the receipt');
     }
     const originalText = requireNonEmptyString(input.originalText, 'originalText', 500_000);
+    const releaseSlot = await this.acquireResponseSlot(input.signal);
     const body = {
       model: this.#model,
       background: true,
@@ -108,16 +111,24 @@ export class ReceiptResponsesClient {
       },
     } as const;
 
-    return await this.request(new URL('responses', this.#baseUrl), {
-      method: 'POST',
-      headers: {
-        ...this.headers(),
-        'content-type': 'application/json',
-        'idempotency-key': input.idempotencyKey,
-      },
-      body: JSON.stringify(body),
-      ...(input.signal ? { signal: input.signal } : {}),
-    });
+    try {
+      const response = await this.request(new URL('responses', this.#baseUrl), {
+        method: 'POST',
+        headers: {
+          ...this.headers(),
+          'content-type': 'application/json',
+          'idempotency-key': input.idempotencyKey,
+        },
+        body: JSON.stringify(body),
+        ...(input.signal ? { signal: input.signal } : {}),
+      });
+      if (isTerminalStatus(response.status)) releaseSlot();
+      else this.#responseSlotReleases.set(response.id, releaseSlot);
+      return response;
+    } catch (error) {
+      releaseSlot();
+      throw error;
+    }
   }
 
   async get(
@@ -129,7 +140,7 @@ export class ReceiptResponsesClient {
     if (!Number.isSafeInteger(waitSeconds) || waitSeconds < 0 || waitSeconds > MAX_WAIT_SECONDS) {
       throw new RangeError(`waitSeconds must be an integer between 0 and ${String(MAX_WAIT_SECONDS)}`);
     }
-    return await this.request(new URL(`responses/${encodeURIComponent(id)}`, this.#baseUrl), {
+    const response = await this.request(new URL(`responses/${encodeURIComponent(id)}`, this.#baseUrl), {
       method: 'GET',
       headers: {
         ...this.headers(),
@@ -137,15 +148,43 @@ export class ReceiptResponsesClient {
       },
       ...(options.signal ? { signal: options.signal } : {}),
     });
+    this.releaseResponseSlotIfTerminal(response);
+    return response;
   }
 
   async cancel(responseId: string, signal?: AbortSignal): Promise<ReceiptRemoteResponse> {
     const id = validateResponseId(responseId);
-    return await this.request(new URL(`responses/${encodeURIComponent(id)}/cancel`, this.#baseUrl), {
+    const response = await this.request(new URL(`responses/${encodeURIComponent(id)}/cancel`, this.#baseUrl), {
       method: 'POST',
       headers: this.headers(),
       ...(signal ? { signal } : {}),
     });
+    this.releaseResponseSlotIfTerminal(response);
+    return response;
+  }
+
+  private async acquireResponseSlot(signal?: AbortSignal): Promise<() => void> {
+    const previous = this.#responseSlotTail;
+    let releaseCurrent = () => {};
+    const current = new Promise<void>((resolve) => {
+      releaseCurrent = once(resolve);
+    });
+    this.#responseSlotTail = current;
+    try {
+      await waitForTurn(previous, signal);
+      return releaseCurrent;
+    } catch (error) {
+      releaseCurrent();
+      throw error;
+    }
+  }
+
+  private releaseResponseSlotIfTerminal(response: ReceiptRemoteResponse): void {
+    if (!isTerminalStatus(response.status)) return;
+    const release = this.#responseSlotReleases.get(response.id);
+    if (!release) return;
+    this.#responseSlotReleases.delete(response.id);
+    release();
   }
 
   private async request(url: URL, init: RequestInit): Promise<ReceiptRemoteResponse> {
@@ -178,6 +217,42 @@ export class ReceiptResponsesClient {
       ...(this.#apiKey ? { authorization: `Bearer ${this.#apiKey}` } : {}),
     };
   }
+}
+
+function once(callback: () => void): () => void {
+  let called = false;
+  return () => {
+    if (called) return;
+    called = true;
+    callback();
+  };
+}
+
+async function waitForTurn(turn: Promise<void>, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  if (!signal) {
+    await turn;
+    return;
+  }
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const settle = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', onAbort);
+      callback();
+    };
+    const onAbort = () => settle(() => reject(new DOMException('The receipt AI queue wait was aborted', 'AbortError')));
+    signal.addEventListener('abort', onAbort, { once: true });
+    void turn.then(
+      () => settle(resolve),
+      (error) => settle(() => reject(error)),
+    );
+  });
+}
+
+function isTerminalStatus(status: ReceiptResponseStatus): boolean {
+  return status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'incomplete';
 }
 
 function buildResponsesAttachment(attachment: AiAttachmentInput): Readonly<Record<string, string>> {

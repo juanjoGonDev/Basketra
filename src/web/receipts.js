@@ -1,3 +1,4 @@
+import { api } from './api.js';
 import {
   $,
   closeDialog,
@@ -12,11 +13,13 @@ import {
   uploadFiles,
 } from './receipt-capture.js';
 import {
+  captureRequest,
   refreshReceiptExtractionJob,
   startAutomaticCaptureProcessing,
   watchReceiptExtractionJob,
 } from './receipt-lifecycle.js';
 import { cancelReceiptExtraction } from './receipt-processing.js';
+import { saveReceiptExtractionJobId } from './state.js';
 import { icon } from './ui.js';
 import {
   addBlankLine,
@@ -33,6 +36,7 @@ import {
 
 const MOBILE_REVIEW_MEDIA = '(max-width: 49.99rem)';
 const SOFTWARE_KEYBOARD_SETTLE_MS = 280;
+const RECEIPT_EXTRACTION_JOB_ID_PATTERN = /^receiptextractionjob_[a-z0-9]+$/iu;
 let reviewReferenceObserver;
 let reviewSummaryObserver;
 
@@ -296,6 +300,43 @@ export function bindEvents() {
   });
 }
 
+async function recoverPersistedReceiptDraft() {
+  $('#receipt-state').textContent = 'Comprobando si estas capturas ya tienen un análisis durable...';
+  let recovered;
+  try {
+    recovered = await api('/api/v1/receipts/extraction-jobs/recover', {
+      method: 'POST',
+      body: JSON.stringify({
+        captures: state.captures.map(capture => captureRequest(capture)),
+      }),
+    });
+  } catch {
+    $('#receipt-state').textContent = 'No se pudo comprobar el trabajo durable existente. No se iniciará otro OCR ni otra IA para evitar duplicados.';
+    return;
+  }
+
+  const job = recovered?.job;
+  if (!job) {
+    startAutomaticCaptureProcessing(state.captures);
+    return;
+  }
+  if (typeof job.id !== 'string' || !RECEIPT_EXTRACTION_JOB_ID_PATTERN.test(job.id)) {
+    $('#receipt-state').textContent = 'El servidor devolvió una identidad durable inválida. No se iniciará trabajo nuevo para evitar duplicados.';
+    return;
+  }
+
+  state.activeJobId = job.id;
+  state.failedBackgroundJobId = '';
+  state.verifyWithAi = true;
+  saveReceiptExtractionJobId(job.id);
+  watchReceiptExtractionJob();
+  try {
+    await refreshReceiptExtractionJob();
+  } catch {
+    $('#receipt-state').textContent = 'Se recuperó la identidad del análisis, pero no pudo leerse su estado. El job se conserva y no se duplicará.';
+  }
+}
+
 export function initReceipts(options) {
   configureReceiptContext(options);
   installReceiptEnhancements();
@@ -311,9 +352,9 @@ export function initReceipts(options) {
   if (state.activeJobId) {
     watchReceiptExtractionJob();
     void refreshReceiptExtractionJob().catch(() => {
-      $('#receipt-state').textContent = 'No se pudo recuperar el análisis anterior. Las capturas se conservan y puedes continuar con OCR local.';
+      $('#receipt-state').textContent = 'No se pudo recuperar el análisis anterior. Las capturas se conservan y el job conocido no se reemplaza automáticamente.';
     });
   } else if (state.captures.length > 0) {
-    startAutomaticCaptureProcessing(state.captures);
+    void recoverPersistedReceiptDraft();
   }
 }

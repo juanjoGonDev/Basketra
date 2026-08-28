@@ -315,10 +315,16 @@ export function showPreview(index) {
   openDialog($('#capture-preview-dialog'));
 }
 
+function invalidateDurableJobForCaptureMutation() {
+  if (!state.activeJobId) return;
+  clearReceiptExtractionJob({ cancel: true });
+}
+
 export function moveCapture(index, direction) {
   if (state.processing || state.finalizing) return;
   const target = index + direction;
   if (!state.captures[index] || !state.captures[target]) return;
+  invalidateDurableJobForCaptureMutation();
   [state.captures[index], state.captures[target]] = [state.captures[target], state.captures[index]];
   saveCaptures(state.captures);
   rebuildCombinedReview();
@@ -326,6 +332,7 @@ export function moveCapture(index, direction) {
 
 export function deleteCapture(index) {
   if (state.processing || state.finalizing || !state.captures[index]) return;
+  invalidateDurableJobForCaptureMutation();
   const [removed] = state.captures.splice(index, 1);
   if (removed) state.pageStates.delete(captureKey(removed));
   saveCaptures(state.captures);
