@@ -5,7 +5,7 @@ import {
   DEFAULT_REQUEST_THROTTLE_MS,
   createRequestCoordinator,
   requestBucketKey,
-} from '../../src/web/request-coordinator.js';
+} from '../../src/web/api.js';
 
 type FetchCall = Readonly<{
   url: string;
