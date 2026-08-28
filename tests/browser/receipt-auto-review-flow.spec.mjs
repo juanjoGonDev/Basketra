@@ -131,21 +131,22 @@ test('receipt upload starts the two-slot OCR pool without exposing a second proc
   await expect(compactLine).toContainText('PAN EDITADO');
 });
 
-test('AI correction failure keeps OCR reviewable with source image, manual review and AI-only retry', async ({ page }) => {
+test('durable AI failure retries from server OCR without replaying browser OCR', async ({ page }) => {
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({ configured: true }),
   }));
 
-  let ocrCalls = 0;
-  let aiCalls = 0;
-  let failAi = true;
+  let browserOcrCalls = 0;
+  let jobCreates = 0;
+  const createPayloads = [];
   await page.route('**/api/v1/receipts/extract', async route => {
     const body = route.request().postDataJSON();
     const capture = body.captures?.[0];
-    expect(body.verifyWithAi).toBe(false);
-    if (body.captures?.length === 1 && !capture.embeddedText) ocrCalls += 1;
+    if (body.verifyWithAi === false && body.captures?.length === 1 && !capture?.embeddedText) {
+      browserOcrCalls += 1;
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -154,19 +155,22 @@ test('AI correction failure keeps OCR reviewable with source image, manual revie
   });
   await page.route('**/api/v1/receipts/extraction-jobs', async route => {
     const body = route.request().postDataJSON();
-    const capture = body.captures?.[0];
-    aiCalls += 1;
+    jobCreates += 1;
+    createPayloads.push(body);
     expect(body.verifyWithAi).toBe(true);
-    expect(capture.embeddedText).toContain('PAN');
+    expect(body.captures).toHaveLength(1);
+    expect(body.captures[0]).not.toHaveProperty('embeddedText');
     await route.fulfill({
       status: 202,
       contentType: 'application/json',
-      body: JSON.stringify({ job: { id: `receipt_ai_${aiCalls}`, status: 'queued' } }),
+      body: JSON.stringify({
+        job: { id: `receiptextractionjob_ai_${jobCreates}`, status: 'queued' },
+      }),
     });
   });
   await page.route('**/api/v1/receipts/extraction-jobs/*', async route => {
     const id = new URL(route.request().url()).pathname.split('/').at(-1);
-    if (failAi) {
+    if (id === 'receiptextractionjob_ai_1') {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -194,26 +198,23 @@ test('AI correction failure keeps OCR reviewable with source image, manual revie
   await aiInput.check();
   await upload(page, ['ai-fallback.png']);
 
-  await expect.poll(() => aiCalls).toBe(1);
-  await expect.poll(() => ocrCalls).toBe(1);
-  await expect(page.locator('.capture-card .status-pill')).not.toHaveText('Error');
+  await expect.poll(() => jobCreates).toBe(1);
+  expect(browserOcrCalls).toBe(0);
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
   await expect(page.getByText('private upstream detail')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Revisar manualmente', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Volver a analizar con IA', exact: true })).toBeVisible();
-  await expect(page.locator('.receipt-item')).toHaveCount(1);
 
-  await page.getByRole('button', { name: 'Revisar manualmente', exact: true }).click();
+  await page.getByRole('button', { name: 'Volver a analizar con IA', exact: true }).click();
+  await expect.poll(() => jobCreates).toBe(2);
+  expect(browserOcrCalls).toBe(0);
+  expect(createPayloads[0]).not.toHaveProperty('retryOfJobId');
+  expect(createPayloads[1]?.retryOfJobId).toBe('receiptextractionjob_ai_1');
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada');
   await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
   await expect(page.locator('#receipt-review-reference-image')).toBeVisible();
-  await expect(page.locator('#receipt-review-reference-image')).toHaveAttribute('src', /\/api\/v1\/files\//u);
   await expect(page.locator('.receipt-item [data-field="description"]')).toBeEditable();
-
-  failAi = false;
-  await page.getByRole('button', { name: 'Volver a analizar con IA', exact: true }).click();
-  await expect.poll(() => aiCalls).toBe(2);
-  expect(ocrCalls).toBe(1);
   await expect(page.getByRole('button', { name: 'Volver a analizar con IA', exact: true })).toHaveCount(0);
-  await expect(page.locator('.capture-card__details')).not.toHaveAttribute('open', '');
 });
 
 test('mobile review keeps preview, calculated amount and final action in one sticky row', async ({ page }) => {
