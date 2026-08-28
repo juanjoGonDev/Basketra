@@ -157,6 +157,22 @@ export class ReceiptDurableJobStore {
     return rows.map((row) => row.jobId);
   }
 
+  recoverNonDurableActiveJobs(): number {
+    const timestamp = this.#clock().toISOString();
+    const result = this.#database.prepare(`
+      UPDATE receipt_extraction_jobs
+      SET status = 'failed', error_code = 'RECEIPT_EXTRACTION_INTERRUPTED',
+        updated_at = ?, completed_at = ?
+      WHERE status IN ('queued', 'running')
+        AND NOT EXISTS (
+          SELECT 1
+          FROM receipt_extraction_job_state AS state
+          WHERE state.job_id = receipt_extraction_jobs.id
+        )
+    `).run(timestamp, timestamp);
+    return Number(result.changes);
+  }
+
   markPhase(jobId: string, phase: ReceiptDurableJobPhase): void {
     if (!RECEIPT_DURABLE_JOB_PHASES.includes(phase)) {
       throw new RangeError('Unsupported receipt durable job phase');
