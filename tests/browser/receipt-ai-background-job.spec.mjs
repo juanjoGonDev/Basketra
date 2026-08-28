@@ -6,17 +6,34 @@ const validPng = Buffer.from(
 );
 
 function localExtraction(text = 'PAN 1,50\nTOTAL 1,50') {
+  const item = {
+    description: 'PAN',
+    quantity: 1,
+    unitPriceMinor: 150,
+    lineTotalMinor: 150,
+    confidence: 0.8,
+    sourceLines: [1],
+  };
   return {
     pages: [{ position: 0, source: 'local-tesseract', text, confidence: 0.8 }],
     originalText: text,
     deterministic: {
-      items: [{ description: 'PAN', quantity: 1, unitPriceMinor: 150, lineTotalMinor: 150, confidence: 0.8, sourceLines: [1] }],
+      items: [item],
       declaredTotalMinor: 150,
     },
     final: {
-      items: [{ description: 'PAN', quantity: 1, unitPriceMinor: 150, lineTotalMinor: 150, confidence: 0.8, sourceLines: [1] }],
+      items: [item],
       declaredTotalMinor: 150,
       warnings: [],
+      review: {
+        lines: [{
+          ...item,
+          status: 'confirmed',
+          expectedMinor: 150,
+          differenceMinor: 0,
+        }],
+        total: { expectedMinor: 150, differenceMinor: 0, valid: true },
+      },
     },
   };
 }
