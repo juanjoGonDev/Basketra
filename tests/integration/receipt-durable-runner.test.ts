@@ -73,7 +73,7 @@ test('restart after remote identity reuses persisted OCR and performs GET only',
   const firstTransport = {
     async create(): Promise<ReceiptRemoteResponse> {
       creates += 1;
-      abort.abort(new Error('SIMULATED_PROCESS_STOP'));
+      abort.abort(new DOMException('SIMULATED_PROCESS_STOP', 'AbortError'));
       return { id: 'resp_1234567', status: 'queued' };
     },
     async get(): Promise<ReceiptRemoteResponse> {
