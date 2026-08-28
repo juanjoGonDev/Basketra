@@ -977,9 +977,9 @@ export class BasketraServer {
   }
 
   private parseOffer(value: unknown, index: number): Offer {
-    const record = asRecord(value);
-    const quantity = asRecord(record['quantity']);
-    const amount = asRecord(quantity['amount']);
+    const record = asRecord(value, `$.offers[${index}]`);
+    const quantity = asRecord(record['quantity'], `$.offers[${index}].quantity`);
+    const amount = asRecord(quantity['amount'], `$.offers[${index}].quantity.amount`);
     return {
       id: asString(record['id'], `$.offers[${index}].id`, { min: 1, max: 128 }),
       itemId: asString(record['itemId'], `$.offers[${index}].itemId`, { min: 1, max: 128 }),
