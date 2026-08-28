@@ -238,32 +238,36 @@ test('desktop settings explain the webApi probe and keep the adaptive rail besid
   await expectNoHorizontalOverflow(page);
 });
 
-test('private-route heartbeat recovers after VPN connectivity returns without a reload', async ({ page }, testInfo) => {
-  let failHeartbeat = true;
-  const unexpectedFailures = [];
-  await page.route('**/health?heartbeat=*', route => {
-    if (failHeartbeat) return route.abort('failed');
-    return route.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok"}' });
-  });
-  page.on('requestfailed', request => {
-    if (request.url().includes('/health?heartbeat=')) return;
-    const failure = request.failure()?.errorText ?? '';
-    if (!failure.includes('net::ERR_ABORTED')) unexpectedFailures.push(`${request.method()} ${request.url()} ${failure}`);
-  });
-  page.on('pageerror', error => unexpectedFailures.push(error.message));
+test.describe('network heartbeat', () => {
+  test.use({ serviceWorkers: 'block' });
 
-  await page.goto('/');
-  await expect(page.locator('#connection-state')).toContainText('Desconectado', { timeout: 6000 });
-  failHeartbeat = false;
-  await expect(page.locator('#connection-state')).toContainText('Conectado', { timeout: 6000 });
-  await expect(page.locator('#connection-state')).toHaveAttribute('data-ok', 'true');
-  await page.waitForTimeout(1700);
-  await navigate(page, 'Ajustes');
-  await selectSettingsTab(page, 'Diagnóstico');
-  await page.getByRole('button', { name: 'Actualizar logs', exact: true }).click();
-  await expect(page.locator('#application-logs')).toContainText('client.connection_lost');
-  await expect(page.locator('#application-logs')).toContainText('client.connection_restored');
-  await page.screenshot({ path: testInfo.outputPath('vpn-reconnected.png'), fullPage: true });
-  await expectNoHorizontalOverflow(page);
-  expect(unexpectedFailures).toEqual([]);
+  test('private-route heartbeat recovers after VPN connectivity returns without a reload', async ({ page }, testInfo) => {
+    let failHeartbeat = true;
+    const unexpectedFailures = [];
+    await page.route('**/health?heartbeat=*', route => {
+      if (failHeartbeat) return route.abort('failed');
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok"}' });
+    });
+    page.on('requestfailed', request => {
+      if (request.url().includes('/health?heartbeat=')) return;
+      const failure = request.failure()?.errorText ?? '';
+      if (!failure.includes('net::ERR_ABORTED')) unexpectedFailures.push(`${request.method()} ${request.url()} ${failure}`);
+    });
+    page.on('pageerror', error => unexpectedFailures.push(error.message));
+
+    await page.goto('/');
+    await expect(page.locator('#connection-state')).toContainText('Desconectado', { timeout: 6000 });
+    failHeartbeat = false;
+    await expect(page.locator('#connection-state')).toContainText('Conectado', { timeout: 6000 });
+    await expect(page.locator('#connection-state')).toHaveAttribute('data-ok', 'true');
+    await page.waitForTimeout(1700);
+    await navigate(page, 'Ajustes');
+    await selectSettingsTab(page, 'Diagnóstico');
+    await page.getByRole('button', { name: 'Actualizar logs', exact: true }).click();
+    await expect(page.locator('#application-logs')).toContainText('client.connection_lost');
+    await expect(page.locator('#application-logs')).toContainText('client.connection_restored');
+    await page.screenshot({ path: testInfo.outputPath('vpn-reconnected.png'), fullPage: true });
+    await expectNoHorizontalOverflow(page);
+    expect(unexpectedFailures).toEqual([]);
+  });
 });
