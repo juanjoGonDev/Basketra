@@ -275,15 +275,20 @@ export function pageStageDescription(page) {
 
 export function pagePartialText(page) {
   if (page.status === 'error') return page.error || 'No se pudo procesar esta imagen.';
-  if (page.aiStatus === 'error') return page.aiError || 'La IA no pudo corregir esta imagen; el OCR local sigue disponible.';
   const itemCount = page.result?.final?.items?.length;
+  const ocrItemCount = page.ocrEvidence?.deterministic?.items?.length;
+  const hasStructuredItems = Number.isSafeInteger(itemCount) && itemCount > 0;
+  const hasOcrEvidence = (Number.isSafeInteger(ocrItemCount) && ocrItemCount > 0) || Boolean(page.rawText);
+  if (page.status === 'manual' && !hasStructuredItems && !hasOcrEvidence) {
+    return 'Entrada manual pendiente; la captura original se conserva';
+  }
+  if (page.aiStatus === 'error') return page.aiError || 'La IA no pudo corregir esta imagen; el OCR local sigue disponible.';
   if (page.status === 'manual' && Number.isSafeInteger(itemCount)) {
     return `${itemCount} ${itemCount === 1 ? 'línea OCR pendiente' : 'líneas OCR pendientes'} de revisión manual`;
   }
   if (Number.isSafeInteger(itemCount)) {
     return `${itemCount} ${itemCount === 1 ? 'línea estructurada' : 'líneas estructuradas'}`;
   }
-  const ocrItemCount = page.ocrEvidence?.deterministic?.items?.length;
   if (Number.isSafeInteger(ocrItemCount)) {
     return `${ocrItemCount} ${ocrItemCount === 1 ? 'producto OCR detectado' : 'productos OCR detectados'} · ${page.status === 'ai' ? 'IA verificando' : 'OCR conservado'}`;
   }
