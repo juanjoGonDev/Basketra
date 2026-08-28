@@ -49,7 +49,7 @@ test('an OCR API failure without a stable code remains retryable without inventi
   await expect(page.getByRole('button', { name: 'Revisar manualmente', exact: true })).toHaveCount(0);
 });
 
-test('a durable PDF provider failure permits blank manual entry while preserving the original capture', async ({ page }) => {
+test('a durable PDF provider failure permits blank manual entry without hiding retry recovery', async ({ page }) => {
   let extractionCall = 0;
   const jobId = 'receiptextractionjob_pdfmanual';
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
@@ -102,9 +102,11 @@ test('a durable PDF provider failure permits blank manual entry while preserving
   expect(extractionCall).toBe(0);
 
   const details = await openCaptureDetails(page);
+  await expect(details.getByRole('button', { name: 'Volver a analizar con IA', exact: true })).toBeVisible();
   await details.getByRole('button', { name: 'Revisar manualmente', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Revisión manual');
   await expect(page.getByText('Entrada manual pendiente; la captura original se conserva', { exact: true })).toBeVisible();
+  await expect(details.getByRole('button', { name: 'Volver a analizar con IA', exact: true })).toBeVisible();
   await expect(page.locator('.capture-card')).toHaveCount(1);
   await expect(page.getByText('private provider PDF detail')).toHaveCount(0);
   await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
