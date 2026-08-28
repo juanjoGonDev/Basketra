@@ -218,6 +218,7 @@ async function startDurableAutomaticCaptureProcessing() {
   if (durableInitialJobPending || state.captures.length === 0) return;
   durableInitialJobPending = true;
   abortPageWork();
+  const token = state.runToken;
   clearCombinedReview();
   ensurePageStates();
   state.verifyWithAi = true;
@@ -239,6 +240,16 @@ async function startDurableAutomaticCaptureProcessing() {
     if (typeof jobId !== 'string' || !jobId) {
       throw jobError(undefined, 'AI_EXTRACTION_JOB_INVALID');
     }
+    if (token !== state.runToken) {
+      try {
+        await api(`/api/v1/receipts/extraction-jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
+      } catch {
+        state.activeJobId = jobId;
+        saveReceiptExtractionJobId(jobId);
+        $('#receipt-state').textContent = 'La cancelación no pudo confirmarse. El job durable se conserva para recuperarlo sin duplicar OCR ni IA.';
+      }
+      return;
+    }
 
     state.activeJobId = jobId;
     state.failedBackgroundJobId = '';
@@ -248,7 +259,7 @@ async function startDurableAutomaticCaptureProcessing() {
     watchReceiptExtractionJob();
     await refreshReceiptExtractionJob();
   } catch (error) {
-    if (!state.activeJobId) {
+    if (!state.activeJobId && token === state.runToken) {
       state.processing = false;
       stopReceiptProgress();
       for (const page of state.pageStates.values()) {
@@ -482,15 +493,20 @@ export async function refreshReceiptExtractionJob() {
 export function watchReceiptExtractionJob() {
   const source = new EventSource(realtimeEndpoint());
   state.jobRealtime = source;
+  const refresh = () => {
+    if (state.jobRealtime !== source || !state.activeJobId) return;
+    void refreshReceiptExtractionJob().catch(() => {});
+  };
+  source.addEventListener('open', refresh);
   source.addEventListener('invalidate', event => {
     if (state.jobRealtime !== source) return;
     try {
       const invalidation = JSON.parse(event.data);
       if (invalidation?.entityType === 'receipt-extraction-job' && invalidation.entityId === state.activeJobId) {
-        void refreshReceiptExtractionJob().catch(() => {});
+        refresh();
       }
     } catch {
-      // The next valid invalidation reconnects through EventSource without leaking job contents.
+      // The next valid invalidation or reconnect refreshes the canonical job state.
     }
   });
 }
