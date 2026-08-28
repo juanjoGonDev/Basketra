@@ -45,6 +45,13 @@ export type ReceiptDurableJobState = Readonly<{
 
 const MAX_CHECKPOINT_JSON_BYTES = 2 * 1024 * 1024;
 const RESPONSE_ID_PATTERN = /^resp_[A-Za-z0-9]{7,128}$/u;
+const REMOTE_ERROR_CODE_PATTERN = /^[A-Za-z0-9._:-]{1,80}$/u;
+
+export function normalizeReceiptRemoteErrorCode(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  if (!normalized || !REMOTE_ERROR_CODE_PATTERN.test(normalized)) return undefined;
+  return normalized.toUpperCase();
+}
 
 export class ReceiptDurableJobStore {
   readonly #database: DatabaseSync;
@@ -281,14 +288,15 @@ export class ReceiptDurableJobStore {
     }>,
   ): void {
     assertRemoteStatus(input.status);
-    if (!/^[A-Z0-9_.-]{1,80}$/u.test(input.errorCode)) {
+    const errorCode = normalizeReceiptRemoteErrorCode(input.errorCode);
+    if (!errorCode) {
       throw new RangeError('Remote receipt error code is invalid');
     }
     const result = this.#database.prepare(`
       UPDATE receipt_extraction_job_pages
       SET remote_status = ?, remote_error_code = ?, updated_at = ?
       WHERE job_id = ? AND position = ?
-    `).run(input.status, input.errorCode, this.#clock().toISOString(), jobId, position);
+    `).run(input.status, errorCode, this.#clock().toISOString(), jobId, position);
     if (Number(result.changes) !== 1) throw new Error('Receipt durable page was not found');
   }
 

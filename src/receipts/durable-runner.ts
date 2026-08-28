@@ -3,6 +3,7 @@ import type { ReceiptExtractionJobRecord } from '../infrastructure/database.ts';
 import type { FileStore } from '../infrastructure/files.ts';
 import { RECEIPT_SCHEMA, type AiReceiptInterpretation } from './extraction.ts';
 import {
+  normalizeReceiptRemoteErrorCode,
   ReceiptDurableJobStore,
   type ReceiptDurableJobState,
   type ReceiptDurablePageState,
@@ -129,7 +130,7 @@ export class ReceiptDurableExtractionRunner {
         if (remote.status === 'cancelled') {
           this.#durableStore.saveRemoteFailure(jobId, page.position, {
             status: 'cancelled',
-            errorCode: normalizeRemoteErrorCode(remote.errorCode) ?? 'REMOTE_RESPONSE_CANCELLED',
+            errorCode: normalizeReceiptRemoteErrorCode(remote.errorCode) ?? 'REMOTE_RESPONSE_CANCELLED',
           });
           continue;
         }
@@ -226,7 +227,7 @@ export class ReceiptDurableExtractionRunner {
       throw new AiProviderError('AI_PROVIDER_FAILED');
     }
 
-    const errorCode = normalizeRemoteErrorCode(remote.errorCode) ?? remoteTerminalCode(remote.status);
+    const errorCode = normalizeReceiptRemoteErrorCode(remote.errorCode) ?? remoteTerminalCode(remote.status);
     this.#durableStore.saveRemoteFailure(jobId, position, {
       status: remote.status,
       errorCode,
@@ -334,11 +335,6 @@ function isRetryableTransportError(error: unknown): boolean {
 
 function isAbortFromCaller(error: unknown, signal?: AbortSignal): boolean {
   return signal?.aborted === true && error instanceof Error && error.name === 'AbortError';
-}
-
-function normalizeRemoteErrorCode(value: string | undefined): string | undefined {
-  if (!value || !/^[A-Za-z0-9_.:-]{1,80}$/u.test(value)) return undefined;
-  return value.toUpperCase();
 }
 
 function remoteTerminalCode(status: 'failed' | 'cancelled' | 'incomplete'): string {

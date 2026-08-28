@@ -4,7 +4,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { BasketraDatabase, CURRENT_SCHEMA_VERSION } from '../../src/infrastructure/database.ts';
-import { ReceiptDurableJobStore } from '../../src/receipts/durable-job-store.ts';
+import {
+  normalizeReceiptRemoteErrorCode,
+  ReceiptDurableJobStore,
+} from '../../src/receipts/durable-job-store.ts';
 
 const capture = {
   storageKey: `${'a'.repeat(64)}.png`,
@@ -88,6 +91,37 @@ test('schema v6 persists receipt OCR and remote response checkpoints across stor
     assert.equal((state?.pages[0]?.remoteResult as { currency?: string } | undefined)?.currency, 'EUR');
   } finally {
     reopened.close();
+    database.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('remote error codes share one bounded canonical alphabet', () => {
+  assert.equal(normalizeReceiptRemoteErrorCode('provider:timeout'), 'PROVIDER:TIMEOUT');
+  assert.equal(normalizeReceiptRemoteErrorCode(' bad code '), undefined);
+
+  const root = mkdtempSync(join(tmpdir(), 'basketra-durable-error-code-'));
+  const database = new BasketraDatabase(join(root, 'basketra.db'));
+  const job = database.createReceiptExtractionJob({ captures: [capture], verifyWithAi: true });
+  const store = new ReceiptDurableJobStore(database.path);
+
+  try {
+    store.initialize(job.id, {
+      deadlineAt: '2026-08-28T12:05:00.000Z',
+      generation: 1,
+      pageCount: 1,
+    });
+    store.saveRemoteFailure(job.id, 0, {
+      status: 'failed',
+      errorCode: 'provider:timeout',
+    });
+    assert.equal(store.get(job.id)?.pages[0]?.remoteErrorCode, 'PROVIDER:TIMEOUT');
+    assert.throws(
+      () => store.saveRemoteFailure(job.id, 0, { status: 'failed', errorCode: 'bad code' }),
+      /error code is invalid/,
+    );
+  } finally {
+    store.close();
     database.close();
     rmSync(root, { recursive: true, force: true });
   }
