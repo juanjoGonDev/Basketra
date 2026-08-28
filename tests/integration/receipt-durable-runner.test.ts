@@ -200,3 +200,59 @@ test('lost create response retries the identical persisted idempotency key', asy
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('explicit cancellation cancels only persisted active remote responses', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-durable-cancel-'));
+  const dataDir = join(root, 'data');
+  const fileStore = new FileStore(join(dataDir, 'files'), join(root, 'tmp'), 1024 * 1024);
+  const database = new BasketraDatabase(join(dataDir, 'basketra.db'));
+  const job = database.createReceiptExtractionJob({
+    captures: [{ storageKey: `${'a'.repeat(64)}.png` }],
+    verifyWithAi: true,
+  });
+  const durableStore = new ReceiptDurableJobStore(database.path);
+  durableStore.initialize(job.id, {
+    deadlineAt: new Date(Date.now() + 60_000).toISOString(),
+    generation: 1,
+    pageCount: 1,
+  });
+  durableStore.saveRemoteIdentity(job.id, 0, {
+    responseId: 'resp_1234567',
+    status: 'in_progress',
+  });
+  durableStore.markPhase(job.id, 'ai_running');
+  const calls: string[] = [];
+  const runner = new ReceiptDurableExtractionRunner({
+    durableStore,
+    extractionService: new ReceiptExtractionService(fileStore, unusedAiProvider, 0),
+    fileStore,
+    responses: {
+      async create(): Promise<ReceiptRemoteResponse> {
+        calls.push('create');
+        throw new Error('CREATE_MUST_NOT_RUN');
+      },
+      async get(): Promise<ReceiptRemoteResponse> {
+        calls.push('get');
+        throw new Error('GET_MUST_NOT_RUN');
+      },
+      async cancel(responseId: string): Promise<ReceiptRemoteResponse> {
+        calls.push(`cancel:${responseId}`);
+        return { id: responseId, status: 'cancelled', errorCode: 'response_cancelled' };
+      },
+    },
+  });
+
+  try {
+    await runner.cancel(job.id);
+    assert.deepEqual(calls, ['cancel:resp_1234567']);
+    const page = durableStore.get(job.id)?.pages[0];
+    assert.equal(page?.responseId, 'resp_1234567');
+    assert.equal(page?.remoteStatus, 'cancelled');
+    assert.equal(page?.remoteErrorCode, 'RESPONSE_CANCELLED');
+    assert.equal(durableStore.get(job.id)?.phase, 'cancelled');
+  } finally {
+    durableStore.close();
+    database.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
