@@ -195,10 +195,7 @@ function scheduleOperationsBootstrap() {
   if (operationsBootstrapStarted || operationsBootstrapTimer !== null) return;
   operationsBootstrapTimer = setTimeout(() => {
     operationsBootstrapTimer = null;
-    if (applicationApiRequests > 0) {
-      scheduleOperationsBootstrap();
-      return;
-    }
+    if (applicationApiRequests > 0) return;
     operationsBootstrapStarted = true;
     void import('./operations.js').catch(() => {});
   }, 0);
