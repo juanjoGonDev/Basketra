@@ -20,6 +20,9 @@ import {
   pumpPageQueue,
 } from './receipt-processing.js';
 
+const DURABLE_PROGRESS_STAGES = new Set(['ocr', 'ai', 'completed', 'error']);
+const MAX_PROGRESSIVE_OCR_TEXT_CHARS = 500_000;
+const MAX_PROGRESSIVE_OCR_ITEMS = 500;
 let durableRetryPending = false;
 let durableInitialJobPending = false;
 
@@ -214,6 +217,66 @@ export function clearCombinedReview({ keepPanel = false } = {}) {
   if (total) total.value = '0.00';
 }
 
+function parseProgressiveOcr(value) {
+  if (!value || typeof value !== 'object') return null;
+  if (typeof value.text !== 'string' || value.text.length < 1 || value.text.length > MAX_PROGRESSIVE_OCR_TEXT_CHARS) return null;
+  if (typeof value.confidence !== 'number' || !Number.isFinite(value.confidence) || value.confidence < 0 || value.confidence > 1) return null;
+  if (typeof value.source !== 'string' || !value.source) return null;
+  if (!value.deterministic || typeof value.deterministic !== 'object') return null;
+  if (!Array.isArray(value.deterministic.items) || value.deterministic.items.length > MAX_PROGRESSIVE_OCR_ITEMS) return null;
+  if (!value.deterministic.metadata || typeof value.deterministic.metadata !== 'object' || Array.isArray(value.deterministic.metadata)) return null;
+  return value;
+}
+
+export function applyReceiptJobProgress(progress) {
+  if (!progress || typeof progress !== 'object' || !Array.isArray(progress.pages)) return false;
+  ensurePageStates();
+  const seen = new Set();
+  let applied = false;
+
+  for (const candidate of progress.pages) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    const position = candidate.position;
+    if (!Number.isSafeInteger(position) || position < 0 || position >= state.captures.length || seen.has(position)) continue;
+    if (!DURABLE_PROGRESS_STAGES.has(candidate.stage)) continue;
+    const ocrEvidence = candidate.ocr === undefined ? null : parseProgressiveOcr(candidate.ocr);
+    if (candidate.ocr !== undefined && !ocrEvidence) continue;
+
+    seen.add(position);
+    const capture = state.captures[position];
+    const page = capture ? state.pageStates.get(captureKey(capture)) : null;
+    if (!page) continue;
+    page.startedAt ||= Date.now();
+    page.error = '';
+    page.errorCode = '';
+    page.recovery = null;
+    if (ocrEvidence) {
+      page.ocrEvidence = ocrEvidence;
+      page.rawText = ocrEvidence.text;
+    }
+
+    if (candidate.stage === 'ocr') {
+      page.status = 'ocr';
+      page.aiStatus = 'idle';
+    } else if (candidate.stage === 'ai') {
+      page.status = 'ai';
+      page.aiStatus = 'idle';
+    } else if (candidate.stage === 'completed') {
+      page.status = 'completed';
+      page.aiStatus = 'completed';
+      page.elapsedMs = Date.now() - page.startedAt;
+    } else {
+      page.status = 'error';
+      page.aiStatus = 'error';
+      page.error = 'La verificación remota de esta página terminó con error; el OCR durable se conserva.';
+      page.elapsedMs = Date.now() - page.startedAt;
+    }
+    applied = true;
+  }
+
+  return applied;
+}
+
 async function startDurableAutomaticCaptureProcessing() {
   if (durableInitialJobPending || state.captures.length === 0) return;
   durableInitialJobPending = true;
@@ -254,7 +317,9 @@ async function startDurableAutomaticCaptureProcessing() {
     state.activeJobId = jobId;
     state.failedBackgroundJobId = '';
     saveReceiptExtractionJobId(jobId);
-    setPagesForBackgroundJob(created.job?.status ?? 'queued');
+    if (!applyReceiptJobProgress(created.job?.progress)) {
+      setPagesForBackgroundJob(created.job?.status ?? 'queued');
+    }
     persistAndRenderCaptures();
     watchReceiptExtractionJob();
     await refreshReceiptExtractionJob();
@@ -378,7 +443,9 @@ export async function retryFailedReceiptExtractionJob() {
   saveReceiptExtractionJobId(retryJobId);
   state.verifyWithAi = true;
   state.processing = true;
-  setPagesForBackgroundJob(created.job?.status ?? 'queued');
+  if (!applyReceiptJobProgress(created.job?.progress)) {
+    setPagesForBackgroundJob(created.job?.status ?? 'queued');
+  }
   startReceiptProgress();
   persistAndRenderCaptures();
   watchReceiptExtractionJob();
@@ -449,7 +516,7 @@ export function failBackgroundJob(errorCode = 'RECEIPT_EXTRACTION_FAILED', job) 
     page.recovery = error.code.startsWith('AI_')
       ? buildReceiptAiRecovery(error, {
         mimeType: capture.mimeType,
-        hasOcrDraft: true,
+        hasOcrDraft: Boolean(page.ocrEvidence || page.rawText),
       })
       : null;
     page.error = page.recovery?.message || 'No se pudo completar el análisis en segundo plano. Puedes volver a intentarlo.';
@@ -472,7 +539,7 @@ export async function refreshReceiptExtractionJob() {
   if (!job || job.id !== state.activeJobId) return;
   if (job.status === 'queued' || job.status === 'running') {
     state.processing = true;
-    setPagesForBackgroundJob(job.status);
+    if (!applyReceiptJobProgress(job.progress)) setPagesForBackgroundJob(job.status);
     startReceiptProgress();
     persistAndRenderCaptures();
     return;
@@ -487,6 +554,7 @@ export async function refreshReceiptExtractionJob() {
     return;
   }
 
+  if (job.progress) applyReceiptJobProgress(job.progress);
   const errorCode = typeof job.errorCode === 'string' ? job.errorCode : '';
   failBackgroundJob(errorCode || undefined, job);
 }
