@@ -55,7 +55,7 @@ function pageDiagnostic(page) {
   if (page.aiStatus === 'error' && typeof page.aiRecovery?.diagnostic === 'string') {
     return page.aiRecovery.diagnostic;
   }
-  if (page.status === 'error' && typeof page.recovery?.diagnostic === 'string') {
+  if ((page.status === 'error' || page.status === 'manual') && typeof page.recovery?.diagnostic === 'string') {
     return page.recovery.diagnostic;
   }
   return '';
@@ -119,11 +119,14 @@ export function renderCaptureProgress(card, capture, index) {
     section.append(partial);
   }
 
-  const showPrimaryRecovery = active || page.status === 'error' || page.status === 'cancelled';
-  const showAiRecovery = page.status === 'completed' && page.aiStatus === 'error';
-  const showPrimaryAiRecovery = page.status === 'error'
+  const showPrimaryAiRecovery = (page.status === 'error' || page.status === 'manual')
     && page.errorCode.startsWith('AI_')
     && state.aiConfigured;
+  const showPrimaryRecovery = active
+    || page.status === 'error'
+    || page.status === 'cancelled'
+    || showPrimaryAiRecovery;
+  const showAiRecovery = page.status === 'completed' && page.aiStatus === 'error';
   if (showPrimaryRecovery || showAiRecovery) {
     const actions = document.createElement('div');
     actions.className = 'capture-card__page-actions';
