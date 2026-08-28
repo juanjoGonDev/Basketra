@@ -110,28 +110,82 @@ test('identical safe reads share one in-flight transport and receive independent
   assert.equal(calls.length, 1);
 });
 
-test('mutations are serialized by endpoint and are never dropped', async () => {
+test('safe receipt extraction starts are throttled without waiting for prior completion', async () => {
   const scheduler = controlledScheduler();
   const calls: FetchCall[] = [];
+  let releaseFirst: (() => void) | undefined;
+  let markSecondStarted: (() => void) | undefined;
+  const firstGate = new Promise<void>(resolve => { releaseFirst = resolve; });
+  const secondStarted = new Promise<void>(resolve => { markSecondStarted = resolve; });
+  let callCount = 0;
+  const fetchImpl = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    callCount += 1;
+    calls.push({
+      url: String(input),
+      method: String(init.method || 'GET').toUpperCase(),
+      startedAt: scheduler.now(),
+    });
+    if (callCount === 1) await firstGate;
+    else markSecondStarted?.();
+    return new Response('{}', { status: 200 });
+  }) as typeof fetch;
   const coordinator = createRequestCoordinator({
     baseUrl: 'https://basketra.test',
-    fetchImpl: createFetchRecorder(scheduler.now, calls),
+    fetchImpl,
     now: scheduler.now,
     wait: scheduler.wait,
   });
 
-  const responses = await Promise.all([
-    coordinator.request('/api/v1/logs/client?batch=1', { method: 'POST', body: 'first' }),
-    coordinator.request('/api/v1/logs/client?batch=2', { method: 'POST', body: 'second' }),
-    coordinator.request('/api/v1/logs/client?batch=3', { method: 'POST', body: 'third' }),
-  ]);
+  const first = coordinator.request('/api/v1/receipts/extract?page=1', { method: 'POST', body: '{}' });
+  const second = coordinator.request('/api/v1/receipts/extract?page=2', { method: 'POST', body: '{}' });
+  await secondStarted;
 
+  assert.deepEqual(calls.map(call => call.startedAt), [0, DEFAULT_REQUEST_THROTTLE_MS]);
+  releaseFirst?.();
+  await Promise.all([first, second]);
+});
+
+test('mutations wait for prior completion, preserve order and are never dropped', async () => {
+  const scheduler = controlledScheduler();
+  const calls: FetchCall[] = [];
+  let releaseFirst: (() => void) | undefined;
+  let markFirstStarted: (() => void) | undefined;
+  const firstGate = new Promise<void>(resolve => { releaseFirst = resolve; });
+  const firstStarted = new Promise<void>(resolve => { markFirstStarted = resolve; });
+  let callCount = 0;
+  const fetchImpl = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    callCount += 1;
+    const body = typeof init.body === 'string' ? init.body : undefined;
+    calls.push({
+      url: String(input),
+      method: String(init.method || 'GET').toUpperCase(),
+      startedAt: scheduler.now(),
+      ...(body === undefined ? {} : { body }),
+    });
+    if (callCount === 1) {
+      markFirstStarted?.();
+      await firstGate;
+    }
+    return new Response('{}', { status: 200 });
+  }) as typeof fetch;
+  const coordinator = createRequestCoordinator({
+    baseUrl: 'https://basketra.test',
+    fetchImpl,
+    now: scheduler.now,
+    wait: scheduler.wait,
+  });
+
+  const first = coordinator.request('/api/v1/logs/client?batch=1', { method: 'POST', body: 'first' });
+  const second = coordinator.request('/api/v1/logs/client?batch=2', { method: 'POST', body: 'second' });
+  await firstStarted;
+  assert.deepEqual(calls.map(call => call.body), ['first']);
+
+  releaseFirst?.();
+  await Promise.all([first, second]);
   assert.deepEqual(calls.map(call => [call.body, call.startedAt]), [
     ['first', 0],
     ['second', DEFAULT_REQUEST_THROTTLE_MS],
-    ['third', DEFAULT_REQUEST_THROTTLE_MS * 2],
   ]);
-  assert.equal(responses.length, 3);
 });
 
 test('a failed or aborted request releases its bucket without replaying transport', async () => {
