@@ -16,6 +16,7 @@ import { OpenAiCompatibleProvider } from '../ai/provider.ts';
 import { StructuredAiExecutor, type RuntimeSchema } from '../ai/structured-executor.ts';
 import { ReceiptDurableJobStore } from '../receipts/durable-job-store.ts';
 import { ReceiptDurableExtractionRunner } from '../receipts/durable-runner.ts';
+import { buildReceiptJobProgress } from '../receipts/progress.ts';
 import { ReceiptResponsesClient } from '../receipts/responses-client.ts';
 import {
   RECEIPT_AI_VERIFICATION_BUDGET_MS,
@@ -112,6 +113,13 @@ export class BasketraServer {
         create: async (input) => await this.getReceiptResponsesClient().create(input),
         get: async (responseId, options) => await this.getReceiptResponsesClient().get(responseId, options),
         cancel: async (responseId, signal) => await this.getReceiptResponsesClient().cancel(responseId, signal),
+      },
+      onProgress: (jobId) => {
+        this.publishRealtime({
+          entityType: 'receipt-extraction-job',
+          mutation: 'updated',
+          entityId: jobId,
+        });
       },
     });
     this.#overpassClient = new OverpassClient(new URL(config.overpassBaseUrl));
@@ -917,6 +925,7 @@ export class BasketraServer {
       ...(job.result === undefined ? {} : { extraction: job.result }),
       ...(job.errorCode === undefined ? {} : { errorCode: job.errorCode }),
       ...(webApiResponseIds.length === 0 ? {} : { webApiResponseIds }),
+      ...(durable ? { progress: buildReceiptJobProgress(durable) } : {}),
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
       ...(job.completedAt === undefined ? {} : { completedAt: job.completedAt }),
