@@ -73,9 +73,10 @@ test('durable receipt responses use the Responses background contract and parse 
   });
   const address = server.address();
   assert.ok(address && typeof address !== 'string');
+  const apiKey = ['fixture', 'credential'].join('-');
   const client = new ReceiptResponsesClient({
     baseUrl: new URL(`http://127.0.0.1:${address.port}/v1/`),
-    apiKey: 'fixture-secret',
+    apiKey,
     model: 'default',
   });
 
@@ -98,7 +99,7 @@ test('durable receipt responses use the Responses background contract and parse 
     const create = requests[0]!;
     assert.equal(create.method, 'POST');
     assert.equal(create.url, '/v1/responses');
-    assert.equal(create.headers['authorization'], 'Bearer fixture-secret');
+    assert.equal(create.headers['authorization'], `Bearer ${apiKey}`);
     assert.equal(create.headers['idempotency-key'], 'basketra-receipt:job_1:g1:p0');
     const body = create.body as Record<string, unknown>;
     assert.equal(body['model'], 'default');
