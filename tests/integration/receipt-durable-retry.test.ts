@@ -49,7 +49,7 @@ function unusedAiProvider(): AiProvider {
   };
 }
 
-test('explicit retry copies durable OCR and completed remote results without copying failed response identity', async () => {
+test('explicit retry copies durable OCR and completed remote results without stealing response ownership', async () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-durable-retry-'));
   const database = new BasketraDatabase(join(root, 'basketra.db'));
   const fileStore = new FileStore(join(root, 'files'), join(root, 'tmp'), 1024 * 1024);
@@ -122,10 +122,13 @@ test('explicit retry copies durable OCR and completed remote results without cop
     input.captures.map((capture) => capture.storageKey),
   );
 
+  const sourceAfterSeed = durableStore.get(sourceJob.id);
   const seeded = durableStore.get(retryJob.id);
+  assert.equal(sourceAfterSeed?.pages[0]?.responseId, 'resp_completed1');
   assert.equal(seeded?.pages[0]?.ocr?.text, 'ALCAMPO\nTOTAL 1,20');
   assert.equal(seeded?.pages[1]?.ocr?.text, 'FAILED PAGE OCR');
-  assert.equal(seeded?.pages[0]?.responseId, 'resp_completed1');
+  assert.equal(seeded?.pages[0]?.responseId, undefined);
+  assert.equal(seeded?.pages[0]?.remoteStatus, 'completed');
   assert.deepEqual(seeded?.pages[0]?.remoteResult, completedInterpretation);
   assert.equal(seeded?.pages[1]?.responseId, undefined);
   assert.equal(seeded?.pages[1]?.remoteResult, undefined);
@@ -173,6 +176,7 @@ test('explicit retry copies durable OCR and completed remote results without cop
     assert.equal(createdPosition, 1);
     assert.match(createdIdempotencyKey, new RegExp(retryJob.id, 'u'));
     assert.doesNotMatch(createdIdempotencyKey, new RegExp(sourceJob.id, 'u'));
+    assert.equal(durableStore.get(retryJob.id)?.pages[0]?.responseId, undefined);
     assert.equal(durableStore.get(retryJob.id)?.pages[1]?.responseId, 'resp_retry123');
   } finally {
     extractionService.dispose();
