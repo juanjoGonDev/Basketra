@@ -198,3 +198,65 @@ test('startup recovery fails only legacy active jobs without durable checkpoints
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('exact capture lookup prefers active durable work and never adopts cancelled or reordered jobs', () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-durable-adoption-'));
+  const now = new Date('2026-08-28T12:00:00.000Z');
+  const database = new BasketraDatabase(join(root, 'basketra.db'), { clock: () => now });
+  const store = new ReceiptDurableJobStore(database.path, { clock: () => now });
+  const secondCapture = {
+    storageKey: `${'b'.repeat(64)}.png`,
+    originalName: 'ticket-2.png',
+  };
+
+  try {
+    const completed = database.createReceiptExtractionJob({ captures: [capture], verifyWithAi: true });
+    store.initialize(completed.id, {
+      deadlineAt: '2026-08-28T12:05:00.000Z',
+      generation: 1,
+      pageCount: 1,
+    });
+    assert.equal(database.startReceiptExtractionJob(completed.id)?.status, 'running');
+    database.completeReceiptExtractionJob(completed.id, { final: { items: [] } });
+    store.markPhase(completed.id, 'completed');
+
+    const active = database.createReceiptExtractionJob({ captures: [capture], verifyWithAi: true });
+    store.initialize(active.id, {
+      deadlineAt: '2026-08-28T12:05:00.000Z',
+      generation: 1,
+      pageCount: 1,
+    });
+    assert.equal(database.startReceiptExtractionJob(active.id)?.status, 'running');
+    store.markPhase(active.id, 'ai_pending');
+
+    const cancelled = database.createReceiptExtractionJob({ captures: [capture], verifyWithAi: true });
+    store.initialize(cancelled.id, {
+      deadlineAt: '2026-08-28T12:05:00.000Z',
+      generation: 1,
+      pageCount: 1,
+    });
+    database.cancelReceiptExtractionJob(cancelled.id);
+    store.markPhase(cancelled.id, 'cancelled');
+
+    const ordered = database.createReceiptExtractionJob({
+      captures: [capture, secondCapture],
+      verifyWithAi: true,
+    });
+    store.initialize(ordered.id, {
+      deadlineAt: '2026-08-28T12:05:00.000Z',
+      generation: 1,
+      pageCount: 2,
+    });
+
+    assert.equal(store.findAdoptableJobId([capture.storageKey]), active.id);
+    assert.equal(store.findAdoptableJobId([secondCapture.storageKey, capture.storageKey]), undefined);
+
+    database.cancelReceiptExtractionJob(active.id);
+    store.markPhase(active.id, 'cancelled');
+    assert.equal(store.findAdoptableJobId([capture.storageKey]), completed.id);
+  } finally {
+    store.close();
+    database.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
