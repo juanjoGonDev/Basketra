@@ -271,6 +271,7 @@ export async function retryFailedReceiptExtractionJob() {
   if (
     durableRetryPending
     || !sourceJobId
+    || state.failedBackgroundJobId !== sourceJobId
     || !state.aiConfigured
     || state.captures.length === 0
   ) {
@@ -308,6 +309,7 @@ export async function retryFailedReceiptExtractionJob() {
   state.jobRealtime?.close();
   state.jobRealtime = null;
   state.activeJobId = retryJobId;
+  state.failedBackgroundJobId = '';
   saveReceiptExtractionJobId(retryJobId);
   state.verifyWithAi = true;
   state.processing = true;
@@ -326,11 +328,13 @@ export function clearReceiptExtractionJob({ cancel = false } = {}) {
   state.jobRealtime?.close();
   state.jobRealtime = null;
   state.activeJobId = '';
+  state.failedBackgroundJobId = '';
   saveReceiptExtractionJobId('');
   if (cancel && jobId) void api(`/api/v1/receipts/extraction-jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' }).catch(() => {});
 }
 
 export function setPagesForBackgroundJob(status) {
+  state.failedBackgroundJobId = '';
   const nextStatus = status === 'running' ? (state.verifyWithAi ? 'ai' : 'ocr') : 'preparing';
   for (const page of state.pageStates.values()) {
     page.status = nextStatus;
@@ -342,6 +346,7 @@ export function setPagesForBackgroundJob(status) {
 }
 
 export function completeBackgroundJob(extraction) {
+  state.failedBackgroundJobId = '';
   const pages = Array.isArray(extraction.pages) ? extraction.pages : [];
   for (const [index, capture] of state.captures.entries()) {
     const page = state.pageStates.get(captureKey(capture));
@@ -368,6 +373,9 @@ export function completeBackgroundJob(extraction) {
 
 export function failBackgroundJob(errorCode = 'RECEIPT_EXTRACTION_FAILED', job) {
   const error = jobError(job, errorCode);
+  state.failedBackgroundJobId = error.code.startsWith('AI_') && job?.id === state.activeJobId
+    ? state.activeJobId
+    : '';
   for (const [index, capture] of state.captures.entries()) {
     const page = state.pageStates.get(captureKey(capture));
     if (!page) continue;
