@@ -316,7 +316,8 @@ export async function retryAiCorrection(index) {
   const page = state.pageStates.get(key);
   if (!page) return;
 
-  const durableBackgroundFailure = page.status === 'error'
+  const retryableAiPage = page.status === 'error' || page.status === 'manual';
+  const durableBackgroundFailure = retryableAiPage
     && page.errorCode.startsWith('AI_')
     && Boolean(state.activeJobId)
     && state.failedBackgroundJobId === state.activeJobId;
@@ -326,7 +327,7 @@ export async function retryAiCorrection(index) {
   }
 
   const hasAiFailure = page.aiStatus === 'error'
-    || (page.status === 'error' && page.errorCode.startsWith('AI_'));
+    || (retryableAiPage && page.errorCode.startsWith('AI_'));
   const hasReusableInput = Boolean(page.rawText || page.result)
     || capture.mimeType === 'application/pdf';
   if (!hasAiFailure || !hasReusableInput) return;
@@ -373,15 +374,13 @@ export function useManualReview(index) {
   page.version += 1;
   page.status = 'manual';
   page.error = '';
-  page.errorCode = '';
-  page.recovery = null;
   state.manualReviewRequired = true;
   state.processing = true;
   state.selectedReviewCaptureKey = captureKey(capture);
   if (!state.progressTimer) startReceiptProgress();
   persistAndRenderCaptures();
   showReviewPanelForCapture(index);
-  $('#receipt-state').textContent = `Imagen ${index + 1} enviada a revisión manual. El OCR es sólo un borrador: valida todas las líneas y el total antes de confirmar.`;
+  $('#receipt-state').textContent = `Imagen ${index + 1} enviada a revisión manual. El OCR es sólo un borrador: valida todas las líneas y el total antes de confirmar. El reintento de IA sigue disponible.`;
   pumpPageQueue();
 }
 

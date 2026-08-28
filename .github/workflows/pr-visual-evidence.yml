@@ -207,7 +207,7 @@ jobs:
           prepare_flow AI-unavailability 07-ai-unavailable-recovery
           prepare_flow offline-shell 08-offline-keyboard
           prepare_flow operations-settings-show-l 09-runtime-operations runtime-backups-logs.png
-          prepare_flow operations-private-route-h 10-vpn-recovery vpn-reconnected.png
+          prepare_flow operations-network-heartbe 10-vpn-recovery vpn-reconnected.png
           prepare_flow mobile-settings-receipts-s 11-responsive-settings settings-dark-430.png
           prepare_flow retailer-autofill 12-ocr-retailer retailer-confirmed.png
 

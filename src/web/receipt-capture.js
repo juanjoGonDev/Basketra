@@ -27,6 +27,10 @@ import {
   retryCaptureProcessing,
   useManualReview,
 } from './receipt-processing.js';
+
+const MAX_PROGRESSIVE_OCR_ITEMS = 5;
+const MAX_PROGRESSIVE_OCR_TEXT_CHARS = 4000;
+
 export function persistAndRenderCaptures() {
   ensurePageStates();
   saveCaptures(state.captures);
@@ -55,10 +59,51 @@ function pageDiagnostic(page) {
   if (page.aiStatus === 'error' && typeof page.aiRecovery?.diagnostic === 'string') {
     return page.aiRecovery.diagnostic;
   }
-  if (page.status === 'error' && typeof page.recovery?.diagnostic === 'string') {
+  if ((page.status === 'error' || page.status === 'manual') && typeof page.recovery?.diagnostic === 'string') {
     return page.recovery.diagnostic;
   }
   return '';
+}
+
+function appendProgressiveOcrEvidence(section, page) {
+  const evidence = page.ocrEvidence;
+  if (!evidence || typeof evidence.text !== 'string' || !evidence.text) return;
+
+  const items = Array.isArray(evidence.deterministic?.items)
+    ? evidence.deterministic.items
+    : [];
+  const preview = document.createElement('details');
+  preview.className = 'capture-card__ocr-preview';
+  const summary = document.createElement('summary');
+  summary.textContent = items.length === 0
+    ? 'OCR disponible mientras continúa la IA'
+    : `${items.length} ${items.length === 1 ? 'producto detectado' : 'productos detectados'} por OCR`;
+  preview.append(summary);
+
+  if (items.length > 0) {
+    const list = document.createElement('ul');
+    for (const item of items.slice(0, MAX_PROGRESSIVE_OCR_ITEMS)) {
+      const row = document.createElement('li');
+      row.textContent = typeof item?.description === 'string' && item.description
+        ? item.description
+        : 'Producto sin descripción legible';
+      list.append(row);
+    }
+    if (items.length > MAX_PROGRESSIVE_OCR_ITEMS) {
+      const remaining = document.createElement('li');
+      remaining.textContent = `+ ${items.length - MAX_PROGRESSIVE_OCR_ITEMS} más`;
+      list.append(remaining);
+    }
+    preview.append(list);
+  }
+
+  const text = document.createElement('pre');
+  text.className = 'capture-card__ocr-text';
+  text.textContent = evidence.text.length > MAX_PROGRESSIVE_OCR_TEXT_CHARS
+    ? `${evidence.text.slice(0, MAX_PROGRESSIVE_OCR_TEXT_CHARS)}\n…`
+    : evidence.text;
+  preview.append(text);
+  section.append(preview);
 }
 
 export function renderCaptureProgress(card, capture, index) {
@@ -118,12 +163,16 @@ export function renderCaptureProgress(card, capture, index) {
     partial.textContent = partialText;
     section.append(partial);
   }
+  appendProgressiveOcrEvidence(section, page);
 
-  const showPrimaryRecovery = active || page.status === 'error' || page.status === 'cancelled';
-  const showAiRecovery = page.status === 'completed' && page.aiStatus === 'error';
-  const showPrimaryAiRecovery = page.status === 'error'
+  const showPrimaryAiRecovery = (page.status === 'error' || page.status === 'manual')
     && page.errorCode.startsWith('AI_')
     && state.aiConfigured;
+  const showPrimaryRecovery = active
+    || page.status === 'error'
+    || page.status === 'cancelled'
+    || showPrimaryAiRecovery;
+  const showAiRecovery = page.status === 'completed' && page.aiStatus === 'error';
   if (showPrimaryRecovery || showAiRecovery) {
     const actions = document.createElement('div');
     actions.className = 'capture-card__page-actions';
@@ -226,13 +275,22 @@ export function pageStageDescription(page) {
 
 export function pagePartialText(page) {
   if (page.status === 'error') return page.error || 'No se pudo procesar esta imagen.';
-  if (page.aiStatus === 'error') return page.aiError || 'La IA no pudo corregir esta imagen; el OCR local sigue disponible.';
   const itemCount = page.result?.final?.items?.length;
+  const ocrItemCount = page.ocrEvidence?.deterministic?.items?.length;
+  const hasStructuredItems = Number.isSafeInteger(itemCount) && itemCount > 0;
+  const hasOcrEvidence = (Number.isSafeInteger(ocrItemCount) && ocrItemCount > 0) || Boolean(page.rawText);
+  if (page.status === 'manual' && !hasStructuredItems && !hasOcrEvidence) {
+    return 'Entrada manual pendiente; la captura original se conserva';
+  }
+  if (page.aiStatus === 'error') return page.aiError || 'La IA no pudo corregir esta imagen; el OCR local sigue disponible.';
   if (page.status === 'manual' && Number.isSafeInteger(itemCount)) {
     return `${itemCount} ${itemCount === 1 ? 'línea OCR pendiente' : 'líneas OCR pendientes'} de revisión manual`;
   }
   if (Number.isSafeInteger(itemCount)) {
     return `${itemCount} ${itemCount === 1 ? 'línea estructurada' : 'líneas estructuradas'}`;
+  }
+  if (Number.isSafeInteger(ocrItemCount)) {
+    return `${ocrItemCount} ${ocrItemCount === 1 ? 'producto OCR detectado' : 'productos OCR detectados'} · ${page.status === 'ai' ? 'IA verificando' : 'OCR conservado'}`;
   }
   if (page.rawText) {
     const lines = page.rawText.split(/\r?\n/u).filter(line => line.trim()).length;

@@ -42,6 +42,29 @@ function localExtraction(text = 'PAN 1,50\nTOTAL 1,50') {
   };
 }
 
+function progressiveJob(jobId, text = 'PAN 1,50\nTOTAL 1,50') {
+  return {
+    id: jobId,
+    status: 'running',
+    progress: {
+      phase: 'ai_running',
+      pages: [{
+        position: 0,
+        stage: 'ai',
+        ocr: {
+          text,
+          confidence: 0.8,
+          source: 'local-tesseract',
+          deterministic: {
+            items: [receiptItem()],
+            metadata: { declaredTotalMinor: 150 },
+          },
+        },
+      }],
+    },
+  };
+}
+
 async function installControlledEventSource(page) {
   await page.addInitScript(() => {
     class ControlledEventSource {
@@ -92,10 +115,33 @@ async function openReceipts(page) {
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
 }
 
-test('reload keeps the initial durable receipt job and does not replay OCR or AI creation', async ({ page }) => {
+function localStorageContains(page, text) {
+  return page.evaluate((needle) => {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key && localStorage.getItem(key)?.includes(needle)) return true;
+    }
+    return false;
+  }, text);
+}
+
+async function expectProgressiveOcr(page, text) {
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Verificando con IA');
+  const captureDetails = page.locator('.capture-card__details').first();
+  if (!(await captureDetails.evaluate(element => element.open))) {
+    await captureDetails.locator(':scope > summary').click();
+  }
+  const preview = captureDetails.locator('.capture-card__ocr-preview');
+  await expect(preview.locator('summary')).toHaveText('1 producto detectado por OCR');
+  await preview.locator('summary').click();
+  await expect(preview.locator('.capture-card__ocr-text')).toHaveText(text);
+}
+
+test('reload keeps progressive OCR visible without replaying OCR or AI creation', async ({ page }) => {
   await installControlledEventSource(page);
 
   const jobId = 'receiptextractionjob_reload1';
+  const progressiveText = 'PAN 1,50\nTOTAL 1,50';
   let directOcrRequests = 0;
   let jobCreates = 0;
   let jobReads = 0;
@@ -128,7 +174,7 @@ test('reload keeps the initial durable receipt job and does not replay OCR or AI
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ job: { id: jobId, status: 'running' } }),
+      body: JSON.stringify({ job: progressiveJob(jobId, progressiveText) }),
     });
   });
 
@@ -147,6 +193,8 @@ test('reload keeps the initial durable receipt job and does not replay OCR or AI
   expect(createPayloads[0]?.captures).toHaveLength(1);
   expect(createPayloads[0]?.captures[0]).not.toHaveProperty('embeddedText');
   await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.receiptExtractionJobId'))).toBe(jobId);
+  await expectProgressiveOcr(page, progressiveText);
+  await expect.poll(() => localStorageContains(page, progressiveText)).toBe(false);
 
   const readsBeforeReload = jobReads;
   await page.reload();
@@ -157,6 +205,8 @@ test('reload keeps the initial durable receipt job and does not replay OCR or AI
   expect(directOcrRequests).toBe(0);
   await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.receiptExtractionJobId'))).toBe(jobId);
   await expect(page.locator('.capture-card')).toHaveCount(1);
+  await expectProgressiveOcr(page, progressiveText);
+  await expect.poll(() => localStorageContains(page, progressiveText)).toBe(false);
 });
 
 test('stored captures without local job identity adopt the exact durable job instead of creating work', async ({ page }) => {
