@@ -202,6 +202,44 @@ export class ReceiptDurableJobStore {
     if (Number(result.changes) !== 1) throw new Error('Receipt durable page was not found');
   }
 
+  copyReusableRetryEvidence(sourceJobId: string, targetJobId: string): void {
+    if (sourceJobId === targetJobId) {
+      throw new Error('Receipt retry source and target jobs must be different');
+    }
+    const source = requireState(this.get(sourceJobId));
+    const target = requireState(this.get(targetJobId));
+    if (source.pageCount !== target.pageCount) {
+      throw new Error('Receipt retry source and target page counts must match');
+    }
+    if (target.pages.some(hasDurablePageEvidence)) {
+      throw new Error('Receipt retry target already contains durable evidence');
+    }
+
+    this.#database.exec('BEGIN IMMEDIATE');
+    try {
+      for (const sourcePage of source.pages) {
+        if (sourcePage.ocr) {
+          this.saveOcrPage(targetJobId, sourcePage.position, sourcePage.ocr);
+        }
+        if (
+          sourcePage.remoteStatus === 'completed'
+          && sourcePage.responseId
+          && sourcePage.remoteResult !== undefined
+        ) {
+          this.saveRemoteResult(targetJobId, sourcePage.position, {
+            responseId: sourcePage.responseId,
+            status: 'completed',
+            interpretation: sourcePage.remoteResult,
+          });
+        }
+      }
+      this.#database.exec('COMMIT');
+    } catch (error) {
+      this.#database.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   ensureIdempotencyKey(jobId: string, position: number): string {
     const state = requireState(this.get(jobId));
     const page = requirePage(state, position);
@@ -355,6 +393,15 @@ function serializeBounded(value: unknown, label: string): string {
     throw new RangeError(`${label} exceeds the durable storage limit`);
   }
   return serialized;
+}
+
+function hasDurablePageEvidence(page: ReceiptDurablePageState): boolean {
+  return page.ocr !== undefined
+    || page.idempotencyKey !== undefined
+    || page.responseId !== undefined
+    || page.remoteStatus !== undefined
+    || page.remoteResult !== undefined
+    || page.remoteErrorCode !== undefined;
 }
 
 function assertPositiveInteger(value: number, name: string): void {
