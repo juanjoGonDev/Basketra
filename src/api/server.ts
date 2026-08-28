@@ -885,11 +885,16 @@ export class BasketraServer {
     updatedAt: string;
     completedAt?: string;
   }>): Readonly<Record<string, unknown>> {
+    const durable = this.#receiptDurableStore.get(job.id);
+    const webApiResponseIds = [...new Set(
+      durable?.pages.flatMap((page) => page.responseId ? [page.responseId] : []) ?? [],
+    )];
     return {
       id: job.id,
       status: job.status,
       ...(job.result === undefined ? {} : { extraction: job.result }),
       ...(job.errorCode === undefined ? {} : { errorCode: job.errorCode }),
+      ...(webApiResponseIds.length === 0 ? {} : { webApiResponseIds }),
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
       ...(job.completedAt === undefined ? {} : { completedAt: job.completedAt }),
@@ -972,9 +977,9 @@ export class BasketraServer {
   }
 
   private parseOffer(value: unknown, index: number): Offer {
-    const record = asRecord(value, `$.offers[${index}]`);
-    const quantity = asRecord(record['quantity'], `$.offers[${index}].quantity`);
-    const amount = asRecord(quantity['amount'], `$.offers[${index}].quantity.amount`);
+    const record = asRecord(value);
+    const quantity = asRecord(record['quantity']);
+    const amount = asRecord(quantity['amount']);
     return {
       id: asString(record['id'], `$.offers[${index}].id`, { min: 1, max: 128 }),
       itemId: asString(record['itemId'], `$.offers[${index}].itemId`, { min: 1, max: 128 }),
