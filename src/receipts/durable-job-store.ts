@@ -202,17 +202,28 @@ export class ReceiptDurableJobStore {
     if (Number(result.changes) !== 1) throw new Error('Receipt durable page was not found');
   }
 
-  copyReusableRetryEvidence(sourceJobId: string, targetJobId: string): void {
+  copyReusableRetryEvidence(
+    sourceJobId: string,
+    targetJobId: string,
+    targetStorageKeys: readonly string[],
+  ): void {
     if (sourceJobId === targetJobId) {
       throw new Error('Receipt retry source and target jobs must be different');
     }
     const source = requireState(this.get(sourceJobId));
     const target = requireState(this.get(targetJobId));
-    if (source.pageCount !== target.pageCount) {
-      throw new Error('Receipt retry source and target page counts must match');
+    if (source.phase !== 'failed') {
+      throw new Error('Receipt retry source must be a failed durable job');
     }
-    if (target.pages.some(hasDurablePageEvidence)) {
-      throw new Error('Receipt retry target already contains durable evidence');
+    if (source.pageCount !== target.pageCount || targetStorageKeys.length !== target.pageCount) {
+      throw new Error('Receipt retry source, target, and capture page counts must match');
+    }
+
+    for (const sourcePage of source.pages) {
+      const targetPage = requirePage(target, sourcePage.position);
+      const expectedStorageKey = targetStorageKeys[sourcePage.position];
+      if (!expectedStorageKey) throw new Error('Receipt retry target capture is missing');
+      assertRetryPageCompatible(sourcePage, targetPage, expectedStorageKey);
     }
 
     this.#database.exec('BEGIN IMMEDIATE');
@@ -395,13 +406,57 @@ function serializeBounded(value: unknown, label: string): string {
   return serialized;
 }
 
-function hasDurablePageEvidence(page: ReceiptDurablePageState): boolean {
-  return page.ocr !== undefined
-    || page.idempotencyKey !== undefined
-    || page.responseId !== undefined
-    || page.remoteStatus !== undefined
-    || page.remoteResult !== undefined
-    || page.remoteErrorCode !== undefined;
+function assertRetryPageCompatible(
+  sourcePage: ReceiptDurablePageState,
+  targetPage: ReceiptDurablePageState,
+  expectedStorageKey: string,
+): void {
+  if (sourcePage.ocr && sourcePage.ocr.storageKey !== expectedStorageKey) {
+    throw new Error('Receipt retry captures do not match the durable source job');
+  }
+  if (targetPage.idempotencyKey !== undefined) {
+    throw new Error('Receipt retry target has already started remote work');
+  }
+  if (sourcePage.ocr === undefined) {
+    if (targetPage.ocr !== undefined) throw new Error('Receipt retry target has unexpected OCR evidence');
+  } else if (targetPage.ocr !== undefined && !sameJson(sourcePage.ocr, targetPage.ocr)) {
+    throw new Error('Receipt retry target OCR does not match the durable source job');
+  }
+
+  const reusableRemote = sourcePage.remoteStatus === 'completed'
+    && sourcePage.responseId !== undefined
+    && sourcePage.remoteResult !== undefined;
+  if (!reusableRemote) {
+    if (
+      targetPage.responseId !== undefined
+      || targetPage.remoteStatus !== undefined
+      || targetPage.remoteResult !== undefined
+      || targetPage.remoteErrorCode !== undefined
+    ) {
+      throw new Error('Receipt retry target has unexpected remote evidence');
+    }
+    return;
+  }
+
+  if (targetPage.responseId !== undefined && targetPage.responseId !== sourcePage.responseId) {
+    throw new Error('Receipt retry target response does not match the durable source job');
+  }
+  if (targetPage.remoteStatus !== undefined && targetPage.remoteStatus !== 'completed') {
+    throw new Error('Receipt retry target remote status is incompatible with reusable evidence');
+  }
+  if (targetPage.remoteErrorCode !== undefined) {
+    throw new Error('Receipt retry target contains an unexpected remote error');
+  }
+  if (
+    targetPage.remoteResult !== undefined
+    && !sameJson(sourcePage.remoteResult, targetPage.remoteResult)
+  ) {
+    throw new Error('Receipt retry target result does not match the durable source job');
+  }
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function assertPositiveInteger(value: number, name: string): void {
