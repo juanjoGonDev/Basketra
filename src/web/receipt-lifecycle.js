@@ -454,6 +454,7 @@ export function failBackgroundJob(errorCode = 'RECEIPT_EXTRACTION_FAILED', job) 
       : null;
     page.error = page.recovery?.message || 'No se pudo completar el análisis en segundo plano. Puedes volver a intentarlo.';
     page.elapsedMs = Date.now() - page.startedAt;
+    if (page.recovery) state.expandedCaptureKey ||= captureKey(capture);
     if (index === 0 && page.recovery) page.aiRecovery = page.recovery;
   }
   state.processing = false;
