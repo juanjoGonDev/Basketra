@@ -26,6 +26,7 @@ export type { ReceiptExtractionResult, ReceiptPageEvidence } from './result.ts';
 const DEFAULT_PAGE_CONCURRENCY = 2;
 const DEFAULT_AI_CONCURRENCY = 1;
 const MAX_RECEIPT_CONVERSATION_PAGES = 20;
+const RECEIPT_EXTRACTION_JOB_ID_PATTERN = /^receiptextractionjob_[a-z0-9]+$/iu;
 export const RECEIPT_AI_VERIFICATION_BUDGET_MS = 5 * 60 * 1000;
 
 type ReceiptExtractionServiceOptions = Readonly<{
@@ -50,6 +51,7 @@ export type ReceiptCaptureRequest = Readonly<{
 export type ReceiptExtractionRequest = Readonly<{
   captures: readonly ReceiptCaptureRequest[];
   verifyWithAi: boolean;
+  retryOfJobId?: string;
 }>;
 
 type ReceiptOcrPageEvidence = ReceiptPageEvidence;
@@ -188,11 +190,22 @@ export class ReceiptExtractionService {
       };
     });
     if (captures.length === 0) throw new RangeError('At least one receipt capture is required');
+    const verifyWithAi = root['verifyWithAi'] === undefined
+      ? false
+      : asBoolean(root['verifyWithAi'], '$.verifyWithAi');
+    const retryOfJobId = root['retryOfJobId'] === undefined
+      ? undefined
+      : asString(root['retryOfJobId'], '$.retryOfJobId', { min: 8, max: 128 });
+    if (retryOfJobId && !RECEIPT_EXTRACTION_JOB_ID_PATTERN.test(retryOfJobId)) {
+      throw new RangeError('Receipt retry job id is invalid');
+    }
+    if (retryOfJobId && !verifyWithAi) {
+      throw new RangeError('Receipt retry requires AI verification');
+    }
     return {
       captures,
-      verifyWithAi: root['verifyWithAi'] === undefined
-        ? false
-        : asBoolean(root['verifyWithAi'], '$.verifyWithAi'),
+      verifyWithAi,
+      ...(retryOfJobId ? { retryOfJobId } : {}),
     };
   }
 

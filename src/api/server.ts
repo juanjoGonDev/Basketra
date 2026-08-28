@@ -885,11 +885,16 @@ export class BasketraServer {
     updatedAt: string;
     completedAt?: string;
   }>): Readonly<Record<string, unknown>> {
+    const durable = this.#receiptDurableStore.get(job.id);
+    const webApiResponseIds = [...new Set(
+      durable?.pages.flatMap((page) => page.responseId ? [page.responseId] : []) ?? [],
+    )];
     return {
       id: job.id,
       status: job.status,
       ...(job.result === undefined ? {} : { extraction: job.result }),
       ...(job.errorCode === undefined ? {} : { errorCode: job.errorCode }),
+      ...(webApiResponseIds.length === 0 ? {} : { webApiResponseIds }),
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
       ...(job.completedAt === undefined ? {} : { completedAt: job.completedAt }),

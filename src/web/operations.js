@@ -529,9 +529,10 @@ async function testAiProvider() {
     renderAiTestStatus('recoverable-error', `${messages[error.code] || `${error.message}. Solicitud probada: POST ${probe}.`} Puedes volver a intentarlo.`);
   } finally {
     if (generation !== state.aiTestGeneration) return;
+    await loadLogs();
+    if (generation !== state.aiTestGeneration) return;
     state.aiTestController = null;
     renderAiTestStatus($('#ai-test-state').dataset.state, $('#ai-test-state').textContent);
-    await loadLogs();
   }
 }
 

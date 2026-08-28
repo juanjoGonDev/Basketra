@@ -202,6 +202,54 @@ export class ReceiptDurableJobStore {
     if (Number(result.changes) !== 1) throw new Error('Receipt durable page was not found');
   }
 
+  copyReusableRetryEvidence(
+    sourceJobId: string,
+    targetJobId: string,
+    targetStorageKeys: readonly string[],
+  ): void {
+    if (sourceJobId === targetJobId) {
+      throw new Error('Receipt retry source and target jobs must be different');
+    }
+    const source = requireState(this.get(sourceJobId));
+    const target = requireState(this.get(targetJobId));
+    if (source.phase !== 'failed') {
+      throw new Error('Receipt retry source must be a failed durable job');
+    }
+    if (source.pageCount !== target.pageCount || targetStorageKeys.length !== target.pageCount) {
+      throw new Error('Receipt retry source, target, and capture page counts must match');
+    }
+
+    for (const sourcePage of source.pages) {
+      const targetPage = requirePage(target, sourcePage.position);
+      const expectedStorageKey = targetStorageKeys[sourcePage.position];
+      if (!expectedStorageKey) throw new Error('Receipt retry target capture is missing');
+      assertRetryPageCompatible(sourcePage, targetPage, expectedStorageKey);
+    }
+
+    this.#database.exec('BEGIN IMMEDIATE');
+    try {
+      for (const sourcePage of source.pages) {
+        if (sourcePage.ocr) {
+          this.saveOcrPage(targetJobId, sourcePage.position, sourcePage.ocr);
+        }
+        if (
+          sourcePage.remoteStatus === 'completed'
+          && sourcePage.remoteResult !== undefined
+        ) {
+          this.saveReusableRemoteResult(
+            targetJobId,
+            sourcePage.position,
+            sourcePage.remoteResult,
+          );
+        }
+      }
+      this.#database.exec('COMMIT');
+    } catch (error) {
+      this.#database.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   ensureIdempotencyKey(jobId: string, position: number): string {
     const state = requireState(this.get(jobId));
     const page = requirePage(state, position);
@@ -277,6 +325,34 @@ export class ReceiptDurableJobStore {
         remote_result_json = ?, remote_error_code = NULL, updated_at = ?
       WHERE job_id = ? AND position = ?
     `).run(input.responseId, result, this.#clock().toISOString(), jobId, position);
+  }
+
+  saveReusableRemoteResult(jobId: string, position: number, interpretation: unknown): void {
+    const current = requirePage(requireState(this.get(jobId)), position);
+    if (current.idempotencyKey || current.responseId || current.remoteErrorCode) {
+      throw new Error('Receipt retry target already owns remote work');
+    }
+    if (current.remoteStatus !== undefined && current.remoteStatus !== 'completed') {
+      throw new Error('Receipt retry target remote status is incompatible with reusable evidence');
+    }
+    if (current.remoteResult !== undefined) {
+      if (!sameJson(current.remoteResult, interpretation)) {
+        throw new Error('Receipt retry target result does not match reusable evidence');
+      }
+      return;
+    }
+
+    const result = serializeBounded(interpretation, 'Reusable remote receipt result');
+    const update = this.#database.prepare(`
+      UPDATE receipt_extraction_job_pages
+      SET remote_status = 'completed', remote_result_json = ?,
+        remote_error_code = NULL, updated_at = ?
+      WHERE job_id = ? AND position = ?
+        AND idempotency_key IS NULL AND response_id IS NULL
+    `).run(result, this.#clock().toISOString(), jobId, position);
+    if (Number(update.changes) !== 1) {
+      throw new Error('Receipt retry target could not persist reusable remote evidence');
+    }
   }
 
   saveRemoteFailure(
@@ -355,6 +431,58 @@ function serializeBounded(value: unknown, label: string): string {
     throw new RangeError(`${label} exceeds the durable storage limit`);
   }
   return serialized;
+}
+
+function assertRetryPageCompatible(
+  sourcePage: ReceiptDurablePageState,
+  targetPage: ReceiptDurablePageState,
+  expectedStorageKey: string,
+): void {
+  if (sourcePage.ocr && sourcePage.ocr.storageKey !== expectedStorageKey) {
+    throw new Error('Receipt retry captures do not match the durable source job');
+  }
+  if (targetPage.idempotencyKey !== undefined) {
+    throw new Error('Receipt retry target has already started remote work');
+  }
+  if (sourcePage.ocr === undefined) {
+    if (targetPage.ocr !== undefined) throw new Error('Receipt retry target has unexpected OCR evidence');
+  } else if (targetPage.ocr !== undefined && !sameJson(sourcePage.ocr, targetPage.ocr)) {
+    throw new Error('Receipt retry target OCR does not match the durable source job');
+  }
+
+  const reusableRemote = sourcePage.remoteStatus === 'completed'
+    && sourcePage.remoteResult !== undefined;
+  if (!reusableRemote) {
+    if (
+      targetPage.responseId !== undefined
+      || targetPage.remoteStatus !== undefined
+      || targetPage.remoteResult !== undefined
+      || targetPage.remoteErrorCode !== undefined
+    ) {
+      throw new Error('Receipt retry target has unexpected remote evidence');
+    }
+    return;
+  }
+
+  if (targetPage.responseId !== undefined) {
+    throw new Error('Receipt retry target must not copy remote response ownership');
+  }
+  if (targetPage.remoteStatus !== undefined && targetPage.remoteStatus !== 'completed') {
+    throw new Error('Receipt retry target remote status is incompatible with reusable evidence');
+  }
+  if (targetPage.remoteErrorCode !== undefined) {
+    throw new Error('Receipt retry target contains an unexpected remote error');
+  }
+  if (
+    targetPage.remoteResult !== undefined
+    && !sameJson(sourcePage.remoteResult, targetPage.remoteResult)
+  ) {
+    throw new Error('Receipt retry target result does not match the durable source job');
+  }
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function assertPositiveInteger(value: number, name: string): void {

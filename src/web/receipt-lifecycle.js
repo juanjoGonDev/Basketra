@@ -1,4 +1,5 @@
 import { api, realtimeEndpoint } from './api.js';
+import { buildReceiptAiRecovery } from './receipt-ai-recovery.js';
 import { saveReceiptExtractionJobId } from './state.js';
 import {
   ACTIVE_PAGE_STATUSES,
@@ -19,6 +20,8 @@ import {
   pumpPageQueue,
 } from './receipt-processing.js';
 
+let durableRetryPending = false;
+
 function abortError() {
   return new DOMException('Receipt AI correction was cancelled', 'AbortError');
 }
@@ -27,6 +30,9 @@ function jobError(job, fallbackCode = 'AI_EXTRACTION_JOB_FAILED') {
   const error = new Error('Receipt AI correction did not complete');
   error.code = typeof job?.errorCode === 'string' && job.errorCode ? job.errorCode : fallbackCode;
   if (typeof job?.id === 'string' && job.id) error.jobId = job.id;
+  const responseIds = Array.isArray(job?.webApiResponseIds) ? job.webApiResponseIds : [];
+  const webApiResponseId = responseIds.find(value => typeof value === 'string' && value);
+  if (webApiResponseId) error.webApiResponseId = webApiResponseId;
   return error;
 }
 
@@ -260,16 +266,75 @@ export function requestExtraction(captures, verifyWithAi, signal) {
   });
 }
 
+export async function retryFailedReceiptExtractionJob() {
+  const sourceJobId = state.activeJobId;
+  if (
+    durableRetryPending
+    || !sourceJobId
+    || state.failedBackgroundJobId !== sourceJobId
+    || !state.aiConfigured
+    || state.captures.length === 0
+  ) {
+    return false;
+  }
+
+  durableRetryPending = true;
+  $('#receipt-state').textContent = 'Iniciando un nuevo intento de IA desde el OCR durable guardado...';
+  let created;
+  try {
+    created = await api('/api/v1/receipts/extraction-jobs', {
+      method: 'POST',
+      body: JSON.stringify({
+        captures: state.captures.map(capture => captureRequest(capture)),
+        verifyWithAi: true,
+        retryOfJobId: sourceJobId,
+      }),
+    });
+  } catch {
+    $('#receipt-state').textContent = 'No se pudo iniciar el reintento de IA. El job anterior y su OCR durable se conservan.';
+    durableRetryPending = false;
+    return false;
+  }
+
+  const retryJobId = created?.job?.id;
+  if (typeof retryJobId !== 'string' || !retryJobId) {
+    $('#receipt-state').textContent = 'El servidor no devolvió un job válido. El intento anterior se conserva para diagnóstico.';
+    durableRetryPending = false;
+    return false;
+  }
+
+  abortPageWork();
+  clearCombinedReview();
+  ensurePageStates();
+  state.jobRealtime?.close();
+  state.jobRealtime = null;
+  state.activeJobId = retryJobId;
+  state.failedBackgroundJobId = '';
+  saveReceiptExtractionJobId(retryJobId);
+  state.verifyWithAi = true;
+  state.processing = true;
+  setPagesForBackgroundJob(created.job?.status ?? 'queued');
+  startReceiptProgress();
+  persistAndRenderCaptures();
+  watchReceiptExtractionJob();
+  void refreshReceiptExtractionJob().catch(() => {});
+  $('#receipt-state').textContent = 'Reintento de IA iniciado desde el OCR durable; las páginas ya completadas se reutilizan.';
+  durableRetryPending = false;
+  return true;
+}
+
 export function clearReceiptExtractionJob({ cancel = false } = {}) {
   const jobId = state.activeJobId;
   state.jobRealtime?.close();
   state.jobRealtime = null;
   state.activeJobId = '';
+  state.failedBackgroundJobId = '';
   saveReceiptExtractionJobId('');
   if (cancel && jobId) void api(`/api/v1/receipts/extraction-jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' }).catch(() => {});
 }
 
 export function setPagesForBackgroundJob(status) {
+  state.failedBackgroundJobId = '';
   const nextStatus = status === 'running' ? (state.verifyWithAi ? 'ai' : 'ocr') : 'preparing';
   for (const page of state.pageStates.values()) {
     page.status = nextStatus;
@@ -281,6 +346,7 @@ export function setPagesForBackgroundJob(status) {
 }
 
 export function completeBackgroundJob(extraction) {
+  state.failedBackgroundJobId = '';
   const pages = Array.isArray(extraction.pages) ? extraction.pages : [];
   for (const [index, capture] of state.captures.entries()) {
     const page = state.pageStates.get(captureKey(capture));
@@ -305,18 +371,33 @@ export function completeBackgroundJob(extraction) {
     : `Ticket preparado. Se detectaron ${articleCount} artículos; revisa las líneas y el total.`;
 }
 
-export function failBackgroundJob(errorCode = 'RECEIPT_EXTRACTION_FAILED') {
-  for (const page of state.pageStates.values()) {
+export function failBackgroundJob(errorCode = 'RECEIPT_EXTRACTION_FAILED', job) {
+  const error = jobError(job, errorCode);
+  state.failedBackgroundJobId = error.code.startsWith('AI_') && job?.id === state.activeJobId
+    ? state.activeJobId
+    : '';
+  for (const [index, capture] of state.captures.entries()) {
+    const page = state.pageStates.get(captureKey(capture));
+    if (!page) continue;
     page.status = 'error';
-    page.errorCode = errorCode;
-    page.error = 'No se pudo completar el análisis en segundo plano. Puedes volver a intentarlo.';
+    page.errorCode = error.code;
+    page.recovery = error.code.startsWith('AI_')
+      ? buildReceiptAiRecovery(error, {
+        mimeType: capture.mimeType,
+        hasOcrDraft: true,
+      })
+      : null;
+    page.error = page.recovery?.message || 'No se pudo completar el análisis en segundo plano. Puedes volver a intentarlo.';
     page.elapsedMs = Date.now() - page.startedAt;
+    if (index === 0 && page.recovery) page.aiRecovery = page.recovery;
   }
   state.processing = false;
   state.finalizing = false;
   stopReceiptProgress();
   persistAndRenderCaptures();
-  $('#receipt-state').textContent = 'El análisis no terminó. Las capturas se conservan para reintentar.';
+  $('#receipt-state').textContent = error.code.startsWith('AI_')
+    ? 'El análisis de IA terminó con error. El job durable y su OCR persistido se conservan; no se relanzará automáticamente.'
+    : 'El análisis no terminó. Las capturas se conservan para reintentar.';
 }
 
 export async function refreshReceiptExtractionJob() {
@@ -341,13 +422,7 @@ export async function refreshReceiptExtractionJob() {
   }
 
   const errorCode = typeof job.errorCode === 'string' ? job.errorCode : '';
-  if (errorCode.startsWith('AI_') && state.captures.length > 0) {
-    clearReceiptExtractionJob();
-    $('#receipt-state').textContent = 'El análisis anterior falló en la capa de IA. Recuperando las capturas con el flujo OCR actual.';
-    startAutomaticCaptureProcessing(state.captures, { resetAll: true });
-    return;
-  }
-  failBackgroundJob(errorCode || undefined);
+  failBackgroundJob(errorCode || undefined, job);
 }
 
 export function watchReceiptExtractionJob() {
