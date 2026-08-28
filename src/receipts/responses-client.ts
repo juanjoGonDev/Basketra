@@ -49,7 +49,7 @@ export type CreateReceiptResponseInput = Readonly<{
 
 export class ReceiptResponsesClient {
   readonly #baseUrl: URL;
-  readonly #apiKey?: string;
+  readonly #apiKey: string | undefined;
   readonly #model: string;
   readonly #maxResponseBytes: number;
   readonly #fetch: typeof fetch;
