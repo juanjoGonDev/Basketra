@@ -1,5 +1,9 @@
 export const DEFAULT_REQUEST_THROTTLE_MS = 1000;
 
+const PARALLEL_POST_PATHS = new Set([
+  '/api/v1/receipts/extract',
+]);
+
 function defaultBaseUrl() {
   return globalThis.location?.origin || 'http://localhost';
 }
@@ -67,6 +71,13 @@ function isCoalescibleRead(input, init) {
     && init.signal === undefined;
 }
 
+function isSerializedMutation(input, init, baseUrl) {
+  const method = requestMethod(input, init);
+  if (method === 'GET' || method === 'HEAD') return false;
+  if (method === 'POST' && PARALLEL_POST_PATHS.has(requestUrl(input, baseUrl).pathname)) return false;
+  return true;
+}
+
 export function requestBucketKey(input, init = {}, baseUrl = defaultBaseUrl()) {
   const url = requestUrl(input, baseUrl);
   return `${requestMethod(input, init)} ${url.pathname}`;
@@ -86,18 +97,21 @@ export function createRequestCoordinator({
   const buckets = new Map();
   const inFlightReads = new Map();
 
-  const enqueue = (bucketKey, signal, execute) => {
+  const getBucket = (bucketKey) => {
     let bucket = buckets.get(bucketKey);
-    if (!bucket) {
-      bucket = {
-        lastStartedAt: Number.NEGATIVE_INFINITY,
-        tail: Promise.resolve(),
-      };
-      buckets.set(bucketKey, bucket);
-    }
+    if (bucket) return bucket;
+    bucket = {
+      lastStartedAt: Number.NEGATIVE_INFINITY,
+      startTail: Promise.resolve(),
+      mutationTail: Promise.resolve(),
+    };
+    buckets.set(bucketKey, bucket);
+    return bucket;
+  };
 
-    const previous = bucket.tail.catch(() => undefined);
-    const task = previous.then(async () => {
+  const scheduleStart = (bucket, signal) => {
+    const previousStart = bucket.startTail.catch(() => undefined);
+    const start = previousStart.then(async () => {
       throwIfAborted(signal);
       const elapsed = now() - bucket.lastStartedAt;
       const delay = Number.isFinite(bucket.lastStartedAt)
@@ -106,14 +120,14 @@ export function createRequestCoordinator({
       if (delay > 0) await wait(delay, signal);
       throwIfAborted(signal);
       bucket.lastStartedAt = now();
-      return execute();
     });
-    bucket.tail = task.then(() => undefined, () => undefined);
-    return task;
+    bucket.startTail = start.then(() => undefined, () => undefined);
+    return start;
   };
 
   const request = (input, init = {}) => {
     const bucketKey = requestBucketKey(input, init, baseUrl);
+    const bucket = getBucket(bucketKey);
     const coalescible = isCoalescibleRead(input, init);
     const identity = coalescible ? readIdentity(input, init, baseUrl) : '';
     if (coalescible) {
@@ -121,7 +135,15 @@ export function createRequestCoordinator({
       if (existing) return existing.then(response => response.clone());
     }
 
-    const transport = enqueue(bucketKey, init.signal, () => fetchImpl(input, init));
+    const execute = () => scheduleStart(bucket, init.signal)
+      .then(() => fetchImpl(input, init));
+    const serializedMutation = isSerializedMutation(input, init, baseUrl);
+    const transport = serializedMutation
+      ? bucket.mutationTail.catch(() => undefined).then(execute)
+      : execute();
+    if (serializedMutation) {
+      bucket.mutationTail = transport.then(() => undefined, () => undefined);
+    }
     if (!coalescible) return transport;
 
     inFlightReads.set(identity, transport);
@@ -234,99 +256,9 @@ export function setBusy(element, busy) {
   element.setAttribute('aria-busy', String(busy));
 }
 
-function formatProviderHealth(lastCheck) {
-  if (!lastCheck || typeof lastCheck !== 'object') {
-    return {
-      state: 'neutral',
-      title: 'Todavía sin comprobación persistida',
-      detail: 'Basketra ejecuta una comprobación automática al arrancar y guarda el resultado en la base de datos.',
-    };
-  }
-  const checkedAt = Number.isNaN(Date.parse(lastCheck.checkedAt))
-    ? 'fecha desconocida'
-    : new Date(lastCheck.checkedAt).toLocaleString('es-ES');
-  const trigger = lastCheck.trigger === 'startup' ? 'inicio automático' : 'comprobación manual';
-  if (lastCheck.status === 'success') {
-    const model = lastCheck.connection?.model ? ` · ${lastCheck.connection.model}` : '';
-    return {
-      state: 'ok',
-      title: 'Proveedor IA operativo',
-      detail: `${checkedAt} · ${trigger}${model} · capacidad de imagen y salida estructurada verificadas · ${Math.max(0, Number(lastCheck.durationMs) || 0)} ms`,
-    };
-  }
-  return {
-    state: 'error',
-    title: 'Proveedor IA no operativo',
-    detail: `${checkedAt} · ${trigger} · ${lastCheck.errorCode || 'AI_PROVIDER_FAILED'} · ${Math.max(0, Number(lastCheck.durationMs) || 0)} ms`,
-  };
-}
-
-function ensureProviderHealthRegion() {
-  const status = document.querySelector('#ai-configuration-status');
-  const card = status?.closest('.operations-card, .surface');
-  const reference = document.querySelector('#ai-provider-network-note');
-  if (!(card instanceof HTMLElement) || !(reference instanceof HTMLElement)) return null;
-  let region = document.querySelector('#ai-provider-health');
-  if (region instanceof HTMLElement) return region;
-  region = document.createElement('div');
-  region.id = 'ai-provider-health';
-  region.className = 'provider-check provider-health';
-  region.setAttribute('aria-live', 'polite');
-  const title = document.createElement('strong');
-  title.dataset.providerHealthTitle = '';
-  const detail = document.createElement('span');
-  detail.dataset.providerHealthDetail = '';
-  region.append(title, detail);
-  reference.before(region);
-  const explanation = [...card.querySelectorAll('p')]
-    .find(element => element.textContent?.includes('Sólo se ejecuta al pulsar el botón.'));
-  if (explanation) {
-    explanation.textContent = 'La comprobación real envía una imagen sintética sin datos personales y exige una respuesta JSON conforme a un esquema estricto. Basketra la ejecuta automáticamente al arrancar y puedes repetirla manualmente después de actualizar webApi.';
-  }
-  return region;
-}
-
-function renderProviderHealth(lastCheck) {
-  const region = ensureProviderHealthRegion();
-  if (!region) return;
-  const formatted = formatProviderHealth(lastCheck);
-  region.dataset.state = formatted.state;
-  const title = region.querySelector('[data-provider-health-title]');
-  const detail = region.querySelector('[data-provider-health-detail]');
-  if (title) title.textContent = formatted.title;
-  if (detail) detail.textContent = formatted.detail;
-}
-
-let providerHealthRefreshGeneration = 0;
-async function refreshProviderHealth() {
-  const generation = ++providerHealthRefreshGeneration;
-  try {
-    const settings = await api('/api/v1/settings/ai-provider', { cache: 'no-store' });
-    if (generation !== providerHealthRefreshGeneration) return;
-    renderProviderHealth(settings.lastCheck);
-  } catch {
-    // Existing Settings connectivity state is the canonical transport error UI.
-  }
-}
-
-function installProviderHealth() {
-  const button = document.querySelector('#test-ai-provider');
-  if (!(button instanceof HTMLButtonElement)) return;
-  ensureProviderHealthRegion();
-  if (button.dataset.healthObserver === 'true') return;
-  button.dataset.healthObserver = 'true';
-  const observer = new MutationObserver(() => {
-    if (!button.disabled) void refreshProviderHealth();
-  });
-  observer.observe(button, { attributes: true, attributeFilter: ['disabled'] });
-  void refreshProviderHealth();
-}
-
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   // Keep api.js as the browser HTTP SSOT even when a feature accidentally calls fetch directly.
   // EventSource and service-worker traffic run in different transport paths and are not wrapped here.
   globalThis.fetch = coordinatedFetch;
-  void import('./operations.js')
-    .then(() => installProviderHealth())
-    .catch(() => {});
+  void import('./operations.js').catch(() => {});
 }
