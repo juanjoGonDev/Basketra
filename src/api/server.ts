@@ -14,7 +14,14 @@ import { validateReceiptLine, validateReceiptTotal, type ReceiptLineInput } from
 import { ApiError, mapError } from './errors.ts';
 import { OpenAiCompatibleProvider } from '../ai/provider.ts';
 import { StructuredAiExecutor, type RuntimeSchema } from '../ai/structured-executor.ts';
-import { ReceiptExtractionService, type ReceiptExtractionRequest } from '../receipts/service.ts';
+import { ReceiptDurableJobStore } from '../receipts/durable-job-store.ts';
+import { ReceiptDurableExtractionRunner } from '../receipts/durable-runner.ts';
+import { ReceiptResponsesClient } from '../receipts/responses-client.ts';
+import {
+  RECEIPT_AI_VERIFICATION_BUDGET_MS,
+  ReceiptExtractionService,
+  uniqueReceiptCaptures,
+} from '../receipts/service.ts';
 import { parseReceiptConfirmation } from '../receipts/import.ts';
 import { RealtimeHub, type RealtimeInvalidation } from '../realtime/hub.ts';
 import { proposeProductFromPhoto } from '../products/photo-proposal.ts';
@@ -73,6 +80,8 @@ export class BasketraServer {
   readonly #database: BasketraDatabase;
   readonly #fileStore: FileStore;
   readonly #receiptExtractionService: ReceiptExtractionService;
+  readonly #receiptDurableStore: ReceiptDurableJobStore;
+  readonly #receiptDurableRunner: ReceiptDurableExtractionRunner;
   readonly #realtime = new RealtimeHub(8);
   readonly #realtimeResponses = new Set<ServerResponse>();
   readonly #overpassClient: OverpassClient;
@@ -85,6 +94,7 @@ export class BasketraServer {
   #lastActivityAt = new Date().toISOString();
   #hibernateTimer?: NodeJS.Timeout;
   #aiProvider: OpenAiCompatibleProvider | undefined;
+  #receiptResponsesClient: ReceiptResponsesClient | undefined;
   readonly #receiptExtractionJobControllers = new Map<string, AbortController>();
   readonly #receiptExtractionJobTasks = new Map<string, Promise<void>>();
 
@@ -93,6 +103,17 @@ export class BasketraServer {
     this.#database = new BasketraDatabase(join(config.dataDir, 'basketra.db'));
     this.#fileStore = new FileStore(join(config.dataDir, 'files'), config.tempDir, config.maxBodyBytes);
     this.#receiptExtractionService = new ReceiptExtractionService(this.#fileStore, () => this.getAiProvider(), config.aiMaxRetries);
+    this.#receiptDurableStore = new ReceiptDurableJobStore(this.#database.path);
+    this.#receiptDurableRunner = new ReceiptDurableExtractionRunner({
+      durableStore: this.#receiptDurableStore,
+      extractionService: this.#receiptExtractionService,
+      fileStore: this.#fileStore,
+      responses: {
+        create: async (input) => await this.getReceiptResponsesClient().create(input),
+        get: async (responseId, options) => await this.getReceiptResponsesClient().get(responseId, options),
+        cancel: async (responseId, signal) => await this.getReceiptResponsesClient().cancel(responseId, signal),
+      },
+    });
     this.#overpassClient = new OverpassClient(new URL(config.overpassBaseUrl));
     this.#publicDir = resolve(dirname(fileURLToPath(import.meta.url)), '../web');
     this.#server = createServer((request, response) => void this.handle(request, response));
@@ -107,9 +128,12 @@ export class BasketraServer {
         resolvePromise();
       });
     });
-    this.#database.recoverInterruptedReceiptExtractionJobs();
+    this.#receiptDurableStore.recoverNonDurableActiveJobs();
     this.pruneReceiptExtractionJobs();
     this.#ready = true;
+    for (const id of this.#receiptDurableStore.listRecoverableJobIds()) {
+      this.startReceiptExtractionJob(id);
+    }
     this.scheduleHibernation();
   }
 
@@ -136,8 +160,7 @@ export class BasketraServer {
     this.#ready = false;
     if (this.#hibernateTimer) clearTimeout(this.#hibernateTimer);
     for (const response of [...this.#realtimeResponses]) response.end();
-    for (const [id, controller] of this.#receiptExtractionJobControllers) {
-      this.#database.failReceiptExtractionJob(id, 'RECEIPT_EXTRACTION_INTERRUPTED');
+    for (const controller of this.#receiptExtractionJobControllers.values()) {
       controller.abort(new Error('SERVER_CLOSING'));
     }
     await Promise.allSettled(this.#receiptExtractionJobTasks.values());
@@ -147,6 +170,8 @@ export class BasketraServer {
     this.#receiptExtractionService.dispose();
     this.#aiProvider?.dispose();
     this.#aiProvider = undefined;
+    this.#receiptResponsesClient = undefined;
+    this.#receiptDurableStore.close();
     this.#database.close();
   }
 
@@ -233,7 +258,7 @@ export class BasketraServer {
       if (receiptExtractionJobMatch?.[1]) {
         const id = decodePathSegment(receiptExtractionJobMatch[1]);
         if (request.method === 'GET') return this.getReceiptExtractionJob(response, id);
-        if (request.method === 'DELETE') return this.cancelReceiptExtractionJob(response, id);
+        if (request.method === 'DELETE') return await this.cancelReceiptExtractionJob(response, id);
       }
       if (request.method === 'POST' && url.pathname === '/api/v1/receipts/validate') return await this.validateReceipt(request, response);
       if (request.method === 'POST' && url.pathname === '/api/v1/receipts/confirm') return await this.confirmReceipt(request, response);
@@ -420,6 +445,16 @@ export class BasketraServer {
       });
     }
     return this.#aiProvider;
+  }
+
+  private getReceiptResponsesClient(): ReceiptResponsesClient {
+    if (!this.config.aiBaseUrl || !this.config.aiModel) throw new ApiError(503, 'AI_NOT_CONFIGURED', 'AI provider is not configured');
+    this.#receiptResponsesClient ??= new ReceiptResponsesClient({
+      baseUrl: new URL(this.config.aiBaseUrl),
+      ...(this.config.aiApiKey ? { apiKey: this.config.aiApiKey } : {}),
+      model: this.config.aiModel,
+    });
+    return this.#receiptResponsesClient;
   }
 
   private async createShoppingList(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -771,6 +806,14 @@ export class BasketraServer {
     const input = this.#receiptExtractionService.parseRequest(await this.readJson(request));
     this.pruneReceiptExtractionJobs();
     const job = this.#database.createReceiptExtractionJob(input);
+    if (input.verifyWithAi) {
+      const captures = uniqueReceiptCaptures(input.captures);
+      this.#receiptDurableStore.initialize(job.id, {
+        deadlineAt: new Date(Date.parse(job.createdAt) + RECEIPT_AI_VERIFICATION_BUDGET_MS).toISOString(),
+        generation: 1,
+        pageCount: captures.length,
+      });
+    }
     this.startReceiptExtractionJob(job.id);
     this.json(response, 202, { job: this.receiptExtractionJobResponse(job) });
   }
@@ -782,15 +825,17 @@ export class BasketraServer {
     this.json(response, 200, { job: this.receiptExtractionJobResponse(job) });
   }
 
-  private cancelReceiptExtractionJob(response: ServerResponse, id: string): void {
+  private async cancelReceiptExtractionJob(response: ServerResponse, id: string): Promise<void> {
     const job = this.#database.cancelReceiptExtractionJob(id);
     if (!job) throw new ApiError(404, 'RECEIPT_EXTRACTION_JOB_NOT_FOUND', 'Receipt extraction job was not found');
     this.#receiptExtractionJobControllers.get(id)?.abort(new Error('RECEIPT_EXTRACTION_CANCELLED'));
+    await this.#receiptDurableRunner.cancel(id);
     this.publishRealtime({ entityType: 'receipt-extraction-job', mutation: 'updated', entityId: id, updatedAt: job.updatedAt });
     this.empty(response);
   }
 
   private startReceiptExtractionJob(id: string): void {
+    if (this.#receiptExtractionJobTasks.has(id)) return;
     const controller = new AbortController();
     this.#receiptExtractionJobControllers.set(id, controller);
     const task = this.runReceiptExtractionJob(id, controller)
@@ -802,19 +847,24 @@ export class BasketraServer {
   }
 
   private async runReceiptExtractionJob(id: string, controller: AbortController): Promise<void> {
-    const job = this.#database.startReceiptExtractionJob(id);
+    const current = this.#database.getReceiptExtractionJob(id);
+    const job = current?.status === 'queued'
+      ? this.#database.startReceiptExtractionJob(id)
+      : current?.status === 'running'
+        ? current
+        : undefined;
     if (!job) return;
     this.#activeExpensiveOperations += 1;
     this.publishRealtime({ entityType: 'receipt-extraction-job', mutation: 'updated', entityId: id, updatedAt: job.updatedAt });
     try {
-      const extraction = await this.#receiptExtractionService.extract(job.input as ReceiptExtractionRequest, controller.signal);
+      const extraction = await this.#receiptDurableRunner.run(job, controller.signal);
       const completed = this.#database.completeReceiptExtractionJob(id, extraction);
       if (completed) {
         this.publishRealtime({ entityType: 'receipt-extraction-job', mutation: 'updated', entityId: id, updatedAt: completed.updatedAt });
       }
     } catch (error) {
-      const current = this.#database.getReceiptExtractionJob(id);
-      if (current?.status === 'running') {
+      const active = this.#database.getReceiptExtractionJob(id);
+      if (active?.status === 'running' && this.#ready) {
         const failed = this.#database.failReceiptExtractionJob(id, mapError(error).code);
         if (failed) {
           this.publishRealtime({ entityType: 'receipt-extraction-job', mutation: 'updated', entityId: id, updatedAt: failed.updatedAt });
@@ -1021,6 +1071,7 @@ export class BasketraServer {
         this.#receiptExtractionService.dispose();
         this.#aiProvider?.dispose();
         this.#aiProvider = undefined;
+        this.#receiptResponsesClient = undefined;
         this.#hibernated = true;
       }
     }, this.config.idleHibernateAfterMs);
