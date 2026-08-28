@@ -82,7 +82,7 @@ test('settings remain readable and unobscured across light and dark responsive l
   }
 });
 
-test('automatic OCR and optional AI correction preserve the two-slot pool and retailer autofill', async ({ page }, testInfo) => {
+test('automatic AI analysis uses one durable whole-ticket job and retailer autofill', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
@@ -91,62 +91,35 @@ test('automatic OCR and optional AI correction preserve the two-slot pool and re
     body: JSON.stringify({ configured: true }),
   }));
 
-  let activeOcr = 0;
-  let maximumActiveOcr = 0;
+  let browserExtractionRequests = 0;
   let createdAiJobs = 0;
-  const aiJobIndexes = new Map();
-  await page.route('**/api/v1/receipts/extract', async route => {
-    const body = route.request().postDataJSON();
-    const captures = body.captures ?? [];
-    const single = captures.length === 1;
-    const embeddedText = single && typeof captures[0].embeddedText === 'string';
-    const match = /alcampo-(\d+)\.png/u.exec(captures[0]?.originalName ?? '');
-    const index = match ? Number(match[1]) - 1 : 0;
-
-    if (single && body.verifyWithAi === false && !embeddedText) {
-      activeOcr += 1;
-      maximumActiveOcr = Math.max(maximumActiveOcr, activeOcr);
-      await new Promise(resolve => setTimeout(resolve, 80));
-      activeOcr -= 1;
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ extraction: pageExtraction(index, false) }),
-      });
-      return;
-    }
-
-    await route.fulfill({
-      status: 200,
+  const jobId = 'receiptextractionjob_alcampo';
+  await page.route('**/api/v1/receipts/extract', route => {
+    browserExtractionRequests += 1;
+    return route.fulfill({
+      status: 500,
       contentType: 'application/json',
-      body: JSON.stringify({ extraction: assembledExtraction() }),
+      body: JSON.stringify({ error: { code: 'LEGACY_EXTRACTION_MUST_NOT_RUN' } }),
     });
   });
   await page.route('**/api/v1/receipts/extraction-jobs', async route => {
     const body = route.request().postDataJSON();
-    const capture = body.captures?.[0];
-    const match = /alcampo-(\d+)\.png/u.exec(capture?.originalName ?? '');
-    const index = match ? Number(match[1]) - 1 : 0;
-    expect(body.verifyWithAi).toBe(true);
-    expect(capture?.embeddedText).toBe(pageExtraction(index, false).originalText);
-    const id = `receipt_ai_${index}`;
-    aiJobIndexes.set(id, index);
     createdAiJobs += 1;
+    expect(body.verifyWithAi).toBe(true);
+    expect(body.captures).toHaveLength(3);
+    for (const capture of body.captures) expect(capture).not.toHaveProperty('embeddedText');
     await route.fulfill({
       status: 202,
       contentType: 'application/json',
-      body: JSON.stringify({ job: { id, status: 'queued' } }),
+      body: JSON.stringify({ job: { id: jobId, status: 'queued' } }),
     });
   });
-  await page.route('**/api/v1/receipts/extraction-jobs/*', async route => {
-    const id = new URL(route.request().url()).pathname.split('/').at(-1);
-    const index = aiJobIndexes.get(id);
-    expect(index).not.toBeUndefined();
+  await page.route(`**/api/v1/receipts/extraction-jobs/${jobId}`, async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        job: { id, status: 'completed', extraction: pageExtraction(index, true) },
+        job: { id: jobId, status: 'completed', extraction: assembledExtraction() },
       }),
     });
   });
@@ -165,8 +138,9 @@ test('automatic OCR and optional AI correction preserve the two-slot pool and re
 
   await expect(page.locator('.capture-card')).toHaveCount(3);
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Completada' })).toHaveCount(3);
-  expect(maximumActiveOcr).toBe(2);
-  expect(createdAiJobs).toBe(3);
+  expect(browserExtractionRequests).toBe(0);
+  expect(createdAiJobs).toBe(1);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.receiptExtractionJobId'))).toBe(jobId);
   await expect(page.locator('#receipt-state')).toContainText('88 artículos');
   await expect(page.getByLabel('Comercio (opcional)', { exact: true })).toHaveValue('ALCAMPO ALMERIA');
   await expect(page.locator('#receipt-total')).toHaveValue('202.26');
