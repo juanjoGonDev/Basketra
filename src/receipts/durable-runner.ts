@@ -107,6 +107,50 @@ export class ReceiptDurableExtractionRunner {
     }
   }
 
+  async cancel(jobId: string, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
+    const state = this.#durableStore.get(jobId);
+    if (!state) return;
+
+    for (const page of state.pages) {
+      signal?.throwIfAborted();
+      if (!page.responseId) continue;
+      if (
+        page.remoteStatus === 'completed'
+        || page.remoteStatus === 'failed'
+        || page.remoteStatus === 'cancelled'
+        || page.remoteStatus === 'incomplete'
+      ) {
+        continue;
+      }
+
+      try {
+        const remote = await this.#responses.cancel(page.responseId, signal);
+        if (remote.status === 'cancelled') {
+          this.#durableStore.saveRemoteFailure(jobId, page.position, {
+            status: 'cancelled',
+            errorCode: normalizeRemoteErrorCode(remote.errorCode) ?? 'REMOTE_RESPONSE_CANCELLED',
+          });
+          continue;
+        }
+        if (remote.status === 'completed' && remote.interpretation) {
+          this.#durableStore.saveRemoteResult(jobId, page.position, {
+            responseId: remote.id,
+            status: 'completed',
+            interpretation: remote.interpretation,
+          });
+          continue;
+        }
+        this.#durableStore.saveRemoteStatus(jobId, page.position, remote.status);
+      } catch (error) {
+        if (signal?.aborted) throw new DOMException('The receipt cancellation was aborted', 'AbortError');
+        if (!(error instanceof AiProviderError)) throw error;
+      }
+    }
+
+    this.#durableStore.markPhase(jobId, 'cancelled');
+  }
+
   private async ensureOcrPages(
     jobId: string,
     captures: readonly ReceiptCaptureRequest[],
