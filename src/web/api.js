@@ -1,3 +1,7 @@
+import { createRequestCoordinator } from './request-coordinator.js';
+
+const requestCoordinator = createRequestCoordinator();
+
 function emitApiLog(detail) {
   window.dispatchEvent(new CustomEvent('basketra:api-log', { detail }));
 }
@@ -10,12 +14,16 @@ function requestPath(path) {
   }
 }
 
+export function coordinatedFetch(path, options = {}) {
+  return requestCoordinator.request(path, options);
+}
+
 export async function api(path, options = {}) {
   const method = options.method || 'GET';
   const started = performance.now();
   let response;
   try {
-    response = await fetch(path, {
+    response = await coordinatedFetch(path, {
       ...options,
       headers: {
         ...(options.body ? { 'content-type': 'application/json' } : {}),
@@ -95,13 +103,13 @@ function formatProviderHealth(lastCheck) {
     const model = lastCheck.connection?.model ? ` · ${lastCheck.connection.model}` : '';
     return {
       state: 'ok',
-      title: 'Última comprobación correcta',
-      detail: `${checkedAt} · ${trigger}${model} · ${Math.max(0, Number(lastCheck.durationMs) || 0)} ms`,
+      title: 'Proveedor IA operativo',
+      detail: `${checkedAt} · ${trigger}${model} · capacidad de imagen y salida estructurada verificadas · ${Math.max(0, Number(lastCheck.durationMs) || 0)} ms`,
     };
   }
   return {
     state: 'error',
-    title: 'Última comprobación con error',
+    title: 'Proveedor IA no operativo',
     detail: `${checkedAt} · ${trigger} · ${lastCheck.errorCode || 'AI_PROVIDER_FAILED'} · ${Math.max(0, Number(lastCheck.durationMs) || 0)} ms`,
   };
 }
@@ -146,9 +154,7 @@ let providerHealthRefreshGeneration = 0;
 async function refreshProviderHealth() {
   const generation = ++providerHealthRefreshGeneration;
   try {
-    const response = await fetch('/api/v1/settings/ai-provider', { cache: 'no-store' });
-    if (!response.ok) return;
-    const settings = await response.json();
+    const settings = await api('/api/v1/settings/ai-provider', { cache: 'no-store' });
     if (generation !== providerHealthRefreshGeneration) return;
     renderProviderHealth(settings.lastCheck);
   } catch {
