@@ -69,12 +69,22 @@ test('receipt recovery adopts only the durable job with the exact ordered captur
       body: JSON.stringify({ captures }),
     });
     assert.equal(recovered.status, 200);
-    assert.deepEqual(await json(recovered), {
-      job: {
-        id: createdJob.id,
-        status: assert.match,
-      },
+    const recoveredJob = (await json<{ job: null | { id: string; status: string } }>(recovered)).job;
+    assert.equal(recoveredJob?.id, createdJob.id);
+    assert.ok(recoveredJob && ['queued', 'running', 'completed', 'failed'].includes(recoveredJob.status));
+
+    const reversed = await request(baseUrl, '/api/v1/receipts/extraction-jobs/recover', {
+      method: 'POST',
+      body: JSON.stringify({ captures: [...captures].reverse() }),
     });
+    assert.equal(reversed.status, 200);
+    assert.deepEqual(await json(reversed), { job: null });
+
+    const invalid = await request(baseUrl, '/api/v1/receipts/extraction-jobs/recover', {
+      method: 'POST',
+      body: JSON.stringify({ captures: [] }),
+    });
+    assert.equal(invalid.status, 400);
   } finally {
     await server.close();
     rmSync(root, { recursive: true, force: true });
