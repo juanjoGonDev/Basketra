@@ -132,3 +132,33 @@ test('durable receipt state is removed with its parent job and recoverable work 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('startup recovery fails only legacy active jobs without durable checkpoints', () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-durable-startup-'));
+  const now = new Date('2026-08-28T12:00:00.000Z');
+  const database = new BasketraDatabase(join(root, 'basketra.db'), { clock: () => now });
+  const durable = database.createReceiptExtractionJob({ captures: [capture], verifyWithAi: true });
+  const legacy = database.createReceiptExtractionJob({ captures: [capture], verifyWithAi: true });
+  assert.equal(database.startReceiptExtractionJob(durable.id)?.status, 'running');
+  assert.equal(database.startReceiptExtractionJob(legacy.id)?.status, 'running');
+  const store = new ReceiptDurableJobStore(database.path, { clock: () => now });
+
+  try {
+    store.initialize(durable.id, {
+      deadlineAt: '2026-08-28T12:05:00.000Z',
+      generation: 1,
+      pageCount: 1,
+    });
+    store.markPhase(durable.id, 'ai_pending');
+
+    assert.equal(store.recoverNonDurableActiveJobs(), 1);
+    assert.equal(database.getReceiptExtractionJob(durable.id)?.status, 'running');
+    assert.deepEqual(store.listRecoverableJobIds(), [durable.id]);
+    assert.equal(database.getReceiptExtractionJob(legacy.id)?.status, 'failed');
+    assert.equal(database.getReceiptExtractionJob(legacy.id)?.errorCode, 'RECEIPT_EXTRACTION_INTERRUPTED');
+  } finally {
+    store.close();
+    database.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
