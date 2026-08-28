@@ -253,6 +253,7 @@ export class BasketraServer {
       const fileMatch = /^\/api\/v1\/files\/([^/]+)$/.exec(url.pathname);
       if (request.method === 'GET' && fileMatch?.[1]) return this.serveStoredFile(response, decodePathSegment(fileMatch[1]));
       if (request.method === 'POST' && url.pathname === '/api/v1/receipts/extract') return await this.extractReceipt(request, response);
+      if (request.method === 'POST' && url.pathname === '/api/v1/receipts/extraction-jobs/recover') return await this.recoverReceiptExtractionJob(request, response);
       if (request.method === 'POST' && url.pathname === '/api/v1/receipts/extraction-jobs') return await this.createReceiptExtractionJob(request, response);
       const receiptExtractionJobMatch = /^\/api\/v1\/receipts\/extraction-jobs\/([^/]+)$/.exec(url.pathname);
       if (receiptExtractionJobMatch?.[1]) {
@@ -523,7 +524,7 @@ export class BasketraServer {
       ...(body['text'] === undefined ? {} : { text: asString(body['text'], '$.text', { min: 1, max: 240 }) }),
       ...(body['quantityMinor'] === undefined ? {} : { quantityMinor: asSafeInteger(body['quantityMinor'], '$.quantityMinor', { min: 1, max: 100_000 }) }),
       ...(body['quantityDelta'] === undefined ? {} : { quantityDelta: asSafeInteger(body['quantityDelta'], '$.quantityDelta', { min: -99_999, max: 99_999 }) }),
-      ...(body['unit'] === undefined ? {} : { unit: asEnum(body['unit'], '$.unit', UNIT_VALUES) }),
+      ...(body['unit'] === undefined ? {} : { unit: asEnum(body['unit'], `$.unit`, UNIT_VALUES) }),
       ...(body['exactRequired'] === undefined ? {} : { exactRequired: asBoolean(body['exactRequired'], '$.exactRequired') }),
       ...(body['substitutionAllowed'] === undefined ? {} : { substitutionAllowed: asBoolean(body['substitutionAllowed'], '$.substitutionAllowed') }),
       ...(body['completed'] === undefined ? {} : { completed: asBoolean(body['completed'], '$.completed') }),
@@ -800,6 +801,27 @@ export class BasketraServer {
       request.off('aborted', onAborted);
       this.#activeExpensiveOperations -= 1;
     }
+  }
+
+  private async recoverReceiptExtractionJob(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const body = asRecord(await this.readJson(request));
+    const input = this.#receiptExtractionService.parseRequest({
+      captures: body['captures'],
+      verifyWithAi: true,
+    });
+    const storageKeys = uniqueReceiptCaptures(input.captures).map((capture) => capture.storageKey);
+    this.pruneReceiptExtractionJobs();
+    const jobId = this.#receiptDurableStore.findAdoptableJobId(storageKeys);
+    if (!jobId) {
+      this.json(response, 200, { job: null });
+      return;
+    }
+    const job = this.#database.getReceiptExtractionJob(jobId);
+    if (!job) {
+      this.json(response, 200, { job: null });
+      return;
+    }
+    this.json(response, 200, { job: { id: job.id, status: job.status } });
   }
 
   private async createReceiptExtractionJob(request: IncomingMessage, response: ServerResponse): Promise<void> {
