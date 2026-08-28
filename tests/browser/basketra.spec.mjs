@@ -92,7 +92,7 @@ async function addProduct(page, { name, quantity = '1', unit = 'unit', exact = f
   }
   await setSwitch(page, 'Producto exacto', exact);
   await setSwitch(page, 'Permitir sustituciones', substitutions);
-  await actAndWaitForListReads(page, 2, () => dialog.getByRole('button', { name: 'Añadir', exact: true }).click());
+  await actAndWaitForListReads(page, 1, () => dialog.getByRole('button', { name: 'Añadir', exact: true }).click());
   await expect(page.locator('#pending-items')).toContainText(name);
 }
 
@@ -196,7 +196,7 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await page.screenshot({ path: testInfo.outputPath('swipe-reveal.png') });
   await page.getByRole('button', { name: 'Editar Leche entera 1 L' }).click();
   await productInput(page).fill('Leche semidesnatada 1 L');
-  await actAndWaitForListReads(page, 2, () => page.locator('#item-dialog').getByRole('button', { name: 'Guardar cambios', exact: true }).click());
+  await actAndWaitForListReads(page, 1, () => page.locator('#item-dialog').getByRole('button', { name: 'Guardar cambios', exact: true }).click());
   await expect(page.locator('#pending-items')).toContainText('Leche semidesnatada 1 L');
 
   let riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
@@ -216,7 +216,7 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await expect(page.locator('#toast-message')).toHaveText('Producto eliminado');
   await expect(page.getByRole('button', { name: 'Deshacer' })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('swipe-delete.png') });
-  await actAndWaitForListReads(page, 2, () => page.getByRole('button', { name: 'Deshacer' }).click());
+  await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Deshacer' }).click());
   await expect(page.locator('#pending-items')).toContainText('Arroz 1 kg');
 
   const restoredRice = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
