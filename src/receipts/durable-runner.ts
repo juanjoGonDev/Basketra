@@ -69,6 +69,13 @@ export class ReceiptDurableExtractionRunner {
       generation: 1,
       pageCount: captures.length,
     });
+    if (request.retryOfJobId && state.phase === 'queued') {
+      this.#durableStore.copyReusableRetryEvidence(
+        request.retryOfJobId,
+        job.id,
+        captures.map((capture) => capture.storageKey),
+      );
+    }
     const deadlineAt = state.deadlineAt;
     const operationSignal = signal ?? new AbortController().signal;
 
