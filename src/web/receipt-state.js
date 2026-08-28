@@ -41,6 +41,7 @@ export const state = {
   retailerManuallyEdited: false,
   settingRetailerValue: false,
   activeJobId: loadReceiptExtractionJobId(),
+  failedBackgroundJobId: '',
   jobRealtime: null,
   expandedCaptureKey: '',
   selectedReviewCaptureKey: '',
