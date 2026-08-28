@@ -49,8 +49,9 @@ test('an OCR API failure without a stable code remains retryable without inventi
   await expect(page.getByRole('button', { name: 'Revisar manualmente', exact: true })).toHaveCount(0);
 });
 
-test('a PDF provider failure permits blank manual entry while preserving the original capture', async ({ page }) => {
+test('a durable PDF provider failure permits blank manual entry while preserving the original capture', async ({ page }) => {
   let extractionCall = 0;
+  const jobId = 'receiptextractionjob_pdfmanual';
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -68,20 +69,20 @@ test('a PDF provider failure permits blank manual entry while preserving the ori
       },
     }),
   }));
+  await page.route('**/api/v1/receipts/extraction-jobs', route => route.fulfill({
+    status: 202,
+    contentType: 'application/json',
+    body: JSON.stringify({ job: { id: jobId, status: 'queued' } }),
+  }));
+  await page.route(`**/api/v1/receipts/extraction-jobs/${jobId}`, route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      job: { id: jobId, status: 'failed', errorCode: 'AI_PDF_CAPABILITY_UNAVAILABLE' },
+    }),
+  }));
   await page.route('**/api/v1/receipts/extract', route => {
     extractionCall += 1;
-    if (extractionCall === 1) {
-      return route.fulfill({
-        status: 422,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          error: {
-            code: 'AI_PDF_CAPABILITY_UNAVAILABLE',
-            message: 'private provider PDF detail',
-          },
-        }),
-      });
-    }
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -98,6 +99,7 @@ test('a PDF provider failure permits blank manual entry while preserving the ori
   });
   await expect(page.locator('.capture-card')).toHaveCount(1);
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
+  expect(extractionCall).toBe(0);
 
   const details = await openCaptureDetails(page);
   await details.getByRole('button', { name: 'Revisar manualmente', exact: true }).click();
