@@ -14,6 +14,7 @@ Fix the post-merge receipt AI regressions observed in production-like use: a rel
 - The absolute five-minute local budget must not turn a known durable remote response into an automatic replay trigger.
 - The first explicit-retry implementation path still depended on browser `rawText`; after reload that evidence may be absent even though SQLite contains valid OCR.
 - Browser E2E exposed an unrelated but real settings race: the AI diagnostic button was re-enabled before its final log refresh completed, allowing overlapping diagnostics and stale status rendering.
+- The persistence schema owns `response_id` uniquely across durable receipt pages. A retry therefore cannot reassign a completed source `resp_*` to the target job; only the already-validated materialized result may be reused.
 
 ## Decision
 
@@ -23,7 +24,7 @@ Fix the post-merge receipt AI regressions observed in production-like use: a rel
 - A local wait/deadline expiry does not cause automatic OCR or AI replay for a page with a known remote response. Reconciliation of a known durable response may continue/resume without resetting OCR or creating a new response.
 - Explicit user retry creates a new receipt extraction job through the existing `POST /api/v1/receipts/extraction-jobs` contract with `retryOfJobId`; no parallel retry endpoint is introduced.
 - The retry source must be a failed durable job whose capture storage keys match the new request. The target receives a fresh deadline and idempotency namespace.
-- Retry seeding copies server-persisted OCR for every matching page and completed remote results when safe. Failed/incomplete/cancelled remote identities and old idempotency keys are not copied, so only failed work creates a new `resp_*`.
+- Retry seeding copies server-persisted OCR for every matching page and completed validated remote results when safe. Remote response ownership is never copied: the source keeps its `resp_*`, while the target stores the reusable materialized result with no `responseId`. Failed/incomplete/cancelled remote identities and old idempotency keys are not copied, so only failed work creates a new `resp_*`.
 - Retry seeding is transactional and idempotent so a crash during the handoff cannot create two authoritative checkpoint states.
 - Frontend tracks the current failed background job explicitly; a local per-page retry cannot accidentally reuse an unrelated or previously completed durable job.
 - Expose bounded, non-sensitive correlation metadata from the public receipt extraction job: Basketra `jobId`, current/relevant webApi `responseId`, and any safe webApi request/correlation identifier available from the remote contract.
@@ -57,13 +58,14 @@ Fix the post-merge receipt AI regressions observed in production-like use: a rel
 - [x] An `AI_*` failure no longer clears the job and silently launches the legacy OCR pipeline.
 - [x] A local five-minute wait boundary cannot trigger automatic replay of OCR or multimodal AI when a durable remote identity is known.
 - [x] Explicit retry is user-driven and reuses server-persisted OCR instead of requiring browser-local OCR state.
-- [x] Explicit retry reuses completed remote results but never reuses failed response identities or prior idempotency keys.
+- [x] Explicit retry reuses completed validated results without transferring the source `resp_*`, failed response identities, or prior idempotency keys.
 - [x] Retry source/target captures are validated before durable evidence is copied.
 - [x] The public job/error contract exposes bounded safe webApi correlation identifiers without sensitive receipt/provider content.
 - [x] `buildReceiptAiDiagnostic()` copies Basketra job ID plus safe webApi response/request correlation identifiers when present.
 - [x] Regression tests reproduce the reload/failure replay and explicit retry gaps.
 - [x] Real SQLite coverage proves OCR call count and remote create call count remain unchanged across automatic recovery.
-- [x] Explicit retry coverage proves persisted OCR causes `ocr=0` and only failed pages create new remote work.
+- [x] Explicit retry coverage proves persisted OCR causes `ocr=0`, completed results are reused without duplicate `response_id`, and only failed pages create new remote work.
+- [x] `retryOfJobId` request parsing covers valid, invalid-identity, and AI-disabled contracts.
 - [x] Provider diagnostic UI remains serialized until final log refresh completes and ignores stale generations.
 - [ ] Canonical `pnpm quality`, Browser E2E, CodeQL/security and relevant container checks pass on the final exact head without weakening gates.
 
@@ -72,8 +74,9 @@ Fix the post-merge receipt AI regressions observed in production-like use: a rel
 - Browser recovery: persist an active/failed AI job, reload, assert no legacy OCR queue is started and the same job remains selected.
 - Durable runner: persisted OCR + persisted response identity resumes with `ocr=0`, `create=0`, `get>=1` after restart.
 - Timeout regression: known remote response survives the local wait boundary without becoming a replay trigger.
-- Retry store/runner: seed a new job from a failed source; assert all OCR is reused, completed remote results are reused, failed `resp_*` is not copied, and only the failed page creates a new remote response under the target job idempotency namespace.
+- Retry store/runner: seed a new job from a failed source; assert all OCR is reused, completed materialized results are reused without copying `resp_*` ownership, failed `resp_*` is not copied, and only the failed page creates a new remote response under the target job idempotency namespace.
 - Retry API: create a failed durable source through SQLite, POST a new extraction job with `retryOfJobId`, assert a distinct job is returned and its durable checkpoint contains server OCR rather than browser-provided OCR.
+- Retry request parser: accept a valid durable job id only with AI verification; reject malformed ids and AI-disabled retries.
 - Diagnostic unit/browser coverage: copied diagnostic includes safe `jobId` and webApi response/request correlation identifiers and rejects unsafe values.
 - Settings Browser E2E: block final `/api/v1/logs` refresh and assert the AI diagnostic button remains disabled/busy until finalization completes.
 
@@ -83,6 +86,7 @@ Fix the post-merge receipt AI regressions observed in production-like use: a rel
 - Exposing correlation metadata could leak content if fields are not constrained. Only opaque bounded identifiers are allowed.
 - Copying OCR to a new explicit retry could create a second source of truth. Reuse the durable SQLite store record; never copy OCR into browser-local persistence as authority.
 - Reusing a completed remote result for mismatched captures would be unsafe. Retry creation validates ordered storage keys/page count before seeding.
+- Copying a source `response_id` into the retry target would violate global identity ownership and the schema uniqueness invariant. Only validated result material is copied; the source remains the sole owner of its `resp_*`.
 - Recovery must distinguish a known active remote response from a truly terminal remote failure; terminal failures require explicit user action.
 - Async settings finalization can race with a programmatic superseding diagnostic; generation checks remain authoritative before and after the final awaited refresh.
 
@@ -96,6 +100,8 @@ Revert browser recovery, durable retry, runner and correlation-contract changes 
 - Security, amd64/arm64 container builds and container smoke passed on that same intermediate head.
 - Quality on that head identified only a missing final newline in `src/receipts/service.ts`; fixed by `de546fcd7a7d6f2650b4f3d27d7edce455d240fb` without gate changes.
 - Browser E2E on that head passed 51/52 and exposed the provider-diagnostic finalization race; regression coverage was added before the production fix, and the production fix is `441b97054c93021d2415d27f2bc8faea9c145917`.
+- Head `d1bbe8682b59cb5cfa3a39020686a4674af4817b`: formatting, lint, typecheck, dead-code/dependency policy, 194 unit tests, 43 integration tests and domain coverage passed; the durable retry ownership regression passed. Changed-code coverage alone identified the unexercised `retryOfJobId` parser branches.
+- `b577d754551d72fc3aa73cd5423b84294cd70805` adds direct request-contract coverage for valid retry identity, malformed retry identity, and retry without AI verification; no coverage exclusion or threshold change is used.
 - Final authority is the normal PR workflow suite on the exact final head after this documentation commit.
 
 ## Delivery
@@ -104,4 +110,4 @@ Branch `agent/fix-receipt-ai-resume-tracing`, target `main`. Companion webApi br
 
 ## Status
 
-Implementation, durable retry, correlation coverage, retry API coverage, and settings diagnostic race fix are complete. Final exact-head PR CI is pending; no merge, release, or deployment has been performed.
+Implementation, durable retry, response-ownership preservation, request validation coverage, correlation coverage, retry API coverage, and settings diagnostic race fix are complete. Final exact-head PR CI is pending; no merge, release, or deployment has been performed.
