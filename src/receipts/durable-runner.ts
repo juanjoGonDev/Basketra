@@ -28,6 +28,7 @@ const RETRY_DELAY_MS = 500;
 
 type ReceiptResponsesTransport = Pick<ReceiptResponsesClient, 'create' | 'get' | 'cancel'>;
 type RetryDelay = (milliseconds: number, signal?: AbortSignal) => Promise<void>;
+type ProgressListener = (jobId: string) => void;
 
 export type ReceiptDurableExtractionRunnerDependencies = Readonly<{
   durableStore: ReceiptDurableJobStore;
@@ -36,6 +37,7 @@ export type ReceiptDurableExtractionRunnerDependencies = Readonly<{
   responses: ReceiptResponsesTransport;
   now?: () => Date;
   retryDelay?: RetryDelay;
+  onProgress?: ProgressListener;
 }>;
 
 export class ReceiptDurableExtractionRunner {
@@ -45,6 +47,7 @@ export class ReceiptDurableExtractionRunner {
   readonly #responses: ReceiptResponsesTransport;
   readonly #now: () => Date;
   readonly #retryDelay: RetryDelay;
+  readonly #onProgress: ProgressListener;
 
   constructor(dependencies: ReceiptDurableExtractionRunnerDependencies) {
     this.#durableStore = dependencies.durableStore;
@@ -53,6 +56,7 @@ export class ReceiptDurableExtractionRunner {
     this.#responses = dependencies.responses;
     this.#now = dependencies.now ?? (() => new Date());
     this.#retryDelay = dependencies.retryDelay ?? waitForRetry;
+    this.#onProgress = dependencies.onProgress ?? (() => {});
   }
 
   async run(
@@ -75,6 +79,7 @@ export class ReceiptDurableExtractionRunner {
         job.id,
         captures.map((capture) => capture.storageKey),
       );
+      this.#onProgress(job.id);
     }
     const deadlineAt = state.deadlineAt;
     const operationSignal = signal ?? new AbortController().signal;
@@ -181,6 +186,7 @@ export class ReceiptDurableExtractionRunner {
         signal,
       );
       this.#durableStore.saveOcrPage(jobId, position, page);
+      this.#onProgress(jobId);
       return page;
     });
     return await Promise.all(pending);
@@ -238,6 +244,7 @@ export class ReceiptDurableExtractionRunner {
         status: 'completed',
         interpretation: remote.interpretation,
       });
+      this.#onProgress(jobId);
       return remote.interpretation;
     }
     if (remote.status === 'queued' || remote.status === 'in_progress') {
@@ -249,6 +256,7 @@ export class ReceiptDurableExtractionRunner {
       status: remote.status,
       errorCode,
     });
+    this.#onProgress(jobId);
     throw new AiProviderError('AI_PROVIDER_FAILED');
   }
 
