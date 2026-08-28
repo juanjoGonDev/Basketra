@@ -53,6 +53,10 @@ function readIdentity(input, init, baseUrl) {
     url.href,
     normalizedHeaderIdentity(init.headers),
     init.credentials || '',
+    init.cache || '',
+    init.mode || '',
+    init.redirect || '',
+    init.referrerPolicy || '',
   ].join(' ');
 }
 
@@ -305,17 +309,16 @@ async function refreshProviderHealth() {
   }
 }
 
-function enhanceProviderHealth() {
+function installProviderHealth() {
   const button = document.querySelector('#test-ai-provider');
   if (!(button instanceof HTMLButtonElement)) return;
   ensureProviderHealthRegion();
-  if (button.dataset.healthObserver !== 'true') {
-    button.dataset.healthObserver = 'true';
-    const observer = new MutationObserver(() => {
-      if (!button.disabled) void refreshProviderHealth();
-    });
-    observer.observe(button, { attributes: true, attributeFilter: ['disabled'] });
-  }
+  if (button.dataset.healthObserver === 'true') return;
+  button.dataset.healthObserver = 'true';
+  const observer = new MutationObserver(() => {
+    if (!button.disabled) void refreshProviderHealth();
+  });
+  observer.observe(button, { attributes: true, attributeFilter: ['disabled'] });
   void refreshProviderHealth();
 }
 
@@ -323,9 +326,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   // Keep api.js as the browser HTTP SSOT even when a feature accidentally calls fetch directly.
   // EventSource and service-worker traffic run in different transport paths and are not wrapped here.
   globalThis.fetch = coordinatedFetch;
-  const providerHealthObserver = new MutationObserver(() => enhanceProviderHealth());
-  providerHealthObserver.observe(document.documentElement, { childList: true, subtree: true });
-  document.addEventListener('DOMContentLoaded', enhanceProviderHealth, { once: true });
-  enhanceProviderHealth();
-  void import('./operations.js').catch(() => {});
+  void import('./operations.js')
+    .then(() => installProviderHealth())
+    .catch(() => {});
 }
