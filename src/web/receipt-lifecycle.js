@@ -21,6 +21,7 @@ import {
 } from './receipt-processing.js';
 
 let durableRetryPending = false;
+let durableInitialJobPending = false;
 
 function abortError() {
   return new DOMException('Receipt AI correction was cancelled', 'AbortError');
@@ -213,6 +214,56 @@ export function clearCombinedReview({ keepPanel = false } = {}) {
   if (total) total.value = '0.00';
 }
 
+async function startDurableAutomaticCaptureProcessing() {
+  if (durableInitialJobPending || state.captures.length === 0) return;
+  durableInitialJobPending = true;
+  abortPageWork();
+  clearCombinedReview();
+  ensurePageStates();
+  state.verifyWithAi = true;
+  state.processing = true;
+  setPagesForBackgroundJob('queued');
+  if (!state.progressTimer) startReceiptProgress();
+  persistAndRenderCaptures();
+  $('#receipt-state').textContent = 'Iniciando análisis durable. OCR y corrección IA se conservarán para continuar tras una recarga.';
+
+  try {
+    const created = await api('/api/v1/receipts/extraction-jobs', {
+      method: 'POST',
+      body: JSON.stringify({
+        captures: state.captures.map(capture => captureRequest(capture)),
+        verifyWithAi: true,
+      }),
+    });
+    const jobId = created?.job?.id;
+    if (typeof jobId !== 'string' || !jobId) {
+      throw jobError(undefined, 'AI_EXTRACTION_JOB_INVALID');
+    }
+
+    state.activeJobId = jobId;
+    state.failedBackgroundJobId = '';
+    saveReceiptExtractionJobId(jobId);
+    setPagesForBackgroundJob(created.job?.status ?? 'queued');
+    persistAndRenderCaptures();
+    watchReceiptExtractionJob();
+    await refreshReceiptExtractionJob();
+  } catch (error) {
+    if (!state.activeJobId) {
+      state.processing = false;
+      stopReceiptProgress();
+      for (const page of state.pageStates.values()) {
+        page.status = 'error';
+        page.errorCode = typeof error?.code === 'string' ? error.code : 'AI_EXTRACTION_JOB_CREATE_FAILED';
+        page.error = 'No se pudo crear el análisis durable. Las capturas siguen guardadas y no se ha iniciado un OCR alternativo.';
+      }
+      persistAndRenderCaptures();
+      $('#receipt-state').textContent = 'No se pudo crear el job durable. Las capturas se conservan sin relanzar OCR ni IA.';
+    }
+  } finally {
+    durableInitialJobPending = false;
+  }
+}
+
 export function startAutomaticCaptureProcessing(captures, { resetAll = false } = {}) {
   if (captures.length === 0) return;
   if (resetAll) {
@@ -225,6 +276,11 @@ export function startAutomaticCaptureProcessing(captures, { resetAll = false } =
   clearCombinedReview();
   ensurePageStates();
   state.verifyWithAi = state.aiConfigured && $('#verify-receipt-ai').checked;
+  if (state.verifyWithAi) {
+    void startDurableAutomaticCaptureProcessing();
+    return;
+  }
+
   state.processing = true;
   if (!state.progressTimer) startReceiptProgress();
 
@@ -233,14 +289,12 @@ export function startAutomaticCaptureProcessing(captures, { resetAll = false } =
   for (const capture of captures) {
     const page = state.pageStates.get(captureKey(capture));
     if (!page || page.status !== 'ready') continue;
-    enqueueCapture(capture, state.verifyWithAi, token);
+    enqueueCapture(capture, false, token);
     enqueued += 1;
   }
 
   persistAndRenderCaptures();
-  $('#receipt-state').textContent = state.verifyWithAi
-    ? 'OCR iniciado automáticamente. La IA corregirá cada imagen cuando termine su OCR; si falla, el OCR seguirá disponible.'
-    : 'OCR iniciado automáticamente. Hasta dos imágenes se procesan a la vez.';
+  $('#receipt-state').textContent = 'OCR iniciado automáticamente. Hasta dos imágenes se procesan a la vez.';
   if (enqueued === 0) void finishCurrentRunWhenIdle();
   else pumpPageQueue();
 }
