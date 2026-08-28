@@ -48,7 +48,13 @@ function pageProgressStage(page: ReceiptDurablePageState): ReceiptJobProgressSta
       return 'ai';
     case undefined:
       return page.ocr ? 'ai' : 'ocr';
+    default:
+      return assertNever(page.remoteStatus);
   }
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unknown receipt remote status: ${String(value)}`);
 }
 
 function publicOcrEvidence(page: PersistedReceiptOcrPage): ReceiptJobProgressOcr {
