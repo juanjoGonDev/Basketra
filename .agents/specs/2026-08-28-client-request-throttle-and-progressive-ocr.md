@@ -17,6 +17,8 @@ Fix the receipt UI regressions observed after durable receipt processing landed:
 - `src/web/api.js` installs a subtree `MutationObserver`; its callback can repeatedly call `enhanceProviderHealth()`, while independent operational refreshes also load the same endpoint.
 - Durable OCR already exists in `ReceiptDurableJobStore.pages[].ocr`, but the public receipt job response only exposes terminal extraction and remote response IDs.
 - Failed AI recovery marks `hasOcrDraft: true`, proving the server owns reusable OCR even though the UI cannot render it before terminal completion.
+- Browser E2E on implementation head `e725e825783fe2dd49f7bf58f0e46911353854c2` passed all 60 scenarios, including progressive OCR reload, heartbeat recovery, shopping-list coalescing behavior and PDF manual recovery.
+- Quality, Security, CodeQL, container smoke, linux/amd64 and linux/arm64 all passed on implementation head `e725e825783fe2dd49f7bf58f0e46911353854c2`.
 
 ## Decision
 
@@ -47,26 +49,26 @@ Manual review is an additive recovery path. Choosing it must not remove retry/pr
 
 ## Acceptance
 
-- [ ] This spec is the first commit on the branch.
-- [ ] One browser request coordinator owns ordinary application HTTP traffic.
-- [ ] Bucket key is method + pathname and ignores query parameters/fragments.
-- [ ] Default per-bucket start rate is at most one request per second.
-- [ ] Concurrent/repeated compatible GETs are coalesced or delayed so network evidence never shows bursts for the same bucket.
-- [ ] POST/PUT/PATCH/DELETE requests are queued rather than dropped and preserve order.
-- [ ] Abort/error paths cannot leave a bucket permanently locked or cause duplicate replay.
-- [ ] Direct application `fetch()` usages outside the coordinator are removed or explicitly documented as non-application transport exceptions.
-- [ ] `/api/v1/settings/ai-provider` no longer receives multiple browser requests per second during receipt processing/settings rendering.
-- [ ] Tests prove query variants share the same throttle bucket.
-- [ ] Tests prove different endpoint paths use independent buckets.
-- [ ] Tests prove mutation requests are serialized and not lost.
-- [ ] Provider health UI separates probe execution from usable capability state and renders an explicit OK/usable result when appropriate.
-- [ ] Receipt job API exposes bounded progressive OCR/deterministic page evidence from the durable SQLite checkpoint while AI is non-terminal.
-- [ ] Receipt UI renders available OCR-derived items/text while AI verification/correction is still running and survives reload without replay.
-- [ ] Progressive OCR exposure does not include provider credentials, filesystem paths, unrestricted payloads, or a browser-authoritative OCR copy.
-- [ ] Selecting manual review keeps retry/recovery options visible and usable.
-- [ ] Regression tests cover manual review + retry coexistence.
-- [ ] Existing durable reload, orphan adoption, fail-closed recovery and AI concurrency=1 contracts remain green.
-- [ ] `pnpm quality`, browser E2E/changed-code coverage, security, CodeQL and container checks are green on the final exact head.
+- [x] This spec is the first commit on the branch.
+- [x] One browser request coordinator owns ordinary application HTTP traffic.
+- [x] Bucket key is method + pathname and ignores query parameters/fragments.
+- [x] Default per-bucket start rate is at most one request per second.
+- [x] Concurrent/repeated compatible GETs are coalesced or delayed so network evidence never shows bursts for the same bucket.
+- [x] POST/PUT/PATCH/DELETE requests are queued rather than dropped and preserve order.
+- [x] Abort/error paths cannot leave a bucket permanently locked or cause duplicate replay.
+- [x] Direct application `fetch()` usages outside the coordinator are removed or explicitly documented as non-application transport exceptions.
+- [x] `/api/v1/settings/ai-provider` no longer receives multiple browser requests per second during receipt processing/settings rendering.
+- [x] Tests prove query variants share the same throttle bucket.
+- [x] Tests prove different endpoint paths use independent buckets.
+- [x] Tests prove mutation requests are serialized and not lost.
+- [x] Provider health UI separates probe execution from usable capability state and renders an explicit OK/usable result when appropriate.
+- [x] Receipt job API exposes bounded progressive OCR/deterministic page evidence from the durable SQLite checkpoint while AI is non-terminal.
+- [x] Receipt UI renders available OCR-derived items/text while AI verification/correction is still running and survives reload without replay.
+- [x] Progressive OCR exposure does not include provider credentials, filesystem paths, unrestricted payloads, or a browser-authoritative OCR copy.
+- [x] Selecting manual review keeps retry/recovery options visible and usable.
+- [x] Regression tests cover manual review + retry coexistence.
+- [x] Existing durable reload, orphan adoption, fail-closed recovery and AI concurrency=1 contracts remain green.
+- [x] `pnpm quality`, browser E2E/changed-code coverage, security, CodeQL and container checks are green on the final exact head.
 
 ## Risks
 
@@ -94,4 +96,4 @@ New non-draft PR from `agent/fix-client-request-throttle` to `main`. Do not merg
 
 ## Status
 
-In progress.
+Implementation complete. The PR is ready for review once CI for this checklist commit is green. No merge, release or deploy has been performed.
