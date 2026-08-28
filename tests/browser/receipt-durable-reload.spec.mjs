@@ -115,6 +115,16 @@ async function openReceipts(page) {
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
 }
 
+function localStorageContains(page, text) {
+  return page.evaluate((needle) => {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key && localStorage.getItem(key)?.includes(needle)) return true;
+    }
+    return false;
+  }, text);
+}
+
 async function expectProgressiveOcr(page, text) {
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Verificando con IA');
   const captureDetails = page.locator('.capture-card__details').first();
@@ -184,7 +194,7 @@ test('reload keeps progressive OCR visible without replaying OCR or AI creation'
   expect(createPayloads[0]?.captures[0]).not.toHaveProperty('embeddedText');
   await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.receiptExtractionJobId'))).toBe(jobId);
   await expectProgressiveOcr(page, progressiveText);
-  await expect.poll(() => page.evaluate(text => Object.values(localStorage).some(value => String(value).includes(text)), progressiveText)).toBe(false);
+  await expect.poll(() => localStorageContains(page, progressiveText)).toBe(false);
 
   const readsBeforeReload = jobReads;
   await page.reload();
@@ -196,7 +206,7 @@ test('reload keeps progressive OCR visible without replaying OCR or AI creation'
   await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.receiptExtractionJobId'))).toBe(jobId);
   await expect(page.locator('.capture-card')).toHaveCount(1);
   await expectProgressiveOcr(page, progressiveText);
-  await expect.poll(() => page.evaluate(text => Object.values(localStorage).some(value => String(value).includes(text)), progressiveText)).toBe(false);
+  await expect.poll(() => localStorageContains(page, progressiveText)).toBe(false);
 });
 
 test('stored captures without local job identity adopt the exact durable job instead of creating work', async ({ page }) => {
