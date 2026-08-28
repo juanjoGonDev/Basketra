@@ -16,6 +16,7 @@ import {
   clearCombinedReview,
   clearReceiptExtractionJob,
   requestExtraction,
+  retryFailedReceiptExtractionJob,
   startReceiptProgress,
   stopReceiptProgress,
   updateGlobalProgress,
@@ -308,16 +309,27 @@ export function retryCaptureProcessing(index) {
   pumpPageQueue();
 }
 
-export function retryAiCorrection(index) {
+export async function retryAiCorrection(index) {
   const capture = state.captures[index];
   if (!capture || !state.aiConfigured) return;
   const key = captureKey(capture);
   const page = state.pageStates.get(key);
-  const hasAiFailure = page?.aiStatus === 'error'
-    || (page?.status === 'error' && page.errorCode.startsWith('AI_'));
-  const hasReusableInput = Boolean(page?.rawText || page?.result)
+  if (!page) return;
+
+  const durableBackgroundFailure = page.status === 'error'
+    && page.errorCode.startsWith('AI_')
+    && Boolean(state.activeJobId)
+    && state.failedBackgroundJobId === state.activeJobId;
+  if (durableBackgroundFailure) {
+    await retryFailedReceiptExtractionJob();
+    return;
+  }
+
+  const hasAiFailure = page.aiStatus === 'error'
+    || (page.status === 'error' && page.errorCode.startsWith('AI_'));
+  const hasReusableInput = Boolean(page.rawText || page.result)
     || capture.mimeType === 'application/pdf';
-  if (!page || !hasAiFailure || !hasReusableInput) return;
+  if (!hasAiFailure || !hasReusableInput) return;
 
   for (const task of state.activePageTasks.values()) {
     if (task.key === key && task.token === state.runToken) task.controller.abort();
