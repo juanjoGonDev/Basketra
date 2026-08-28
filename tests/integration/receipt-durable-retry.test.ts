@@ -69,7 +69,10 @@ test('explicit retry copies durable OCR and completed remote results without cop
     verifyWithAi: true,
   };
   const sourceJob = database.createReceiptExtractionJob(input);
-  const retryJob = database.createReceiptExtractionJob(input);
+  const retryJob = database.createReceiptExtractionJob({
+    ...input,
+    retryOfJobId: sourceJob.id,
+  });
   const durableStore = new ReceiptDurableJobStore(database.path);
   const deadlineAt = new Date(Date.now() + 60_000).toISOString();
 
@@ -105,9 +108,19 @@ test('explicit retry copies durable OCR and completed remote results without cop
     status: 'failed',
     errorCode: 'REMOTE_RESPONSE_FAILED',
   });
+  durableStore.markPhase(sourceJob.id, 'failed');
 
   durableStore.initialize(retryJob.id, { deadlineAt, generation: 1, pageCount: 2 });
-  durableStore.copyReusableRetryEvidence(sourceJob.id, retryJob.id);
+  durableStore.copyReusableRetryEvidence(
+    sourceJob.id,
+    retryJob.id,
+    input.captures.map((capture) => capture.storageKey),
+  );
+  durableStore.copyReusableRetryEvidence(
+    sourceJob.id,
+    retryJob.id,
+    input.captures.map((capture) => capture.storageKey),
+  );
 
   const seeded = durableStore.get(retryJob.id);
   assert.equal(seeded?.pages[0]?.ocr?.text, 'ALCAMPO\nTOTAL 1,20');
