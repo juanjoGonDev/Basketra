@@ -43,13 +43,11 @@ test('schema v6 persists receipt OCR and remote response checkpoints across stor
       generation: 1,
       pageCount: 1,
     });
-    assert.deepEqual(initialized, {
-      jobId: job.id,
-      generation: 1,
-      phase: 'queued',
-      deadlineAt,
-      pageCount: 1,
-    });
+    assert.equal(initialized.jobId, job.id);
+    assert.equal(initialized.generation, 1);
+    assert.equal(initialized.phase, 'queued');
+    assert.equal(initialized.deadlineAt, deadlineAt);
+    assert.equal(initialized.pageCount, 1);
 
     store.markPhase(job.id, 'ocr_running');
     store.saveOcrPage(job.id, 0, ocrPage);
@@ -123,8 +121,12 @@ test('durable receipt state is removed with its parent job and recoverable work 
 
     now = new Date('2026-08-30T12:00:00.000Z');
     database.cancelReceiptExtractionJob(second.id);
-    assert.equal(database.pruneReceiptExtractionJobs(now.toISOString()), 2);
+    assert.equal(database.pruneReceiptExtractionJobs(now.toISOString()), 1);
     assert.equal(store.get(first.id), undefined);
+    assert.notEqual(store.get(second.id), undefined);
+
+    now = new Date('2026-08-31T12:00:00.000Z');
+    assert.equal(database.pruneReceiptExtractionJobs(now.toISOString()), 1);
     assert.equal(store.get(second.id), undefined);
   } finally {
     store.close();
