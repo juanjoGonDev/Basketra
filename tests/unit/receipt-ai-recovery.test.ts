@@ -45,6 +45,7 @@ test('builds diagnostics only from bounded correlation metadata', () => {
   const diagnostic = buildReceiptAiDiagnostic({
     code: 'AI_PROVIDER_FAILED',
     jobId: 'receiptextractionjob_diag123',
+    webApiResponseId: 'resp_1234567',
     requestId: '9712f274-bc37-4a8f-a383-a24162fc4e1e',
     status: 503,
     message: 'SECRET OCR PAN 1,50',
@@ -53,6 +54,7 @@ test('builds diagnostics only from bounded correlation metadata', () => {
 
   assert.match(diagnostic, /code=AI_PROVIDER_FAILED/u);
   assert.match(diagnostic, /jobId=receiptextractionjob_diag123/u);
+  assert.match(diagnostic, /webApiResponseId=resp_1234567/u);
   assert.match(diagnostic, /requestId=9712f274-bc37-4a8f-a383-a24162fc4e1e/u);
   assert.match(diagnostic, /status=503/u);
   assert.doesNotMatch(diagnostic, /SECRET OCR/u);
@@ -64,11 +66,13 @@ test('drops malformed diagnostic identifiers instead of serializing arbitrary va
   const diagnostic = buildReceiptAiDiagnostic({
     code: 'AI_TIMEOUT',
     jobId: 'safe-id\nreceipt=secret',
+    webApiResponseId: 'resp_bad\nreceipt=secret',
     requestId: 'request id with spaces',
     status: 200,
   });
 
   assert.equal(diagnostic, 'Basketra receipt AI diagnostic\ncode=AI_TIMEOUT');
+  assert.equal(buildReceiptAiDiagnostic({ code: 'AI_TIMEOUT', webApiResponseId: 42 }), 'Basketra receipt AI diagnostic\ncode=AI_TIMEOUT');
   assert.equal(buildReceiptAiDiagnostic({ code: 'OCR_TIMEOUT', jobId: 'safe-id' }), '');
 });
 
