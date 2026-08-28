@@ -82,9 +82,12 @@ test('identical safe reads share one in-flight transport and receive independent
   const scheduler = controlledScheduler();
   const calls: FetchCall[] = [];
   let release: (() => void) | undefined;
+  let markStarted: (() => void) | undefined;
   const gate = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { markStarted = resolve; });
   const fetchImpl = (async (input: RequestInfo | URL) => {
     calls.push({ url: String(input), method: 'GET', startedAt: scheduler.now() });
+    markStarted?.();
     await gate;
     return new Response('shared', { status: 200 });
   }) as typeof fetch;
@@ -97,7 +100,7 @@ test('identical safe reads share one in-flight transport and receive independent
 
   const first = coordinator.request('/api/v1/settings/ai-provider');
   const second = coordinator.request('/api/v1/settings/ai-provider');
-  await Promise.resolve();
+  await started;
   assert.equal(calls.length, 1);
   release?.();
 
