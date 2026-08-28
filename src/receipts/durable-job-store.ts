@@ -234,14 +234,13 @@ export class ReceiptDurableJobStore {
         }
         if (
           sourcePage.remoteStatus === 'completed'
-          && sourcePage.responseId
           && sourcePage.remoteResult !== undefined
         ) {
-          this.saveRemoteResult(targetJobId, sourcePage.position, {
-            responseId: sourcePage.responseId,
-            status: 'completed',
-            interpretation: sourcePage.remoteResult,
-          });
+          this.saveReusableRemoteResult(
+            targetJobId,
+            sourcePage.position,
+            sourcePage.remoteResult,
+          );
         }
       }
       this.#database.exec('COMMIT');
@@ -326,6 +325,34 @@ export class ReceiptDurableJobStore {
         remote_result_json = ?, remote_error_code = NULL, updated_at = ?
       WHERE job_id = ? AND position = ?
     `).run(input.responseId, result, this.#clock().toISOString(), jobId, position);
+  }
+
+  saveReusableRemoteResult(jobId: string, position: number, interpretation: unknown): void {
+    const current = requirePage(requireState(this.get(jobId)), position);
+    if (current.idempotencyKey || current.responseId || current.remoteErrorCode) {
+      throw new Error('Receipt retry target already owns remote work');
+    }
+    if (current.remoteStatus !== undefined && current.remoteStatus !== 'completed') {
+      throw new Error('Receipt retry target remote status is incompatible with reusable evidence');
+    }
+    if (current.remoteResult !== undefined) {
+      if (!sameJson(current.remoteResult, interpretation)) {
+        throw new Error('Receipt retry target result does not match reusable evidence');
+      }
+      return;
+    }
+
+    const result = serializeBounded(interpretation, 'Reusable remote receipt result');
+    const update = this.#database.prepare(`
+      UPDATE receipt_extraction_job_pages
+      SET remote_status = 'completed', remote_result_json = ?,
+        remote_error_code = NULL, updated_at = ?
+      WHERE job_id = ? AND position = ?
+        AND idempotency_key IS NULL AND response_id IS NULL
+    `).run(result, this.#clock().toISOString(), jobId, position);
+    if (Number(update.changes) !== 1) {
+      throw new Error('Receipt retry target could not persist reusable remote evidence');
+    }
   }
 
   saveRemoteFailure(
@@ -424,7 +451,6 @@ function assertRetryPageCompatible(
   }
 
   const reusableRemote = sourcePage.remoteStatus === 'completed'
-    && sourcePage.responseId !== undefined
     && sourcePage.remoteResult !== undefined;
   if (!reusableRemote) {
     if (
@@ -438,8 +464,8 @@ function assertRetryPageCompatible(
     return;
   }
 
-  if (targetPage.responseId !== undefined && targetPage.responseId !== sourcePage.responseId) {
-    throw new Error('Receipt retry target response does not match the durable source job');
+  if (targetPage.responseId !== undefined) {
+    throw new Error('Receipt retry target must not copy remote response ownership');
   }
   if (targetPage.remoteStatus !== undefined && targetPage.remoteStatus !== 'completed') {
     throw new Error('Receipt retry target remote status is incompatible with reusable evidence');
