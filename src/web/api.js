@@ -1,6 +1,7 @@
 import { createRequestCoordinator } from './request-coordinator.js';
 
-const requestCoordinator = createRequestCoordinator();
+const nativeFetch = globalThis.fetch.bind(globalThis);
+const requestCoordinator = createRequestCoordinator({ fetchImpl: nativeFetch });
 
 function emitApiLog(detail) {
   window.dispatchEvent(new CustomEvent('basketra:api-log', { detail }));
@@ -14,9 +15,24 @@ function requestPath(path) {
   }
 }
 
-export function coordinatedFetch(path, options = {}) {
-  return requestCoordinator.request(path, options);
+function isSameOriginRequest(path) {
+  try {
+    const url = new URL(path instanceof Request ? path.url : String(path), location.origin);
+    return url.origin === location.origin;
+  } catch {
+    return false;
+  }
 }
+
+export function coordinatedFetch(path, options = {}) {
+  return isSameOriginRequest(path)
+    ? requestCoordinator.request(path, options)
+    : nativeFetch(path, options);
+}
+
+// Keep api.js as the browser HTTP SSOT even when a feature accidentally calls fetch directly.
+// EventSource and service-worker traffic run in different transport paths and are not wrapped here.
+globalThis.fetch = coordinatedFetch;
 
 export async function api(path, options = {}) {
   const method = options.method || 'GET';
