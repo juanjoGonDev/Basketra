@@ -16,6 +16,7 @@ const RECOVERY_GUIDANCE = Object.freeze({
 });
 
 const SAFE_DIAGNOSTIC_IDENTIFIER = /^[A-Za-z0-9._:-]{1,160}$/u;
+const SAFE_WEBAPI_RESPONSE_ID = /^resp_[A-Za-z0-9]{7,128}$/u;
 const SAFE_AI_CODE = /^AI_[A-Z0-9_]{1,76}$/u;
 
 function normalizedCode(error) {
@@ -34,14 +35,22 @@ function safeDiagnosticIdentifier(value) {
   return SAFE_DIAGNOSTIC_IDENTIFIER.test(normalized) ? normalized : '';
 }
 
+function safeWebApiResponseId(value) {
+  if (typeof value !== 'string') return '';
+  const normalized = value.trim();
+  return SAFE_WEBAPI_RESPONSE_ID.test(normalized) ? normalized : '';
+}
+
 export function buildReceiptAiDiagnostic(error) {
   const code = normalizedCode(error);
   if (!SAFE_AI_CODE.test(code)) return '';
 
   const lines = ['Basketra receipt AI diagnostic', `code=${code}`];
   const jobId = safeDiagnosticIdentifier(error?.jobId);
+  const webApiResponseId = safeWebApiResponseId(error?.webApiResponseId);
   const requestId = safeDiagnosticIdentifier(error?.requestId);
   if (jobId) lines.push(`jobId=${jobId}`);
+  if (webApiResponseId) lines.push(`webApiResponseId=${webApiResponseId}`);
   if (requestId) lines.push(`requestId=${requestId}`);
   if (Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599) {
     lines.push(`status=${error.status}`);
