@@ -20,6 +20,8 @@ import {
   pumpPageQueue,
 } from './receipt-processing.js';
 
+let durableRetryPending = false;
+
 function abortError() {
   return new DOMException('Receipt AI correction was cancelled', 'AbortError');
 }
@@ -262,6 +264,61 @@ export function requestExtraction(captures, verifyWithAi, signal) {
     body: JSON.stringify({ captures, verifyWithAi: false }),
     signal,
   });
+}
+
+export async function retryFailedReceiptExtractionJob() {
+  const sourceJobId = state.activeJobId;
+  if (
+    durableRetryPending
+    || !sourceJobId
+    || !state.aiConfigured
+    || state.captures.length === 0
+  ) {
+    return false;
+  }
+
+  durableRetryPending = true;
+  $('#receipt-state').textContent = 'Iniciando un nuevo intento de IA desde el OCR durable guardado...';
+  let created;
+  try {
+    created = await api('/api/v1/receipts/extraction-jobs', {
+      method: 'POST',
+      body: JSON.stringify({
+        captures: state.captures.map(capture => captureRequest(capture)),
+        verifyWithAi: true,
+        retryOfJobId: sourceJobId,
+      }),
+    });
+  } catch {
+    $('#receipt-state').textContent = 'No se pudo iniciar el reintento de IA. El job anterior y su OCR durable se conservan.';
+    durableRetryPending = false;
+    return false;
+  }
+
+  const retryJobId = created?.job?.id;
+  if (typeof retryJobId !== 'string' || !retryJobId) {
+    $('#receipt-state').textContent = 'El servidor no devolvió un job válido. El intento anterior se conserva para diagnóstico.';
+    durableRetryPending = false;
+    return false;
+  }
+
+  abortPageWork();
+  clearCombinedReview();
+  ensurePageStates();
+  state.jobRealtime?.close();
+  state.jobRealtime = null;
+  state.activeJobId = retryJobId;
+  saveReceiptExtractionJobId(retryJobId);
+  state.verifyWithAi = true;
+  state.processing = true;
+  setPagesForBackgroundJob(created.job?.status ?? 'queued');
+  startReceiptProgress();
+  persistAndRenderCaptures();
+  watchReceiptExtractionJob();
+  void refreshReceiptExtractionJob().catch(() => {});
+  $('#receipt-state').textContent = 'Reintento de IA iniciado desde el OCR durable; las páginas ya completadas se reutilizan.';
+  durableRetryPending = false;
+  return true;
 }
 
 export function clearReceiptExtractionJob({ cancel = false } = {}) {
