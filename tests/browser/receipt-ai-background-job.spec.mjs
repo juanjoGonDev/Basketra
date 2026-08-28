@@ -61,22 +61,21 @@ async function prepareReceipt(page, name = 'receipt.png') {
   await expect(page.locator('.capture-card')).toHaveCount(1);
 }
 
-test('AI correction uses a background extraction job instead of a long synchronous public request', async ({ page }) => {
+test('AI-enabled automatic analysis uses one whole-ticket durable job and no browser OCR request', async ({ page }) => {
   await installControlledEventSource(page);
-  let directAiRequests = 0;
+  let directExtractionRequests = 0;
   let jobCreates = 0;
 
   await page.route('**/api/v1/receipts/extract', route => {
-    const body = route.request().postDataJSON();
-    if (body.verifyWithAi === true) {
-      directAiRequests += 1;
-      return route.fulfill({ status: 504, contentType: 'application/json', body: JSON.stringify({ error: { code: 'PROXY_TIMEOUT' } }) });
-    }
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ extraction: localExtraction() }) });
+    directExtractionRequests += 1;
+    return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'LEGACY_EXTRACTION_MUST_NOT_RUN' } }) });
   });
   await page.route('**/api/v1/receipts/extraction-jobs', route => {
     jobCreates += 1;
-    expect(route.request().postDataJSON().verifyWithAi).toBe(true);
+    const body = route.request().postDataJSON();
+    expect(body.verifyWithAi).toBe(true);
+    expect(body.captures).toHaveLength(1);
+    expect(body.captures[0]).not.toHaveProperty('embeddedText');
     return route.fulfill({
       status: 202,
       contentType: 'application/json',
@@ -93,7 +92,8 @@ test('AI correction uses a background extraction job instead of a long synchrono
 
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada');
   expect(jobCreates).toBe(1);
-  expect(directAiRequests).toBe(0);
+  expect(directExtractionRequests).toBe(0);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.receiptExtractionJobId'))).toBe('receiptextractionjob_async1');
 });
 
 test('AI job state is recovered on realtime reconnect without interval polling', async ({ page }) => {
@@ -102,9 +102,9 @@ test('AI job state is recovered on realtime reconnect without interval polling',
   let statusReads = 0;
 
   await page.route('**/api/v1/receipts/extract', route => route.fulfill({
-    status: 200,
+    status: 500,
     contentType: 'application/json',
-    body: JSON.stringify({ extraction: localExtraction() }),
+    body: JSON.stringify({ error: { code: 'LEGACY_EXTRACTION_MUST_NOT_RUN' } }),
   }));
   await page.route('**/api/v1/receipts/extraction-jobs', route => route.fulfill({
     status: 202,
@@ -134,7 +134,7 @@ test('AI job state is recovered on realtime reconnect without interval polling',
   expect(statusReads).toBe(2);
 });
 
-test('cancelling during job creation deletes the created job without replaying AI', async ({ page }) => {
+test('cancelling during durable job creation deletes the late-created job without replaying work', async ({ page }) => {
   await installControlledEventSource(page);
   let jobCreates = 0;
   let jobDeletes = 0;
@@ -142,9 +142,9 @@ test('cancelling during job creation deletes the created job without replaying A
   const creationResponseGate = new Promise(resolve => { releaseCreation = resolve; });
 
   await page.route('**/api/v1/receipts/extract', route => route.fulfill({
-    status: 200,
+    status: 500,
     contentType: 'application/json',
-    body: JSON.stringify({ extraction: localExtraction() }),
+    body: JSON.stringify({ error: { code: 'LEGACY_EXTRACTION_MUST_NOT_RUN' } }),
   }));
   await page.route('**/api/v1/receipts/extraction-jobs', async route => {
     jobCreates += 1;
@@ -169,17 +169,16 @@ test('cancelling during job creation deletes the created job without replaying A
 
   await prepareReceipt(page, 'cancel-during-create.png');
   await expect.poll(() => jobCreates).toBe(1);
-  const details = page.locator('.capture-card__details');
-  if (!await details.getAttribute('open')) await details.locator('summary').click();
-  await details.getByRole('button', { name: 'Cancelar corrección con IA', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancelar procesamiento', exact: true }).click();
   releaseCreation();
 
   await expect.poll(() => jobDeletes).toBe(1);
   expect(jobCreates).toBe(1);
-  await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada');
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Cancelada');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.receiptExtractionJobId'))).toBeNull();
 });
 
-test('failed AI job exposes a copyable redacted diagnostic', async ({ page }) => {
+test('failed durable AI job exposes a copyable redacted diagnostic', async ({ page }) => {
   await installControlledEventSource(page);
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'clipboard', {
@@ -191,9 +190,9 @@ test('failed AI job exposes a copyable redacted diagnostic', async ({ page }) =>
   const secretFilename = 'private-household-receipt.png';
 
   await page.route('**/api/v1/receipts/extract', route => route.fulfill({
-    status: 200,
+    status: 500,
     contentType: 'application/json',
-    body: JSON.stringify({ extraction: localExtraction(secretOcr) }),
+    body: JSON.stringify({ error: { code: secretOcr } }),
   }));
   await page.route('**/api/v1/receipts/extraction-jobs', route => route.fulfill({
     status: 202,
