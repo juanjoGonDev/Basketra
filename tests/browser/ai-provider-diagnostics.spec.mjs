@@ -137,6 +137,51 @@ test('provider diagnostic renders every stable recovery message and 200-level ne
   await expect(state).not.toContainText('detalle privado');
 });
 
+test('provider diagnostic stays serialized until its final log refresh completes', async ({ page }) => {
+  let blockLogs = false;
+  let releaseLogs;
+  const logGate = new Promise(resolve => { releaseLogs = resolve; });
+  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(settings()),
+  }));
+  await page.route('**/api/v1/settings/ai-provider/test', route => route.fulfill({
+    status: 502,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      connection: {
+        ok: false,
+        imageStructuredOutput: false,
+        code: 'AI_PROVIDER_FAILED',
+        message: 'Private provider detail',
+      },
+    }),
+  }));
+  await page.route('**/api/v1/logs?limit=500', async route => {
+    if (blockLogs) await logGate;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ events: [] }),
+    });
+  });
+
+  await page.goto('/');
+  await openAiSettings(page);
+  blockLogs = true;
+  const button = page.getByRole('button', { name: 'Verificar imagen y JSON estricto', exact: true });
+  const status = page.locator('#ai-test-state');
+  await button.click();
+  await expect(status).toContainText('falló al procesar la imagen sintética');
+  await expect(button).toBeDisabled();
+  await expect(button).toHaveAttribute('aria-busy', '');
+
+  releaseLogs();
+  await expect(button).toBeEnabled();
+  await expect(button).not.toHaveAttribute('aria-busy');
+});
+
 test('provider diagnostic serializes submissions and ignores a superseded response', async ({ page }) => {
   let requests = 0;
   let releaseFirstRequest;
