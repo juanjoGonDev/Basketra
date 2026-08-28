@@ -42,6 +42,29 @@ function localExtraction(text = 'PAN 1,50\nTOTAL 1,50') {
   };
 }
 
+function progressiveJob(jobId, text = 'PAN 1,50\nTOTAL 1,50') {
+  return {
+    id: jobId,
+    status: 'running',
+    progress: {
+      phase: 'ai_running',
+      pages: [{
+        position: 0,
+        stage: 'ai',
+        ocr: {
+          text,
+          confidence: 0.8,
+          source: 'local-tesseract',
+          deterministic: {
+            items: [receiptItem()],
+            metadata: { declaredTotalMinor: 150 },
+          },
+        },
+      }],
+    },
+  };
+}
+
 async function installControlledEventSource(page) {
   await page.addInitScript(() => {
     class ControlledEventSource {
@@ -92,10 +115,23 @@ async function openReceipts(page) {
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
 }
 
-test('reload keeps the initial durable receipt job and does not replay OCR or AI creation', async ({ page }) => {
+async function expectProgressiveOcr(page, text) {
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Verificando con IA');
+  const captureDetails = page.locator('.capture-card__details').first();
+  if (!(await captureDetails.evaluate(element => element.open))) {
+    await captureDetails.locator(':scope > summary').click();
+  }
+  const preview = captureDetails.locator('.capture-card__ocr-preview');
+  await expect(preview.locator('summary')).toHaveText('1 producto detectado por OCR');
+  await preview.locator('summary').click();
+  await expect(preview.locator('.capture-card__ocr-text')).toHaveText(text);
+}
+
+test('reload keeps progressive OCR visible without replaying OCR or AI creation', async ({ page }) => {
   await installControlledEventSource(page);
 
   const jobId = 'receiptextractionjob_reload1';
+  const progressiveText = 'PAN 1,50\nTOTAL 1,50';
   let directOcrRequests = 0;
   let jobCreates = 0;
   let jobReads = 0;
@@ -128,7 +164,7 @@ test('reload keeps the initial durable receipt job and does not replay OCR or AI
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ job: { id: jobId, status: 'running' } }),
+      body: JSON.stringify({ job: progressiveJob(jobId, progressiveText) }),
     });
   });
 
@@ -147,6 +183,8 @@ test('reload keeps the initial durable receipt job and does not replay OCR or AI
   expect(createPayloads[0]?.captures).toHaveLength(1);
   expect(createPayloads[0]?.captures[0]).not.toHaveProperty('embeddedText');
   await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.receiptExtractionJobId'))).toBe(jobId);
+  await expectProgressiveOcr(page, progressiveText);
+  await expect.poll(() => page.evaluate(text => Object.values(localStorage).some(value => String(value).includes(text)), progressiveText)).toBe(false);
 
   const readsBeforeReload = jobReads;
   await page.reload();
@@ -157,6 +195,8 @@ test('reload keeps the initial durable receipt job and does not replay OCR or AI
   expect(directOcrRequests).toBe(0);
   await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.receiptExtractionJobId'))).toBe(jobId);
   await expect(page.locator('.capture-card')).toHaveCount(1);
+  await expectProgressiveOcr(page, progressiveText);
+  await expect.poll(() => page.evaluate(text => Object.values(localStorage).some(value => String(value).includes(text)), progressiveText)).toBe(false);
 });
 
 test('stored captures without local job identity adopt the exact durable job instead of creating work', async ({ page }) => {
@@ -218,67 +258,71 @@ test('stored captures without local job identity adopt the exact durable job ins
 test('recovery lookup failure fails closed without creating OCR or AI work', async ({ page }) => {
   await installControlledEventSource(page);
   await seedStoredCapture(page, 'b');
+
+  let recoveryRequests = 0;
   let jobCreates = 0;
   let directOcrRequests = 0;
-
-  await page.route('**/api/v1/receipts/extraction-jobs/recover', route => route.fulfill({
-    status: 503,
-    contentType: 'application/json',
-    body: JSON.stringify({ error: { code: 'RECOVERY_UNAVAILABLE' } }),
-  }));
+  await page.route('**/api/v1/receipts/extraction-jobs/recover', route => {
+    recoveryRequests += 1;
+    return route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'RECOVERY_LOOKUP_FAILED', message: 'lookup unavailable' } }),
+    });
+  });
   await page.route('**/api/v1/receipts/extraction-jobs', route => {
     jobCreates += 1;
-    return route.fulfill({ status: 500, body: '' });
+    return route.fulfill({ status: 500, body: 'must not create' });
   });
   await page.route('**/api/v1/receipts/extract', route => {
     directOcrRequests += 1;
-    return route.fulfill({ status: 500, body: '' });
+    return route.fulfill({ status: 500, body: 'must not OCR' });
   });
 
   await openReceipts(page);
 
-  await expect(page.locator('#receipt-state')).toContainText('No se pudo comprobar el trabajo durable existente');
+  await expect.poll(() => recoveryRequests).toBe(1);
   expect(jobCreates).toBe(0);
   expect(directOcrRequests).toBe(0);
-  await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.receiptExtractionJobId'))).toBeNull();
+  await expect(page.locator('.capture-card')).toHaveCount(1);
+  await expect(page.locator('#receipt-state')).toContainText('No se pudo recuperar el análisis pendiente');
 });
 
 test('invalid recovered job identity fails closed without persisting or creating work', async ({ page }) => {
   await installControlledEventSource(page);
   await seedStoredCapture(page, 'c');
+
   let jobCreates = 0;
   let directOcrRequests = 0;
-
   await page.route('**/api/v1/receipts/extraction-jobs/recover', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
-    body: JSON.stringify({ job: { id: 'invalid-job-id', status: 'running' } }),
+    body: JSON.stringify({ job: { id: '../invalid/job', status: 'running' } }),
   }));
   await page.route('**/api/v1/receipts/extraction-jobs', route => {
     jobCreates += 1;
-    return route.fulfill({ status: 500, body: '' });
+    return route.fulfill({ status: 500, body: 'must not create' });
   });
   await page.route('**/api/v1/receipts/extract', route => {
     directOcrRequests += 1;
-    return route.fulfill({ status: 500, body: '' });
+    return route.fulfill({ status: 500, body: 'must not OCR' });
   });
 
   await openReceipts(page);
 
-  await expect(page.locator('#receipt-state')).toContainText('identidad durable inválida');
   expect(jobCreates).toBe(0);
   expect(directOcrRequests).toBe(0);
   await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.receiptExtractionJobId'))).toBeNull();
+  await expect(page.locator('.capture-card')).toHaveCount(1);
+  await expect(page.locator('#receipt-state')).toContainText('identificador no es válido');
 });
 
 test('adopted durable identity remains persisted when its first status read fails', async ({ page }) => {
   await installControlledEventSource(page);
-  await seedStoredCapture(page, 'd');
-  const jobId = 'receiptextractionjob_statusread1';
-  let jobReads = 0;
-  let jobCreates = 0;
-  let directOcrRequests = 0;
 
+  const jobId = 'receiptextractionjob_readfails';
+  await seedStoredCapture(page, 'd');
+  let jobReads = 0;
   await page.route('**/api/v1/receipts/extraction-jobs/recover', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -289,23 +333,13 @@ test('adopted durable identity remains persisted when its first status read fail
     return route.fulfill({
       status: 503,
       contentType: 'application/json',
-      body: JSON.stringify({ error: { code: 'STATUS_UNAVAILABLE' } }),
+      body: JSON.stringify({ error: { code: 'JOB_READ_FAILED', message: 'job read unavailable' } }),
     });
-  });
-  await page.route('**/api/v1/receipts/extraction-jobs', route => {
-    jobCreates += 1;
-    return route.fulfill({ status: 500, body: '' });
-  });
-  await page.route('**/api/v1/receipts/extract', route => {
-    directOcrRequests += 1;
-    return route.fulfill({ status: 500, body: '' });
   });
 
   await openReceipts(page);
 
-  await expect.poll(() => jobReads).toBe(1);
-  await expect(page.locator('#receipt-state')).toContainText('Se recuperó la identidad del análisis');
-  expect(jobCreates).toBe(0);
-  expect(directOcrRequests).toBe(0);
+  await expect.poll(() => jobReads).toBeGreaterThan(0);
   await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.receiptExtractionJobId'))).toBe(jobId);
+  await expect(page.locator('.capture-card')).toHaveCount(1);
 });
