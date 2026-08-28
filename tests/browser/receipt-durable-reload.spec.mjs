@@ -110,4 +110,4 @@ test('reload keeps the initial durable receipt job and does not replay OCR or AI
   expect(directOcrRequests).toBe(0);
   await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.receiptExtractionJobId'))).toBe(jobId);
   await expect(page.locator('.capture-card')).toHaveCount(1);
-}
+});
