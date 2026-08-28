@@ -70,38 +70,38 @@ export class ReceiptDurableExtractionRunner {
       pageCount: captures.length,
     });
     const deadlineAt = state.deadlineAt;
+    const operationSignal = signal ?? new AbortController().signal;
 
     try {
-      return await this.runBeforeDeadline(
+      const ocrPages = await this.ensureOcrPages(
+        job.id,
+        captures,
         deadlineAt,
-        async (operationSignal) => {
-          const ocrPages = await this.ensureOcrPages(job.id, captures, operationSignal);
-          this.#durableStore.markPhase(job.id, 'ai_pending');
-          const verified: ReceiptPageEvidence[] = [];
-          for (const [position, page] of ocrPages.entries()) {
-            operationSignal.throwIfAborted();
-            const interpretation = await this.ensureRemotePage(
-              job.id,
-              captures[position]!,
-              page,
-              position,
-              captures.length,
-              deadlineAt,
-              operationSignal,
-            );
-            verified.push({
-              ...page,
-              ai: {
-                interpretation,
-                attempts: 1,
-              },
-            });
-          }
-          this.#durableStore.markPhase(job.id, 'completed');
-          return assembleReceiptExtraction(verified);
-        },
-        signal,
+        operationSignal,
       );
+      this.#durableStore.markPhase(job.id, 'ai_pending');
+      const verified: ReceiptPageEvidence[] = [];
+      for (const [position, page] of ocrPages.entries()) {
+        operationSignal.throwIfAborted();
+        const interpretation = await this.ensureRemotePage(
+          job.id,
+          captures[position]!,
+          page,
+          position,
+          captures.length,
+          deadlineAt,
+          operationSignal,
+        );
+        verified.push({
+          ...page,
+          ai: {
+            interpretation,
+            attempts: 1,
+          },
+        });
+      }
+      this.#durableStore.markPhase(job.id, 'completed');
+      return assembleReceiptExtraction(verified);
     } catch (error) {
       if (!isAbortFromCaller(error, signal)) this.#durableStore.markPhase(job.id, 'failed');
       throw error;
@@ -155,6 +155,7 @@ export class ReceiptDurableExtractionRunner {
   private async ensureOcrPages(
     jobId: string,
     captures: readonly ReceiptCaptureRequest[],
+    deadlineAt: string,
     signal: AbortSignal,
   ): Promise<ReceiptPageEvidence[]> {
     this.#durableStore.markPhase(jobId, 'ocr_running');
@@ -162,7 +163,16 @@ export class ReceiptDurableExtractionRunner {
     const pending = captures.map(async (capture, position) => {
       const persisted = before.pages[position]?.ocr;
       if (persisted) return persisted;
-      const page = await this.#extractionService.extractOcrPage(capture, position, signal);
+      const page = await this.runBeforeDeadline(
+        deadlineAt,
+        async (deadlineSignal) =>
+          await this.#extractionService.extractOcrPage(
+            capture,
+            position,
+            deadlineSignal,
+          ),
+        signal,
+      );
       this.#durableStore.saveOcrPage(jobId, position, page);
       return page;
     });
@@ -187,7 +197,7 @@ export class ReceiptDurableExtractionRunner {
 
     if (page.responseId) {
       this.#durableStore.markPhase(jobId, 'ai_running');
-      remote = await this.reconcileUntilTerminal(page.responseId, deadlineAt, signal);
+      remote = await this.reconcileUntilTerminal(page.responseId, signal);
     } else {
       const stored = this.#fileStore.read(capture.storageKey);
       const createInput: CreateReceiptResponseInput = {
@@ -210,7 +220,7 @@ export class ReceiptDurableExtractionRunner {
       if (remote.status === 'queued' || remote.status === 'in_progress') {
         signal.throwIfAborted();
         this.#durableStore.markPhase(jobId, 'ai_running');
-        remote = await this.reconcileUntilTerminal(remote.id, deadlineAt, signal);
+        remote = await this.reconcileUntilTerminal(remote.id, signal);
       }
     }
 
@@ -244,7 +254,15 @@ export class ReceiptDurableExtractionRunner {
       signal.throwIfAborted();
       assertBeforeDeadline(deadlineAt, this.#now());
       try {
-        return await this.#responses.create(input);
+        return await this.runBeforeDeadline(
+          deadlineAt,
+          async (deadlineSignal) =>
+            await this.#responses.create({
+              ...input,
+              signal: deadlineSignal,
+            }),
+          signal,
+        );
       } catch (error) {
         if (!isRetryableTransportError(error)) throw error;
         await this.waitBeforeRetry(deadlineAt, signal);
@@ -254,24 +272,20 @@ export class ReceiptDurableExtractionRunner {
 
   private async reconcileUntilTerminal(
     responseId: string,
-    deadlineAt: string,
     signal: AbortSignal,
   ): Promise<ReceiptRemoteResponse> {
     while (true) {
       signal.throwIfAborted();
-      const remainingMs = remainingMilliseconds(deadlineAt, this.#now());
-      if (remainingMs <= 0) throw new ReceiptAiVerificationTimeoutError();
-      const waitSeconds = Math.min(
-        MAX_REMOTE_WAIT_SECONDS,
-        Math.max(1, Math.ceil(remainingMs / 1000)),
-      );
       try {
-        const response = await this.#responses.get(responseId, { waitSeconds, signal });
+        const response = await this.#responses.get(responseId, {
+          waitSeconds: MAX_REMOTE_WAIT_SECONDS,
+          signal,
+        });
         if (response.status !== 'queued' && response.status !== 'in_progress') return response;
-        await this.waitBeforeRetry(deadlineAt, signal);
+        await this.#retryDelay(RETRY_DELAY_MS, signal);
       } catch (error) {
         if (!isRetryableTransportError(error)) throw error;
-        await this.waitBeforeRetry(deadlineAt, signal);
+        await this.#retryDelay(RETRY_DELAY_MS, signal);
       }
     }
   }
