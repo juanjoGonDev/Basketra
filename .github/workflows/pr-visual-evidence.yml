@@ -218,8 +218,9 @@ jobs:
           copy_flow_capture mobile-settings-receipts-s settings-light-390.png 11-settings-light-390.png
           copy_flow_capture mobile-settings-receipts-s settings-light-768.png 11-settings-light-768.png
           copy_flow_capture receipt-auto-review-flow-r test-finished-1.png 12-auto-ocr-review.png
+          copy_flow_capture catalog-management-saved-c catalog-mobile.png 13-catalog-management.png
 
-          test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 19
+          test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 20
           test "$(find evidence-assets -maxdepth 1 -type f -name '*.gif' | wc -l)" -eq 12
           test "$(find evidence-assets -maxdepth 1 -type f -name '*.webm' | wc -l)" -eq 12
 
@@ -275,6 +276,10 @@ jobs:
           ## Visual evidence
 
           Generated from final head \`$HEAD_SHA\` after the [successful browser workflow]($run_url). The media is temporary, directly viewable and is not committed to the repository.
+
+          ### Catalog management
+
+          <img src="$base/13-catalog-management.png" width="320" alt="Basketra saved-product catalog management on a 390 pixel mobile viewport with canonical product, parent relation and retailer-specific names">
 
           ### Responsive Settings and receipt review
 
