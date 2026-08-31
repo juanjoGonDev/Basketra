@@ -1,4 +1,4 @@
-import { AiProviderError, type AiProviderRuntimeCapabilities } from './provider.ts';
+import { AiProviderError } from './provider.ts';
 
 const MAX_RUNTIME_CAPABILITIES_BYTES = 32 * 1024;
 
@@ -10,7 +10,7 @@ export async function fetchAiRuntimeCapabilities(
     signal?: AbortSignal;
     fetchImplementation?: typeof fetch;
   }>,
-): Promise<AiProviderRuntimeCapabilities | undefined> {
+): Promise<unknown | undefined> {
   const fetchImplementation = input.fetchImplementation ?? fetch;
   let response: Response;
   try {
@@ -47,41 +47,8 @@ export async function fetchAiRuntimeCapabilities(
   }
 
   const text = await readBoundedText(response);
-  return parseAiRuntimeCapabilities(text);
-}
-
-export function parseAiRuntimeCapabilities(
-  value: string,
-): AiProviderRuntimeCapabilities | undefined {
   try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!isRecord(parsed)) return undefined;
-    const attachments = parsed['attachments'];
-    const execution = parsed['execution'];
-    const requests = parsed['requests'];
-    if (!isRecord(attachments) || !isRecord(execution) || !isRecord(requests)) {
-      return undefined;
-    }
-
-    return {
-      attachments: {
-        maxCount: readPositiveInteger(attachments['maxCount']),
-        maxFileBytes: readPositiveInteger(attachments['maxFileBytes']),
-        maxImageBytes: readPositiveInteger(attachments['maxImageBytes']),
-        maxSpreadsheetBytes: readPositiveInteger(attachments['maxSpreadsheetBytes']),
-        maxUploadsPerThreeHours: readPositiveInteger(
-          attachments['maxUploadsPerThreeHours'],
-        ),
-      },
-      execution: {
-        replyInactivityTimeoutMs: readPositiveInteger(
-          execution['replyInactivityTimeoutMs'],
-        ),
-      },
-      requests: {
-        maxJsonBodyBytes: readPositiveInteger(requests['maxJsonBodyBytes']),
-      },
-    };
+    return JSON.parse(text) as unknown;
   } catch {
     return undefined;
   }
@@ -121,15 +88,4 @@ function ensureTrailingSlash(url: URL): URL {
   const copy = new URL(url);
   if (!copy.pathname.endsWith('/')) copy.pathname += '/';
   return copy;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function readPositiveInteger(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
-    throw new RangeError('Capability must be a positive safe integer');
-  }
-  return value;
 }
