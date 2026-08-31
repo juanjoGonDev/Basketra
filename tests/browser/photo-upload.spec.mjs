@@ -4,6 +4,8 @@ const validPng = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8//8/AwMDEwMDAwMDAwAkBgMB/DXemwAAAABJRU5ErkJggg==',
   'base64',
 );
+const DEFAULT_IMAGE_LIMIT = 20 * 1024 * 1024;
+const DEFAULT_FILE_LIMIT = 512 * 1024 * 1024;
 
 function watchBrowser(page, allowExpectedServerError = false) {
   const failures = [];
@@ -18,6 +20,29 @@ function watchBrowser(page, allowExpectedServerError = false) {
     if (!reason.includes('net::ERR_ABORTED')) failures.push(`request: ${request.method()} ${reason}`);
   });
   return failures;
+}
+
+async function installRuntimeCapabilities(page, getImageLimit = () => DEFAULT_IMAGE_LIMIT) {
+  let reads = 0;
+  await page.route('**/api/v1/ai/runtime-capabilities', async route => {
+    reads += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        attachments: {
+          maxCount: 10,
+          maxFileBytes: DEFAULT_FILE_LIMIT,
+          maxImageBytes: getImageLimit(),
+          maxSpreadsheetBytes: 50 * 1024 * 1024,
+          maxUploadsPerThreeHours: 80,
+        },
+        execution: { replyInactivityTimeoutMs: 120_000 },
+        requests: { maxJsonBodyBytes: 500 * 1024 * 1024 },
+      }),
+    });
+  });
+  return () => reads;
 }
 
 async function openTickets(page, allowExpectedServerError = false) {
@@ -46,6 +71,7 @@ async function expectNoOverflow(page) {
 }
 
 test('camera and gallery photos upload, deduplicate and persist after reload', async ({ page }) => {
+  await installRuntimeCapabilities(page);
   const failures = await openTickets(page);
   const storageKeys = [];
   page.on('response', async response => {
@@ -76,24 +102,20 @@ test('camera and gallery photos upload, deduplicate and persist after reload', a
   expect(failures).toEqual([]);
 });
 
-test('oversized photo explains the selected size and configured limit', async ({ page }) => {
-  const configuredLimit = 1024 * 1024;
-  await page.route('**/api/v1/meta', async route => {
-    const response = await route.fetch();
-    const body = await response.json();
-    await route.fulfill({
-      response,
-      json: {
-        ...body,
-        files: {
-          ...body.files,
-          maxBytes: configuredLimit,
-        },
-      },
-    });
-  });
-
+test('oversized photo uses the latest WebAPI limit and explains both sizes', async ({ page }) => {
+  let configuredLimit = 2 * 1024 * 1024;
+  const capabilityReads = await installRuntimeCapabilities(page, () => configuredLimit);
   const failures = await openTickets(page);
+
+  await page.locator('#receipt-files').setInputFiles({
+    name: 'baseline.png',
+    mimeType: 'image/png',
+    buffer: validPng,
+  });
+  await expect(page.locator('#capture-list li')).toHaveCount(1);
+  expect(capabilityReads()).toBe(1);
+
+  configuredLimit = 1024 * 1024;
   await page.locator('#receipt-files').setInputFiles({
     name: 'large.png',
     mimeType: 'image/png',
@@ -103,11 +125,13 @@ test('oversized photo explains the selected size and configured limit', async ({
   await expect(page.locator('#upload-state')).toHaveText(
     'El archivo large.png ocupa 1,5 MB y supera el límite de 1 MB',
   );
-  await expect(page.locator('#capture-list li')).toHaveCount(0);
+  await expect(page.locator('#capture-list li')).toHaveCount(1);
+  expect(capabilityReads()).toBe(2);
   expect(failures).toEqual([]);
 });
 
 test('a failed photo upload preserves the draft and succeeds on retry', async ({ page }) => {
+  await installRuntimeCapabilities(page);
   const failures = await openTickets(page, true);
   await page.locator('#receipt-camera').setInputFiles({ name: 'existing.png', mimeType: 'image/png', buffer: validPng });
   await expect(page.locator('#capture-list li')).toHaveCount(1);
