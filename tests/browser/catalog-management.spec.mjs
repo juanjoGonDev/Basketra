@@ -85,9 +85,11 @@ test('saved catalog products can be browsed, edited and related on mobile', asyn
   await expect(page.getByText('Mercadona', { exact: true })).toBeVisible();
   await expect(page.getByText('Leche entera Hacendado 1 L', { exact: true })).toBeVisible();
 
+  const saveProduct = page.getByRole('button', { name: 'Guardar ficha' });
   await page.locator('#catalog-canonical-name').fill('Leche fresca');
-  await page.getByRole('button', { name: 'Guardar ficha' }).click();
+  await saveProduct.click();
   await expect.poll(() => productPatch?.canonicalName).toBe('Leche fresca');
+  await expect(saveProduct).toBeEnabled();
 
   await page.locator('#catalog-parent-select').selectOption('parent_dairy');
   await page.getByRole('button', { name: 'Relacionar con el padre elegido' }).click();
@@ -140,12 +142,15 @@ test('receipt line total is read-only, backend-derived and ignores stale calcula
 
   await page.goto('/#home');
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
-  await page.locator('#add-manual-line').click();
+  await page.getByRole('button', { name: 'Añadir línea', exact: true }).click();
 
-  const quantity = page.locator('[data-field="quantity"]').last();
-  const unitPrice = page.locator('[data-field="unitPriceEuro"]').last();
-  const discount = page.locator('[data-field="discountEuro"]').last();
-  const total = page.locator('[data-field="lineTotalEuro"]').last();
+  const editor = page.locator('#receipt-line-dialog');
+  if (!(await editor.isVisible())) await page.locator('.receipt-line-compact').last().click();
+  await expect(editor).toBeVisible();
+  const quantity = editor.locator('[data-field="quantity"]');
+  const unitPrice = editor.locator('[data-field="unitPriceEuro"]');
+  const discount = editor.locator('[data-field="discountEuro"]');
+  const total = editor.locator('[data-field="lineTotalEuro"]');
   await expect(total).toBeVisible();
   await expect(total).toHaveJSProperty('readOnly', true);
 
