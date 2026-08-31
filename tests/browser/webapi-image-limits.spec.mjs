@@ -115,6 +115,9 @@ test('receipt upload keeps local OCR available while showing the live WebAPI ima
   await installConfiguredAi(page, () => 1024 * 1024);
   await page.goto('/');
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
+  await expect(page.locator('#receipt-ai-limit-help')).toHaveText(
+    'Límites actuales de WebAPI: imágenes 1 MB · PDF/archivos 512 MB.',
+  );
 
   const oversizedBytes = 1024 * 1024 + 512 * 1024;
   const oversizedPng = Buffer.concat([
