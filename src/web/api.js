@@ -2,6 +2,10 @@ export const DEFAULT_REQUEST_THROTTLE_MS = 1000;
 
 const PARALLEL_POST_PATHS = new Set([
   '/api/v1/receipts/extract',
+  '/api/v1/receipts/calculate-line',
+]);
+const UNTHROTTLED_PATHS = new Set([
+  '/api/v1/receipts/calculate-line',
 ]);
 
 function defaultBaseUrl() {
@@ -126,6 +130,7 @@ export function createRequestCoordinator({
   };
 
   const request = (input, init = {}) => {
+    const url = requestUrl(input, baseUrl);
     const bucketKey = requestBucketKey(input, init, baseUrl);
     const bucket = getBucket(bucketKey);
     const coalescible = isCoalescibleRead(input, init);
@@ -135,8 +140,13 @@ export function createRequestCoordinator({
       if (existing) return existing.then(response => response.clone());
     }
 
-    const execute = () => scheduleStart(bucket, init.signal)
-      .then(() => fetchImpl(input, init));
+    const execute = () => {
+      if (UNTHROTTLED_PATHS.has(url.pathname)) {
+        throwIfAborted(init.signal);
+        return fetchImpl(input, init);
+      }
+      return scheduleStart(bucket, init.signal).then(() => fetchImpl(input, init));
+    };
     const serializedMutation = isSerializedMutation(input, init, baseUrl);
     const transport = serializedMutation
       ? bucket.mutationTail.catch(() => undefined).then(execute)
