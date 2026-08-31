@@ -102,7 +102,7 @@ test('camera and gallery photos upload, deduplicate and persist after reload', a
   expect(failures).toEqual([]);
 });
 
-test('oversized photo uses the latest WebAPI limit and explains both sizes', async ({ page }) => {
+test('oversized photo uses the latest WebAPI limit without blocking local OCR', async ({ page }) => {
   let configuredLimit = 2 * 1024 * 1024;
   const capabilityReads = await installRuntimeCapabilities(page, () => configuredLimit);
   const failures = await openTickets(page);
@@ -123,9 +123,9 @@ test('oversized photo uses the latest WebAPI limit and explains both sizes', asy
   });
 
   await expect(page.locator('#upload-state')).toHaveText(
-    'El archivo large.png ocupa 1,5 MB y supera el límite de 1 MB',
+    'Capturas guardadas. OCR iniciado. El archivo large.png ocupa 1,5 MB y supera el límite de 1 MB',
   );
-  await expect(page.locator('#capture-list li')).toHaveCount(1);
+  await expect(page.locator('#capture-list li')).toHaveCount(2);
   expect(capabilityReads()).toBe(2);
   expect(failures).toEqual([]);
 });
