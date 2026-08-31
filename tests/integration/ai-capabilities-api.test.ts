@@ -10,7 +10,12 @@ import { OperationsGateway } from '../../src/operations/gateway.ts';
 
 const TEST_API_KEY = 'abc';
 
-function config(dataDir: string, aiBaseUrl: string): AppConfig {
+function config(
+  dataDir: string,
+  aiBaseUrl: string,
+  options: Readonly<{ apiKey?: string; model?: string }> = {},
+): AppConfig {
+  const apiKey = options.apiKey === undefined ? TEST_API_KEY : options.apiKey;
   return {
     host: '127.0.0.1',
     port: 0,
@@ -18,8 +23,8 @@ function config(dataDir: string, aiBaseUrl: string): AppConfig {
     tempDir: `${dataDir}/tmp`,
     maxBodyBytes: 8 * 1024 * 1024,
     aiBaseUrl,
-    aiApiKey: TEST_API_KEY,
-    aiModel: 'default',
+    ...(apiKey ? { aiApiKey: apiKey } : {}),
+    aiModel: options.model ?? 'default',
     aiMaxRetries: 0,
     aiImageCapability: true,
     aiPdfCapability: false,
@@ -41,6 +46,21 @@ function capabilityBody(maxImageBytes: number): string {
     execution: { replyInactivityTimeoutMs: 120_000 },
     requests: { maxJsonBodyBytes: 500 * 1024 * 1024 },
   });
+}
+
+async function listen(server: ReturnType<typeof createServer>): Promise<number> {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+  return (server.address() as AddressInfo).port;
+}
+
+async function closeServer(server: ReturnType<typeof createServer>): Promise<void> {
+  await new Promise<void>((resolve) => server.close(() => resolve()));
 }
 
 test('AI capability preflight resolves WebAPI limits on every request', async () => {
@@ -74,14 +94,7 @@ test('AI capability preflight resolves WebAPI limits on every request', async ()
     }
     response.writeHead(404).end();
   });
-  await new Promise<void>((resolve, reject) => {
-    webApi.once('error', reject);
-    webApi.listen(0, '127.0.0.1', () => {
-      webApi.off('error', reject);
-      resolve();
-    });
-  });
-  const webApiPort = (webApi.address() as AddressInfo).port;
+  const webApiPort = await listen(webApi);
   const gateway = new OperationsGateway(
     config(directory, `http://127.0.0.1:${webApiPort}/v1/`),
   );
@@ -106,7 +119,6 @@ test('AI capability preflight resolves WebAPI limits on every request', async ()
       ((await second.json()) as { attachments: { maxImageBytes: number } }).attachments.maxImageBytes,
       12 * 1024 * 1024,
     );
-
     assert.equal(capabilityReads, baselineReads + 2);
     assert.deepEqual(authorizations.slice(-2), [
       `Bearer ${TEST_API_KEY}`,
@@ -114,7 +126,99 @@ test('AI capability preflight resolves WebAPI limits on every request', async ()
     ]);
   } finally {
     await gateway.close();
-    await new Promise<void>((resolve) => webApi.close(() => resolve()));
+    await closeServer(webApi);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('AI capability preflight reports an unconfigured provider without an upstream request', async () => {
+  const directory = `.test-tmp/ai-capabilities-unconfigured-${randomUUID()}`;
+  const gateway = new OperationsGateway(config(directory, '', { model: '' }));
+
+  try {
+    await gateway.listen();
+    const response = await fetch(
+      `http://127.0.0.1:${gateway.address().port}/api/v1/ai/runtime-capabilities`,
+    );
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), {
+      error: {
+        code: 'AI_NOT_CONFIGURED',
+        message: 'El proveedor de IA no está configurado',
+      },
+    });
+  } finally {
+    await gateway.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('AI capability preflight maps an unsupported capabilities endpoint without inventing limits', async () => {
+  const directory = `.test-tmp/ai-capabilities-unsupported-${randomUUID()}`;
+  const authorizations: Array<string | undefined> = [];
+  const webApi = createServer((request, response) => {
+    if (request.method === 'GET' && request.url === '/v1/capabilities') {
+      authorizations.push(request.headers.authorization);
+      response.writeHead(404).end();
+      return;
+    }
+    response.writeHead(503).end();
+  });
+  const webApiPort = await listen(webApi);
+  const gateway = new OperationsGateway(
+    config(directory, `http://127.0.0.1:${webApiPort}/v1/`, { apiKey: '' }),
+  );
+
+  try {
+    await gateway.listen();
+    const response = await fetch(
+      `http://127.0.0.1:${gateway.address().port}/api/v1/ai/runtime-capabilities`,
+    );
+    assert.equal(response.status, 502);
+    assert.deepEqual(await response.json(), {
+      error: {
+        code: 'AI_CAPABILITIES_UNAVAILABLE',
+        message: 'WebAPI no publicó límites de archivo utilizables',
+      },
+    });
+    assert.equal(authorizations.at(-1), undefined);
+  } finally {
+    await gateway.close();
+    await closeServer(webApi);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('AI capability preflight maps upstream authentication failures', async () => {
+  const directory = `.test-tmp/ai-capabilities-auth-${randomUUID()}`;
+  const webApi = createServer((request, response) => {
+    if (request.method === 'GET' && request.url === '/v1/capabilities') {
+      response.writeHead(401, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ error: { code: 'authentication_failed' } }));
+      return;
+    }
+    response.writeHead(503).end();
+  });
+  const webApiPort = await listen(webApi);
+  const gateway = new OperationsGateway(
+    config(directory, `http://127.0.0.1:${webApiPort}/v1/`),
+  );
+
+  try {
+    await gateway.listen();
+    const response = await fetch(
+      `http://127.0.0.1:${gateway.address().port}/api/v1/ai/runtime-capabilities`,
+    );
+    assert.equal(response.status, 502);
+    assert.deepEqual(await response.json(), {
+      error: {
+        code: 'AI_AUTHENTICATION_FAILED',
+        message: 'El proveedor de IA rechazó sus credenciales',
+      },
+    });
+  } finally {
+    await gateway.close();
+    await closeServer(webApi);
     rmSync(directory, { recursive: true, force: true });
   }
 });
