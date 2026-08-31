@@ -84,6 +84,14 @@ function normalizeText(value: string): string {
   return value.replace(/\s+/gu, ' ').trim();
 }
 
+function decodePathSegment(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    throw new ApiError(400, 'INVALID_PATH_PARAMETER', 'Path parameter is not valid URL encoding');
+  }
+}
+
 function escapeLike(value: string): string {
   return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
 }
@@ -198,13 +206,18 @@ export function listCatalog(databasePath: string, input: Readonly<{ query?: stri
             AND product_aliases.alias LIKE ? ESCAPE '\\' COLLATE NOCASE
         )
         OR EXISTS (
-          SELECT 1 FROM retailer_listings
+          SELECT 1
+          FROM retailer_listings
+          JOIN retailers ON retailers.id = retailer_listings.retailer_id
           WHERE retailer_listings.product_variant_id = product_variants.id
-            AND retailer_listings.title LIKE ? ESCAPE '\\' COLLATE NOCASE
+            AND (
+              retailer_listings.title LIKE ? ESCAPE '\\' COLLATE NOCASE
+              OR retailers.name LIKE ? ESCAPE '\\' COLLATE NOCASE
+            )
         )
       ORDER BY canonical_products.name COLLATE NOCASE, product_variants.name COLLATE NOCASE, product_variants.id
       LIMIT ? OFFSET ?
-    `).all(query, like, like, like, like, like, limit + 1, offset) as ProductRow[];
+    `).all(query, like, like, like, like, like, like, limit + 1, offset) as ProductRow[];
     const hasMore = rows.length > limit;
     const pageRows = rows.slice(0, limit);
     const productIds = pageRows.map((row) => row.id);
@@ -359,7 +372,7 @@ export async function handleCatalogManagementRequest(context: CatalogApiContext)
 
   const parentMatch = /^\/api\/v1\/catalog\/products\/([^/]+)\/parent$/.exec(context.pathname);
   if (parentMatch?.[1] && context.method === 'PUT') {
-    const variantId = decodeURIComponent(parentMatch[1]);
+    const variantId = decodePathSegment(parentMatch[1]);
     const body = asRecord(await context.readJson());
     const existingParentId = body['canonicalProductId'] === undefined
       ? undefined
@@ -379,7 +392,7 @@ export async function handleCatalogManagementRequest(context: CatalogApiContext)
 
   const retailerMatch = /^\/api\/v1\/catalog\/products\/([^/]+)\/retailer-name$/.exec(context.pathname);
   if (retailerMatch?.[1] && context.method === 'PUT') {
-    const variantId = decodeURIComponent(retailerMatch[1]);
+    const variantId = decodePathSegment(retailerMatch[1]);
     const body = asRecord(await context.readJson());
     const retailerName = normalizeText(asString(body['retailerName'], '$.retailerName', { min: 1, max: 160 }));
     const title = normalizeText(asString(body['title'], '$.title', { min: 1, max: 240 }));
