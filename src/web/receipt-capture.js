@@ -328,6 +328,49 @@ export function formatMegabytes(bytes) {
   }).format(megabytes);
 }
 
+function ensureReceiptAiLimitHelp() {
+  let help = $('#receipt-ai-limit-help');
+  if (help) return help;
+  const anchor = $('#receipt-ai-help');
+  if (!anchor) return null;
+  help = document.createElement('p');
+  help.id = 'receipt-ai-limit-help';
+  help.className = 'field-help';
+  help.setAttribute('role', 'status');
+  anchor.insertAdjacentElement('afterend', help);
+  return help;
+}
+
+function renderReceiptAiLimits(runtimeCapabilities) {
+  const maxImageBytes = runtimeCapabilities?.attachments?.maxImageBytes;
+  const maxFileBytes = runtimeCapabilities?.attachments?.maxFileBytes;
+  if (!Number.isSafeInteger(maxImageBytes) || maxImageBytes <= 0 || !Number.isSafeInteger(maxFileBytes) || maxFileBytes <= 0) {
+    throw new Error('WebAPI no ha devuelto límites de adjuntos válidos');
+  }
+  const help = ensureReceiptAiLimitHelp();
+  if (help) help.textContent = `Límites actuales de WebAPI: imágenes ${formatMegabytes(maxImageBytes)} MB · PDF/archivos ${formatMegabytes(maxFileBytes)} MB.`;
+  return runtimeCapabilities;
+}
+
+function renderReceiptAiLimitsUnavailable() {
+  const help = ensureReceiptAiLimitHelp();
+  if (help) help.textContent = 'No se pudieron consultar los límites actuales de WebAPI. El OCR local seguirá disponible y no se usará un límite funcional de Basketra como sustituto.';
+}
+
+async function readReceiptAiRuntimeCapabilities() {
+  const runtimeCapabilities = await api('/api/v1/ai/runtime-capabilities', { cache: 'no-store' });
+  return renderReceiptAiLimits(runtimeCapabilities);
+}
+
+export async function refreshReceiptAiLimitHelp() {
+  if (!state.aiConfigured) return;
+  try {
+    await readReceiptAiRuntimeCapabilities();
+  } catch {
+    renderReceiptAiLimitsUnavailable();
+  }
+}
+
 export function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -339,9 +382,7 @@ export function fileToBase64(file) {
 
 async function readAiSizeWarning(files) {
   try {
-    const runtimeCapabilities = await api('/api/v1/ai/runtime-capabilities', {
-      cache: 'no-store',
-    });
+    const runtimeCapabilities = await readReceiptAiRuntimeCapabilities();
     for (const file of files) {
       try {
         validateFile(file, runtimeCapabilities);
@@ -350,8 +391,8 @@ async function readAiSizeWarning(files) {
       }
     }
   } catch {
-    // Capability preflight is advisory. The canonical AI boundary re-reads WebAPI
-    // capabilities before sending and local OCR must remain available meanwhile.
+    renderReceiptAiLimitsUnavailable();
+    return 'No se pudieron consultar los límites actuales de WebAPI; el OCR local continúa y la IA validará el límite antes de enviar.';
   }
   return '';
 }
