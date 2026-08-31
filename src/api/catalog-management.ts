@@ -71,7 +71,7 @@ type ParentRow = Readonly<{
 }>;
 
 type CatalogApiContext = Readonly<{
-  method?: string;
+  method?: string | undefined;
   pathname: string;
   searchParams: URLSearchParams;
   databasePath: string;
