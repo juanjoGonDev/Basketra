@@ -294,5 +294,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   void import('./catalog.js')
     .then(module => module.initializeCatalogFeature({ activate: activateCatalog }))
     .catch(() => {});
+  void import('./receipt-derived-total.js')
+    .then(module => module.initializeReceiptDerivedTotals())
+    .catch(() => {});
   scheduleOperationsBootstrap();
 }
