@@ -533,10 +533,16 @@ export function failBackgroundJob(errorCode = 'RECEIPT_EXTRACTION_FAILED', job) 
     : 'El análisis no terminó. Las capturas se conservan para reintentar.';
 }
 
+function hasManualReviewOverride() {
+  return [...state.pageStates.values()].some(page => page.status === 'manual');
+}
+
 export async function refreshReceiptExtractionJob() {
-  const result = await api(`/api/v1/receipts/extraction-jobs/${encodeURIComponent(state.activeJobId)}`);
+  const jobId = state.activeJobId;
+  if (!jobId || hasManualReviewOverride()) return;
+  const result = await api(`/api/v1/receipts/extraction-jobs/${encodeURIComponent(jobId)}`);
   const job = result.job;
-  if (!job || job.id !== state.activeJobId) return;
+  if (!job || job.id !== jobId || state.activeJobId !== jobId || hasManualReviewOverride()) return;
   if (job.status === 'queued' || job.status === 'running') {
     state.processing = true;
     if (!applyReceiptJobProgress(job.progress)) setPagesForBackgroundJob(job.status);

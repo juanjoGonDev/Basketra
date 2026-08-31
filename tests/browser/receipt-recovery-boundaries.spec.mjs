@@ -51,6 +51,10 @@ test('an OCR API failure without a stable code remains retryable without inventi
 
 test('a durable PDF provider failure permits blank manual entry without hiding retry recovery', async ({ page }) => {
   let extractionCall = 0;
+  let jobReads = 0;
+  let releaseLateRefresh = () => {};
+  let lateRefreshCompleted = false;
+  const lateRefreshGate = new Promise(resolve => { releaseLateRefresh = resolve; });
   const jobId = 'receiptextractionjob_pdfmanual';
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
@@ -74,13 +78,18 @@ test('a durable PDF provider failure permits blank manual entry without hiding r
     contentType: 'application/json',
     body: JSON.stringify({ job: { id: jobId, status: 'queued' } }),
   }));
-  await page.route(`**/api/v1/receipts/extraction-jobs/${jobId}`, route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({
-      job: { id: jobId, status: 'failed', errorCode: 'AI_PDF_CAPABILITY_UNAVAILABLE' },
-    }),
-  }));
+  await page.route(`**/api/v1/receipts/extraction-jobs/${jobId}`, async route => {
+    jobReads += 1;
+    if (jobReads > 1) await lateRefreshGate;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        job: { id: jobId, status: 'failed', errorCode: 'AI_PDF_CAPABILITY_UNAVAILABLE' },
+      }),
+    });
+    if (jobReads > 1) lateRefreshCompleted = true;
+  });
   await page.route('**/api/v1/receipts/extract', route => {
     extractionCall += 1;
     return route.fulfill({
@@ -99,11 +108,15 @@ test('a durable PDF provider failure permits blank manual entry without hiding r
   });
   await expect(page.locator('.capture-card')).toHaveCount(1);
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
+  await expect.poll(() => jobReads).toBeGreaterThanOrEqual(2);
   expect(extractionCall).toBe(0);
 
   const details = await openCaptureDetails(page);
   await expect(details.getByRole('button', { name: 'Volver a analizar con IA', exact: true })).toBeVisible();
   await details.getByRole('button', { name: 'Revisar manualmente', exact: true }).click();
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Revisión manual');
+  releaseLateRefresh();
+  await expect.poll(() => lateRefreshCompleted).toBe(true);
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Revisión manual');
   await expect(page.getByText('Entrada manual pendiente; la captura original se conserva', { exact: true })).toBeVisible();
   await expect(details.getByRole('button', { name: 'Volver a analizar con IA', exact: true })).toBeVisible();
