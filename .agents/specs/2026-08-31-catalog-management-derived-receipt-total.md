@@ -22,6 +22,8 @@ Expose the reusable product catalog as a first-class workflow so a user can see 
 - The PDF recovery regression is now deterministic: a shared controlled `EventSource` helper emits the realtime `open` event explicitly to initiate the second job refresh, the mocked response remains gated while manual review is selected, and the late refresh is then released to prove it cannot overwrite manual state. No sleep, retry, polling workaround or production change is used.
 - Pull Request Quality run `33443224911` on head `d35f279d027c4f4eed4f8ef5c36ffab13440205a` is fully green: all 70 Browser E2E scenarios passed, together with Quality, Security, container smoke, linux/amd64 and linux/arm64. CodeQL run `33443224883` passed both Actions and JavaScript/TypeScript analysis. Browser artifact `9777191300` belongs to the same head and has digest `sha256:1523375462cd5df26857908f5901629663db586bb742b52ad2e5312c9c935269`.
 - Final review of that browser artifact found the runtime viewport correct but the `fullPage` evidence misleading: Playwright stitching repeated the sticky app header within the long image and exposed the skip link even though neither defect exists in the actual viewport. The evidence capture must therefore avoid page-level stitching rather than normalize those artifacts as product behavior.
+- Pull Request Quality run `33445532164` on head `82bb5db4593698c2b8c56bc81ded199edeb84005` is fully green: 70/70 Browser E2E passed in 3.9 minutes together with Quality, Security, container smoke and both linux architectures; CodeQL run `33445532170` passed both analyses. Browser artifact `9778003622` belongs to that same head and has digest `sha256:5f882d3c209ec99af6a80cf696aa2847b32f2b29bc63821d2bfb7c188be0e820`.
+- Element-scoping removed the page-level full-page capture but Playwright still composited fixed shell overlays while capturing the long `.catalog-view`: `Saltar al contenido` and the `Basketra / Conectado` header appeared mid-image although the final viewport screenshot showed correct runtime placement. Evidence therefore also needs an ephemeral screenshot-only stylesheet that hides external shell overlays while leaving the catalog surface unchanged.
 
 ## Decision
 
@@ -39,7 +41,8 @@ Expose the reusable product catalog as a first-class workflow so a user can see 
 - Keep declared receipt total editable because it represents the amount printed on the receipt, not a derived line value.
 - Publish the catalog's stabilized mobile screenshot in the direct PR visual evidence whenever this UI is part of a visual-impacting head, rather than relying on an artifact that reviewers must download manually.
 - Browser tests that need realtime reconnection use one shared controlled `EventSource` helper. A boundary test must trigger the event that owns the transition rather than wait for incidental timing.
-- Generate `catalog-mobile.png` from the `.catalog-view` element instead of a page-level `fullPage` screenshot. The catalog element is the evidence owner and excludes unrelated fixed/sticky shell controls that Playwright can duplicate while stitching long pages.
+- Generate `catalog-mobile.png` from the `.catalog-view` element instead of a page-level `fullPage` screenshot.
+- During that evidence screenshot only, hide `.app-header`, `.bottom-nav` and `.skip-link` through Playwright's transient `style` option. These elements belong to the application shell, not the catalog evidence owner, and suppressing them only during screenshot composition prevents capture-engine overlays without changing runtime behavior or persistent DOM/CSS.
 
 ## Acceptance
 
@@ -58,7 +61,7 @@ Expose the reusable product catalog as a first-class workflow so a user can see 
 13. Mobile layout remains usable at narrow widths with keyboard-visible labels and no required hover interaction.
 14. New API behavior has unit/integration coverage and the receipt editor has browser regression coverage.
 15. Required GitHub checks are green on the final PR head before completion.
-16. The direct PR visual-evidence comment includes the stabilized catalog-management mobile screenshot generated from the same validated head as Browser E2E, without page-stitching artifacts from unrelated shell controls.
+16. The direct PR visual-evidence comment includes the stabilized catalog-management mobile screenshot generated from the same validated head as Browser E2E, without page-stitching or shell-overlay artifacts.
 17. The late durable-job recovery regression deterministically proves a realtime refresh cannot overwrite a manual-review transition without depending on scheduler timing or retrying a flaky test.
 
 ## Scope
@@ -75,7 +78,7 @@ Included:
 - focused tests and documentation
 - direct PR publication of the new catalog screenshot from the authoritative browser artifact
 - deterministic shared browser-test control for receipt realtime reconnection
-- element-scoped catalog evidence capture that avoids page stitching
+- element-scoped catalog evidence capture with transient suppression of unrelated shell overlays
 
 Excluded:
 
@@ -92,7 +95,7 @@ Excluded:
 - Existing canonical parents with zero variants can remain after moves. They are retained rather than deleted because automatic data cleanup would be destructive.
 - A failed live-calculation request keeps the previous value visible for context but blocks save/validation/confirmation until a later successful calculation replaces it; the stale value is therefore never accepted as the current derived result.
 - Multiple browser tabs can edit catalog relationships concurrently. SQLite transactions make each write atomic; last completed relationship write wins. No new optimistic-version schema is introduced in this scope.
-- Page-level full-page screenshots can reposition or duplicate sticky elements in stitched output. Catalog evidence must remain element-scoped so visual review evaluates the product surface rather than capture-engine artifacts.
+- Long screenshots can composite fixed shell controls into the clipped capture even when the evidence locator is element-scoped. The screenshot-only style must remain limited to shell selectors and must not hide catalog content.
 - Receipt recovery depends on realtime invalidation rather than interval polling. Tests must explicitly model the realtime event when validating late refresh races; waiting for an unspecified reconnect creates nondeterminism without increasing production coverage.
 
 ## Tests
@@ -103,14 +106,14 @@ Excluded:
 - browser tests proving total is read-only and follows quantity/price/discount changes without client arithmetic ownership
 - browser regression tests proving save/validation waits for the current derived total and stale responses cannot overwrite a newer edit
 - existing receipt validation browser regressions, including discount edit/cancel/validate/confirm flows
-- browser evidence checks that wait for terminal catalog mutations before capturing the `.catalog-view` as `catalog-mobile.png`
+- browser evidence checks that wait for terminal catalog mutations before capturing the `.catalog-view` as `catalog-mobile.png`, with only external shell overlays hidden during screenshot composition
 - deterministic realtime recovery race coverage using `tests/browser/helpers/controlled-event-source.mjs`
 - `pnpm quality` in authoritative Pull Request Quality CI
 - CodeQL, security, amd64/arm64 container builds, hardened container smoke and visual evidence workflows
 
 ## Rollback
 
-All API and UI changes are additive except making the receipt-line total read-only. Reverting the feature commits restores the prior UI/API behavior. No schema migration is required and no historical evidence is rewritten. The visual-evidence addition is independently reversible by removing the catalog capture from `.github/workflows/pr-visual-evidence.yml`. The deterministic browser helper and element-scoped screenshot change are test-only and have no runtime impact.
+All API and UI changes are additive except making the receipt-line total read-only. Reverting the feature commits restores the prior UI/API behavior. No schema migration is required and no historical evidence is rewritten. The visual-evidence addition is independently reversible by removing the catalog capture from `.github/workflows/pr-visual-evidence.yml`. The deterministic browser helper and screenshot-composition changes are test-only and have no runtime impact.
 
 ## Delivery
 
@@ -118,4 +121,4 @@ Use atomic Conventional Commits on `agent/feat-catalog-management-derived-total`
 
 ## Status
 
-Implementation and production validation are complete. Head `d35f279d027c4f4eed4f8ef5c36ffab13440205a` passed the complete functional/security/container/CodeQL matrix with 70/70 Browser E2E scenarios, but FINAL REVIEW rejected its page-level `catalog-mobile.png` because Playwright stitching duplicated unrelated shell UI. Commit `7083995829aa2809895d8ccda5fcebf283088b54` replaces only that test evidence capture with an element-scoped `.catalog-view` screenshot; the resulting delivery head must pass the full matrix, publish `13-catalog-management.png` from the same SHA, and pass manual visual review before handoff.
+Implementation and production behavior are validated. Head `82bb5db4593698c2b8c56bc81ded199edeb84005` passed the complete functional/security/container/CodeQL matrix with 70/70 Browser E2E scenarios, but FINAL REVIEW rejected its element-scoped `catalog-mobile.png` because Playwright still composited external fixed shell controls into the long capture. Commit `1ca720b3384f07cfdd291865e3aa1c05a661d774` keeps the element-scoped capture and adds a screenshot-only style that hides `.app-header`, `.bottom-nav` and `.skip-link`. The resulting delivery head must pass the full matrix, publish `13-catalog-management.png` from the same SHA, and pass manual visual review before handoff.
