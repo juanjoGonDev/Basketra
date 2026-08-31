@@ -2,7 +2,7 @@ import { calculateReceiptLineTotal } from '../domain/receipt.ts';
 import { asRecord, asSafeInteger } from '../domain/validation.ts';
 
 type ReceiptCalculationApiContext = Readonly<{
-  method?: string;
+  method?: string | undefined;
   pathname: string;
   readJson(): Promise<unknown>;
   send(status: number, body: unknown): void;
