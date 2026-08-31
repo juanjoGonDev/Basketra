@@ -76,6 +76,37 @@ test('camera and gallery photos upload, deduplicate and persist after reload', a
   expect(failures).toEqual([]);
 });
 
+test('oversized photo explains the selected size and configured limit', async ({ page }) => {
+  const configuredLimit = 1024 * 1024;
+  await page.route('**/api/v1/meta', async route => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({
+      response,
+      json: {
+        ...body,
+        files: {
+          ...body.files,
+          maxBytes: configuredLimit,
+        },
+      },
+    });
+  });
+
+  const failures = await openTickets(page);
+  await page.locator('#receipt-files').setInputFiles({
+    name: 'large.png',
+    mimeType: 'image/png',
+    buffer: Buffer.alloc(configuredLimit + (configuredLimit / 2)),
+  });
+
+  await expect(page.locator('#upload-state')).toHaveText(
+    'El archivo large.png ocupa 1,5 MB y supera el límite de 1 MB',
+  );
+  await expect(page.locator('#capture-list li')).toHaveCount(0);
+  expect(failures).toEqual([]);
+});
+
 test('a failed photo upload preserves the draft and succeeds on retry', async ({ page }) => {
   const failures = await openTickets(page, true);
   await page.locator('#receipt-camera').setInputFiles({ name: 'existing.png', mimeType: 'image/png', buffer: validPng });
