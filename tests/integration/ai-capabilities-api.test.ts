@@ -9,6 +9,7 @@ import type { AppConfig } from '../../src/infrastructure/config.ts';
 import { OperationsGateway } from '../../src/operations/gateway.ts';
 
 const TEST_API_KEY = 'abc';
+const REQUEST_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 function config(
   dataDir: string,
@@ -61,6 +62,18 @@ async function listen(server: ReturnType<typeof createServer>): Promise<number> 
 
 async function closeServer(server: ReturnType<typeof createServer>): Promise<void> {
   await new Promise<void>((resolve) => server.close(() => resolve()));
+}
+
+async function assertErrorEnvelope(
+  response: Response,
+  expected: Readonly<{ code: string; message: string }>,
+): Promise<void> {
+  const body = await response.json() as {
+    error: { code: string; message: string; requestId: string };
+  };
+  assert.equal(body.error.code, expected.code);
+  assert.equal(body.error.message, expected.message);
+  assert.match(body.error.requestId, REQUEST_ID_PATTERN);
 }
 
 test('AI capability preflight resolves WebAPI limits on every request', async () => {
@@ -141,11 +154,9 @@ test('AI capability preflight reports an unconfigured provider without an upstre
       `http://127.0.0.1:${gateway.address().port}/api/v1/ai/runtime-capabilities`,
     );
     assert.equal(response.status, 503);
-    assert.deepEqual(await response.json(), {
-      error: {
-        code: 'AI_NOT_CONFIGURED',
-        message: 'El proveedor de IA no está configurado',
-      },
+    await assertErrorEnvelope(response, {
+      code: 'AI_NOT_CONFIGURED',
+      message: 'El proveedor de IA no está configurado',
     });
   } finally {
     await gateway.close();
@@ -175,11 +186,9 @@ test('AI capability preflight maps an unsupported capabilities endpoint without 
       `http://127.0.0.1:${gateway.address().port}/api/v1/ai/runtime-capabilities`,
     );
     assert.equal(response.status, 502);
-    assert.deepEqual(await response.json(), {
-      error: {
-        code: 'AI_CAPABILITIES_UNAVAILABLE',
-        message: 'WebAPI no publicó límites de archivo utilizables',
-      },
+    await assertErrorEnvelope(response, {
+      code: 'AI_CAPABILITIES_UNAVAILABLE',
+      message: 'WebAPI no expone los límites dinámicos requeridos',
     });
     assert.equal(authorizations.at(-1), undefined);
   } finally {
@@ -210,11 +219,9 @@ test('AI capability preflight maps upstream authentication failures', async () =
       `http://127.0.0.1:${gateway.address().port}/api/v1/ai/runtime-capabilities`,
     );
     assert.equal(response.status, 502);
-    assert.deepEqual(await response.json(), {
-      error: {
-        code: 'AI_AUTHENTICATION_FAILED',
-        message: 'El proveedor de IA rechazó sus credenciales',
-      },
+    await assertErrorEnvelope(response, {
+      code: 'AI_AUTHENTICATION_FAILED',
+      message: 'El proveedor de IA rechazó sus credenciales',
     });
   } finally {
     await gateway.close();
