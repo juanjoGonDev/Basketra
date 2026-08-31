@@ -144,17 +144,6 @@
   content: "";
 }
 
-[data-derived-total="true"] {
-  background: var(--surface-soft) !important;
-  cursor: default;
-}
-
-.receipt-line-derived-state {
-  display: block;
-  margin-top: var(--space-1);
-  font-weight: 600;
-}
-
 @media (min-width: 52rem) {
   .catalog-page-header {
     grid-template-columns: minmax(0, 1fr) auto;
