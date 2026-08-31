@@ -97,10 +97,8 @@ function addReceiptDiscountField(fieldset, item) {
 
 function syncReceiptDiscountSummary(fieldset) {
   if (!(fieldset instanceof HTMLElement)) return;
-  const meta = fieldset.querySelector('[data-receipt-summary-meta]');
-  if (!meta) return;
-  const quantity = fieldset.querySelector('[data-field="quantity"]')?.value || '0';
-  const unitPrice = fieldset.querySelector('[data-field="unitPriceEuro"]')?.value || '0.00';
+  const copy = fieldset.querySelector('.receipt-line-compact__copy');
+  if (!copy) return;
   const discountInput = fieldset.querySelector('[data-field="discountEuro"]');
   let discountMinor = 0;
   try {
@@ -108,7 +106,18 @@ function syncReceiptDiscountSummary(fieldset) {
   } catch {
     discountMinor = 0;
   }
-  meta.textContent = `${quantity} × ${unitPrice} €${discountMinor > 0 ? ` · Dto. ${formatEuroMinor(discountMinor)}` : ''}`;
+
+  let summary = copy.querySelector('[data-receipt-discount-summary]');
+  if (discountMinor <= 0) {
+    summary?.remove();
+    return;
+  }
+  if (!summary) {
+    summary = document.createElement('small');
+    summary.dataset.receiptDiscountSummary = 'true';
+    copy.append(summary);
+  }
+  summary.textContent = `Dto. ${formatEuroMinor(discountMinor)}`;
 }
 
 function syncReceiptDiscountSummaries() {
@@ -282,9 +291,12 @@ function firstInvalidLine(validation) {
 }
 
 function focusInvalidLine(index) {
-  const action = $(`[data-receipt-action="validate"][data-receipt-index="${index}"]`);
-  action?.scrollIntoView({ block: 'center', behavior: 'auto' });
-  action?.focus();
+  const focus = () => {
+    const action = $(`[data-receipt-action="validate"][data-receipt-index="${index}"]`);
+    action?.scrollIntoView({ block: 'center', behavior: 'auto' });
+    action?.focus();
+  };
+  requestAnimationFrame(focus);
 }
 
 export async function validateReceiptLine(index, button) {
