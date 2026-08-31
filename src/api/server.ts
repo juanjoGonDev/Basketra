@@ -12,6 +12,8 @@ import { optimizeBasket, type ShoppingRequirement } from '../domain/optimization
 import type { Offer } from '../domain/offers.ts';
 import { validateReceiptLine, validateReceiptTotal, type ReceiptLineInput } from '../domain/receipt.ts';
 import { ApiError, mapError } from './errors.ts';
+import { handleCatalogManagementRequest } from './catalog-management.ts';
+import { handleReceiptCalculationRequest } from './receipt-calculation.ts';
 import { OpenAiCompatibleProvider } from '../ai/provider.ts';
 import { StructuredAiExecutor, type RuntimeSchema } from '../ai/structured-executor.ts';
 import { ReceiptDurableJobStore } from '../receipts/durable-job-store.ts';
@@ -35,6 +37,8 @@ const STATIC_ASSETS = new Set([
   'index.html',
   'app.js',
   'api.js',
+  'catalog.js',
+  'catalog.css',
   'operations.js',
   'operations.css',
   'state.js',
@@ -204,6 +208,21 @@ export class BasketraServer {
       if (request.method === 'GET' && url.pathname === '/api/v1/settings/ai-provider') return this.json(response, 200, this.aiProviderSettings());
       if (request.method === 'POST' && url.pathname === '/api/v1/settings/ai-provider/test') return await this.testAiProvider(request, response);
       if (request.method === 'POST' && url.pathname === '/api/v1/ai/shopping-list-analysis') return await this.analyzeShoppingList(request, response);
+      if (await handleCatalogManagementRequest({
+        method: request.method,
+        pathname: url.pathname,
+        searchParams: url.searchParams,
+        databasePath: this.#database.path,
+        readJson: async () => await this.readJson(request),
+        send: (status, body) => this.json(response, status, body),
+        publish: (entityId) => this.publishRealtime({ entityType: 'product', mutation: 'updated', entityId }),
+      })) return;
+      if (await handleReceiptCalculationRequest({
+        method: request.method,
+        pathname: url.pathname,
+        readJson: async () => await this.readJson(request),
+        send: (status, body) => this.json(response, status, body),
+      })) return;
       if (request.method === 'GET' && url.pathname === '/api/v1/shopping-lists') return this.json(response, 200, { lists: this.#database.listShoppingLists() });
       if (request.method === 'POST' && url.pathname === '/api/v1/shopping-lists') return await this.createShoppingList(request, response);
 
