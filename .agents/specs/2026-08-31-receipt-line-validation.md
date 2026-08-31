@@ -9,23 +9,24 @@ The discount itself is valid receipt data, not an error condition. AI/OCR-detect
 ## Evidence
 
 - `src/web/ui.js::receiptLine()` renders a warning status for any line that is not `confirmed`, but the row menu exposes only edit and delete actions.
-- `src/web/receipt-review.js::handleReceiptAction()` has no line-validation action; only the global `Validar líneas` path calls `/api/v1/receipts/validate`.
-- `confirmReceipt()` revalidates the draft but only blocks on `validation.total.valid`; it can call `/api/v1/receipts/confirm` while an individual line is still invalid.
-- `src/receipts/import.ts::parseReceiptConfirmation()` correctly rejects any line whose canonical `validateReceiptLine()` result is not `confirmed`, producing the current English `Receipt item N must be corrected before confirmation` error after the UI already attempted import.
+- `src/web/receipt-review.js::handleReceiptAction()` had no line-validation action; only the global `Validar líneas` path called `/api/v1/receipts/validate`.
+- `confirmReceipt()` revalidated the draft but only blocked on `validation.total.valid`; it could call `/api/v1/receipts/confirm` while an individual line was still invalid.
+- `src/receipts/import.ts::parseReceiptConfirmation()` correctly rejects any line whose canonical `validateReceiptLine()` result is not `confirmed`, producing the English `Receipt item N must be corrected before confirmation` error after the UI already attempted import.
 - `src/domain/receipt.ts::validateReceiptLine()` owns the arithmetic `quantity * unitPriceMinor - (discountMinor ?? 0)` and therefore already validates discounts as part of each line.
-- `readReceiptItems()` preserves an extracted `discountMinor`, but the merged receipt-review UI does not display or edit it. A line can therefore contain a correctly detected discount that the user cannot inspect, confirm, change, remove or add when extraction missed it.
+- `readReceiptItems()` preserved an extracted `discountMinor`, but the merged receipt-review UI did not display or edit it. A line could therefore contain a correctly detected discount that the user could not inspect, confirm, change, remove or add when extraction missed it.
+- CI exposed an independent race in durable PDF recovery: a late refresh from a failed background job could repaint `Error` after the user explicitly selected manual review.
 
 ## Decision
 
-- Keep `src/domain/receipt.ts::validateReceiptLine()` as the single owner of receipt-line arithmetic. Do not duplicate or automatically recalculate receipt arithmetic in the browser.
+- Keep `src/domain/receipt.ts::validateReceiptLine()` as the single owner of receipt-line arithmetic. Do not duplicate or automatically recalculate receipt arithmetic in the browser or E2E fixtures.
 - Reuse the existing `/api/v1/receipts/validate` endpoint for line validation; no new validation endpoint or backend arithmetic implementation is needed.
-- A line that is not confirmed exposes an explicit accessible `Validar` action in its row status area. The action validates the current draft and reports the selected line result without changing unrelated row values.
-- `Descuento (€)` is a canonical receipt-line editor field for every line, defaulting visually to `0.00` when extraction omitted it. Positive discounts are also disclosed in the compact line summary.
+- A line that is not confirmed exposes an explicit accessible `Revisar` / validate action in its row status area. The action validates the current draft and reports the selected line result without changing unrelated row values.
+- `Descuento (€)` is a receipt-line editor field for every line, defaulting visually to `0.00` when extraction omitted it. Positive discounts are also disclosed in the compact line summary.
 - When a line originally had no `discountMinor`, an untouched `0.00` remains omitted from the payload. Entering a positive discount adds `discountMinor`; changing an extracted discount to `0.00` explicitly removes its arithmetic effect and is recorded as a correction.
-- A discount never makes a line invalid by itself. Canonical validation confirms the combined quantity, unit price, discount and entered line total. If adding/changing a discount changes the expected line amount, feedback exposes expected versus entered amounts so the user can correct the line total.
-- `Confirmar e importar` must stop locally after `/validate` when any line is not confirmed. It must focus/scroll the first affected line, show actionable Spanish feedback, and never call `/confirm` for a draft the server validation already says cannot be imported.
+- A discount never makes a line invalid by itself. Canonical validation confirms the combined quantity, unit price, discount and entered line total. If adding or changing a discount changes the expected line amount, feedback exposes expected versus entered amounts so the user can correct the line total and, when necessary, the declared receipt total.
+- `Confirmar e importar` stops locally after `/validate` when any line is not confirmed. It focuses/scrolls the first affected line, shows actionable Spanish feedback, and never calls `/confirm` for a draft the server validation already says cannot be imported.
 - The backend import guard remains in place as defense in depth.
-- CI uncovered an independent stale durable-job refresh race during manual PDF recovery. It must be made deterministic without weakening recovery or hiding the retry action before this PR can be considered green.
+- An explicit manual-review page state overrides stale updates from the previous durable job. The failed job identity is retained so an explicit `Volver a analizar con IA` action can still create a retry from durable OCR evidence.
 
 ## Acceptance
 
@@ -43,11 +44,23 @@ The discount itself is valid receipt data, not an error condition. AI/OCR-detect
 
 ## Checks
 
-- focused Playwright receipt-line validation regressions, including extracted and manually-added discounts
+- focused Playwright receipt-line validation regressions, including extracted and manually added discounts
+- E2E requests use the real `/api/v1/receipts/validate` endpoint; tests observe payloads without owning receipt arithmetic
 - deterministic stale durable-job/manual-review regression
 - `pnpm quality`
 - Pull Request Quality, CodeQL and visual evidence on the exact PR head
 - manual inspection of affected desktop and mobile receipt-review evidence
+
+## Validation evidence
+
+Functional head `f6ea2a9a66157b43c5776c07d767d58aa71fd779` passed:
+
+- Pull Request Quality run `33422203404`: Quality, Security, Browser E2E, linux/amd64, linux/arm64 and Container smoke all `success`.
+- CodeQL Advanced run `33422203346`: `success`.
+- Publish PR visual evidence run `33422203432`: `success`; its PR comment and browser artifact both identify the same functional head.
+- Browser artifact `basketra-browser-evidence` digest `sha256:f1c897addaa0baaec826d49a6f78487ba5694d00a7bff46bf03b71275b6677bf` was inspected directly.
+- Final visual review inspected the four receipt-line-validation screenshots plus video frames for the extracted and manually added discount states. The editor showed `Descuento (€)` with the extracted `0.25` value, the manually added `0.25` value remained inside the responsive editor without overflow, the compact row disclosed `Dto. 0,25 €`, validated rows rendered `Validada`, and the invalid-confirmation state rendered the expected/entered EUR feedback and `Revisar` action without clipping.
+- Local clone/test execution remained unavailable because the execution environment could not resolve GitHub; no local result is claimed.
 
 ## Delivery
 
@@ -55,4 +68,4 @@ Create an atomic fix PR from current `main`. Do not merge, release, publish, dep
 
 ## Status
 
-Implementation in progress.
+Implemented and ready for review. Runtime behavior and visual acceptance were validated on functional head `f6ea2a9a66157b43c5776c07d767d58aa71fd779`. This documentation-only closure commit does not change runtime behavior and still requires the repository's exact-head CI gates before delivery.
