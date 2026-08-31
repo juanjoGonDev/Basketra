@@ -50,23 +50,37 @@ test('saved catalog products can be browsed, edited and related on mobile', asyn
     body: JSON.stringify({ catalog }),
   }));
   await page.route('**/api/v1/products/variant_milk', route => {
-    if (route.request().method() === 'PATCH') productPatch = route.request().postDataJSON();
+    if (route.request().method() === 'PATCH') {
+      productPatch = route.request().postDataJSON();
+      Object.assign(product, productPatch);
+    }
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ product }) });
   });
   await page.route('**/api/v1/catalog/products/variant_milk/parent', route => {
     parentRelation = route.request().postDataJSON();
+    const canonicalProductId = parentRelation.canonicalProductId || 'parent_new';
+    product.canonicalProductId = canonicalProductId;
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ relation: { productVariantId: product.id, canonicalProductId: parentRelation.canonicalProductId || 'parent_new' } }),
+      body: JSON.stringify({ relation: { productVariantId: product.id, canonicalProductId } }),
     });
   });
   await page.route('**/api/v1/catalog/products/variant_milk/retailer-name', route => {
     retailerRelation = route.request().postDataJSON();
+    const retailerName = {
+      listingId: 'listing_new',
+      retailerId: 'retailer_lidl',
+      ...retailerRelation,
+    };
+    product.retailerNames = [
+      ...product.retailerNames.filter(entry => entry.retailerName.toLowerCase() !== retailerName.retailerName.toLowerCase()),
+      retailerName,
+    ];
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ retailerName: { listingId: 'listing_new', retailerId: 'retailer_lidl', ...retailerRelation } }),
+      body: JSON.stringify({ retailerName }),
     });
   });
 
@@ -90,19 +104,27 @@ test('saved catalog products can be browsed, edited and related on mobile', asyn
   await saveProduct.click();
   await expect.poll(() => productPatch?.canonicalName).toBe('Leche fresca');
   await expect(saveProduct).toBeEnabled();
+  await expect(page.locator('#catalog-canonical-name')).toHaveValue('Leche fresca');
 
   const linkParent = page.getByRole('button', { name: 'Relacionar con el padre elegido' });
   await page.locator('#catalog-parent-select').selectOption('parent_dairy');
   await linkParent.click();
   await expect.poll(() => parentRelation?.canonicalProductId).toBe('parent_dairy');
   await expect(linkParent).toBeEnabled();
+  await expect(page.locator('#catalog-parent-select')).toHaveValue('parent_dairy');
 
+  const saveRetailerName = page.getByRole('button', { name: 'Guardar nombre del comercio' });
   await page.locator('#catalog-retailer-name').fill('Lidl');
   await page.locator('#catalog-retailer-title').fill('Leche fresca Milbona 1 L');
-  await page.getByRole('button', { name: 'Guardar nombre del comercio' }).click();
+  await saveRetailerName.click();
   await expect.poll(() => retailerRelation).toEqual({ retailerName: 'Lidl', title: 'Leche fresca Milbona 1 L' });
+  await expect(saveRetailerName).toBeEnabled();
+  await expect(page.locator('#catalog-state')).toHaveText('1 productos cargados.');
+  await expect(page.getByText('Lidl', { exact: true })).toBeVisible();
+  await expect(page.getByText('Leche fresca Milbona 1 L', { exact: true })).toBeVisible();
 
   await expectNoHorizontalOverflow(page);
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: testInfo.outputPath('catalog-mobile.png'), fullPage: true });
 });
 
