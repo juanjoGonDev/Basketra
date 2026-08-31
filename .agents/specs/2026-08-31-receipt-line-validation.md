@@ -62,10 +62,12 @@ Functional head `f6ea2a9a66157b43c5776c07d767d58aa71fd779` passed:
 - Final visual review inspected the four receipt-line-validation screenshots plus video frames for the extracted and manually added discount states. The editor showed `Descuento (€)` with the extracted `0.25` value, the manually added `0.25` value remained inside the responsive editor without overflow, the compact row disclosed `Dto. 0,25 €`, validated rows rendered `Validada`, and the invalid-confirmation state rendered the expected/entered EUR feedback and `Revisar` action without clipping.
 - Local clone/test execution remained unavailable because the execution environment could not resolve GitHub; no local result is claimed.
 
+The authoritative final-head CI SHA and run IDs are recorded in the pull-request body after the immutable code and documentation head passes all required gates. They are intentionally not copied back into this file because doing so would create a new head and invalidate the exact-head evidence being recorded.
+
 ## Delivery
 
 Create an atomic fix PR from current `main`. Do not merge, release, publish, deploy, change secrets, migrate data or weaken the backend confirmation guard.
 
 ## Status
 
-Implemented and ready for review. Runtime behavior and visual acceptance were validated on functional head `f6ea2a9a66157b43c5776c07d767d58aa71fd779`. This documentation-only closure commit does not change runtime behavior and still requires the repository's exact-head CI gates before delivery.
+Implemented and ready for review. Runtime behavior and visual acceptance are complete. Delivery requires the immutable pull-request head to pass Pull Request Quality, CodeQL and visual evidence; the final authoritative head and run IDs are recorded in the pull-request body once those gates are green.
