@@ -72,6 +72,22 @@ async function openReview(page, items, statuses) {
   }, { currentItems: items, currentStatuses: statuses });
 }
 
+async function makeReviewConfirmable(page, storageKey = 'file_receipt_validation_1') {
+  await page.evaluate(key => {
+    return import('/receipt-state.js').then(({ state }) => {
+      const capture = {
+        storageKey: key,
+        contentHash: 'a'.repeat(64),
+        mimeType: 'image/png',
+        name: 'receipt.png',
+        bytes: 128,
+      };
+      state.captures = [capture];
+      state.pageStates.set(capture.storageKey, { status: 'completed' });
+    });
+  }, storageKey);
+}
+
 async function setup(page) {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
@@ -136,9 +152,18 @@ test('an extracted receipt discount stays visible, editable and part of canonica
   expect(validationPayloads.at(-1).items[0].discountMinor).toBe(0);
 });
 
-test('a missing receipt discount can be added manually and validated', async ({ page }) => {
+test('a missing receipt discount can be added, validated and confirmed', async ({ page }) => {
   const validationPayloads = [];
+  let confirmationPayload;
   await routeValidation(page, validationPayloads);
+  await page.route('**/api/v1/receipts/confirm', async route => {
+    confirmationPayload = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ receiptId: 'receipt_discount_manual' }),
+    });
+  });
   await setup(page);
   await openReview(page, [item('BEBIDA COCO', 150, { unitPriceMinor: 175 })], ['arithmetic-mismatch']);
 
@@ -158,10 +183,20 @@ test('a missing receipt discount can be added manually and validated', async ({ 
   await expect(page.locator('.receipt-line-compact').first()).toContainText('Dto. 0,25 €');
 
   await page.getByRole('button', { name: 'Validar línea 1', exact: true }).click();
-
   await expect(page.locator('.receipt-item').first()).toContainText('Validada');
   await expect(page.locator('#receipt-state')).toHaveText('Línea 1 validada.');
   expect(validationPayloads.at(-1).items[0].discountMinor).toBe(25);
+
+  await makeReviewConfirmable(page, 'file_receipt_discount_manual');
+  await page.getByRole('button', { name: 'Confirmar e importar', exact: true }).click();
+
+  await expect(page.locator('#receipt-state')).toHaveText('Ticket importado: receipt_discount_manual');
+  expect(confirmationPayload.items[0].discountMinor).toBe(25);
+  expect(confirmationPayload.corrections).toContainEqual({
+    itemIndex: 0,
+    field: 'discountMinor',
+    corrected: 25,
+  });
 });
 
 test('final confirmation stops before import when canonical validation still rejects a line', async ({ page }) => {
@@ -177,18 +212,7 @@ test('final confirmation stops before import when canonical validation still rej
   });
   await setup(page);
   await openReview(page, [item('BEBIDA COCO', 175, { unitPriceMinor: 175, discountMinor: 25 })], ['arithmetic-mismatch']);
-  await page.evaluate(async () => {
-    const { state } = await import('/receipt-state.js');
-    const capture = {
-      storageKey: 'file_receipt_validation_1',
-      contentHash: 'a'.repeat(64),
-      mimeType: 'image/png',
-      name: 'receipt.png',
-      bytes: 128,
-    };
-    state.captures = [capture];
-    state.pageStates.set(capture.storageKey, { status: 'completed' });
-  });
+  await makeReviewConfirmable(page);
 
   await page.getByRole('button', { name: 'Confirmar e importar', exact: true }).click();
 
