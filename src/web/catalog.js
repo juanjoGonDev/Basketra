@@ -1,11 +1,8 @@
 import { api, setBusy } from './api.js';
-import { escapeHtml, euroInputToMinor, hydrateIcons, minorToEuroInput } from './ui.js';
+import { escapeHtml, hydrateIcons } from './ui.js';
 
 const CATALOG_PAGE_SIZE = 50;
 const CATALOG_SEARCH_DELAY_MS = 250;
-const RECEIPT_CALCULATION_DELAY_MS = 120;
-const RECEIPT_CALCULATION_PATH = '/api/v1/receipts/calculate-line';
-const receiptCalculationState = new WeakMap();
 
 const $ = selector => document.querySelector(selector);
 
@@ -458,149 +455,6 @@ function installCatalogInteractions() {
     clearTimeout(state.searchTimer);
     state.searchTimer = setTimeout(() => void loadCatalog({ reset: true }), CATALOG_SEARCH_DELAY_MS);
   });
-  document.addEventListener('basketra:view-changed', event => {
-    if (event.detail?.view === 'catalog') void loadCatalog({ reset: true });
-  });
-}
-
-function receiptLineRoot(element) {
-  return element.closest('.receipt-item, [data-receipt-line-editor]');
-}
-
-function receiptLineField(root, field) {
-  return root?.querySelector(`[data-field="${field}"]`);
-}
-
-function markDerivedTotal(root) {
-  const total = receiptLineField(root, 'lineTotalEuro');
-  if (!(total instanceof HTMLInputElement)) return;
-  total.readOnly = true;
-  total.setAttribute('aria-readonly', 'true');
-  total.dataset.derivedTotal = 'true';
-  const label = total.closest('label');
-  const labelText = label?.querySelector('span');
-  if (labelText && !labelText.dataset.derivedLabel) {
-    labelText.dataset.derivedLabel = 'true';
-    labelText.textContent = 'Total calculado (€)';
-  }
-}
-
-function readReceiptCalculationInput(root) {
-  const quantityInput = receiptLineField(root, 'quantity');
-  const unitPriceInput = receiptLineField(root, 'unitPriceEuro');
-  const discountInput = receiptLineField(root, 'discountEuro');
-  if (!(quantityInput instanceof HTMLInputElement) || !(unitPriceInput instanceof HTMLInputElement)) return undefined;
-  const quantity = Number(quantityInput.value);
-  if (!Number.isSafeInteger(quantity) || quantity < 0) return undefined;
-  try {
-    return {
-      quantity,
-      unitPriceMinor: euroInputToMinor(unitPriceInput.value),
-      ...(discountInput instanceof HTMLInputElement && discountInput.value.trim()
-        ? { discountMinor: euroInputToMinor(discountInput.value) }
-        : {}),
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-function receiptCalculationStatus(root, message) {
-  const status = root?.querySelector('.receipt-line-derived-state');
-  if (status) status.textContent = message;
-}
-
-async function calculateReceiptLine(root) {
-  const input = readReceiptCalculationInput(root);
-  if (!input) return;
-  const total = receiptLineField(root, 'lineTotalEuro');
-  if (!(total instanceof HTMLInputElement)) return;
-  let calculation = receiptCalculationState.get(root);
-  if (!calculation) {
-    calculation = { controller: null, timer: null, version: 0 };
-    receiptCalculationState.set(root, calculation);
-  }
-  calculation.controller?.abort();
-  const controller = new AbortController();
-  calculation.controller = controller;
-  const version = ++calculation.version;
-  total.setAttribute('aria-busy', 'true');
-  receiptCalculationStatus(root, 'Calculando total…');
-  try {
-    const result = await api(RECEIPT_CALCULATION_PATH, {
-      method: 'POST',
-      signal: controller.signal,
-      body: JSON.stringify(input),
-    });
-    if (version !== calculation.version || !root.isConnected) return;
-    total.value = minorToEuroInput(result.lineTotalMinor);
-    total.dispatchEvent(new Event('input', { bubbles: true }));
-    receiptCalculationStatus(root, 'Total actualizado.');
-  } catch (error) {
-    if (error?.name === 'AbortError' || version !== calculation.version) return;
-    receiptCalculationStatus(root, `No se pudo calcular el total: ${error.message}`);
-  } finally {
-    if (version === calculation.version) total.setAttribute('aria-busy', 'false');
-  }
-}
-
-function scheduleReceiptLineCalculation(root, immediate = false) {
-  if (!root) return;
-  markDerivedTotal(root);
-  let calculation = receiptCalculationState.get(root);
-  if (!calculation) {
-    calculation = { controller: null, timer: null, version: 0 };
-    receiptCalculationState.set(root, calculation);
-  }
-  clearTimeout(calculation.timer);
-  calculation.controller?.abort();
-  const input = readReceiptCalculationInput(root);
-  if (!input) {
-    receiptCalculationStatus(root, 'Completa cantidad, precio y descuento para calcular el total.');
-    return;
-  }
-  calculation.timer = setTimeout(() => void calculateReceiptLine(root), immediate ? 0 : RECEIPT_CALCULATION_DELAY_MS);
-}
-
-function enhanceReceiptLine(root) {
-  if (!root) return;
-  markDerivedTotal(root);
-  if (!root.querySelector('.receipt-line-derived-state')) {
-    const total = receiptLineField(root, 'lineTotalEuro');
-    const label = total?.closest('label');
-    if (label) {
-      const status = document.createElement('small');
-      status.className = 'receipt-line-derived-state field-help';
-      status.setAttribute('aria-live', 'polite');
-      status.textContent = 'Se actualiza al cambiar cantidad, precio o descuento.';
-      label.append(status);
-    }
-  }
-}
-
-function installDerivedReceiptTotals() {
-  const enhanceExisting = root => root.querySelectorAll?.('.receipt-item, [data-receipt-line-editor]').forEach(enhanceReceiptLine);
-  enhanceExisting(document);
-  const observer = new MutationObserver(records => {
-    for (const record of records) {
-      for (const node of record.addedNodes) {
-        if (!(node instanceof Element)) continue;
-        if (node.matches('.receipt-item, [data-receipt-line-editor]')) enhanceReceiptLine(node);
-        enhanceExisting(node);
-      }
-    }
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
-
-  const driverFields = new Set(['quantity', 'unitPriceEuro', 'discountEuro']);
-  document.addEventListener('input', event => {
-    if (!driverFields.has(event.target?.dataset?.field)) return;
-    scheduleReceiptLineCalculation(receiptLineRoot(event.target), false);
-  }, true);
-  document.addEventListener('change', event => {
-    if (!driverFields.has(event.target?.dataset?.field)) return;
-    scheduleReceiptLineCalculation(receiptLineRoot(event.target), true);
-  }, true);
 }
 
 export function initializeCatalogFeature({ activate = false } = {}) {
@@ -613,7 +467,6 @@ export function initializeCatalogFeature({ activate = false } = {}) {
   installCatalogView();
   installHomeEntry();
   installCatalogInteractions();
-  installDerivedReceiptTotals();
   hydrateIcons(document.querySelector('.view[data-view="catalog"]') || document);
   if (activate) void activateCatalog();
 }
