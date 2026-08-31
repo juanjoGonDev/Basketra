@@ -1,5 +1,5 @@
 import { api, setBusy } from './api.js';
-import { euroInputToMinor, minorToEuroInput, receiptReview } from './ui.js';
+import { euroInputToMinor, formatEuroMinor, minorToEuroInput, receiptReview } from './ui.js';
 import {
   REVIEWABLE_PAGE_STATUSES,
   $,
@@ -11,6 +11,9 @@ import {
 } from './receipt-state.js';
 import { persistAndRenderCaptures } from './receipt-capture.js';
 import { abortPageWork, clearReceiptExtractionJob } from './receipt-lifecycle.js';
+
+let receiptLineEnhancementsInstalled = false;
+
 export function selectedReviewCapture() {
   return captureByKey(state.selectedReviewCaptureKey) || state.captures[0] || null;
 }
@@ -70,10 +73,124 @@ export function showReviewPanelForCapture(index) {
   panel.scrollIntoView({ block: 'start', behavior: 'auto' });
 }
 
+function receiptItemAt(index) {
+  return $(`.receipt-item[data-item-index="${index}"]`);
+}
+
+function addReceiptDiscountField(fieldset, item) {
+  if (item.discountMinor === undefined || fieldset.querySelector('[data-field="discountEuro"]')) return;
+  const label = document.createElement('label');
+  label.className = 'field receipt-discount-field';
+  const caption = document.createElement('span');
+  caption.textContent = 'Descuento (€)';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.inputMode = 'decimal';
+  input.autocomplete = 'off';
+  input.dataset.field = 'discountEuro';
+  input.value = minorToEuroInput(item.discountMinor);
+  input.dataset.receiptEditorInitialValue = input.value;
+  input.setAttribute('aria-label', 'Descuento (€)');
+  label.append(caption, input);
+  fieldset.querySelector('.quantity-row')?.insertAdjacentElement('afterend', label);
+}
+
+function syncReceiptDiscountSummary(fieldset) {
+  if (!(fieldset instanceof HTMLElement)) return;
+  const meta = fieldset.querySelector('[data-receipt-summary-meta]');
+  if (!meta) return;
+  const quantity = fieldset.querySelector('[data-field="quantity"]')?.value || '0';
+  const unitPrice = fieldset.querySelector('[data-field="unitPriceEuro"]')?.value || '0.00';
+  const discountInput = fieldset.querySelector('[data-field="discountEuro"]');
+  let discountMinor = 0;
+  try {
+    discountMinor = discountInput ? euroInputToMinor(discountInput.value) : 0;
+  } catch {
+    discountMinor = 0;
+  }
+  meta.textContent = `${quantity} × ${unitPrice} €${discountMinor > 0 ? ` · Dto. ${formatEuroMinor(discountMinor)}` : ''}`;
+}
+
+function syncReceiptDiscountSummaries() {
+  $$('.receipt-item').forEach(syncReceiptDiscountSummary);
+}
+
+function scheduleReceiptDiscountSummaries() {
+  queueMicrotask(() => queueMicrotask(syncReceiptDiscountSummaries));
+}
+
+function rememberDiscountEditorValue(fieldset) {
+  const input = fieldset?.querySelector('[data-field="discountEuro"]');
+  if (input) input.dataset.receiptEditorInitialValue = input.value;
+}
+
+function scheduleDiscountEditorRestore(dialog) {
+  const fieldset = dialog.querySelector('.receipt-item');
+  const input = fieldset?.querySelector('[data-field="discountEuro"]');
+  if (!input) return;
+  const index = Number(fieldset.dataset.itemIndex);
+  const originalValue = input.dataset.receiptEditorInitialValue ?? input.value;
+  queueMicrotask(() => {
+    const restored = receiptItemAt(index)?.querySelector('[data-field="discountEuro"]');
+    if (!restored) return;
+    restored.value = originalValue;
+    syncReceiptDiscountSummary(restored.closest('.receipt-item'));
+  });
+}
+
+function installReceiptLineEnhancements() {
+  if (receiptLineEnhancementsInstalled) return;
+  receiptLineEnhancementsInstalled = true;
+
+  document.addEventListener('input', event => {
+    const fieldset = event.target.closest?.('.receipt-item');
+    if (fieldset) queueMicrotask(() => syncReceiptDiscountSummary(fieldset));
+  });
+
+  document.addEventListener('click', event => {
+    const fieldset = event.target.closest?.('[data-receipt-action="edit"], .receipt-line-compact')
+      ?.closest('[data-swipe-row]')?.querySelector('.receipt-item');
+    if (fieldset) rememberDiscountEditorValue(fieldset);
+  }, true);
+
+  const dialog = $('#receipt-line-dialog');
+  if (!dialog) return;
+  dialog.addEventListener('click', event => {
+    if (!event.target.closest('#cancel-receipt-line-editor, #close-receipt-line-editor')) return;
+    scheduleDiscountEditorRestore(dialog);
+  }, true);
+  dialog.addEventListener('cancel', () => scheduleDiscountEditorRestore(dialog), true);
+}
+
+function enhanceReceiptLines(lines) {
+  installReceiptLineEnhancements();
+  state.items.forEach((item, index) => {
+    const fieldset = receiptItemAt(index);
+    if (!fieldset) return;
+    addReceiptDiscountField(fieldset, item);
+    const validation = lines[index] || {};
+    if (validation.status === 'confirmed') return;
+    const status = fieldset.querySelector('.receipt-item__legend-actions .status-pill');
+    if (!status || status.matches('[data-receipt-action="validate"]')) return;
+    const action = document.createElement('button');
+    action.type = 'button';
+    action.className = 'status-pill warning';
+    action.dataset.receiptAction = 'validate';
+    action.dataset.receiptIndex = String(index);
+    action.dataset.receiptValidation = 'review';
+    action.setAttribute('aria-label', `Validar línea ${index + 1}`);
+    action.title = 'Validar esta línea';
+    action.textContent = 'Revisar';
+    status.replaceWith(action);
+  });
+  scheduleReceiptDiscountSummaries();
+}
+
 export function renderReview(lines = [], total) {
   const review = $('#receipt-review');
   review.hidden = false;
   review.innerHTML = receiptReview(state.items, lines, total);
+  enhanceReceiptLines(lines);
   $('#confirm-receipt').hidden = state.items.length === 0;
   const panel = $('#receipt-review-panel');
   if (panel) {
@@ -144,14 +261,65 @@ export function deleteReceiptLine(index, { undoable = true } = {}) {
   });
 }
 
+function lineValidationMessage(validation, item, index, suffix = 'antes de importar') {
+  const lineLabel = `Línea ${index + 1}`;
+  if (validation?.status === 'confirmed') return `${lineLabel} validada.`;
+  if (validation?.status === 'unreadable') {
+    return `${lineLabel}: indica una descripción legible ${suffix}.`;
+  }
+  if (validation?.status === 'arithmetic-mismatch') {
+    const expected = Number.isSafeInteger(validation.expectedMinor) ? formatEuroMinor(validation.expectedMinor) : 'el importe calculado';
+    const entered = Number.isSafeInteger(item?.lineTotalMinor) ? formatEuroMinor(item.lineTotalMinor) : 'el total indicado';
+    return `${lineLabel}: el total esperado es ${expected} y has indicado ${entered}. Revisa cantidad, precio unitario, descuento o total ${suffix}.`;
+  }
+  return `${lineLabel}: revisa y valida esta línea ${suffix}.`;
+}
+
+function firstInvalidLine(validation) {
+  const lines = Array.isArray(validation?.lines) ? validation.lines : [];
+  const index = lines.findIndex(entry => entry?.validation?.status !== 'confirmed');
+  return index < 0 ? null : { index, validation: lines[index]?.validation || {} };
+}
+
+function focusInvalidLine(index) {
+  const action = $(`[data-receipt-action="validate"][data-receipt-index="${index}"]`);
+  action?.scrollIntoView({ block: 'center', behavior: 'auto' });
+  action?.focus();
+}
+
+export async function validateReceiptLine(index, button) {
+  setBusy(button, true);
+  try {
+    const items = readReceiptItems();
+    const declaredTotalMinor = euroInputToMinor($('#receipt-total').value);
+    const validation = await api('/api/v1/receipts/validate', {
+      method: 'POST',
+      body: JSON.stringify({ declaredTotalMinor, items }),
+    });
+    state.items = items;
+    state.manualReviewRequired = false;
+    renderReview(items.map((_, lineIndex) => validation.lines[lineIndex]?.validation || {}), validation.total);
+    const current = validation.lines[index]?.validation || {};
+    $('#receipt-state').textContent = lineValidationMessage(current, items[index], index);
+    if (current.status !== 'confirmed') focusInvalidLine(index);
+  } catch (error) {
+    $('#receipt-state').textContent = `No se pudo validar la línea ${index + 1}: ${error.message}`;
+    focusInvalidLine(index);
+  } finally {
+    setBusy(button, false);
+  }
+}
+
 export function handleReceiptAction(event) {
   const button = event.target.closest('[data-receipt-action]');
   if (!button) return;
   const action = button.dataset.receiptAction;
   if (action === 'add-line') addBlankLine();
   if (action === 'delete') deleteReceiptLine(Number(button.dataset.receiptIndex));
+  if (action === 'validate') void validateReceiptLine(Number(button.dataset.receiptIndex), button);
   if (action === 'edit') {
     const row = button.closest('[data-swipe-row]')?.querySelector('.receipt-item');
+    rememberDiscountEditorValue(row);
     row?.querySelector('[data-field="description"]')?.focus();
   }
 }
@@ -160,13 +328,16 @@ export function readReceiptItems() {
   return $$('.receipt-item').map(fieldset => {
     const index = Number(fieldset.dataset.itemIndex);
     const previous = state.items[index] || {};
+    const discountInput = fieldset.querySelector('[data-field="discountEuro"]');
     return {
       index,
       description: fieldset.querySelector('[data-field="description"]').value.trim(),
       quantity: Number(fieldset.querySelector('[data-field="quantity"]').value),
       unitPriceMinor: euroInputToMinor(fieldset.querySelector('[data-field="unitPriceEuro"]').value),
       lineTotalMinor: euroInputToMinor(fieldset.querySelector('[data-field="lineTotalEuro"]').value),
-      ...(previous.discountMinor === undefined ? {} : { discountMinor: previous.discountMinor }),
+      ...(previous.discountMinor === undefined ? {} : {
+        discountMinor: euroInputToMinor(discountInput?.value ?? minorToEuroInput(previous.discountMinor)),
+      }),
       ...(previous.taxCategory ? { taxCategory: previous.taxCategory } : {}),
       ...(previous.sourceLines ? { sourceLines: previous.sourceLines } : {}),
       confidence: 1,
@@ -180,7 +351,7 @@ export function collectCorrections(items) {
   items.forEach((item, itemIndex) => {
     const original = state.originalItems[itemIndex];
     if (!original) return;
-    for (const field of ['description', 'quantity', 'unitPriceMinor', 'lineTotalMinor']) {
+    for (const field of ['description', 'quantity', 'unitPriceMinor', 'lineTotalMinor', 'discountMinor']) {
       if (item[field] !== original[field]) {
         corrections.push({ itemIndex, field, original: original[field], corrected: item[field] });
       }
@@ -237,6 +408,12 @@ export async function validateRows() {
     state.items = items;
     state.manualReviewRequired = false;
     renderReview(items.map((_, index) => validation.lines[index]?.validation || {}), validation.total);
+    const invalid = firstInvalidLine(validation);
+    if (invalid) {
+      $('#receipt-state').textContent = lineValidationMessage(invalid.validation, items[invalid.index], invalid.index);
+      focusInvalidLine(invalid.index);
+      return;
+    }
     $('#receipt-state').textContent = validation.total.valid
       ? 'Líneas y total validados.'
       : 'El total no coincide. Corrige los importes en euros antes de confirmar.';
@@ -364,10 +541,6 @@ export async function confirmReceipt() {
     $('#receipt-state').textContent = 'Completa, reintenta o retira todas las imágenes antes de confirmar el ticket.';
     return;
   }
-  if (state.manualReviewRequired) {
-    $('#receipt-state').textContent = 'El OCR manual es sólo un borrador. Pulsa “Validar líneas” y corrige cualquier diferencia antes de confirmar.';
-    return;
-  }
   let items;
   let declaredTotalMinor;
   try {
@@ -392,7 +565,14 @@ export async function confirmReceipt() {
       body: JSON.stringify({ declaredTotalMinor, items }),
     });
     state.items = items;
+    state.manualReviewRequired = false;
     renderReview(items.map((_, index) => validation.lines[index]?.validation || {}), validation.total);
+    const invalid = firstInvalidLine(validation);
+    if (invalid) {
+      $('#receipt-state').textContent = lineValidationMessage(invalid.validation, items[invalid.index], invalid.index);
+      focusInvalidLine(invalid.index);
+      return;
+    }
     if (!validation.total.valid) {
       $('#receipt-state').textContent = 'El total no coincide. Corrige las líneas o el total antes de confirmar.';
       return;
