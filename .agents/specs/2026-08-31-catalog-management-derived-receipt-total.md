@@ -14,6 +14,10 @@ Expose the reusable product catalog as a first-class workflow so a user can see 
 - `src/domain/receipt.ts::validateReceiptLine()` currently owns `quantity * unitPriceMinor - discountMinor` arithmetic.
 - Receipt review previously rendered `lineTotalEuro` as an editable field, which allowed UI state to drift from the arithmetic that the server later validates.
 - Pull Request Quality run `33438526734` proved the synchronized derived-total implementation passes formatting, lint, TypeScript, unit/integration coverage, domain coverage, build, resource budgets, security, container smoke and both container architectures. Its Browser E2E run improved the earlier regression set from 65/70 to 67/70 and isolated the remaining failures to deterministic test navigation/synchronization rather than production arithmetic.
+- Pull Request Quality run `33440283894` on head `a80342b2fcb5ca90c5cd85df81166454c328be5a` is fully green: Browser E2E, Quality, Security, container smoke, linux/amd64 and linux/arm64 all passed. CodeQL run `33440283866` also passed.
+- The authoritative browser artifact `9776123439` belongs to head `a80342b2fcb5ca90c5cd85df81166454c328be5a` and has digest `sha256:c7c71b585a021d55094a45300bf5573fa046d24d9b4bc5478f9b1a2bf6fb8436`.
+- Visual review of the stabilized `catalog-mobile.png` at 390 px confirms the terminal retailer state (`Lidl` / `Leche fresca Milbona 1 L`), no horizontal overflow, no clipped form controls and a coherent single-column mobile workflow. The full-page screenshot relocates the sticky app header during capture, while Playwright's final viewport screenshot shows the header and bottom navigation in their correct runtime positions.
+- The direct visual-evidence publisher previously exposed only a fixed set of historical critical screens, so the new catalog UI was absent from the PR comment despite existing in the authoritative browser artifact. The publisher now copies `catalog-mobile.png` as `13-catalog-management.png` and places it first in the PR evidence comment.
 
 ## Decision
 
@@ -29,6 +33,7 @@ Expose the reusable product catalog as a first-class workflow so a user can see 
 - Render receipt line total as read-only. Quantity, unit price and discount changes trigger bounded, race-safe recalculation; stale requests are cancelled/ignored. The browser coordinates request lifecycle only and never duplicates the multiplication/subtraction rule.
 - A pending derived calculation blocks Save line, per-line validation, whole-ticket validation and final confirmation until the latest calculation settles. A failed calculation leaves the action blocked and exposes the calculation error instead of allowing stale data to continue.
 - Keep declared receipt total editable because it represents the amount printed on the receipt, not a derived line value.
+- Publish the catalog's stabilized mobile screenshot in the direct PR visual evidence whenever this UI is part of a visual-impacting head, rather than relying on an artifact that reviewers must download manually.
 
 ## Acceptance
 
@@ -47,6 +52,7 @@ Expose the reusable product catalog as a first-class workflow so a user can see 
 13. Mobile layout remains usable at narrow widths with keyboard-visible labels and no required hover interaction.
 14. New API behavior has unit/integration coverage and the receipt editor has browser regression coverage.
 15. Required GitHub checks are green on the final PR head before completion.
+16. The direct PR visual-evidence comment includes the stabilized catalog-management mobile screenshot generated from the same validated head as Browser E2E.
 
 ## Scope
 
@@ -60,6 +66,7 @@ Included:
 - read-only, live-derived receipt line total
 - coordination that prevents stale derived totals from crossing save/validation/confirmation boundaries
 - focused tests and documentation
+- direct PR publication of the new catalog screenshot from the authoritative browser artifact
 
 Excluded:
 
@@ -76,6 +83,7 @@ Excluded:
 - Existing canonical parents with zero variants can remain after moves. They are retained rather than deleted because automatic data cleanup would be destructive.
 - A failed live-calculation request keeps the previous value visible for context but blocks save/validation/confirmation until a later successful calculation replaces it; the stale value is therefore never accepted as the current derived result.
 - Multiple browser tabs can edit catalog relationships concurrently. SQLite transactions make each write atomic; last completed relationship write wins. No new optimistic-version schema is introduced in this scope.
+- Full-page screenshots can reposition sticky elements in the stitched image. Runtime placement must therefore be reviewed against the normal viewport capture as well as the full-page evidence instead of treating the stitched position as a product defect.
 
 ## Tests
 
@@ -85,12 +93,13 @@ Excluded:
 - browser tests proving total is read-only and follows quantity/price/discount changes without client arithmetic ownership
 - browser regression tests proving save/validation waits for the current derived total and stale responses cannot overwrite a newer edit
 - existing receipt validation browser regressions, including discount edit/cancel/validate/confirm flows
+- browser evidence checks that wait for terminal catalog mutations before capturing `catalog-mobile.png`
 - `pnpm quality` in authoritative Pull Request Quality CI
 - CodeQL, security, amd64/arm64 container builds, hardened container smoke and visual evidence workflows
 
 ## Rollback
 
-All API and UI changes are additive except making the receipt-line total read-only. Reverting the feature commits restores the prior UI/API behavior. No schema migration is required and no historical evidence is rewritten.
+All API and UI changes are additive except making the receipt-line total read-only. Reverting the feature commits restores the prior UI/API behavior. No schema migration is required and no historical evidence is rewritten. The visual-evidence addition is independently reversible by removing the catalog capture from `.github/workflows/pr-visual-evidence.yml`.
 
 ## Delivery
 
@@ -98,4 +107,4 @@ Use atomic Conventional Commits on `agent/feat-catalog-management-derived-total`
 
 ## Status
 
-Implementation and regression fixes are complete. The final PR head must still pass the full Pull Request Quality/CodeQL matrix and direct visual-evidence review before the task is marked complete.
+Implementation, regression fixes and stabilized visual capture are complete. Head `a80342b2fcb5ca90c5cd85df81166454c328be5a` passed the full functional/security/container/CodeQL matrix and its catalog evidence passed manual visual review. The final delivery head adds direct publication of that catalog evidence plus this status record; completion requires that final head to pass the same required checks and publish the catalog image successfully before handoff.
