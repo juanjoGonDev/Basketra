@@ -12,7 +12,8 @@ Expose the reusable product catalog as a first-class workflow so a user can see 
 - The existing product editor is only reachable from a shopping-list item. There is no product collection endpoint or catalog screen for browsing saved reusable products.
 - `receipt_items.original_description` is persisted evidence. It must remain immutable when catalog relationships are edited.
 - `src/domain/receipt.ts::validateReceiptLine()` currently owns `quantity * unitPriceMinor - discountMinor` arithmetic.
-- Receipt review currently renders `lineTotalEuro` as an editable field, which lets UI state drift from the arithmetic that the server later validates.
+- Receipt review previously rendered `lineTotalEuro` as an editable field, which allowed UI state to drift from the arithmetic that the server later validates.
+- Pull Request Quality run `33438526734` proved the synchronized derived-total implementation passes formatting, lint, TypeScript, unit/integration coverage, domain coverage, build, resource budgets, security, container smoke and both container architectures. Its Browser E2E run improved the earlier regression set from 65/70 to 67/70 and isolated the remaining failures to deterministic test navigation/synchronization rather than production arithmetic.
 
 ## Decision
 
@@ -25,7 +26,8 @@ Expose the reusable product catalog as a first-class workflow so a user can see 
 - Add a first-class `Catálogo` view reachable from Home. Mobile uses one vertical flow; wider screens may present list and editor side by side without changing the workflow.
 - The catalog editor explains that canonical name/category/description are shared by every variant related to the same parent.
 - Add a backend receipt-line calculation operation whose domain implementation is the single arithmetic owner. `validateReceiptLine()` consumes the same calculation function.
-- Render receipt line total as read-only. Quantity, unit price and discount changes trigger bounded, race-safe recalculation; stale requests are cancelled/ignored. Validation and final import remain server-authoritative.
+- Render receipt line total as read-only. Quantity, unit price and discount changes trigger bounded, race-safe recalculation; stale requests are cancelled/ignored. The browser coordinates request lifecycle only and never duplicates the multiplication/subtraction rule.
+- A pending derived calculation blocks Save line, per-line validation, whole-ticket validation and final confirmation until the latest calculation settles. A failed calculation leaves the action blocked and exposes the calculation error instead of allowing stale data to continue.
 - Keep declared receipt total editable because it represents the amount printed on the receipt, not a derived line value.
 
 ## Acceptance
@@ -40,10 +42,11 @@ Expose the reusable product catalog as a first-class workflow so a user can see 
 8. Receipt-line `Total (€)` is read-only in both inline and sheet editing.
 9. Changing quantity, unit price or discount recalculates line total using backend domain arithmetic; the browser does not implement the multiplication/subtraction rule.
 10. Calculation requests cancel/ignore stale results and do not create request storms.
-11. Existing receipt validation, discount corrections, cancel/revert, delete/undo and final confirmation behavior remain intact.
-12. Mobile layout remains usable at narrow widths with keyboard-visible labels and no required hover interaction.
-13. New API behavior has unit/integration coverage and the receipt editor has browser regression coverage.
-14. Required GitHub checks are green on the final PR head before completion.
+11. Save, validation and final confirmation cannot consume a stale line total while the latest derived calculation is pending or failed.
+12. Existing receipt validation, discount corrections, cancel/revert, delete/undo and final confirmation behavior remain intact.
+13. Mobile layout remains usable at narrow widths with keyboard-visible labels and no required hover interaction.
+14. New API behavior has unit/integration coverage and the receipt editor has browser regression coverage.
+15. Required GitHub checks are green on the final PR head before completion.
 
 ## Scope
 
@@ -55,6 +58,7 @@ Included:
 - first-class catalog UI using existing visual primitives/tokens
 - canonical backend receipt-line calculation
 - read-only, live-derived receipt line total
+- coordination that prevents stale derived totals from crossing save/validation/confirmation boundaries
 - focused tests and documentation
 
 Excluded:
@@ -70,7 +74,7 @@ Excluded:
 
 - Moving a variant changes which canonical metadata it shares with related variants. The UI must make that consequence explicit before saving.
 - Existing canonical parents with zero variants can remain after moves. They are retained rather than deleted because automatic data cleanup would be destructive.
-- A failed live-calculation request can temporarily leave the previous derived total visible; subsequent driver edits retry, and final canonical validation still blocks invalid import.
+- A failed live-calculation request keeps the previous value visible for context but blocks save/validation/confirmation until a later successful calculation replaces it; the stale value is therefore never accepted as the current derived result.
 - Multiple browser tabs can edit catalog relationships concurrently. SQLite transactions make each write atomic; last completed relationship write wins. No new optimistic-version schema is introduced in this scope.
 
 ## Tests
@@ -79,9 +83,10 @@ Excluded:
 - catalog-management repository unit/integration tests against temporary SQLite data
 - HTTP integration tests for catalog browse, parent create/link and retailer-specific name upsert
 - browser tests proving total is read-only and follows quantity/price/discount changes without client arithmetic ownership
-- existing receipt validation browser regressions
-- `pnpm quality` when an executable local clone is available
-- authoritative Pull Request Quality, CodeQL and visual evidence workflows
+- browser regression tests proving save/validation waits for the current derived total and stale responses cannot overwrite a newer edit
+- existing receipt validation browser regressions, including discount edit/cancel/validate/confirm flows
+- `pnpm quality` in authoritative Pull Request Quality CI
+- CodeQL, security, amd64/arm64 container builds, hardened container smoke and visual evidence workflows
 
 ## Rollback
 
@@ -93,4 +98,4 @@ Use atomic Conventional Commits on `agent/feat-catalog-management-derived-total`
 
 ## Status
 
-Specified; implementation in progress.
+Implementation and regression fixes are complete. The final PR head must still pass the full Pull Request Quality/CodeQL matrix and direct visual-evidence review before the task is marked complete.
