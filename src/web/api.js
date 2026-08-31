@@ -7,6 +7,11 @@ const PARALLEL_POST_PATHS = new Set([
 const UNTHROTTLED_PATHS = new Set([
   '/api/v1/receipts/calculate-line',
 ]);
+const RECEIPT_CALCULATION_DELAY_MS = 120;
+const RECEIPT_CALCULATION_PATH = '/api/v1/receipts/calculate-line';
+const RECEIPT_CALCULATION_DRIVER_FIELDS = new Set(['quantity', 'unitPriceEuro', 'discountEuro']);
+const receiptCalculationState = new WeakMap();
+let receiptDerivedTotalsInitialized = false;
 
 function defaultBaseUrl() {
   return globalThis.location?.origin || 'http://localhost';
@@ -211,6 +216,141 @@ function scheduleOperationsBootstrap() {
   }, 0);
 }
 
+function receiptLineRoot(element) {
+  return element.closest('.receipt-item, [data-receipt-line-editor]');
+}
+
+function receiptLineField(root, field) {
+  return root?.querySelector(`[data-field="${field}"]`);
+}
+
+function receiptCalculationStatus(root, message) {
+  const status = root?.querySelector('.receipt-line-derived-state');
+  if (status) status.textContent = message;
+}
+
+function receiptCalculationStateFor(root) {
+  let state = receiptCalculationState.get(root);
+  if (state) return state;
+  state = { controller: null, timer: null, version: 0 };
+  receiptCalculationState.set(root, state);
+  return state;
+}
+
+function markDerivedReceiptTotal(root) {
+  const total = receiptLineField(root, 'lineTotalEuro');
+  if (!(total instanceof HTMLInputElement)) return undefined;
+  total.readOnly = true;
+  total.setAttribute('aria-readonly', 'true');
+  total.dataset.derivedTotal = 'true';
+  return total;
+}
+
+async function readReceiptCalculationInput(root) {
+  const quantityInput = receiptLineField(root, 'quantity');
+  const unitPriceInput = receiptLineField(root, 'unitPriceEuro');
+  const discountInput = receiptLineField(root, 'discountEuro');
+  if (!(quantityInput instanceof HTMLInputElement) || !(unitPriceInput instanceof HTMLInputElement)) return undefined;
+  const quantity = Number(quantityInput.value);
+  if (!Number.isSafeInteger(quantity) || quantity < 0) return undefined;
+  try {
+    const { euroInputToMinor } = await import('./ui.js');
+    return {
+      quantity,
+      unitPriceMinor: euroInputToMinor(unitPriceInput.value),
+      ...(discountInput instanceof HTMLInputElement && discountInput.value.trim()
+        ? { discountMinor: euroInputToMinor(discountInput.value) }
+        : {}),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+async function calculateReceiptLine(root) {
+  const total = markDerivedReceiptTotal(root);
+  if (!total) return;
+  const state = receiptCalculationStateFor(root);
+  const version = ++state.version;
+  state.controller?.abort();
+  const controller = new AbortController();
+  state.controller = controller;
+  total.setAttribute('aria-busy', 'true');
+  receiptCalculationStatus(root, 'Calculando total…');
+  try {
+    const input = await readReceiptCalculationInput(root);
+    if (!input || version !== state.version) return;
+    const result = await api(RECEIPT_CALCULATION_PATH, {
+      method: 'POST',
+      signal: controller.signal,
+      body: JSON.stringify(input),
+    });
+    if (version !== state.version || !root.isConnected) return;
+    const { minorToEuroInput } = await import('./ui.js');
+    if (version !== state.version || !root.isConnected) return;
+    total.value = minorToEuroInput(result.lineTotalMinor);
+    total.dispatchEvent(new Event('input', { bubbles: true }));
+    receiptCalculationStatus(root, 'Total actualizado.');
+  } catch (error) {
+    if (error?.name === 'AbortError' || version !== state.version) return;
+    receiptCalculationStatus(root, `No se pudo calcular el total: ${error.message}`);
+  } finally {
+    if (version === state.version) total.setAttribute('aria-busy', 'false');
+  }
+}
+
+function scheduleReceiptLineCalculation(root, immediate = false) {
+  if (!root) return;
+  const total = markDerivedReceiptTotal(root);
+  if (!total) return;
+  const state = receiptCalculationStateFor(root);
+  clearTimeout(state.timer);
+  state.controller?.abort();
+  state.timer = setTimeout(() => void calculateReceiptLine(root), immediate ? 0 : RECEIPT_CALCULATION_DELAY_MS);
+}
+
+function enhanceReceiptLine(root) {
+  const total = markDerivedReceiptTotal(root);
+  if (!total || root.querySelector('.receipt-line-derived-state')) return;
+  const label = total.closest('label');
+  if (!label) return;
+  const status = document.createElement('small');
+  status.className = 'receipt-line-derived-state field-help';
+  status.setAttribute('aria-live', 'polite');
+  status.textContent = 'Se actualiza al cambiar cantidad, precio o descuento.';
+  label.append(status);
+}
+
+function enhanceExistingReceiptLines(root) {
+  root.querySelectorAll?.('.receipt-item, [data-receipt-line-editor]').forEach(enhanceReceiptLine);
+}
+
+function initializeReceiptDerivedTotals() {
+  if (receiptDerivedTotalsInitialized) return;
+  receiptDerivedTotalsInitialized = true;
+  enhanceExistingReceiptLines(document);
+
+  const observer = new MutationObserver(records => {
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (!(node instanceof Element)) continue;
+        if (node.matches('.receipt-item, [data-receipt-line-editor]')) enhanceReceiptLine(node);
+        enhanceExistingReceiptLines(node);
+      }
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  document.addEventListener('input', event => {
+    if (!RECEIPT_CALCULATION_DRIVER_FIELDS.has(event.target?.dataset?.field)) return;
+    scheduleReceiptLineCalculation(receiptLineRoot(event.target));
+  }, true);
+  document.addEventListener('change', event => {
+    if (!RECEIPT_CALCULATION_DRIVER_FIELDS.has(event.target?.dataset?.field)) return;
+    scheduleReceiptLineCalculation(receiptLineRoot(event.target), true);
+  }, true);
+}
+
 export async function api(path, options = {}) {
   applicationApiRequests += 1;
   try {
@@ -290,12 +430,10 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   // Keep api.js as the browser HTTP SSOT even when a feature accidentally calls fetch directly.
   // EventSource and service-worker traffic run in different transport paths and are not wrapped here.
   globalThis.fetch = coordinatedFetch;
+  initializeReceiptDerivedTotals();
   const activateCatalog = globalThis.location?.hash === '#catalog';
   void import('./catalog.js')
     .then(module => module.initializeCatalogFeature({ activate: activateCatalog }))
-    .catch(() => {});
-  void import('./receipt-derived-total.js')
-    .then(module => module.initializeReceiptDerivedTotals())
     .catch(() => {});
   scheduleOperationsBootstrap();
 }
