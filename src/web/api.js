@@ -267,11 +267,11 @@ async function readReceiptCalculationInput(root) {
   }
 }
 
-async function calculateReceiptLine(root) {
+async function calculateReceiptLine(root, version) {
   const total = markDerivedReceiptTotal(root);
   if (!total) return;
   const state = receiptCalculationStateFor(root);
-  const version = ++state.version;
+  if (version !== state.version) return;
   state.controller?.abort();
   const controller = new AbortController();
   state.controller = controller;
@@ -279,7 +279,11 @@ async function calculateReceiptLine(root) {
   receiptCalculationStatus(root, 'Calculando total…');
   try {
     const input = await readReceiptCalculationInput(root);
-    if (!input || version !== state.version) return;
+    if (version !== state.version) return;
+    if (!input) {
+      receiptCalculationStatus(root, 'Completa cantidad, precio y descuento para calcular el total.');
+      return;
+    }
     const result = await api(RECEIPT_CALCULATION_PATH, {
       method: 'POST',
       signal: controller.signal,
@@ -295,7 +299,10 @@ async function calculateReceiptLine(root) {
     if (error?.name === 'AbortError' || version !== state.version) return;
     receiptCalculationStatus(root, `No se pudo calcular el total: ${error.message}`);
   } finally {
-    if (version === state.version) total.setAttribute('aria-busy', 'false');
+    if (version === state.version) {
+      total.setAttribute('aria-busy', 'false');
+      state.controller = null;
+    }
   }
 }
 
@@ -304,9 +311,10 @@ function scheduleReceiptLineCalculation(root, immediate = false) {
   const total = markDerivedReceiptTotal(root);
   if (!total) return;
   const state = receiptCalculationStateFor(root);
+  const version = ++state.version;
   clearTimeout(state.timer);
   state.controller?.abort();
-  state.timer = setTimeout(() => void calculateReceiptLine(root), immediate ? 0 : RECEIPT_CALCULATION_DELAY_MS);
+  state.timer = setTimeout(() => void calculateReceiptLine(root, version), immediate ? 0 : RECEIPT_CALCULATION_DELAY_MS);
 }
 
 function enhanceReceiptLine(root) {
