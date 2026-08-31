@@ -78,7 +78,7 @@ function receiptItemAt(index) {
 }
 
 function addReceiptDiscountField(fieldset, item) {
-  if (item.discountMinor === undefined || fieldset.querySelector('[data-field="discountEuro"]')) return;
+  if (fieldset.querySelector('[data-field="discountEuro"]')) return;
   const label = document.createElement('label');
   label.className = 'field receipt-discount-field';
   const caption = document.createElement('span');
@@ -88,7 +88,7 @@ function addReceiptDiscountField(fieldset, item) {
   input.inputMode = 'decimal';
   input.autocomplete = 'off';
   input.dataset.field = 'discountEuro';
-  input.value = minorToEuroInput(item.discountMinor);
+  input.value = minorToEuroInput(item.discountMinor ?? 0);
   input.dataset.receiptEditorInitialValue = input.value;
   input.setAttribute('aria-label', 'Descuento (€)');
   label.append(caption, input);
@@ -341,15 +341,14 @@ export function readReceiptItems() {
     const index = Number(fieldset.dataset.itemIndex);
     const previous = state.items[index] || {};
     const discountInput = fieldset.querySelector('[data-field="discountEuro"]');
+    const discountMinor = euroInputToMinor(discountInput?.value ?? '0.00');
     return {
       index,
       description: fieldset.querySelector('[data-field="description"]').value.trim(),
       quantity: Number(fieldset.querySelector('[data-field="quantity"]').value),
       unitPriceMinor: euroInputToMinor(fieldset.querySelector('[data-field="unitPriceEuro"]').value),
       lineTotalMinor: euroInputToMinor(fieldset.querySelector('[data-field="lineTotalEuro"]').value),
-      ...(previous.discountMinor === undefined ? {} : {
-        discountMinor: euroInputToMinor(discountInput?.value ?? minorToEuroInput(previous.discountMinor)),
-      }),
+      ...(discountMinor > 0 || previous.discountMinor !== undefined ? { discountMinor } : {}),
       ...(previous.taxCategory ? { taxCategory: previous.taxCategory } : {}),
       ...(previous.sourceLines ? { sourceLines: previous.sourceLines } : {}),
       confidence: 1,
