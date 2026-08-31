@@ -27,6 +27,8 @@ test('receipt arithmetic rejects unsafe values and discounts above subtotal', ()
     assert.throws(() => validateReceiptLine({ ...line, quantity:invalid }), RangeError);
     assert.throws(() => validateReceiptTotal([line], invalid), RangeError);
   }
+  assert.throws(() => validateReceiptLine({ ...line, lineTotalMinor: -1 }), /non-negative safe integers/i);
+  assert.throws(() => validateReceiptLine({ ...line, lineTotalMinor: 1.2 }), /non-negative safe integers/i);
   assert.throws(() => calculateReceiptLineTotal({ quantity: 1, unitPriceMinor: 100, discountMinor: 101 }), /discount cannot exceed/i);
   assert.throws(() => calculateReceiptLineTotal({ quantity: Number.MAX_SAFE_INTEGER, unitPriceMinor: 2 }), /safe integer range/i);
 });
