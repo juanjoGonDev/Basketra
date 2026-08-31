@@ -300,20 +300,33 @@ export function pagePartialText(page) {
   return '';
 }
 
-export function validateFile(file) {
+export function validateFile(file, runtimeCapabilities) {
   if (!metadata.files.mimeTypes.includes(file.type)) {
     throw new Error(`Tipo de archivo no admitido: ${file.name || 'archivo'}`);
   }
   if (!Number.isSafeInteger(file.size) || file.size <= 0) {
     throw new Error(`El archivo está vacío: ${file.name || 'archivo'}`);
   }
-  if (file.size > metadata.files.maxBytes) {
-    throw new Error(`El archivo supera el límite de ${formatMegabytes(metadata.files.maxBytes)} MB`);
+
+  const maxBytes = file.type === 'application/pdf'
+    ? runtimeCapabilities?.attachments?.maxFileBytes
+    : runtimeCapabilities?.attachments?.maxImageBytes;
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
+    throw new Error('WebAPI no devolvió un límite de archivo válido');
+  }
+  if (file.size > maxBytes) {
+    throw new Error(
+      `El archivo ${file.name || 'archivo'} ocupa ${formatMegabytes(file.size)} MB y supera el límite de ${formatMegabytes(maxBytes)} MB`,
+    );
   }
 }
 
 export function formatMegabytes(bytes) {
-  return Math.max(1, Math.floor(bytes / (1024 * 1024)));
+  const megabytes = bytes / (1024 * 1024);
+  return new Intl.NumberFormat('es-ES', {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: Number.isInteger(megabytes) ? 0 : 1,
+  }).format(megabytes);
 }
 
 export function fileToBase64(file) {
@@ -331,7 +344,10 @@ export async function uploadFiles(fileList) {
   const addedCaptures = [];
   const hadBackgroundJob = Boolean(state.activeJobId);
   try {
-    files.forEach(validateFile);
+    const runtimeCapabilities = await api('/api/v1/ai/runtime-capabilities', {
+      cache: 'no-store',
+    });
+    files.forEach(file => validateFile(file, runtimeCapabilities));
     for (const [index, file] of files.entries()) {
       $('#upload-state').textContent = `Subiendo ${index + 1} de ${files.length}: ${file.name || 'captura'}…`;
       const base64 = await fileToBase64(file);
