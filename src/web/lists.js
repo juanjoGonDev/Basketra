@@ -560,9 +560,75 @@ function readFileBase64(file) {
   });
 }
 
+function formatMegabytes(bytes) {
+  const megabytes = bytes / (1024 * 1024);
+  return new Intl.NumberFormat('es-ES', {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: Number.isInteger(megabytes) ? 0 : 1,
+  }).format(megabytes);
+}
+
+function ensureImageLimitHelp(targetSelector, id) {
+  let help = $(`#${id}`);
+  if (help) return help;
+  const target = $(targetSelector);
+  if (!target) return null;
+  help = document.createElement('p');
+  help.id = id;
+  help.className = 'field-help';
+  help.setAttribute('role', 'status');
+  target.before(help);
+  return help;
+}
+
+function renderImageLimitHelp(maxImageBytes, maxFileBytes) {
+  const copy = `Límites actuales de WebAPI: imágenes ${formatMegabytes(maxImageBytes)} MB · archivos ${formatMegabytes(maxFileBytes)} MB.`;
+  ensureImageLimitHelp('#product-photo-state', 'product-image-limit-help')?.replaceChildren(copy);
+  ensureImageLimitHelp('#ai-state', 'ai-image-limit-help')?.replaceChildren(copy);
+}
+
+function renderImageLimitUnavailable() {
+  const copy = 'No se pudieron consultar los límites actuales de WebAPI. No se enviarán imágenes a la IA hasta recuperarlos.';
+  ensureImageLimitHelp('#product-photo-state', 'product-image-limit-help')?.replaceChildren(copy);
+  ensureImageLimitHelp('#ai-state', 'ai-image-limit-help')?.replaceChildren(copy);
+}
+
+async function readLiveAiAttachmentLimits() {
+  const runtimeCapabilities = await api('/api/v1/ai/runtime-capabilities', { cache: 'no-store' });
+  const maxImageBytes = runtimeCapabilities?.attachments?.maxImageBytes;
+  const maxFileBytes = runtimeCapabilities?.attachments?.maxFileBytes;
+  if (!Number.isSafeInteger(maxImageBytes) || maxImageBytes <= 0 || !Number.isSafeInteger(maxFileBytes) || maxFileBytes <= 0) {
+    throw new Error('WebAPI no ha devuelto límites de adjuntos válidos');
+  }
+  renderImageLimitHelp(maxImageBytes, maxFileBytes);
+  return { maxImageBytes, maxFileBytes };
+}
+
+async function refreshImageLimitHelp() {
+  if (!aiConfigured) return;
+  try {
+    await readLiveAiAttachmentLimits();
+  } catch {
+    renderImageLimitUnavailable();
+  }
+}
+
 async function uploadProductImage(file) {
   if (!file || !['image/jpeg', 'image/png'].includes(file.type)) throw new Error('Usa una imagen JPEG o PNG');
-  if (file.size > metadata.files.maxBytes) throw new Error('La imagen supera el límite configurado');
+  if (aiConfigured) {
+    let limits;
+    try {
+      limits = await readLiveAiAttachmentLimits();
+    } catch (error) {
+      renderImageLimitUnavailable();
+      throw error;
+    }
+    if (file.size > limits.maxImageBytes) {
+      throw new Error(
+        `La imagen ${file.name || 'archivo'} ocupa ${formatMegabytes(file.size)} MB y supera el máximo de ${formatMegabytes(limits.maxImageBytes)} MB admitido por WebAPI`,
+      );
+    }
+  }
   const base64 = await readFileBase64(file);
   const result = await api('/api/v1/files', {
     method: 'POST',
@@ -1333,6 +1399,9 @@ function bindEvents() {
     if (event.detail?.kind !== 'shopping-item' || event.detail?.action !== 'delete') return;
     void deleteItemFromSwipe(String(event.detail.id || ''));
   });
+  document.addEventListener('basketra:view-changed', event => {
+    if (event.detail?.view === 'lists' && aiConfigured) void refreshImageLimitHelp();
+  });
 }
 
 export async function initLists(options) {
@@ -1344,5 +1413,6 @@ export async function initLists(options) {
   restoreItemDraft();
   bindEvents();
   setOverviewVisible(true);
+  if (aiConfigured) void refreshImageLimitHelp();
   await Promise.all([loadLists(), loadCategories(), loadStores()]);
 }
