@@ -18,6 +18,8 @@ Expose the reusable product catalog as a first-class workflow so a user can see 
 - The authoritative browser artifact `9776123439` belongs to head `a80342b2fcb5ca90c5cd85df81166454c328be5a` and has digest `sha256:c7c71b585a021d55094a45300bf5573fa046d24d9b4bc5478f9b1a2bf6fb8436`.
 - Visual review of the stabilized `catalog-mobile.png` at 390 px confirms the terminal retailer state (`Lidl` / `Leche fresca Milbona 1 L`), no horizontal overflow, no clipped form controls and a coherent single-column mobile workflow. The full-page screenshot relocates the sticky app header during capture, while Playwright's final viewport screenshot shows the header and bottom navigation in their correct runtime positions.
 - The direct visual-evidence publisher previously exposed only a fixed set of historical critical screens, so the new catalog UI was absent from the PR comment despite existing in the authoritative browser artifact. The publisher now copies `catalog-mobile.png` as `13-catalog-management.png` and places it first in the PR evidence comment.
+- Pull Request Quality run `33442290036` on delivery head `37e9702e0859b556c903ad7d8addd700e00bef97` passed Quality, Security, container smoke, linux/amd64 and linux/arm64, while CodeQL run `33442290090` passed both Actions and JavaScript/TypeScript analysis. Browser E2E passed 69/70; the only failure was the pre-existing PDF manual-recovery boundary test waiting up to five seconds for an incidental second job read that was not contractually guaranteed to occur on its own. Both catalog scenarios and all receipt-line validation scenarios passed on that run.
+- The PDF recovery regression is now deterministic: a shared controlled `EventSource` helper emits the realtime `open` event explicitly to initiate the second job refresh, the mocked response remains gated while manual review is selected, and the late refresh is then released to prove it cannot overwrite manual state. No sleep, retry, polling workaround or production change is used.
 
 ## Decision
 
@@ -34,6 +36,7 @@ Expose the reusable product catalog as a first-class workflow so a user can see 
 - A pending derived calculation blocks Save line, per-line validation, whole-ticket validation and final confirmation until the latest calculation settles. A failed calculation leaves the action blocked and exposes the calculation error instead of allowing stale data to continue.
 - Keep declared receipt total editable because it represents the amount printed on the receipt, not a derived line value.
 - Publish the catalog's stabilized mobile screenshot in the direct PR visual evidence whenever this UI is part of a visual-impacting head, rather than relying on an artifact that reviewers must download manually.
+- Browser tests that need realtime reconnection use one shared controlled `EventSource` helper. A boundary test must trigger the event that owns the transition rather than wait for incidental timing.
 
 ## Acceptance
 
@@ -53,6 +56,7 @@ Expose the reusable product catalog as a first-class workflow so a user can see 
 14. New API behavior has unit/integration coverage and the receipt editor has browser regression coverage.
 15. Required GitHub checks are green on the final PR head before completion.
 16. The direct PR visual-evidence comment includes the stabilized catalog-management mobile screenshot generated from the same validated head as Browser E2E.
+17. The late durable-job recovery regression deterministically proves a realtime refresh cannot overwrite a manual-review transition without depending on scheduler timing or retrying a flaky test.
 
 ## Scope
 
@@ -67,6 +71,7 @@ Included:
 - coordination that prevents stale derived totals from crossing save/validation/confirmation boundaries
 - focused tests and documentation
 - direct PR publication of the new catalog screenshot from the authoritative browser artifact
+- deterministic shared browser-test control for receipt realtime reconnection
 
 Excluded:
 
@@ -84,6 +89,7 @@ Excluded:
 - A failed live-calculation request keeps the previous value visible for context but blocks save/validation/confirmation until a later successful calculation replaces it; the stale value is therefore never accepted as the current derived result.
 - Multiple browser tabs can edit catalog relationships concurrently. SQLite transactions make each write atomic; last completed relationship write wins. No new optimistic-version schema is introduced in this scope.
 - Full-page screenshots can reposition sticky elements in the stitched image. Runtime placement must therefore be reviewed against the normal viewport capture as well as the full-page evidence instead of treating the stitched position as a product defect.
+- Receipt recovery depends on realtime invalidation rather than interval polling. Tests must explicitly model the realtime event when validating late refresh races; waiting for an unspecified reconnect creates nondeterminism without increasing production coverage.
 
 ## Tests
 
@@ -94,12 +100,13 @@ Excluded:
 - browser regression tests proving save/validation waits for the current derived total and stale responses cannot overwrite a newer edit
 - existing receipt validation browser regressions, including discount edit/cancel/validate/confirm flows
 - browser evidence checks that wait for terminal catalog mutations before capturing `catalog-mobile.png`
+- deterministic realtime recovery race coverage using `tests/browser/helpers/controlled-event-source.mjs`
 - `pnpm quality` in authoritative Pull Request Quality CI
 - CodeQL, security, amd64/arm64 container builds, hardened container smoke and visual evidence workflows
 
 ## Rollback
 
-All API and UI changes are additive except making the receipt-line total read-only. Reverting the feature commits restores the prior UI/API behavior. No schema migration is required and no historical evidence is rewritten. The visual-evidence addition is independently reversible by removing the catalog capture from `.github/workflows/pr-visual-evidence.yml`.
+All API and UI changes are additive except making the receipt-line total read-only. Reverting the feature commits restores the prior UI/API behavior. No schema migration is required and no historical evidence is rewritten. The visual-evidence addition is independently reversible by removing the catalog capture from `.github/workflows/pr-visual-evidence.yml`. The deterministic browser helper is test-only and has no runtime impact.
 
 ## Delivery
 
@@ -107,4 +114,4 @@ Use atomic Conventional Commits on `agent/feat-catalog-management-derived-total`
 
 ## Status
 
-Implementation, regression fixes and stabilized visual capture are complete. Head `a80342b2fcb5ca90c5cd85df81166454c328be5a` passed the full functional/security/container/CodeQL matrix and its catalog evidence passed manual visual review. The final delivery head adds direct publication of that catalog evidence plus this status record; completion requires that final head to pass the same required checks and publish the catalog image successfully before handoff.
+Implementation, regression fixes, stabilized catalog capture and deterministic late-refresh test coverage are complete. Head `a80342b2fcb5ca90c5cd85df81166454c328be5a` passed the full functional/security/container/CodeQL matrix and its catalog evidence passed manual visual review. Delivery head `37e9702e0859b556c903ad7d8addd700e00bef97` passed every non-browser check and 69/70 browser tests; its single unrelated recovery-test timing failure has been replaced by explicit realtime-event control. The new final head must pass the full matrix and publish the catalog image successfully before handoff.
