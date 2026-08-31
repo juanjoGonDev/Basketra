@@ -8,6 +8,8 @@ import test from 'node:test';
 import type { AppConfig } from '../../src/infrastructure/config.ts';
 import { OperationsGateway } from '../../src/operations/gateway.ts';
 
+const TEST_API_KEY = 'abc';
+
 function config(dataDir: string, aiBaseUrl: string): AppConfig {
   return {
     host: '127.0.0.1',
@@ -16,7 +18,7 @@ function config(dataDir: string, aiBaseUrl: string): AppConfig {
     tempDir: `${dataDir}/tmp`,
     maxBodyBytes: 8 * 1024 * 1024,
     aiBaseUrl,
-    aiApiKey: 'test-capability-token',
+    aiApiKey: TEST_API_KEY,
     aiModel: 'default',
     aiMaxRetries: 0,
     aiImageCapability: true,
@@ -107,8 +109,8 @@ test('AI capability preflight resolves WebAPI limits on every request', async ()
 
     assert.equal(capabilityReads, baselineReads + 2);
     assert.deepEqual(authorizations.slice(-2), [
-      'Bearer test-capability-token',
-      'Bearer test-capability-token',
+      `Bearer ${TEST_API_KEY}`,
+      `Bearer ${TEST_API_KEY}`,
     ]);
   } finally {
     await gateway.close();
