@@ -126,10 +126,16 @@ test('saved catalog products can be browsed, edited and related on mobile', asyn
   await expectNoHorizontalOverflow(page);
   const catalogView = page.locator('.catalog-view');
   await expect(catalogView).toBeVisible();
-  await catalogView.screenshot({
-    path: testInfo.outputPath('catalog-mobile.png'),
-    style: '.app-header, .bottom-nav, .skip-link { visibility: hidden !important; }',
+  const shellStyle = await page.addStyleTag({
+    content: '.app-header, .bottom-nav, .skip-link { visibility: hidden !important; }',
   });
+  try {
+    await expect(page.locator('.app-header')).toBeHidden();
+    await catalogView.screenshot({ path: testInfo.outputPath('catalog-mobile.png') });
+  } finally {
+    await shellStyle.evaluate(element => element.remove());
+  }
+  await expect(page.locator('.app-header')).toBeVisible();
 });
 
 test('receipt line total is read-only, backend-derived and ignores stale calculations', async ({ page }) => {
