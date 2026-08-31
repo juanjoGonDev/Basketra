@@ -123,6 +123,10 @@ test('catalog API lists, relates and labels persisted product variants without a
     assert.equal(retailerNameUpdate.status, 200);
     assert.equal(expectString(expectRecord(retailerNameUpdate.body?.['retailerName'])['retailerId']), expectString(listing['retailerId']));
 
+    const retailerFiltered = await jsonRequest(baseUrl, '/api/v1/catalog?q=Mercadona&limit=50&offset=0');
+    assert.equal(retailerFiltered.status, 200);
+    assert.equal(expectArray(expectRecord(retailerFiltered.body?.['catalog'])['products']).length, 1);
+
     const existingParent = await jsonRequest(baseUrl, `/api/v1/catalog/products/${encodeURIComponent(milkId)}/parent`, {
       method: 'PUT',
       body: { canonicalProductId: dairyParentId },
@@ -151,6 +155,13 @@ test('catalog API lists, relates and labels persisted product variants without a
     const names = expectArray(filteredProduct['retailerNames']);
     assert.equal(names.length, 1);
     assert.equal(expectRecord(names[0])['title'], 'Leche entera Hacendado 1 L');
+
+    const malformedPath = await jsonRequest(baseUrl, '/api/v1/catalog/products/%E0%A4%A/parent', {
+      method: 'PUT',
+      body: { canonicalProductId: dairyParentId },
+    });
+    assert.equal(malformedPath.status, 400);
+    assert.equal(expectRecord(malformedPath.body?.['error'])['code'], 'INVALID_PATH_PARAMETER');
   } finally {
     await server.close();
     rmSync(root, { recursive: true, force: true });
