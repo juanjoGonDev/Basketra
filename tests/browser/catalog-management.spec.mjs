@@ -126,7 +126,10 @@ test('saved catalog products can be browsed, edited and related on mobile', asyn
   await expectNoHorizontalOverflow(page);
   const catalogView = page.locator('.catalog-view');
   await expect(catalogView).toBeVisible();
-  await catalogView.screenshot({ path: testInfo.outputPath('catalog-mobile.png') });
+  await catalogView.screenshot({
+    path: testInfo.outputPath('catalog-mobile.png'),
+    style: '.app-header, .bottom-nav, .skip-link { visibility: hidden !important; }',
+  });
 });
 
 test('receipt line total is read-only, backend-derived and ignores stale calculations', async ({ page }) => {
