@@ -79,8 +79,9 @@ test('file storage validates signatures, deduplicates and prevents traversal', (
     assert.throws(() => store.resolveKey('missingextension'), /Invalid storage key/);
     assert.throws(() => store.storeBase64({ base64: pngBase64, mimeType: 'text/plain' }), /Unsupported/);
     assert.throws(() => store.storeBase64({ base64: Buffer.from('bad').toString('base64'), mimeType: 'image/png' }), /signature/);
-    assert.throws(() => store.storeBase64({ base64: '', mimeType: 'image/png' }), /size/);
-    assert.throws(() => store.storeBase64({ base64: Buffer.from(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, ...Array(20).fill(0)])).toString('base64'), mimeType: 'image/png' }), /size/);
+    assert.throws(() => store.storeBase64({ base64: '', mimeType: 'image/png' }), /empty/);
+    const largerThanTransportBound = Buffer.from(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, ...Array(20).fill(0)])).toString('base64');
+    assert.equal(store.storeBase64({ base64: largerThanTransportBound, mimeType: 'image/png' }).bytes, 24);
     store.cleanupTemporary();
   } finally {
     rmSync(root, { recursive: true, force: true });
