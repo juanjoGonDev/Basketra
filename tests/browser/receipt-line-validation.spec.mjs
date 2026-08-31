@@ -100,9 +100,10 @@ test('a review-required receipt line can be validated explicitly without editing
   expect(validationPayloads).toHaveLength(1);
   expect(validationPayloads[0].items[0].description).toBe('PAN');
   expect(validationPayloads[0].items[1].description).toBe('LECHE');
+  expect(validationPayloads[0].items[1]).not.toHaveProperty('discountMinor');
 });
 
-test('a hidden receipt discount becomes editable and can resolve an individual arithmetic mismatch', async ({ page }) => {
+test('an extracted receipt discount stays visible, editable and part of canonical validation', async ({ page }) => {
   const validationPayloads = [];
   await routeValidation(page, validationPayloads);
   await setup(page);
@@ -116,6 +117,7 @@ test('a hidden receipt discount becomes editable and can resolve an individual a
   await expect(page.locator('#receipt-state')).toContainText('Línea 1');
   await expect(page.locator('#receipt-state')).toContainText('1,50 €');
   await expect(page.locator('#receipt-state')).toContainText('1,75 €');
+  expect(validationPayloads.at(-1).items[0].discountMinor).toBe(25);
 
   await page.locator('.receipt-line-compact').first().click();
   const editor = page.locator('#receipt-line-dialog');
@@ -132,6 +134,34 @@ test('a hidden receipt discount becomes editable and can resolve an individual a
   await expect(page.locator('.receipt-item').first()).toContainText('Validada');
   await expect(page.locator('#receipt-state')).toHaveText('Línea 1 validada.');
   expect(validationPayloads.at(-1).items[0].discountMinor).toBe(0);
+});
+
+test('a missing receipt discount can be added manually and validated', async ({ page }) => {
+  const validationPayloads = [];
+  await routeValidation(page, validationPayloads);
+  await setup(page);
+  await openReview(page, [item('BEBIDA COCO', 150, { unitPriceMinor: 175 })], ['arithmetic-mismatch']);
+
+  const row = page.locator('.receipt-item').first();
+  await expect(row.locator('[data-field="discountEuro"]')).toHaveValue('0.00');
+  await expect(page.locator('.receipt-line-compact').first()).not.toContainText('Dto.');
+
+  await page.getByRole('button', { name: 'Validar línea 1', exact: true }).click();
+  expect(validationPayloads.at(-1).items[0]).not.toHaveProperty('discountMinor');
+  await expect(page.locator('#receipt-state')).toContainText('1,75 €');
+  await expect(page.locator('#receipt-state')).toContainText('1,50 €');
+
+  await page.locator('.receipt-line-compact').first().click();
+  const editor = page.locator('#receipt-line-dialog');
+  await editor.locator('[data-field="discountEuro"]').fill('0.25');
+  await editor.getByRole('button', { name: 'Guardar línea', exact: true }).click();
+  await expect(page.locator('.receipt-line-compact').first()).toContainText('Dto. 0,25 €');
+
+  await page.getByRole('button', { name: 'Validar línea 1', exact: true }).click();
+
+  await expect(page.locator('.receipt-item').first()).toContainText('Validada');
+  await expect(page.locator('#receipt-state')).toHaveText('Línea 1 validada.');
+  expect(validationPayloads.at(-1).items[0].discountMinor).toBe(25);
 });
 
 test('final confirmation stops before import when canonical validation still rejects a line', async ({ page }) => {
