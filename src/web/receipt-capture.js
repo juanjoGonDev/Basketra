@@ -307,13 +307,12 @@ export function validateFile(file, runtimeCapabilities) {
   if (!Number.isSafeInteger(file.size) || file.size <= 0) {
     throw new Error(`El archivo está vacío: ${file.name || 'archivo'}`);
   }
+  if (runtimeCapabilities === undefined) return;
 
   const maxBytes = file.type === 'application/pdf'
     ? runtimeCapabilities?.attachments?.maxFileBytes
     : runtimeCapabilities?.attachments?.maxImageBytes;
-  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
-    throw new Error('WebAPI no devolvió un límite de archivo válido');
-  }
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) return;
   if (file.size > maxBytes) {
     throw new Error(
       `El archivo ${file.name || 'archivo'} ocupa ${formatMegabytes(file.size)} MB y supera el límite de ${formatMegabytes(maxBytes)} MB`,
@@ -338,16 +337,35 @@ export function fileToBase64(file) {
   });
 }
 
+async function readAiSizeWarning(files) {
+  try {
+    const runtimeCapabilities = await api('/api/v1/ai/runtime-capabilities', {
+      cache: 'no-store',
+    });
+    for (const file of files) {
+      try {
+        validateFile(file, runtimeCapabilities);
+      } catch (error) {
+        return error instanceof Error ? error.message : 'La captura supera el límite actual de WebAPI';
+      }
+    }
+  } catch {
+    // Capability preflight is advisory. The canonical AI boundary re-reads WebAPI
+    // capabilities before sending and local OCR must remain available meanwhile.
+  }
+  return '';
+}
+
 export async function uploadFiles(fileList) {
   const files = [...fileList];
   if (files.length === 0) return;
   const addedCaptures = [];
   const hadBackgroundJob = Boolean(state.activeJobId);
   try {
-    const runtimeCapabilities = await api('/api/v1/ai/runtime-capabilities', {
-      cache: 'no-store',
-    });
-    files.forEach(file => validateFile(file, runtimeCapabilities));
+    files.forEach(file => validateFile(file));
+    const aiSizeWarning = state.aiConfigured && $('#verify-receipt-ai')?.checked
+      ? await readAiSizeWarning(files)
+      : '';
     for (const [index, file] of files.entries()) {
       $('#upload-state').textContent = `Subiendo ${index + 1} de ${files.length}: ${file.name || 'captura'}…`;
       const base64 = await fileToBase64(file);
@@ -369,8 +387,10 @@ export async function uploadFiles(fileList) {
     if (hadBackgroundJob) clearReceiptExtractionJob({ cancel: true });
     ensurePageStates();
     persistAndRenderCaptures();
-    $('#upload-state').textContent = 'Capturas guardadas. El OCR ha empezado automáticamente.';
-    toast('Capturas guardadas · OCR iniciado');
+    $('#upload-state').textContent = aiSizeWarning
+      ? `Capturas guardadas. OCR iniciado. ${aiSizeWarning}`
+      : 'Capturas guardadas. El OCR ha empezado automáticamente.';
+    toast(aiSizeWarning ? `Capturas guardadas · ${aiSizeWarning}` : 'Capturas guardadas · OCR iniciado');
     startAutomaticCaptureProcessing(hadBackgroundJob ? state.captures : addedCaptures, {
       resetAll: hadBackgroundJob,
     });
