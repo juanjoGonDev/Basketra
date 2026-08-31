@@ -290,5 +290,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   // Keep api.js as the browser HTTP SSOT even when a feature accidentally calls fetch directly.
   // EventSource and service-worker traffic run in different transport paths and are not wrapped here.
   globalThis.fetch = coordinatedFetch;
+  const activateCatalog = globalThis.location?.hash === '#catalog';
+  void import('./catalog.js')
+    .then(module => module.initializeCatalogFeature({ activate: activateCatalog }))
+    .catch(() => {});
   scheduleOperationsBootstrap();
 }
