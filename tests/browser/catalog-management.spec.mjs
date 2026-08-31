@@ -124,8 +124,9 @@ test('saved catalog products can be browsed, edited and related on mobile', asyn
   await expect(page.getByText('Leche fresca Milbona 1 L', { exact: true })).toBeVisible();
 
   await expectNoHorizontalOverflow(page);
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await page.screenshot({ path: testInfo.outputPath('catalog-mobile.png'), fullPage: true });
+  const catalogView = page.locator('.catalog-view');
+  await expect(catalogView).toBeVisible();
+  await catalogView.screenshot({ path: testInfo.outputPath('catalog-mobile.png') });
 });
 
 test('receipt line total is read-only, backend-derived and ignores stale calculations', async ({ page }) => {
