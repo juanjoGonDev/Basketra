@@ -97,7 +97,7 @@ function escapeLike(value: string): string {
 }
 
 function withDatabase<T>(path: string, callback: (database: DatabaseSync) => T, readOnly = false): T {
-  const database = new DatabaseSync(path, readOnly ? { readOnly: true } : undefined);
+  const database = new DatabaseSync(path, readOnly ? { readOnly: true } : {});
   try {
     return callback(database);
   } finally {
