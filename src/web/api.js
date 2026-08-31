@@ -10,6 +10,7 @@ const UNTHROTTLED_PATHS = new Set([
 const RECEIPT_CALCULATION_DELAY_MS = 120;
 const RECEIPT_CALCULATION_PATH = '/api/v1/receipts/calculate-line';
 const RECEIPT_CALCULATION_DRIVER_FIELDS = new Set(['quantity', 'unitPriceEuro', 'discountEuro']);
+const RECEIPT_CALCULATION_ACTION_SELECTOR = '#save-receipt-line-editor, [data-receipt-action="validate"], #review-receipt, #confirm-receipt';
 const receiptCalculationState = new WeakMap();
 let receiptDerivedTotalsInitialized = false;
 
@@ -232,9 +233,28 @@ function receiptCalculationStatus(root, message) {
 function receiptCalculationStateFor(root) {
   let state = receiptCalculationState.get(root);
   if (state) return state;
-  state = { controller: null, timer: null, version: 0 };
+  state = {
+    controller: null,
+    timer: null,
+    version: 0,
+    pending: false,
+    error: null,
+    waiters: new Set(),
+  };
   receiptCalculationState.set(root, state);
   return state;
+}
+
+function settleReceiptCalculation(state) {
+  state.pending = false;
+  for (const resolve of state.waiters) resolve();
+  state.waiters.clear();
+}
+
+function waitForReceiptCalculation(root) {
+  const state = receiptCalculationState.get(root);
+  if (!state?.pending) return Promise.resolve();
+  return new Promise(resolve => state.waiters.add(resolve));
 }
 
 function markDerivedReceiptTotal(root) {
@@ -281,7 +301,8 @@ async function calculateReceiptLine(root, version) {
     const input = await readReceiptCalculationInput(root);
     if (version !== state.version) return;
     if (!input) {
-      receiptCalculationStatus(root, 'Completa cantidad, precio y descuento para calcular el total.');
+      state.error = new Error('Completa cantidad, precio y descuento para calcular el total.');
+      receiptCalculationStatus(root, state.error.message);
       return;
     }
     const result = await api(RECEIPT_CALCULATION_PATH, {
@@ -294,14 +315,17 @@ async function calculateReceiptLine(root, version) {
     if (version !== state.version || !root.isConnected) return;
     total.value = minorToEuroInput(result.lineTotalMinor);
     total.dispatchEvent(new Event('input', { bubbles: true }));
+    state.error = null;
     receiptCalculationStatus(root, 'Total actualizado.');
   } catch (error) {
     if (error?.name === 'AbortError' || version !== state.version) return;
-    receiptCalculationStatus(root, `No se pudo calcular el total: ${error.message}`);
+    state.error = error instanceof Error ? error : new Error(String(error));
+    receiptCalculationStatus(root, `No se pudo calcular el total: ${state.error.message}`);
   } finally {
     if (version === state.version) {
       total.setAttribute('aria-busy', 'false');
       state.controller = null;
+      settleReceiptCalculation(state);
     }
   }
 }
@@ -312,9 +336,49 @@ function scheduleReceiptLineCalculation(root, immediate = false) {
   if (!total) return;
   const state = receiptCalculationStateFor(root);
   const version = ++state.version;
+  state.pending = true;
+  state.error = null;
   clearTimeout(state.timer);
   state.controller?.abort();
   state.timer = setTimeout(() => void calculateReceiptLine(root, version), immediate ? 0 : RECEIPT_CALCULATION_DELAY_MS);
+}
+
+function receiptActionRoots(button) {
+  if (button.id === 'save-receipt-line-editor') {
+    const root = button.closest('#receipt-line-dialog')?.querySelector('.receipt-item, [data-receipt-line-editor]');
+    return root ? [root] : [];
+  }
+  if (button.matches('[data-receipt-action="validate"]')) {
+    const root = button.closest('.receipt-item, [data-receipt-line-editor]');
+    return root ? [root] : [];
+  }
+  return [...document.querySelectorAll('.receipt-item, [data-receipt-line-editor]')];
+}
+
+function receiptActionNeedsCalculation(roots) {
+  return roots.some(root => {
+    const state = receiptCalculationState.get(root);
+    return state?.pending || state?.error;
+  });
+}
+
+async function resumeReceiptAction(button, roots) {
+  setBusy(button, true);
+  await Promise.all(roots.map(waitForReceiptCalculation));
+  const blocked = roots.some(root => receiptCalculationState.get(root)?.error);
+  setBusy(button, false);
+  if (blocked || !button.isConnected) return;
+  button.click();
+}
+
+function deferReceiptActionUntilCalculated(event) {
+  const button = event.target.closest?.(RECEIPT_CALCULATION_ACTION_SELECTOR);
+  if (!(button instanceof HTMLButtonElement)) return;
+  const roots = receiptActionRoots(button);
+  if (roots.length === 0 || !receiptActionNeedsCalculation(roots)) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  void resumeReceiptAction(button, roots);
 }
 
 function enhanceReceiptLine(root) {
@@ -357,6 +421,7 @@ function initializeReceiptDerivedTotals() {
     if (!RECEIPT_CALCULATION_DRIVER_FIELDS.has(event.target?.dataset?.field)) return;
     scheduleReceiptLineCalculation(receiptLineRoot(event.target), true);
   }, true);
+  document.addEventListener('click', deferReceiptActionUntilCalculated, true);
 }
 
 export async function api(path, options = {}) {
