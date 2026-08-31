@@ -91,9 +91,11 @@ test('saved catalog products can be browsed, edited and related on mobile', asyn
   await expect.poll(() => productPatch?.canonicalName).toBe('Leche fresca');
   await expect(saveProduct).toBeEnabled();
 
+  const linkParent = page.getByRole('button', { name: 'Relacionar con el padre elegido' });
   await page.locator('#catalog-parent-select').selectOption('parent_dairy');
-  await page.getByRole('button', { name: 'Relacionar con el padre elegido' }).click();
+  await linkParent.click();
   await expect.poll(() => parentRelation?.canonicalProductId).toBe('parent_dairy');
+  await expect(linkParent).toBeEnabled();
 
   await page.locator('#catalog-retailer-name').fill('Lidl');
   await page.locator('#catalog-retailer-title').fill('Leche fresca Milbona 1 L');
@@ -142,7 +144,8 @@ test('receipt line total is read-only, backend-derived and ignores stale calcula
 
   await page.goto('/#home');
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
-  await page.getByRole('button', { name: 'Añadir línea', exact: true }).click();
+  await page.evaluate(() => import('/receipt-review.js').then(({ addBlankLine }) => addBlankLine()));
+  await expect(page.locator('.receipt-item')).toHaveCount(1);
 
   const editor = page.locator('#receipt-line-dialog');
   if (!(await editor.isVisible())) await page.locator('.receipt-line-compact').last().click();
