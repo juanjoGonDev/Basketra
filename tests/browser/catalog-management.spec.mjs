@@ -102,12 +102,36 @@ test('saved catalog products can be browsed, edited and related on mobile', asyn
   await page.screenshot({ path: testInfo.outputPath('catalog-mobile.png'), fullPage: true });
 });
 
-test('receipt line total is read-only and consumes the canonical backend calculation', async ({ page }) => {
+test('receipt line total is read-only, backend-derived and ignores stale calculations', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const requests = [];
-  await page.route('**/api/v1/receipts/calculate-line', route => {
-    requests.push(route.request().postDataJSON());
-    return route.fulfill({
+  let releaseFirstRequest;
+  let markFirstRequestStarted;
+  let markFirstRequestFinished;
+  const firstRequestGate = new Promise(resolve => { releaseFirstRequest = resolve; });
+  const firstRequestStarted = new Promise(resolve => { markFirstRequestStarted = resolve; });
+  const firstRequestFinished = new Promise(resolve => { markFirstRequestFinished = resolve; });
+
+  await page.route('**/api/v1/receipts/calculate-line', async route => {
+    const payload = route.request().postDataJSON();
+    requests.push(payload);
+    if (requests.length === 1) {
+      markFirstRequestStarted();
+      await firstRequestGate;
+      try {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ lineTotalMinor: 111 }),
+        });
+      } catch {
+        // A newer edit is expected to abort this transport.
+      } finally {
+        markFirstRequestFinished();
+      }
+      return;
+    }
+    await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ lineTotalMinor: 777 }),
@@ -125,11 +149,18 @@ test('receipt line total is read-only and consumes the canonical backend calcula
   await expect(total).toBeVisible();
   await expect(total).toHaveJSProperty('readOnly', true);
 
-  await quantity.fill('2');
+  await quantity.fill('1');
   await unitPrice.fill('1.25');
   await discount.fill('0.20');
+  await firstRequestStarted;
 
+  await quantity.fill('2');
+  await expect.poll(() => requests.length).toBeGreaterThanOrEqual(2);
   await expect(total).toHaveValue('7.77');
   await expect.poll(() => requests.at(-1)).toEqual({ quantity: 2, unitPriceMinor: 125, discountMinor: 20 });
+
+  releaseFirstRequest();
+  await firstRequestFinished;
+  await expect(total).toHaveValue('7.77');
   await expect(total).toHaveAttribute('aria-readonly', 'true');
 });
