@@ -44,8 +44,8 @@ export class FileStore {
   readonly #maxStoredBytes: number;
   readonly maxBytes: number;
 
-  constructor(permanentDir: string, tempDir: string, maxBytes: number, maxStoredBytes = DEFAULT_FILE_STORAGE_MAX_BYTES) {
-    this.maxBytes = assertPositiveInteger(maxBytes, 'maxBytes');
+  constructor(permanentDir: string, tempDir: string, transportMaxBytes: number, maxStoredBytes = DEFAULT_FILE_STORAGE_MAX_BYTES) {
+    this.maxBytes = assertPositiveInteger(transportMaxBytes, 'transportMaxBytes');
     this.#maxStoredBytes = assertPositiveInteger(maxStoredBytes, 'maxStoredBytes');
     this.#permanentDir = resolve(permanentDir);
     this.#tempDir = resolve(tempDir);
@@ -75,7 +75,7 @@ export class FileStore {
     if (!isSupportedMimeType(input.mimeType)) throw new RangeError('Unsupported file type');
     const magic = MAGIC[input.mimeType];
     const buffer = Buffer.from(input.base64, 'base64');
-    if (buffer.byteLength === 0 || buffer.byteLength > this.maxBytes) throw new RangeError('File size is outside allowed limits');
+    if (buffer.byteLength === 0) throw new RangeError('File must not be empty');
     if (!hasMagic(buffer, magic)) throw new RangeError('File signature does not match MIME type');
     const hash = createHash('sha256').update(buffer).digest('hex');
     const extension = input.mimeType === 'image/jpeg' ? '.jpg' : input.mimeType === 'image/png' ? '.png' : '.pdf';
@@ -102,7 +102,7 @@ export class FileStore {
     const mimeType = mimeTypeForStorageKey(storageKey);
     const expected = MAGIC[mimeType];
     const bytes = readFileSync(target);
-    if (bytes.byteLength === 0 || bytes.byteLength > this.maxBytes) throw new RangeError('Stored file size is outside allowed limits');
+    if (bytes.byteLength === 0) throw new RangeError('Stored file must not be empty');
     if (!hasMagic(bytes, expected)) throw new RangeError('Stored file signature does not match its extension');
     return { storageKey, mimeType, bytes };
   }
