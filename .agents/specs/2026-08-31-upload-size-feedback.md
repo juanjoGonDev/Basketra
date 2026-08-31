@@ -7,53 +7,62 @@ Basketra must not own or hard-code AI attachment limits. WebAPI is the single so
 ## Evidence
 
 - WebAPI already exposes `GET /v1/capabilities` with live attachment limits.
-- Basketra's `OpenAiCompatibleProvider` already fetches `/v1/capabilities` before every AI execution and validates the response without caching it.
-- Basketra currently exposes `metadata.files.maxBytes` from its local `FileStore`, constructed from `BASKETRA_MAX_BODY_BYTES`; that incorrectly makes Basketra a second owner of the functional image limit.
-- `src/web/receipt-capture.js` validates against metadata loaded during application initialization, so a later WebAPI runtime limit change is not observed before the next upload.
-- Basketra still needs a bounded HTTP transport guard for denial-of-service protection; that guard is infrastructure safety, not the AI provider's file capability and must not be exposed as the functional image limit.
+- Basketra's `OpenAiCompatibleProvider` already fetches `/v1/capabilities` before every AI execution, validates the response without caching it and prevents oversized attachments from reaching the AI request.
+- Basketra previously exposed `metadata.files.maxBytes` from its local `FileStore`, constructed from `BASKETRA_MAX_BODY_BYTES`; that incorrectly made Basketra a second owner of the functional image limit.
+- `src/web/receipt-capture.js` previously validated against metadata loaded during application initialization, so a later WebAPI runtime limit change was not observable to upload UX.
+- Basketra's receipt UX explicitly keeps AI optional and must never make WebAPI availability or an AI-only attachment limit block capture persistence or local OCR.
+- Basketra still needs bounded HTTP transport and persistent-storage guards for denial-of-service/resource protection; those safeguards are infrastructure limits, not WebAPI AI capabilities and must not be presented as functional image limits.
 
 ## Decision
 
-- Keep WebAPI `GET /v1/capabilities` as the canonical limit contract.
-- Promote the existing provider runtime-capability fetcher to a reusable public method; AI execution and UI preflight consume the same parser and network path.
-- Basketra exposes a narrow same-origin capability preflight endpoint for its browser. It performs a fresh WebAPI capability request for every call and never exposes the WebAPI token.
+- Keep WebAPI `GET /v1/capabilities` as the canonical functional attachment-limit contract.
+- Keep `OpenAiCompatibleProvider` as the single parser and enforcement owner for WebAPI runtime capabilities. It re-reads WebAPI immediately before every AI execution and never caches the result.
+- Basketra exposes a narrow same-origin capability preflight endpoint for browser UX. The endpoint performs a fresh authenticated WebAPI request for every call, uses `cache: no-store`, bounds the response size and never exposes the WebAPI token.
+- The same-origin preflight is schema-neutral: it transports WebAPI's live JSON for advisory UX and does not duplicate the provider's capability schema/parser.
 - Keep `/api/v1/meta` independent of WebAPI availability and remove its locally-derived functional `maxBytes` field.
-- The browser calls the capability preflight immediately before validating each upload batch; it does not persist or hard-code the provider limit.
-- Remove the per-file size policy from `FileStore`; persistent-storage capacity remains a separate operational safeguard.
+- The browser performs advisory capability preflight immediately before an AI-enabled upload batch. If a current WebAPI limit is available, oversized feedback shows both selected size and live limit.
+- Capability-preflight failure or an AI-only size excess must not block capture persistence or local OCR. The canonical provider boundary re-reads WebAPI before AI transmission and prevents an out-of-limit attachment from being sent.
+- Remove the per-file functional size policy from `FileStore`; persistent-storage capacity remains a separate operational safeguard.
 - Keep Basketra's request-body bound only as a transport/DoS safeguard. It must not be presented as the provider image limit.
-- If live WebAPI capabilities cannot be obtained, upload preflight fails with a recoverable capability error instead of silently falling back to a stale local number.
 
 ## Acceptance
 
-- WebAPI remains the only owner of the functional attachment-size limits.
-- Each Basketra capability-preflight request performs a fresh WebAPI capabilities request.
-- Each upload batch resolves fresh capabilities before validating files.
-- Changing WebAPI `maxImageBytes` is observed by Basketra without restarting either service.
-- Oversized image feedback states the selected image size and the current WebAPI limit in the same message.
-- Basketra no longer rejects stored files using a locally configured per-file maximum.
+- WebAPI remains the only owner of functional AI attachment-size limits.
+- Every Basketra capability-preflight request performs a fresh WebAPI capabilities request with no cache.
+- Every actual AI execution independently performs a fresh WebAPI capabilities request before sending attachments.
+- Changing WebAPI `maxImageBytes` is observable by Basketra without restarting either service.
+- Oversized-image feedback states the selected image size and current WebAPI limit in the same message when live capabilities are available.
+- An oversized AI attachment remains stored and available to local OCR instead of being rejected by Basketra's upload flow.
+- A temporary capability-preflight failure does not block capture persistence or local OCR.
+- The canonical AI boundary does not send an attachment that exceeds the current WebAPI capability.
+- Basketra no longer rejects stored files using a locally configured functional per-file maximum.
 - Existing MIME/signature validation and persistent-storage capacity protection remain intact.
 - Basketra bootstrap metadata remains available when WebAPI is unavailable.
-- Tests cover live capability re-resolution, refreshed browser validation and readable oversize feedback.
+- Tests cover live capability re-resolution, gateway error envelopes, nonblocking browser behavior and readable oversize feedback.
 
 ## Risks
 
-- WebAPI capability availability becomes part of upload preflight availability; errors must be explicit and retryable without blocking the rest of Basketra.
-- `BASKETRA_MAX_BODY_BYTES` can still reject an HTTP request before file decoding if operators configure it below the encoded request size. This remains a transport safety setting, not an advertised image capability; deployment documentation must avoid configuring it below the supported WebAPI envelope.
+- `BASKETRA_MAX_BODY_BYTES` can still reject an HTTP request before file decoding if operators configure it below the encoded request size. This remains a transport safety setting, not an advertised AI image capability; deployment documentation must avoid presenting it as a functional provider limit.
+- Advisory preflight can race with a WebAPI settings change. The canonical provider re-read immediately before AI transmission is therefore mandatory and authoritative.
+- An attachment can be persisted and OCR-processed locally even when WebAPI will reject it for AI. This is intentional: evidence and local OCR must remain usable, and the UI exposes the live AI limit when available.
 
 ## Checks
 
-- Targeted unit tests for provider runtime capabilities.
-- Integration tests for the same-origin capability preflight and file storage.
-- Browser regression test for fresh limit resolution and oversized selection.
+- Existing provider unit tests proving live capability reads before every AI execution and enforcement before transmission.
+- Integration tests for same-origin capability preflight, fresh re-resolution and error envelopes.
+- Unit/integration tests for file storage without a local functional per-file limit.
+- Browser regression test for fresh limit resolution, readable oversize feedback and nonblocking local OCR.
 - `pnpm quality` through CI.
-- Visual-evidence workflow if repository impact policy requires it.
+- Browser E2E and visual-evidence workflows required by repository impact policy.
+- Container smoke/security/CodeQL for the final head.
 
 ## Delivery
 
 Branch: `agent/fix-upload-size-feedback`.
-Coordinated with WebAPI branch `agent/fix-live-ai-capabilities`.
+Coordinated with WebAPI branch `agent/fix-live-ai-capabilities` and PR #106.
+Basketra PR: #42.
 No merge, release or deployment is authorized.
 
 ## Status
 
-In progress.
+In progress; final CI and visual review pending.
