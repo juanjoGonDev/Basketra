@@ -45,6 +45,15 @@ async function installRuntimeCapabilities(page, getImageLimit = () => DEFAULT_IM
   return () => reads;
 }
 
+async function enableAiUploadPreflight(page) {
+  await page.evaluate(async () => {
+    const { state } = await import('/receipt-state.js');
+    state.aiConfigured = true;
+    const checkbox = document.querySelector('#verify-receipt-ai');
+    if (checkbox instanceof HTMLInputElement) checkbox.checked = true;
+  });
+}
+
 async function openTickets(page, allowExpectedServerError = false) {
   const failures = watchBrowser(page, allowExpectedServerError);
   await page.goto('/');
@@ -106,6 +115,7 @@ test('oversized photo uses the latest WebAPI limit without blocking local OCR', 
   let configuredLimit = 2 * 1024 * 1024;
   const capabilityReads = await installRuntimeCapabilities(page, () => configuredLimit);
   const failures = await openTickets(page);
+  await enableAiUploadPreflight(page);
 
   await page.locator('#receipt-files').setInputFiles({
     name: 'baseline.png',
