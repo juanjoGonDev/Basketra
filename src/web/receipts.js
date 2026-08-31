@@ -9,6 +9,7 @@ import {
 import {
   handleCaptureAction,
   persistAndRenderCaptures,
+  refreshReceiptAiLimitHelp,
   showPreview,
   uploadFiles,
 } from './receipt-capture.js';
@@ -346,6 +347,7 @@ export function initReceipts(options) {
   $('#receipt-ai-help').textContent = state.aiConfigured
     ? 'Opcional y no bloqueante en fotos: primero conservamos el OCR local y la IA sólo intenta corregirlo. Los PDF usan el proveedor para leer el documento; cualquier fallo conserva la captura y permite revisión manual.'
     : 'OCR local en español activo para fotos. Los PDF quedan disponibles para revisión manual sin proveedor de IA.';
+  if (state.aiConfigured) void refreshReceiptAiLimitHelp();
   bindEvents();
   ensurePageStates();
   persistAndRenderCaptures();
