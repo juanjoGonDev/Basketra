@@ -16,36 +16,11 @@ function item(description, lineTotalMinor, options = {}) {
   };
 }
 
-function validationFor(entry) {
-  if (!entry.description.trim()) {
-    return { status: 'unreadable', expectedMinor: 0, differenceMinor: entry.lineTotalMinor };
-  }
-  const expectedMinor = entry.quantity * entry.unitPriceMinor - (entry.discountMinor ?? 0);
-  const differenceMinor = entry.lineTotalMinor - expectedMinor;
-  return {
-    status: differenceMinor === 0 ? 'confirmed' : 'arithmetic-mismatch',
-    expectedMinor,
-    differenceMinor,
-  };
-}
-
-async function routeValidation(page, payloads = []) {
-  await page.route('**/api/v1/receipts/validate', async route => {
-    const body = route.request().postDataJSON();
-    payloads.push(body);
-    const expectedMinor = body.items.reduce((sum, entry) => sum + entry.lineTotalMinor, 0);
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        lines: body.items.map(entry => ({ validation: validationFor(entry) })),
-        total: {
-          expectedMinor,
-          differenceMinor: body.declaredTotalMinor - expectedMinor,
-          valid: body.declaredTotalMinor === expectedMinor,
-        },
-      }),
-    });
+function observeValidationRequests(page, payloads) {
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (request.method() !== 'POST' || url.pathname !== '/api/v1/receipts/validate') return;
+    payloads.push(request.postDataJSON());
   });
 }
 
@@ -62,8 +37,6 @@ async function openReview(page, items, statuses) {
           lines: currentItems.map((entry, index) => ({
             ...entry,
             status: currentStatuses[index],
-            expectedMinor: entry.quantity * entry.unitPriceMinor - (entry.discountMinor ?? 0),
-            differenceMinor: entry.lineTotalMinor - (entry.quantity * entry.unitPriceMinor - (entry.discountMinor ?? 0)),
           })),
           total: { expectedMinor: declaredTotalMinor, differenceMinor: 0, valid: true },
         },
@@ -101,7 +74,7 @@ async function setup(page) {
 
 test('a review-required receipt line can be validated explicitly without editing other rows', async ({ page }) => {
   const validationPayloads = [];
-  await routeValidation(page, validationPayloads);
+  observeValidationRequests(page, validationPayloads);
   await setup(page);
   await openReview(page, [item('PAN', 150), item('LECHE', 120)], ['confirmed', 'needs-review']);
 
@@ -121,7 +94,7 @@ test('a review-required receipt line can be validated explicitly without editing
 
 test('an extracted receipt discount stays visible, editable and part of canonical validation', async ({ page }) => {
   const validationPayloads = [];
-  await routeValidation(page, validationPayloads);
+  observeValidationRequests(page, validationPayloads);
   await setup(page);
   await openReview(page, [item('BEBIDA COCO', 175, { unitPriceMinor: 175, discountMinor: 25 })], ['arithmetic-mismatch']);
 
@@ -155,7 +128,7 @@ test('an extracted receipt discount stays visible, editable and part of canonica
 test('a missing receipt discount can be added, validated and confirmed', async ({ page }) => {
   const validationPayloads = [];
   let confirmationPayload;
-  await routeValidation(page, validationPayloads);
+  observeValidationRequests(page, validationPayloads);
   await page.route('**/api/v1/receipts/confirm', async route => {
     confirmationPayload = route.request().postDataJSON();
     await route.fulfill({
@@ -200,7 +173,6 @@ test('a missing receipt discount can be added, validated and confirmed', async (
 });
 
 test('final confirmation stops before import when canonical validation still rejects a line', async ({ page }) => {
-  await routeValidation(page);
   let confirmCalls = 0;
   await page.route('**/api/v1/receipts/confirm', async route => {
     confirmCalls += 1;
