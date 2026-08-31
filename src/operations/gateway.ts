@@ -4,6 +4,7 @@ import { createServer, request as httpRequest, type IncomingMessage, type Server
 import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { OpenAiCompatibleProvider } from '../ai/provider.ts';
+import { fetchAiRuntimeCapabilities } from '../ai/runtime-capabilities.ts';
 import { mapError } from '../api/errors.ts';
 import { BasketraServer } from '../api/server.ts';
 import type { AppConfig } from '../infrastructure/config.ts';
@@ -187,6 +188,9 @@ export class OperationsGateway {
       if (request.method === 'GET' && url.pathname === '/api/v1/meta') {
         return await this.augmentedMeta(response, requestId);
       }
+      if (request.method === 'GET' && url.pathname === '/api/v1/ai/runtime-capabilities') {
+        return await this.aiRuntimeCapabilities(response, requestId);
+      }
       if (request.method === 'GET' && url.pathname === '/api/v1/diagnostics') {
         return await this.augmentedDiagnostics(response, requestId);
       }
@@ -254,6 +258,47 @@ export class OperationsGateway {
     const body = await inner.json() as unknown;
     if (!inner.ok || !isRecord(body)) throw new Error('INNER_META_UNAVAILABLE');
     this.json(response, 200, { ...body, application: this.runtimeMetadata() }, requestId);
+  }
+
+  private async aiRuntimeCapabilities(response: ServerResponse, requestId: string): Promise<void> {
+    if (!this.config.aiBaseUrl || !this.config.aiModel) {
+      this.json(response, 503, {
+        error: {
+          code: 'AI_NOT_CONFIGURED',
+          message: 'El proveedor de IA no está configurado',
+          requestId,
+        },
+      }, requestId);
+      return;
+    }
+
+    try {
+      const capabilities = await fetchAiRuntimeCapabilities({
+        baseUrl: new URL(this.config.aiBaseUrl),
+        ...(this.config.aiApiKey ? { apiKey: this.config.aiApiKey } : {}),
+        correlationId: requestId,
+      });
+      if (capabilities === undefined) {
+        this.json(response, 502, {
+          error: {
+            code: 'AI_CAPABILITIES_UNAVAILABLE',
+            message: 'WebAPI no expone los límites dinámicos requeridos',
+            requestId,
+          },
+        }, requestId);
+        return;
+      }
+      this.json(response, 200, capabilities, requestId);
+    } catch (error) {
+      const mapped = mapError(error);
+      this.json(response, mapped.status, {
+        error: {
+          code: mapped.code,
+          message: mapped.message,
+          requestId,
+        },
+      }, requestId);
+    }
   }
 
   private async augmentedDiagnostics(response: ServerResponse, requestId: string): Promise<void> {
