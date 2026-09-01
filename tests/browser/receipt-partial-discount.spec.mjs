@@ -85,5 +85,7 @@ test('partial-unit discount editor keeps one grouped row and backend-derived tot
   await page.setViewportSize({ width: 1280, height: 900 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await expect.poll(() => editor.locator('.quantity-row').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await expect(editor.locator('.receipt-line-result__value')).toHaveCSS('white-space', 'nowrap');
+  await expect(editor.locator('[data-field="lineTotalEuro"]')).toHaveCSS('white-space', 'nowrap');
   await editor.screenshot({ path: testInfo.outputPath('partial-unit-discount-desktop.png') });
 });
