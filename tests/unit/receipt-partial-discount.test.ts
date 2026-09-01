@@ -31,11 +31,23 @@ test('amount discounts validate against the affected subset subtotal', () => {
   }), /affected subtotal/i);
 });
 
-test('discount quantity must be positive and cannot exceed the receipt line quantity', () => {
+test('discount quantity must be a positive safe integer within the receipt line quantity', () => {
+  assert.throws(() => parseReceiptLineDiscount({
+    type: 'percentage',
+    basisPoints: 5_000,
+    quantity: '1',
+  }), /quantity must be a positive safe integer/i);
+
   assert.throws(() => parseReceiptLineDiscount({
     type: 'percentage',
     basisPoints: 5_000,
     quantity: 0,
+  }), /quantity must be a positive safe integer/i);
+
+  assert.throws(() => parseReceiptLineDiscount({
+    type: 'percentage',
+    basisPoints: 5_000,
+    quantity: 1.5,
   }), /quantity must be a positive safe integer/i);
 
   assert.throws(() => calculateReceiptLineTotal({
