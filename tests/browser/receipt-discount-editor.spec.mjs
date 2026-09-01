@@ -54,6 +54,13 @@ async function openEditor(page) {
   return dialog;
 }
 
+async function openManualEntry(page) {
+  const manualEntry = page.locator('.manual-entry');
+  if (!(await manualEntry.evaluate(element => element.open))) await manualEntry.locator('summary').click();
+  await expect(manualEntry).toHaveJSProperty('open', true);
+  return manualEntry;
+}
+
 async function makeConfirmable(page, storageKey = 'file_typed_discount') {
   await page.evaluate(key => import('/receipt-state.js').then(({ state }) => {
     const capture = {
@@ -174,6 +181,8 @@ test('whole-ticket validation and confirmation wait for the latest derived calcu
 
   await setup(page);
   await openReview(page, [item()]);
+  const manualEntry = await openManualEntry(page);
+  await manualEntry.getByLabel('Total declarado (€)').fill('3.50');
   await makeConfirmable(page);
   await page.evaluate(() => {
     const input = document.querySelector('.receipt-item [data-field="quantity"]');
@@ -182,7 +191,7 @@ test('whole-ticket validation and confirmation wait for the latest derived calcu
   });
   await expect.poll(() => typeof releaseCalculation).toBe('function');
 
-  await page.locator('#review-receipt').click();
+  await manualEntry.getByRole('button', { name: 'Validar líneas e importes', exact: true }).click();
   await page.locator('#confirm-receipt').click();
   expect(validationCalls).toBe(0);
   expect(confirmationCalls).toBe(0);
@@ -246,7 +255,8 @@ test('percentage corrections retain user intent while confirmation sends the typ
   await expect(editor.locator('[data-field="lineTotalEuro"]')).toHaveJSProperty('value', '0.87');
   await editor.getByRole('button', { name: 'Guardar línea', exact: true }).click();
 
-  await page.locator('#receipt-total').fill('0.87');
+  const manualEntry = await openManualEntry(page);
+  await manualEntry.getByLabel('Total declarado (€)').fill('0.87');
   await makeConfirmable(page, 'file_percentage_discount');
   await page.locator('#confirm-receipt').click();
   await expect(page.locator('#receipt-state')).toHaveText('Ticket importado: receipt_percentage_discount');
