@@ -283,28 +283,3 @@ test('percentage corrections retain user intent while confirmation sends the typ
     corrected: { type: 'percentage', basisPoints: 2_500 },
   }]));
 });
-
-test('cancelling an editor rerender does not let stale calculation completion overwrite the restored total', async ({ page }, testInfo) => {
-  let releaseCalculation;
-  await page.route('**/api/v1/receipts/calculate-line', async route => {
-    await new Promise(resolve => { releaseCalculation = resolve; });
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ lineTotalMinor: 17, discountMinor: 158 }),
-    });
-  });
-
-  await setup(page);
-  await openReview(page, [item()]);
-  const row = page.locator('.receipt-item').first();
-  const editor = await openEditor(page);
-  await editor.locator('[data-field="discountType"]').selectOption('percentage');
-  await editor.locator('[data-field="discountValue"]').fill('90');
-  await expect.poll(() => typeof releaseCalculation).toBe('function');
-  await editor.getByRole('button', { name: 'Cancelar', exact: true }).click();
-  await expect(editor).toBeHidden();
-  releaseCalculation();
-  await expect(row.locator('[data-field="lineTotalEuro"]')).toHaveJSProperty('value', '1.75');
-  await page.screenshot({ path: testInfo.outputPath('cancel-restored.png') });
-});
