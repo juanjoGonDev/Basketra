@@ -90,7 +90,7 @@ test('percentage discounts use the backend calculation and render the total as s
   await expect(total).toHaveJSProperty('tagName', 'OUTPUT');
   await expect(total).toHaveJSProperty('value', '0.87');
   await expect(row).not.toContainText('Se actualiza al cambiar cantidad, precio o descuento.');
-  await expect(page.locator('link[data-receipt-discount-styles]')).toHaveAttribute('href', '/receipt-discount.css');
+  await expect(page.locator('link[data-receipt-review-styles]')).toHaveAttribute('href', '/receipt-review.css');
 
   const editor = await openEditor(page);
   await editor.locator('[data-field="discountValue"]').fill('25');
