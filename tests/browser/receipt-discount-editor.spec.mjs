@@ -98,7 +98,9 @@ test('percentage discounts use the backend calculation and render the total as s
   await expect.poll(() => calculations.at(-1)?.discount).toEqual({ type: 'percentage', basisPoints: 2_500 });
 
   await editor.locator('[data-field="discountType"]').selectOption('amount');
-  await expect(editor.locator('[data-field="discountValue"]')).toHaveValue('');
+  await expect(editor.locator('[data-field="discountValue"]')).toHaveValue('0');
+  await expect.poll(() => calculations.at(-1)?.discount).toEqual({ type: 'amount', amountMinor: 0 });
+  await expect(total).toHaveJSProperty('value', '1.75');
   await editor.locator('[data-field="discountValue"]').fill('0.25');
   await expect(total).toHaveJSProperty('value', '1.50');
   await expect.poll(() => calculations.at(-1)?.discount).toEqual({ type: 'amount', amountMinor: 25 });
