@@ -215,16 +215,19 @@ test('whole-ticket validation and confirmation wait for the latest derived calcu
   await expect.poll(() => validationCalls).toBeGreaterThan(0);
 });
 
-test('ambiguous duplicate-item discounts stay unassigned and visible for manual review', async ({ page }, testInfo) => {
+test('genuinely ambiguous discounts stay unassigned and visible for manual review', async ({ page }, testInfo) => {
   await setup(page);
-  await openReview(page, [item(), item()], {
+  await openReview(page, [
+    item(),
+    item({ unitPriceMinor: 225, lineTotalMinor: 225, sourceLines: [2] }),
+  ], {
     status: 'needs-review',
-    originalText: 'BEBIDA COCO 1,75\nBEBIDA COCO 1,75\n50% dto BEBIDA COCO 0% A 0,88-',
+    originalText: 'BEBIDA COCO 1,75\nBEBIDA COCO 2,25\n50% dto BEBIDA COCO 0,88-',
     unassignedDiscounts: [{
       discount: { type: 'percentage', basisPoints: 5_000 },
       sourceLines: [3],
       description: 'BEBIDA COCO',
-      reason: 'Two identical item rows make ownership ambiguous.',
+      reason: 'The same product label appears at two different prices, so ownership is unresolved.',
     }],
   });
 
@@ -258,32 +261,50 @@ test('percentage corrections retain user intent while confirmation sends the typ
   let confirmationPayload;
   await page.route('**/api/v1/receipts/confirm', async route => {
     confirmationPayload = route.request().postDataJSON();
+  });
+  await setup(page);
+  await openReview(page, [item({
+    lineTotalMinor: 87,
+    discount: { type: 'percentage', basisPoints: 5_000 },
+  })]);
+  await makeConfirmable(page);
+  const manualEntry = await openManualEntry(page);
+  await manualEntry.getByLabel('Total declarado (€)').fill('1.31');
+  const editor = await openEditor(page);
+  await editor.locator('[data-field="discountValue"]').fill('25');
+  await expect(editor.locator('[data-field="lineTotalEuro"]')).toHaveJSProperty('value', '1.31');
+  await editor.getByRole('button', { name: 'Guardar línea', exact: true }).click();
+  await page.locator('#confirm-receipt').click();
+  await expect.poll(() => confirmationPayload?.items?.[0]?.discount).toEqual({ type: 'percentage', basisPoints: 2_500 });
+  expect(confirmationPayload.corrections).toEqual(expect.arrayContaining([{
+    itemIndex: 0,
+    field: 'discount',
+    original: { type: 'percentage', basisPoints: 5_000 },
+    corrected: { type: 'percentage', basisPoints: 2_500 },
+  }]));
+});
+
+test('cancelling an editor rerender does not let stale calculation completion overwrite the restored total', async ({ page }, testInfo) => {
+  let releaseCalculation;
+  await page.route('**/api/v1/receipts/calculate-line', async route => {
+    await new Promise(resolve => { releaseCalculation = resolve; });
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ receiptId: 'receipt_percentage_discount' }),
+      body: JSON.stringify({ lineTotalMinor: 17, discountMinor: 158 }),
     });
   });
 
   await setup(page);
-  await openReview(page, [item({ lineTotalMinor: 175 })]);
+  await openReview(page, [item()]);
+  const row = page.locator('.receipt-item').first();
   const editor = await openEditor(page);
   await editor.locator('[data-field="discountType"]').selectOption('percentage');
-  await editor.locator('[data-field="discountValue"]').fill('50');
-  await expect(editor.locator('[data-field="lineTotalEuro"]')).toHaveJSProperty('value', '0.87');
-  await editor.getByRole('button', { name: 'Guardar línea', exact: true }).click();
-
-  const manualEntry = await openManualEntry(page);
-  await manualEntry.getByLabel('Total declarado (€)').fill('0.87');
-  await makeConfirmable(page, 'file_percentage_discount');
-  await page.locator('#confirm-receipt').click();
-  await expect(page.locator('#receipt-state')).toHaveText('Ticket importado: receipt_percentage_discount');
-
-  expect(confirmationPayload.items[0].discount).toEqual({ type: 'percentage', basisPoints: 5_000 });
-  expect(confirmationPayload.corrections).toContainEqual({
-    itemIndex: 0,
-    field: 'discount',
-    original: null,
-    corrected: { type: 'percentage', basisPoints: 5_000 },
-  });
+  await editor.locator('[data-field="discountValue"]').fill('90');
+  await expect.poll(() => typeof releaseCalculation).toBe('function');
+  await editor.getByRole('button', { name: 'Cancelar', exact: true }).click();
+  await expect(editor).toBeHidden();
+  releaseCalculation();
+  await expect(row.locator('[data-field="lineTotalEuro"]')).toHaveJSProperty('value', '1.75');
+  await page.screenshot({ path: testInfo.outputPath('cancel-restored.png') });
 });
