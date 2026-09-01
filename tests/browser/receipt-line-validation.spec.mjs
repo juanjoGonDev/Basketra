@@ -61,6 +61,13 @@ async function makeReviewConfirmable(page, storageKey = 'file_receipt_validation
   }, storageKey);
 }
 
+async function openLineEditor(page, index = 0) {
+  const editor = page.locator('#receipt-line-dialog');
+  if (!(await editor.isVisible())) await page.locator('.receipt-line-compact').nth(index).click();
+  await expect(editor).toBeVisible();
+  return editor;
+}
+
 async function setup(page) {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
@@ -108,14 +115,13 @@ test('an extracted receipt discount stays visible, editable and part of canonica
   await expect(page.locator('#receipt-state')).toContainText('1,75 €');
   expect(validationPayloads.at(-1).items[0].discountMinor).toBe(25);
 
-  await page.locator('.receipt-line-compact').first().click();
-  const editor = page.locator('#receipt-line-dialog');
+  const editor = await openLineEditor(page);
   await expect(editor.locator('[data-field="discountEuro"]')).toHaveValue('0.25');
   await editor.locator('[data-field="discountEuro"]').fill('0.10');
   await editor.getByRole('button', { name: 'Cancelar', exact: true }).click();
   await expect(row.locator('[data-field="discountEuro"]')).toHaveValue('0.25');
 
-  await page.locator('.receipt-line-compact').first().click();
+  await openLineEditor(page);
   await editor.locator('[data-field="discountEuro"]').fill('0.00');
   await editor.getByRole('button', { name: 'Guardar línea', exact: true }).click();
   await page.getByRole('button', { name: 'Validar línea 1', exact: true }).click();
@@ -149,8 +155,7 @@ test('a missing receipt discount can be added, validated and confirmed', async (
   await expect(page.locator('#receipt-state')).toContainText('1,75 €');
   await expect(page.locator('#receipt-state')).toContainText('1,50 €');
 
-  await page.locator('.receipt-line-compact').first().click();
-  const editor = page.locator('#receipt-line-dialog');
+  const editor = await openLineEditor(page);
   await editor.locator('[data-field="discountEuro"]').fill('0.25');
   await editor.getByRole('button', { name: 'Guardar línea', exact: true }).click();
   await expect(page.locator('.receipt-line-compact').first()).toContainText('Dto. 0,25 €');

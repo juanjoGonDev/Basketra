@@ -91,6 +91,8 @@ test('service worker installs the complete shell, cleans old caches and handles 
     assert.ok(addedShells[0]?.includes('/receipt-ai-recovery.js'));
     assert.ok(addedShells[0]?.includes('/receipts.js'));
     assert.ok(addedShells[0]?.includes('/modern.css'));
+    assert.ok(addedShells[0]?.includes('/catalog.js'));
+    assert.ok(addedShells[0]?.includes('/catalog.css'));
 
     let activateWork: Promise<unknown> | undefined;
     activate({ waitUntil(work: Promise<unknown>) { activateWork = work; } });

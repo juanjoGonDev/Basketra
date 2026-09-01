@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { installControlledEventSource } from './helpers/controlled-event-source.mjs';
 
 const validPng = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8//8/AwMDEwMDAwMDAwAkBgMB/DXemwAAAABJRU5ErkJggg==',
@@ -50,6 +51,7 @@ test('an OCR API failure without a stable code remains retryable without inventi
 });
 
 test('a durable PDF provider failure permits blank manual entry without hiding retry recovery', async ({ page }) => {
+  await installControlledEventSource(page);
   let extractionCall = 0;
   let jobReads = 0;
   let releaseLateRefresh = () => {};
@@ -108,7 +110,9 @@ test('a durable PDF provider failure permits blank manual entry without hiding r
   });
   await expect(page.locator('.capture-card')).toHaveCount(1);
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
-  await expect.poll(() => jobReads).toBeGreaterThanOrEqual(2);
+  expect(jobReads).toBe(1);
+  await page.evaluate(() => window.__receiptEventSources.at(-1).emit('open'));
+  await expect.poll(() => jobReads).toBe(2);
   expect(extractionCall).toBe(0);
 
   const details = await openCaptureDetails(page);

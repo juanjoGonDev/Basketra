@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { installControlledEventSource } from './helpers/controlled-event-source.mjs';
 
 const validPng = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8//8/AwMDEwMDAwMDAwAkBgMB/DXemwAAAABJRU5ErkJggg==',
@@ -36,34 +37,6 @@ function localExtraction(text = 'PAN 1,50\nTOTAL 1,50') {
       },
     },
   };
-}
-
-async function installControlledEventSource(page) {
-  await page.addInitScript(() => {
-    class ControlledEventSource {
-      constructor() {
-        this.listeners = new Map();
-        this.closed = false;
-        window.__receiptEventSources ??= [];
-        window.__receiptEventSources.push(this);
-      }
-
-      addEventListener(type, listener) {
-        const listeners = this.listeners.get(type) ?? [];
-        listeners.push(listener);
-        this.listeners.set(type, listeners);
-      }
-
-      emit(type, data = '') {
-        for (const listener of this.listeners.get(type) ?? []) listener({ data });
-      }
-
-      close() {
-        this.closed = true;
-      }
-    }
-    window.EventSource = ControlledEventSource;
-  });
 }
 
 async function prepareReceipt(page, name = 'receipt.png') {

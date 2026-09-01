@@ -315,7 +315,7 @@ test('automatic local OCR creates editable euro rows with source context and imp
   await editorDialog.locator('[data-field="description"]').fill('Bread');
   await editorDialog.locator('[data-field="quantity"]').fill('1');
   await editorDialog.locator('[data-field="unitPriceEuro"]').fill('0.20');
-  await editorDialog.locator('[data-field="lineTotalEuro"]').fill('0.20');
+  await expect(editorDialog.locator('[data-field="lineTotalEuro"]')).toHaveValue('0.20');
   await editorDialog.getByRole('button', { name: 'Guardar línea', exact: true }).click();
 
   const manualLineShell = page.locator('[data-swipe-kind="receipt-line"]').last();

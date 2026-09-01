@@ -2,7 +2,17 @@ export const DEFAULT_REQUEST_THROTTLE_MS = 1000;
 
 const PARALLEL_POST_PATHS = new Set([
   '/api/v1/receipts/extract',
+  '/api/v1/receipts/calculate-line',
 ]);
+const UNTHROTTLED_PATHS = new Set([
+  '/api/v1/receipts/calculate-line',
+]);
+const RECEIPT_CALCULATION_DELAY_MS = 120;
+const RECEIPT_CALCULATION_PATH = '/api/v1/receipts/calculate-line';
+const RECEIPT_CALCULATION_DRIVER_FIELDS = new Set(['quantity', 'unitPriceEuro', 'discountEuro']);
+const RECEIPT_CALCULATION_ACTION_SELECTOR = '#save-receipt-line-editor, [data-receipt-action="validate"], #review-receipt, #confirm-receipt';
+const receiptCalculationState = new WeakMap();
+let receiptDerivedTotalsInitialized = false;
 
 function defaultBaseUrl() {
   return globalThis.location?.origin || 'http://localhost';
@@ -126,6 +136,7 @@ export function createRequestCoordinator({
   };
 
   const request = (input, init = {}) => {
+    const url = requestUrl(input, baseUrl);
     const bucketKey = requestBucketKey(input, init, baseUrl);
     const bucket = getBucket(bucketKey);
     const coalescible = isCoalescibleRead(input, init);
@@ -135,8 +146,13 @@ export function createRequestCoordinator({
       if (existing) return existing.then(response => response.clone());
     }
 
-    const execute = () => scheduleStart(bucket, init.signal)
-      .then(() => fetchImpl(input, init));
+    const execute = () => {
+      if (UNTHROTTLED_PATHS.has(url.pathname)) {
+        throwIfAborted(init.signal);
+        return fetchImpl(input, init);
+      }
+      return scheduleStart(bucket, init.signal).then(() => fetchImpl(input, init));
+    };
     const serializedMutation = isSerializedMutation(input, init, baseUrl);
     const transport = serializedMutation
       ? bucket.mutationTail.catch(() => undefined).then(execute)
@@ -199,6 +215,213 @@ function scheduleOperationsBootstrap() {
     operationsBootstrapStarted = true;
     void import('./operations.js').catch(() => {});
   }, 0);
+}
+
+function receiptLineRoot(element) {
+  return element.closest('.receipt-item, [data-receipt-line-editor]');
+}
+
+function receiptLineField(root, field) {
+  return root?.querySelector(`[data-field="${field}"]`);
+}
+
+function receiptCalculationStatus(root, message) {
+  const status = root?.querySelector('.receipt-line-derived-state');
+  if (status) status.textContent = message;
+}
+
+function receiptCalculationStateFor(root) {
+  let state = receiptCalculationState.get(root);
+  if (state) return state;
+  state = {
+    controller: null,
+    timer: null,
+    version: 0,
+    pending: false,
+    error: null,
+    waiters: new Set(),
+  };
+  receiptCalculationState.set(root, state);
+  return state;
+}
+
+function settleReceiptCalculation(state) {
+  state.pending = false;
+  for (const resolve of state.waiters) resolve();
+  state.waiters.clear();
+}
+
+function waitForReceiptCalculation(root) {
+  const state = receiptCalculationState.get(root);
+  if (!state?.pending) return Promise.resolve();
+  return new Promise(resolve => state.waiters.add(resolve));
+}
+
+function markDerivedReceiptTotal(root) {
+  const total = receiptLineField(root, 'lineTotalEuro');
+  if (!(total instanceof HTMLInputElement)) return undefined;
+  total.readOnly = true;
+  total.setAttribute('aria-readonly', 'true');
+  total.dataset.derivedTotal = 'true';
+  return total;
+}
+
+async function readReceiptCalculationInput(root) {
+  const quantityInput = receiptLineField(root, 'quantity');
+  const unitPriceInput = receiptLineField(root, 'unitPriceEuro');
+  const discountInput = receiptLineField(root, 'discountEuro');
+  if (!(quantityInput instanceof HTMLInputElement) || !(unitPriceInput instanceof HTMLInputElement)) return undefined;
+  const quantity = Number(quantityInput.value);
+  if (!Number.isSafeInteger(quantity) || quantity < 0) return undefined;
+  try {
+    const { euroInputToMinor } = await import('./ui.js');
+    return {
+      quantity,
+      unitPriceMinor: euroInputToMinor(unitPriceInput.value),
+      ...(discountInput instanceof HTMLInputElement && discountInput.value.trim()
+        ? { discountMinor: euroInputToMinor(discountInput.value) }
+        : {}),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+async function calculateReceiptLine(root, version) {
+  const total = markDerivedReceiptTotal(root);
+  if (!total) return;
+  const state = receiptCalculationStateFor(root);
+  if (version !== state.version) return;
+  state.controller?.abort();
+  const controller = new AbortController();
+  state.controller = controller;
+  total.setAttribute('aria-busy', 'true');
+  receiptCalculationStatus(root, 'Calculando total…');
+  try {
+    const input = await readReceiptCalculationInput(root);
+    if (version !== state.version) return;
+    if (!input) {
+      state.error = new Error('Completa cantidad, precio y descuento para calcular el total.');
+      receiptCalculationStatus(root, state.error.message);
+      return;
+    }
+    const result = await api(RECEIPT_CALCULATION_PATH, {
+      method: 'POST',
+      signal: controller.signal,
+      body: JSON.stringify(input),
+    });
+    if (version !== state.version || !root.isConnected) return;
+    const { minorToEuroInput } = await import('./ui.js');
+    if (version !== state.version || !root.isConnected) return;
+    total.value = minorToEuroInput(result.lineTotalMinor);
+    total.dispatchEvent(new Event('input', { bubbles: true }));
+    state.error = null;
+    receiptCalculationStatus(root, 'Total actualizado.');
+  } catch (error) {
+    if (error?.name === 'AbortError' || version !== state.version) return;
+    state.error = error instanceof Error ? error : new Error(String(error));
+    receiptCalculationStatus(root, `No se pudo calcular el total: ${state.error.message}`);
+  } finally {
+    if (version === state.version) {
+      total.setAttribute('aria-busy', 'false');
+      state.controller = null;
+      settleReceiptCalculation(state);
+    }
+  }
+}
+
+function scheduleReceiptLineCalculation(root, immediate = false) {
+  if (!root) return;
+  const total = markDerivedReceiptTotal(root);
+  if (!total) return;
+  const state = receiptCalculationStateFor(root);
+  const version = ++state.version;
+  state.pending = true;
+  state.error = null;
+  clearTimeout(state.timer);
+  state.controller?.abort();
+  state.timer = setTimeout(() => void calculateReceiptLine(root, version), immediate ? 0 : RECEIPT_CALCULATION_DELAY_MS);
+}
+
+function receiptActionRoots(button) {
+  if (button.id === 'save-receipt-line-editor') {
+    const root = button.closest('#receipt-line-dialog')?.querySelector('.receipt-item, [data-receipt-line-editor]');
+    return root ? [root] : [];
+  }
+  if (button.matches('[data-receipt-action="validate"]')) {
+    const root = button.closest('.receipt-item, [data-receipt-line-editor]');
+    return root ? [root] : [];
+  }
+  return [...document.querySelectorAll('.receipt-item, [data-receipt-line-editor]')];
+}
+
+function receiptActionNeedsCalculation(roots) {
+  return roots.some(root => {
+    const state = receiptCalculationState.get(root);
+    return state?.pending || state?.error;
+  });
+}
+
+async function resumeReceiptAction(button, roots) {
+  setBusy(button, true);
+  await Promise.all(roots.map(waitForReceiptCalculation));
+  const blocked = roots.some(root => receiptCalculationState.get(root)?.error);
+  setBusy(button, false);
+  if (blocked || !button.isConnected) return;
+  button.click();
+}
+
+function deferReceiptActionUntilCalculated(event) {
+  const button = event.target.closest?.(RECEIPT_CALCULATION_ACTION_SELECTOR);
+  if (!(button instanceof HTMLButtonElement)) return;
+  const roots = receiptActionRoots(button);
+  if (roots.length === 0 || !receiptActionNeedsCalculation(roots)) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  void resumeReceiptAction(button, roots);
+}
+
+function enhanceReceiptLine(root) {
+  const total = markDerivedReceiptTotal(root);
+  if (!total || root.querySelector('.receipt-line-derived-state')) return;
+  const label = total.closest('label');
+  if (!label) return;
+  const status = document.createElement('small');
+  status.className = 'receipt-line-derived-state field-help';
+  status.setAttribute('aria-live', 'polite');
+  status.textContent = 'Se actualiza al cambiar cantidad, precio o descuento.';
+  label.append(status);
+}
+
+function enhanceExistingReceiptLines(root) {
+  root.querySelectorAll?.('.receipt-item, [data-receipt-line-editor]').forEach(enhanceReceiptLine);
+}
+
+function initializeReceiptDerivedTotals() {
+  if (receiptDerivedTotalsInitialized) return;
+  receiptDerivedTotalsInitialized = true;
+  enhanceExistingReceiptLines(document);
+
+  const observer = new MutationObserver(records => {
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (!(node instanceof Element)) continue;
+        if (node.matches('.receipt-item, [data-receipt-line-editor]')) enhanceReceiptLine(node);
+        enhanceExistingReceiptLines(node);
+      }
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  document.addEventListener('input', event => {
+    if (!RECEIPT_CALCULATION_DRIVER_FIELDS.has(event.target?.dataset?.field)) return;
+    scheduleReceiptLineCalculation(receiptLineRoot(event.target));
+  }, true);
+  document.addEventListener('change', event => {
+    if (!RECEIPT_CALCULATION_DRIVER_FIELDS.has(event.target?.dataset?.field)) return;
+    scheduleReceiptLineCalculation(receiptLineRoot(event.target), true);
+  }, true);
+  document.addEventListener('click', deferReceiptActionUntilCalculated, true);
 }
 
 export async function api(path, options = {}) {
@@ -280,5 +503,10 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   // Keep api.js as the browser HTTP SSOT even when a feature accidentally calls fetch directly.
   // EventSource and service-worker traffic run in different transport paths and are not wrapped here.
   globalThis.fetch = coordinatedFetch;
+  initializeReceiptDerivedTotals();
+  const activateCatalog = globalThis.location?.hash === '#catalog';
+  void import('./catalog.js')
+    .then(module => module.initializeCatalogFeature({ activate: activateCatalog }))
+    .catch(() => {});
   scheduleOperationsBootstrap();
 }

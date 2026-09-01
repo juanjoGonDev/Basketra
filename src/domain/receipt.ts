@@ -6,21 +6,38 @@ export type ReceiptLineInput = Readonly<{
   discountMinor?: number;
 }>;
 
+export type ReceiptLineCalculationInput = Readonly<{
+  quantity: number;
+  unitPriceMinor: number;
+  discountMinor?: number;
+}>;
+
 export type ReceiptLineValidation = Readonly<{
   status: 'confirmed' | 'needs-review' | 'unreadable' | 'arithmetic-mismatch';
   expectedMinor: number;
   differenceMinor: number;
 }>;
 
-export function validateReceiptLine(line: ReceiptLineInput): ReceiptLineValidation {
-  if (!line.description.trim()) {
-    return { status: 'unreadable', expectedMinor: 0, differenceMinor: line.lineTotalMinor };
-  }
-  const values = [line.quantity, line.unitPriceMinor, line.lineTotalMinor, line.discountMinor ?? 0];
+export function calculateReceiptLineTotal(line: ReceiptLineCalculationInput): number {
+  const values = [line.quantity, line.unitPriceMinor, line.discountMinor ?? 0];
   if (!values.every(Number.isSafeInteger) || values.some((value) => value < 0)) {
     throw new RangeError('Receipt arithmetic values must be non-negative safe integers');
   }
-  const expectedMinor = line.quantity * line.unitPriceMinor - (line.discountMinor ?? 0);
+  const subtotalMinor = line.quantity * line.unitPriceMinor;
+  if (!Number.isSafeInteger(subtotalMinor)) throw new RangeError('Receipt line subtotal exceeds the safe integer range');
+  const discountMinor = line.discountMinor ?? 0;
+  if (discountMinor > subtotalMinor) throw new RangeError('Receipt line discount cannot exceed its subtotal');
+  return subtotalMinor - discountMinor;
+}
+
+export function validateReceiptLine(line: ReceiptLineInput): ReceiptLineValidation {
+  if (!Number.isSafeInteger(line.lineTotalMinor) || line.lineTotalMinor < 0) {
+    throw new RangeError('Receipt arithmetic values must be non-negative safe integers');
+  }
+  const expectedMinor = calculateReceiptLineTotal(line);
+  if (!line.description.trim()) {
+    return { status: 'unreadable', expectedMinor, differenceMinor: line.lineTotalMinor - expectedMinor };
+  }
   const differenceMinor = line.lineTotalMinor - expectedMinor;
   return {
     status: differenceMinor === 0 ? 'confirmed' : 'arithmetic-mismatch',

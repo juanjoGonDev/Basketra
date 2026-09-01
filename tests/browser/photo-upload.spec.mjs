@@ -65,6 +65,10 @@ async function openTickets(page, allowExpectedServerError = false) {
   return failures;
 }
 
+function captureCards(page) {
+  return page.locator('#capture-list > .capture-card');
+}
+
 async function expectLoadedImages(page, count) {
   const images = page.locator('#capture-list img[data-capture-preview-image]');
   await expect(images).toHaveCount(count);
@@ -94,7 +98,7 @@ test('camera and gallery photos upload, deduplicate and persist after reload', a
     { name: 'gallery-copy.png', mimeType: 'image/png', buffer: validPng },
   ]);
 
-  await expect(page.locator('#capture-list li')).toHaveCount(3);
+  await expect(captureCards(page)).toHaveCount(3);
   await expect(page.locator('#upload-state')).toContainText('Capturas guardadas');
   await expectLoadedImages(page, 3);
   await expect.poll(() => storageKeys.length).toBe(3);
@@ -102,7 +106,7 @@ test('camera and gallery photos upload, deduplicate and persist after reload', a
 
   await page.reload();
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
-  await expect(page.locator('#capture-list li')).toHaveCount(3);
+  await expect(captureCards(page)).toHaveCount(3);
   await expectLoadedImages(page, 3);
   await page.getByRole('button', { name: 'Ampliar camera.png' }).click();
   await expect.poll(() => page.locator('#capture-preview-image').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
@@ -122,7 +126,7 @@ test('oversized photo uses the latest WebAPI limit without blocking local OCR', 
     mimeType: 'image/png',
     buffer: validPng,
   });
-  await expect(page.locator('#capture-list li')).toHaveCount(1);
+  await expect(captureCards(page)).toHaveCount(1);
   expect(capabilityReads()).toBe(1);
 
   configuredLimit = 1024 * 1024;
@@ -140,7 +144,7 @@ test('oversized photo uses the latest WebAPI limit without blocking local OCR', 
   await expect(page.locator('#upload-state')).toHaveText(
     'Capturas guardadas. OCR iniciado. El archivo large.png ocupa 1,5 MB y supera el límite de 1 MB',
   );
-  await expect(page.locator('#capture-list li')).toHaveCount(2);
+  await expect(captureCards(page)).toHaveCount(2);
   expect(capabilityReads()).toBe(2);
   expect(failures).toEqual([]);
 });
@@ -149,7 +153,7 @@ test('a failed photo upload preserves the draft and succeeds on retry', async ({
   await installRuntimeCapabilities(page);
   const failures = await openTickets(page, true);
   await page.locator('#receipt-camera').setInputFiles({ name: 'existing.png', mimeType: 'image/png', buffer: validPng });
-  await expect(page.locator('#capture-list li')).toHaveCount(1);
+  await expect(captureCards(page)).toHaveCount(1);
 
   let failNext = true;
   await page.route('**/api/v1/files', async route => {
@@ -167,10 +171,10 @@ test('a failed photo upload preserves the draft and succeeds on retry', async ({
 
   await page.locator('#receipt-files').setInputFiles({ name: 'retry.png', mimeType: 'image/png', buffer: validPng });
   await expect(page.locator('#upload-state')).toContainText('Unexpected upload failure');
-  await expect(page.locator('#capture-list li')).toHaveCount(1);
+  await expect(captureCards(page)).toHaveCount(1);
 
   await page.locator('#receipt-files').setInputFiles({ name: 'retry.png', mimeType: 'image/png', buffer: validPng });
-  await expect(page.locator('#capture-list li')).toHaveCount(2);
+  await expect(captureCards(page)).toHaveCount(2);
   await expectLoadedImages(page, 2);
   await expectNoOverflow(page);
   expect(failures).toEqual([]);
