@@ -82,7 +82,8 @@ test('cancel invalidates an edited calculation before a late response can overwr
   await setup(page);
   const row = page.locator('.receipt-item').first();
   const total = row.locator('[data-field="lineTotalEuro"]');
-  await row.locator('.receipt-line-compact').click();
+  const editorTrigger = row.locator('.receipt-line-compact');
+  await editorTrigger.click();
   const dialog = page.locator('#receipt-line-dialog');
   await expect(dialog).toBeVisible();
 
@@ -92,11 +93,14 @@ test('cancel invalidates an edited calculation before a late response can overwr
 
   await expect(dialog).toBeHidden();
   await expect.poll(() => restoredCalculationSeen).toBe(true);
+  await expect(dialog).toBeHidden();
+  await expect(editorTrigger).toBeFocused();
   await expect(row.locator('[data-field="discountType"]')).toHaveValue('percentage');
   await expect(row.locator('[data-field="discountValue"]')).toHaveValue('50');
   await expect(total).toHaveJSProperty('value', '0.87');
 
   releaseEditedCalculation?.();
   await expect.poll(() => editedCalculationSettled).toBe(true);
+  await expect(dialog).toBeHidden();
   await expect(total).toHaveJSProperty('value', '0.87');
 });
