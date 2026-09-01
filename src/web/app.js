@@ -317,8 +317,8 @@ function closeReceiptLineEditor({ revert = false, deleteLine = false, focus = tr
   if (dialog?.open && typeof dialog.close === 'function') dialog.close();
   else dialog?.removeAttribute('open');
 
-  item.classList.remove('receipt-item--editing');
   marker.replaceWith(item);
+  item.classList.remove('receipt-item--editing');
   syncReceiptCompactSummary(item);
 
   if (deleteLine) {
