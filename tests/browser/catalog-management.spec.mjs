@@ -15,6 +15,15 @@ const product = {
       title: 'Leche entera Hacendado 1 L',
     },
   ],
+  latestPrices: [
+    {
+      retailerId: 'retailer_mercadona',
+      retailerName: 'Mercadona',
+      priceMinor: 119,
+      observedAt: '2026-08-31T10:00:00.000Z',
+      confidence: 1,
+    },
+  ],
   createdAt: '2026-08-31T10:00:00.000Z',
   updatedAt: '2026-08-31T10:00:00.000Z',
 };
@@ -85,19 +94,22 @@ test('saved catalog products can be browsed, edited and related on mobile', asyn
   });
 
   await page.goto('/#home');
-  const catalogEntry = page.getByRole('button', { name: /Productos guardados/i });
+  const catalogEntry = page.getByRole('button', { name: /Catálogo de productos/i });
   await expect(catalogEntry).toBeVisible();
   await catalogEntry.click();
 
   await expect(page).toHaveURL(/#catalog$/);
-  await expect(page.getByRole('heading', { name: 'Productos guardados', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Leche entera 1 L/ })).toBeVisible();
-  await page.getByRole('button', { name: /Leche entera 1 L/ }).click();
+  await expect(page.getByRole('heading', { name: 'Catálogo de productos', exact: true })).toBeVisible();
+  const catalogRow = page.getByRole('button', { name: /Leche entera 1 L/ });
+  await expect(catalogRow).toContainText('Mercadona: 1,19');
+  await catalogRow.click();
 
   await expect(page.locator('#catalog-detail')).toBeVisible();
   await expect(page.locator('#catalog-canonical-name')).toHaveValue('Leche');
   await expect(page.getByText('Mercadona', { exact: true })).toBeVisible();
   await expect(page.getByText('Leche entera Hacendado 1 L', { exact: true })).toBeVisible();
+  await expect(page.locator('#catalog-latest-prices')).toContainText('1,19');
+  await expect(page.locator('#catalog-latest-prices')).toContainText('Mercadona');
 
   const saveProduct = page.getByRole('button', { name: 'Guardar ficha' });
   await page.locator('#catalog-canonical-name').fill('Leche fresca');
@@ -122,6 +134,7 @@ test('saved catalog products can be browsed, edited and related on mobile', asyn
   await expect(page.locator('#catalog-state')).toHaveText('1 productos cargados.');
   await expect(page.getByText('Lidl', { exact: true })).toBeVisible();
   await expect(page.getByText('Leche fresca Milbona 1 L', { exact: true })).toBeVisible();
+  await expect(page.locator('#catalog-latest-prices')).toContainText('1,19');
 
   await expectNoHorizontalOverflow(page);
   const catalogView = page.locator('.catalog-view');
