@@ -147,7 +147,71 @@ export const COLLABORATION_MIGRATIONS: readonly MigrationDefinition[] = [
       FROM receipt_items
       JOIN receipts ON receipts.id = receipt_items.receipt_id
       WHERE receipt_items.status = 'confirmed'
-        AND receipt_items.product_variant_id IS NULL;
+        AND receipt_items.product_variant_id IS NULL
+        AND (
+          (
+            receipts.retailer_id IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM retailer_listings
+              WHERE retailer_listings.retailer_id = receipts.retailer_id
+                AND retailer_listings.product_variant_id IS NOT NULL
+                AND retailer_listings.title = receipt_items.original_description COLLATE NOCASE
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM receipt_items AS earlier_item
+              JOIN receipts AS earlier_receipt ON earlier_receipt.id = earlier_item.receipt_id
+              WHERE earlier_item.status = 'confirmed'
+                AND earlier_item.product_variant_id IS NULL
+                AND earlier_receipt.retailer_id = receipts.retailer_id
+                AND earlier_item.original_description = receipt_items.original_description COLLATE NOCASE
+                AND (
+                  earlier_item.created_at < receipt_items.created_at
+                  OR (earlier_item.created_at = receipt_items.created_at AND earlier_item.id < receipt_items.id)
+                )
+            )
+          )
+          OR (
+            receipts.retailer_id IS NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM product_variants
+              WHERE product_variants.name = receipt_items.original_description COLLATE NOCASE
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM receipt_items AS earlier_item
+              JOIN receipts AS earlier_receipt ON earlier_receipt.id = earlier_item.receipt_id
+              WHERE earlier_item.status = 'confirmed'
+                AND earlier_item.product_variant_id IS NULL
+                AND earlier_receipt.retailer_id IS NULL
+                AND earlier_item.original_description = receipt_items.original_description COLLATE NOCASE
+                AND (
+                  earlier_item.created_at < receipt_items.created_at
+                  OR (earlier_item.created_at = receipt_items.created_at AND earlier_item.id < receipt_items.id)
+                )
+            )
+          )
+          OR (
+            receipts.retailer_id IS NOT NULL
+            AND (
+              SELECT COUNT(DISTINCT retailer_listings.product_variant_id)
+              FROM retailer_listings
+              WHERE retailer_listings.retailer_id = receipts.retailer_id
+                AND retailer_listings.product_variant_id IS NOT NULL
+                AND retailer_listings.title = receipt_items.original_description COLLATE NOCASE
+            ) > 1
+          )
+          OR (
+            receipts.retailer_id IS NULL
+            AND (
+              SELECT COUNT(*)
+              FROM product_variants
+              WHERE product_variants.name = receipt_items.original_description COLLATE NOCASE
+            ) > 1
+          )
+        );
 
       INSERT INTO product_variants(
         id, canonical_product_id, name, brand, ean, package_minor, package_unit,
@@ -167,7 +231,12 @@ export const COLLABORATION_MIGRATIONS: readonly MigrationDefinition[] = [
       FROM receipt_items
       JOIN receipts ON receipts.id = receipt_items.receipt_id
       WHERE receipt_items.status = 'confirmed'
-        AND receipt_items.product_variant_id IS NULL;
+        AND receipt_items.product_variant_id IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM canonical_products
+          WHERE canonical_products.id = 'product_receipt_' || receipt_items.id
+        );
 
       INSERT INTO product_search(entity_id, name, aliases)
       SELECT
@@ -176,11 +245,59 @@ export const COLLABORATION_MIGRATIONS: readonly MigrationDefinition[] = [
         ''
       FROM receipt_items
       WHERE receipt_items.status = 'confirmed'
-        AND receipt_items.product_variant_id IS NULL;
+        AND receipt_items.product_variant_id IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM product_variants
+          WHERE product_variants.id = 'variant_receipt_' || receipt_items.id
+        );
 
-      UPDATE receipt_items
-      SET product_variant_id = 'variant_receipt_' || id
-      WHERE status = 'confirmed' AND product_variant_id IS NULL;
+      UPDATE receipt_items AS item
+      SET product_variant_id = COALESCE(
+        (
+          SELECT (
+            SELECT 'variant_receipt_' || anchor.id
+            FROM receipt_items AS anchor
+            JOIN receipts AS anchor_receipt ON anchor_receipt.id = anchor.receipt_id
+            WHERE anchor.status = 'confirmed'
+              AND anchor.product_variant_id IS NULL
+              AND anchor_receipt.retailer_id = receipts.retailer_id
+              AND anchor.original_description = item.original_description COLLATE NOCASE
+              AND EXISTS (
+                SELECT 1
+                FROM product_variants
+                WHERE product_variants.id = 'variant_receipt_' || anchor.id
+              )
+            ORDER BY anchor.created_at, anchor.id
+            LIMIT 1
+          )
+          FROM receipts
+          WHERE receipts.id = item.receipt_id
+            AND receipts.retailer_id IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM retailer_listings
+              WHERE retailer_listings.retailer_id = receipts.retailer_id
+                AND retailer_listings.product_variant_id IS NOT NULL
+                AND retailer_listings.title = item.original_description COLLATE NOCASE
+            )
+        ),
+        (
+          SELECT CASE WHEN COUNT(*) = 1 THEN MIN(product_variants.id) END
+          FROM product_variants
+          WHERE product_variants.name = item.original_description COLLATE NOCASE
+            AND (
+              SELECT COUNT(DISTINCT retailer_listings.product_variant_id)
+              FROM receipts
+              JOIN retailer_listings ON retailer_listings.retailer_id = receipts.retailer_id
+              WHERE receipts.id = item.receipt_id
+                AND retailer_listings.product_variant_id IS NOT NULL
+                AND retailer_listings.title = item.original_description COLLATE NOCASE
+            ) = 0
+        ),
+        'variant_receipt_' || item.id
+      )
+      WHERE item.status = 'confirmed' AND item.product_variant_id IS NULL;
 
       INSERT INTO retailer_listings(
         id, retailer_id, product_variant_id, retailer_sku, title, source_url, created_at, updated_at
@@ -199,6 +316,16 @@ export const COLLABORATION_MIGRATIONS: readonly MigrationDefinition[] = [
       WHERE receipt_items.status = 'confirmed'
         AND receipts.retailer_id IS NOT NULL
         AND receipt_items.product_variant_id IS NOT NULL
+        AND receipt_items.id = (
+          SELECT candidate.id
+          FROM receipt_items AS candidate
+          JOIN receipts AS candidate_receipt ON candidate_receipt.id = candidate.receipt_id
+          WHERE candidate.status = 'confirmed'
+            AND candidate.product_variant_id = receipt_items.product_variant_id
+            AND candidate_receipt.retailer_id = receipts.retailer_id
+          ORDER BY candidate.created_at, candidate.id
+          LIMIT 1
+        )
         AND NOT EXISTS (
           SELECT 1
           FROM retailer_listings
