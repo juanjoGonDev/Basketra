@@ -412,6 +412,7 @@ async function resumeReceiptAction(button, roots) {
   await Promise.all(roots.map(waitForReceiptCalculation));
   const blocked = roots.some(root => receiptCalculationState.get(root)?.error);
   setBusy(button, false);
+  syncReceiptCalculationActions();
   if (blocked || !button.isConnected) return;
   button.click();
 }
