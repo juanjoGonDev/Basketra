@@ -219,11 +219,11 @@ jobs:
           copy_flow_capture mobile-settings-receipts-s settings-light-768.png 11-settings-light-768.png
           copy_flow_capture receipt-auto-review-flow-r test-finished-1.png 12-auto-ocr-review.png
           copy_flow_capture catalog-management-saved-c catalog-mobile.png 13-catalog-management.png
-          copy_flow_capture percentage-discounts-use final.png 14-discount-percentage.png
-          copy_flow_capture pending-and-failed-calculations final.png 14-discount-error.png
-          copy_flow_capture ambiguous-duplicate-item final.png 14-discount-ambiguous.png
-          copy_flow_capture typed-discount-editor final.png 14-discount-responsive.png
-          copy_flow_capture cancel-invalidates-an-edited final.png 14-discount-cancel.png
+          copy_flow_capture semantic-output final.png 14-discount-percentage.png
+          copy_flow_capture latest-result-is-valid final.png 14-discount-error.png
+          copy_flow_capture visible-for-manual-review final.png 14-discount-ambiguous.png
+          copy_flow_capture mobile-or-desktop final.png 14-discount-responsive.png
+          copy_flow_capture restored-total final.png 14-discount-cancel.png
 
           test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 25
           test "$(find evidence-assets -maxdepth 1 -type f -name '*.gif' | wc -l)" -eq 12
