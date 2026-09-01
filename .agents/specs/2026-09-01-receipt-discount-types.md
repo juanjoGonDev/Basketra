@@ -26,9 +26,11 @@ Support explicit and exclusive receipt-line discounts as no discount, fixed EUR 
 9. The editor exposes one exclusive discount-type selector and one contextual value field. Switching between percentage and amount discards the old type's value, resets the new type to a safe typed zero, and immediately requests a backend recalculation. Choosing no discount removes the value. Cancel restores the original type/value and invalidates any edited calculation still in flight before recalculating the restored state.
 10. The line total is rendered as semantic `<output>` with live derived-calculation state; obsolete editable-total guidance is removed.
 11. Quantity, unit price, discount type, and discount value drive bounded abortable backend recalculation. Stale responses are ignored, and save/validate/confirm actions are blocked while the latest result is pending or failed.
-12. Existing `receipt-review.css` owns the responsive discount-editor styling; no extra public stylesheet or static-asset allowlist expansion is required.
-13. The service-worker shell is versioned so clients receive the updated editor assets.
-14. No dependency is added.
+12. Text and numeric calculation inputs recalculate on `input`; the discount-type selector recalculates on `change`. This avoids a duplicate blur-triggered calculation from re-blocking Save after the same value already produced a valid result.
+13. Existing `receipt-review.css` owns the responsive discount-editor styling; no extra public stylesheet or static-asset allowlist expansion is required.
+14. The service-worker shell is versioned so clients receive the updated editor assets.
+15. Browser evidence uses explicit state-specific screenshots rather than relying on each test's incidental final screenshot.
+16. No dependency is added.
 
 ## Acceptance
 
@@ -42,25 +44,47 @@ Support explicit and exclusive receipt-line discounts as no discount, fixed EUR 
 - Changing discount type never reuses the previous type's numeric meaning and triggers backend calculation immediately with a typed zero.
 - Pending/failed derived calculations block save, line validation, whole-ticket validation, and confirmation.
 - Older or aborted calculation responses cannot overwrite newer intent, including after Cancel restores the original line state.
+- Losing focus from an already calculated numeric field does not start a duplicate calculation that re-blocks Save.
 - Cancel restores the pre-edit discount type, value, and derived total.
 - The ambiguous-discount warning remains visible and actionable for manual review.
 - Mobile and desktop receipt editing have no horizontal overflow and retain usable targets, focus behavior, and labels.
+- Published visual evidence represents the named percentage, error, ambiguity, responsive, and cancel-restoration states explicitly.
 - Service-worker shell and server static-asset contracts remain coherent.
 - No dependency or database migration is introduced.
 
 ## Checks
 
-- [ ] `pnpm quality`
-- [ ] domain coverage remains 100% lines/functions/branches
-- [ ] browser E2E for amount, percentage, type switching, pending/error blocking, confirmation, and Cancel race
-- [ ] container smoke on final head
-- [ ] linux/amd64 container build on final head
-- [ ] linux/arm64 container build on final head
-- [ ] security checks on final head
-- [ ] CodeQL on final head
-- [ ] visual evidence workflow for the exact functional head
-- [ ] desktop/mobile screenshot review: alignment, overflow, spacing, semantic output, controls, pending/error states, focus and responsive behavior
-- [ ] final diff/PR/review-thread inspection
+- [x] `pnpm quality`
+- [x] domain coverage remains 100% lines/functions/branches
+- [x] browser E2E for amount, percentage, type switching, pending/error blocking, confirmation, and Cancel race
+- [x] container smoke on final functional head
+- [x] linux/amd64 container build on final functional head
+- [x] linux/arm64 container build on final functional head
+- [x] security checks on final functional head
+- [x] CodeQL on final functional head
+- [x] visual evidence workflow for the exact functional head
+- [x] desktop/mobile screenshot review: alignment, overflow, spacing, semantic output, controls, pending/error states, focus and responsive behavior
+- [x] final functional diff/PR/review-thread inspection
+
+## Validation evidence
+
+- Final functional head: `57f18886b254b28d68a3bb52542dd5240a315b26`.
+- Pull Request Quality run: `33527462280` (success).
+  - `pnpm quality`: success.
+  - Unit tests: 223/223 passed.
+  - Integration tests: 53/53 passed.
+  - Repository E2E test: 1/1 passed.
+  - Domain coverage: 100% lines, functions, and branches for every `src/domain` module.
+  - Browser E2E: 77/77 passed with retries disabled.
+  - Container smoke: success.
+  - linux/amd64 and linux/arm64 container builds: success.
+  - Security policy/secret scan and production dependency audit: success.
+- CodeQL run: `33527462364` (success).
+- Visual evidence workflow: `33527462405` (success), consuming the successful browser artifact from the same functional head.
+- Browser evidence artifact: `9808531539`, digest `sha256:a81fdeb4449e443349b5ae01cc51a397dfe296244a6e289fe7f6cb9adca883a5`.
+- Manual review inspected the explicit percentage editor, failed-calculation state with full-width error and disabled Save, duplicate-item ambiguity warning, mobile responsive editor, desktop responsive editor, and Cancel-restored state. No horizontal-overflow or alignment regression was found in the reviewed states.
+- The Cancel E2E additionally asserts the restored percentage type, `50` value, `0.87` derived total, focus restoration, and protection against the late edited calculation after the dialog closes.
+- PR #46 was open, non-draft, mergeable, scoped to 25 discount/evidence/test files, and had no review threads at final functional-head inspection.
 
 ## Delivery
 
@@ -68,7 +92,8 @@ Support explicit and exclusive receipt-line discounts as no discount, fixed EUR 
 - Pull request: #46
 - Merge/release/deploy: prohibited for this task.
 - Rollback: revert the PR; persisted historical `discount_minor` data remains unchanged because no migration is applied.
+- The documentation-only head produced by this spec update must be revalidated after this commit; functional visual evidence remains anchored to the exact validated functional head above.
 
 ## Status
 
-Implementation and regression coverage are in place. CI and final visual review remain authoritative before completion. A prior coverage run identified only the malformed-container guard in `parseReceiptLineDiscount`; focused public-contract coverage was added before these documentation-only updates. This checklist intentionally remains unresolved until the exact final head has completed CI and visual review.
+Implementation, regression coverage, exact-head CI, CodeQL, visual evidence publication, manual desktop/mobile screenshot review, and final functional-head PR inspection are complete for `57f18886b254b28d68a3bb52542dd5240a315b26`. The remaining delivery gate is revalidation of the documentation-only head created by this spec update; no further functional change is expected unless that revalidation finds a regression or repository-state issue.
