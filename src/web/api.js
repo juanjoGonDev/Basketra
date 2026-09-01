@@ -494,7 +494,7 @@ function initializeReceiptDerivedTotals() {
     scheduleReceiptLineCalculation(receiptLineRoot(event.target));
   }, true);
   document.addEventListener('change', event => {
-    if (!RECEIPT_CALCULATION_DRIVER_FIELDS.has(event.target?.dataset?.field)) return;
+    if (event.target?.dataset?.field !== 'discountType') return;
     resetDiscountValueAfterTypeChange(event.target);
     scheduleReceiptLineCalculation(receiptLineRoot(event.target), true);
   }, true);
