@@ -3,6 +3,8 @@ import { asRecord, asSafeInteger, asString } from '../domain/validation.ts';
 import { createId } from '../infrastructure/ids.ts';
 import { ApiError } from './errors.ts';
 
+const MAX_LATEST_PRICES_PER_PRODUCT = 12;
+
 export type CatalogParentRecord = Readonly<{
   id: string;
   name: string;
@@ -19,6 +21,16 @@ export type CatalogRetailerNameRecord = Readonly<{
   title: string;
 }>;
 
+export type CatalogLatestPriceRecord = Readonly<{
+  retailerId: string;
+  retailerName: string;
+  storeId?: string;
+  storeName?: string;
+  priceMinor: number;
+  observedAt: string;
+  confidence: number;
+}>;
+
 export type CatalogProductRecord = Readonly<{
   id: string;
   canonicalProductId: string;
@@ -33,6 +45,7 @@ export type CatalogProductRecord = Readonly<{
   categoryName?: string;
   aliases: readonly string[];
   retailerNames: readonly CatalogRetailerNameRecord[];
+  latestPrices: readonly CatalogLatestPriceRecord[];
   createdAt: string;
   updatedAt: string;
 }>;
@@ -68,6 +81,17 @@ type ParentRow = Readonly<{
   categoryName: string | null;
   description: string | null;
   variantCount: number;
+}>;
+
+type LatestPriceRow = Readonly<{
+  productVariantId: string;
+  retailerId: string;
+  retailerName: string;
+  storeId: string | null;
+  storeName: string | null;
+  priceMinor: number;
+  observedAt: string;
+  confidence: number;
 }>;
 
 type CatalogApiContext = Readonly<{
@@ -149,7 +173,84 @@ function loadRetailerNames(database: DatabaseSync, productIds: readonly string[]
   return result;
 }
 
-function mapProduct(row: ProductRow, aliases: Map<string, string[]>, retailerNames: Map<string, CatalogRetailerNameRecord[]>): CatalogProductRecord {
+function loadLatestPrices(database: DatabaseSync, productIds: readonly string[]): Map<string, CatalogLatestPriceRecord[]> {
+  const result = new Map<string, CatalogLatestPriceRecord[]>();
+  if (productIds.length === 0) return result;
+  const rows = database.prepare(`
+    WITH latest_per_location AS (
+      SELECT
+        retailer_listings.product_variant_id AS productVariantId,
+        retailers.id AS retailerId,
+        retailers.name AS retailerName,
+        stores.id AS storeId,
+        stores.name AS storeName,
+        price_observations.price_minor AS priceMinor,
+        price_observations.observed_at AS observedAt,
+        price_observations.confidence,
+        ROW_NUMBER() OVER (
+          PARTITION BY
+            retailer_listings.product_variant_id,
+            price_observations.retailer_id,
+            COALESCE(price_observations.store_id, '')
+          ORDER BY price_observations.observed_at DESC, price_observations.id DESC
+        ) AS locationRank
+      FROM price_observations
+      JOIN retailer_listings ON retailer_listings.id = price_observations.retailer_listing_id
+      JOIN retailers ON retailers.id = price_observations.retailer_id
+      LEFT JOIN stores ON stores.id = price_observations.store_id
+      WHERE retailer_listings.product_variant_id IN (${placeholders(productIds.length)})
+    ), ranked AS (
+      SELECT
+        productVariantId,
+        retailerId,
+        retailerName,
+        storeId,
+        storeName,
+        priceMinor,
+        observedAt,
+        confidence,
+        ROW_NUMBER() OVER (
+          PARTITION BY productVariantId
+          ORDER BY observedAt DESC, retailerName COLLATE NOCASE, COALESCE(storeName, '') COLLATE NOCASE
+        ) AS productRank
+      FROM latest_per_location
+      WHERE locationRank = 1
+    )
+    SELECT
+      productVariantId,
+      retailerId,
+      retailerName,
+      storeId,
+      storeName,
+      priceMinor,
+      observedAt,
+      confidence
+    FROM ranked
+    WHERE productRank <= ?
+    ORDER BY productVariantId, productRank
+  `).all(...productIds, MAX_LATEST_PRICES_PER_PRODUCT) as LatestPriceRow[];
+  for (const row of rows) {
+    const prices = result.get(row.productVariantId) ?? [];
+    prices.push({
+      retailerId: row.retailerId,
+      retailerName: row.retailerName,
+      ...(row.storeId ? { storeId: row.storeId } : {}),
+      ...(row.storeName ? { storeName: row.storeName } : {}),
+      priceMinor: row.priceMinor,
+      observedAt: row.observedAt,
+      confidence: row.confidence,
+    });
+    result.set(row.productVariantId, prices);
+  }
+  return result;
+}
+
+function mapProduct(
+  row: ProductRow,
+  aliases: Map<string, string[]>,
+  retailerNames: Map<string, CatalogRetailerNameRecord[]>,
+  latestPrices: Map<string, CatalogLatestPriceRecord[]>,
+): CatalogProductRecord {
   return {
     id: row.id,
     canonicalProductId: row.canonicalProductId,
@@ -164,6 +265,7 @@ function mapProduct(row: ProductRow, aliases: Map<string, string[]>, retailerNam
     ...(row.categoryName ? { categoryName: row.categoryName } : {}),
     aliases: aliases.get(row.id) ?? [],
     retailerNames: retailerNames.get(row.id) ?? [],
+    latestPrices: latestPrices.get(row.id) ?? [],
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -223,6 +325,7 @@ export function listCatalog(databasePath: string, input: Readonly<{ query?: stri
     const productIds = pageRows.map((row) => row.id);
     const aliases = loadAliases(database, productIds);
     const retailerNames = loadRetailerNames(database, productIds);
+    const latestPrices = loadLatestPrices(database, productIds);
 
     const parents = (database.prepare(`
       SELECT
@@ -248,7 +351,7 @@ export function listCatalog(databasePath: string, input: Readonly<{ query?: stri
     }));
 
     return {
-      products: pageRows.map((row) => mapProduct(row, aliases, retailerNames)),
+      products: pageRows.map((row) => mapProduct(row, aliases, retailerNames, latestPrices)),
       parents,
       offset,
       limit,
