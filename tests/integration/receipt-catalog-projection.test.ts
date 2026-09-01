@@ -27,6 +27,52 @@ function receiptInput(importKey: string, description: string, unitPriceMinor: nu
   } as const;
 }
 
+function insertLegacyReceipt(database: DatabaseSync, input: Readonly<{
+  receiptId: string;
+  itemId: string;
+  retailerId: string;
+  description: string;
+  unitPriceMinor: number;
+  importKey: string;
+  createdAt: string;
+}>): void {
+  database.prepare(`
+    INSERT INTO receipts(id, retailer_id, status, currency, declared_total_minor, import_key, created_at, updated_at)
+    VALUES (?, ?, 'confirmed', 'EUR', ?, ?, ?, ?)
+  `).run(
+    input.receiptId,
+    input.retailerId,
+    input.unitPriceMinor,
+    input.importKey,
+    input.createdAt,
+    input.createdAt,
+  );
+  database.prepare(`
+    INSERT INTO receipt_extractions(id, receipt_id, provider, original_text, deterministic_json, ai_json, created_at)
+    VALUES (?, ?, ?, ?, ?, NULL, ?)
+  `).run(
+    `extraction_${input.receiptId}`,
+    input.receiptId,
+    'manual-or-embedded',
+    `${input.description} ${input.unitPriceMinor}`,
+    '{"items":[]}',
+    input.createdAt,
+  );
+  database.prepare(`
+    INSERT INTO receipt_items(
+      id, receipt_id, original_description, normalized_description, product_variant_id,
+      quantity, unit_price_minor, line_total_minor, discount_minor, status, confidence, match_reason, created_at
+    ) VALUES (?, ?, ?, NULL, NULL, 1, ?, ?, 0, 'confirmed', 1, NULL, ?)
+  `).run(
+    input.itemId,
+    input.receiptId,
+    input.description,
+    input.unitPriceMinor,
+    input.unitPriceMinor,
+    input.createdAt,
+  );
+}
+
 function readProjection(path: string, receiptId: string) {
   const database = new DatabaseSync(path, { readOnly: true });
   try {
@@ -51,9 +97,16 @@ function readProjection(path: string, receiptId: string) {
       SELECT
         (SELECT COUNT(*) FROM canonical_products) AS canonicalProducts,
         (SELECT COUNT(*) FROM product_variants) AS variants,
+        (SELECT COUNT(*) FROM retailer_listings) AS retailerListings,
         (SELECT COUNT(*) FROM price_observations) AS prices,
         (SELECT COUNT(*) FROM external_evidence WHERE source_type = 'receipt') AS receiptEvidence
-    `).get() as { canonicalProducts: number; variants: number; prices: number; receiptEvidence: number };
+    `).get() as {
+      canonicalProducts: number;
+      variants: number;
+      retailerListings: number;
+      prices: number;
+      receiptEvidence: number;
+    };
     return { item, listing, counts };
   } finally {
     database.close();
@@ -112,20 +165,15 @@ test('migration reconciles historical confirmed receipt rows without overwriting
     legacy.exec('DROP TRIGGER IF EXISTS receipt_items_project_catalog;');
     legacy.prepare('DELETE FROM schema_migrations WHERE version = ?').run(RECEIPT_CATALOG_MIGRATION_VERSION);
     legacy.prepare('INSERT INTO retailers(id, name, created_at) VALUES (?, ?, ?)').run('retailer_legacy', 'Mercadona', '2026-08-01T10:00:00.000Z');
-    legacy.prepare(`
-      INSERT INTO receipts(id, retailer_id, status, currency, declared_total_minor, import_key, created_at, updated_at)
-      VALUES (?, ?, 'confirmed', 'EUR', ?, ?, ?, ?)
-    `).run('receipt_legacy', 'retailer_legacy', 120, 'receipt-legacy-0001', '2026-08-01T10:00:00.000Z', '2026-08-01T10:00:00.000Z');
-    legacy.prepare(`
-      INSERT INTO receipt_extractions(id, receipt_id, provider, original_text, deterministic_json, ai_json, created_at)
-      VALUES (?, ?, ?, ?, ?, NULL, ?)
-    `).run('extraction_legacy', 'receipt_legacy', 'manual-or-embedded', 'LECHE ENTERA 1L 1,20', '{"items":[]}', '2026-08-01T10:00:00.000Z');
-    legacy.prepare(`
-      INSERT INTO receipt_items(
-        id, receipt_id, original_description, normalized_description, product_variant_id,
-        quantity, unit_price_minor, line_total_minor, discount_minor, status, confidence, match_reason, created_at
-      ) VALUES (?, ?, ?, NULL, NULL, 1, 120, 120, 0, 'confirmed', 1, NULL, ?)
-    `).run('receiptitem_legacy', 'receipt_legacy', 'Leche entera 1L', '2026-08-01T10:00:00.000Z');
+    insertLegacyReceipt(legacy, {
+      receiptId: 'receipt_legacy',
+      itemId: 'receiptitem_legacy',
+      retailerId: 'retailer_legacy',
+      description: 'Leche entera 1L',
+      unitPriceMinor: 120,
+      importKey: 'receipt-legacy-0001',
+      createdAt: '2026-08-01T10:00:00.000Z',
+    });
   } finally {
     legacy.close();
   }
@@ -139,7 +187,69 @@ test('migration reconciles historical confirmed receipt rows without overwriting
     assert.equal(projection.item.description, 'Leche entera 1L');
     assert.equal(projection.item.productVariantId, products[0]!.id);
     assert.deepEqual({ ...projection.listing }, { retailerName: 'Mercadona', title: 'Leche entera 1L' });
-    assert.deepEqual({ ...projection.counts }, { canonicalProducts: 1, variants: 1, prices: 1, receiptEvidence: 1 });
+    assert.deepEqual({ ...projection.counts }, {
+      canonicalProducts: 1,
+      variants: 1,
+      retailerListings: 1,
+      prices: 1,
+      receiptEvidence: 1,
+    });
+  } finally {
+    upgraded.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('migration reuses one catalog variant for matching historical receipts from the same retailer', () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-receipt-catalog-backfill-reuse-'));
+  const databasePath = join(root, 'basketra.db');
+  const migrationBackupDir = join(root, 'migration-backups');
+  const initial = new BasketraDatabase(databasePath, { migrationBackupDir });
+  initial.close();
+
+  const legacy = new DatabaseSync(databasePath);
+  try {
+    legacy.exec('PRAGMA foreign_keys = ON;');
+    legacy.exec('DROP TRIGGER IF EXISTS receipt_items_project_catalog;');
+    legacy.prepare('DELETE FROM schema_migrations WHERE version = ?').run(RECEIPT_CATALOG_MIGRATION_VERSION);
+    legacy.prepare('INSERT INTO retailers(id, name, created_at) VALUES (?, ?, ?)').run('retailer_history', 'Alcampo', '2026-08-01T10:00:00.000Z');
+    insertLegacyReceipt(legacy, {
+      receiptId: 'receipt_history_1',
+      itemId: 'receiptitem_history_1',
+      retailerId: 'retailer_history',
+      description: 'Bebida coco 0% A',
+      unitPriceMinor: 175,
+      importKey: 'receipt-history-0001',
+      createdAt: '2026-08-01T10:00:00.000Z',
+    });
+    insertLegacyReceipt(legacy, {
+      receiptId: 'receipt_history_2',
+      itemId: 'receiptitem_history_2',
+      retailerId: 'retailer_history',
+      description: 'Bebida coco 0% A',
+      unitPriceMinor: 189,
+      importKey: 'receipt-history-0002',
+      createdAt: '2026-08-02T10:00:00.000Z',
+    });
+  } finally {
+    legacy.close();
+  }
+
+  const upgraded = new BasketraDatabase(databasePath, { migrationBackupDir });
+  try {
+    const products = upgraded.searchProducts('bebida coco', 8);
+    assert.equal(products.length, 1);
+    const variantId = products[0]!.id;
+    assert.equal(readProjection(databasePath, 'receipt_history_1').item.productVariantId, variantId);
+    assert.equal(readProjection(databasePath, 'receipt_history_2').item.productVariantId, variantId);
+    assert.deepEqual(upgraded.listPriceObservations(variantId).map((entry) => entry.priceMinor), [189, 175]);
+    assert.deepEqual({ ...readProjection(databasePath, 'receipt_history_1').counts }, {
+      canonicalProducts: 1,
+      variants: 1,
+      retailerListings: 1,
+      prices: 2,
+      receiptEvidence: 2,
+    });
   } finally {
     upgraded.close();
     rmSync(root, { recursive: true, force: true });
