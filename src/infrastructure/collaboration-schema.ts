@@ -102,4 +102,339 @@ export const COLLABORATION_MIGRATIONS: readonly MigrationDefinition[] = [
         WHERE response_id IS NOT NULL;
     `,
   },
+  {
+    version: 7,
+    kind: 'safe',
+    sql: `
+      UPDATE receipt_items AS item
+      SET product_variant_id = COALESCE(
+        (
+          SELECT retailer_listings.product_variant_id
+          FROM receipts
+          JOIN retailer_listings ON retailer_listings.retailer_id = receipts.retailer_id
+          WHERE receipts.id = item.receipt_id
+            AND retailer_listings.product_variant_id IS NOT NULL
+            AND retailer_listings.title = item.original_description COLLATE NOCASE
+          ORDER BY retailer_listings.created_at, retailer_listings.id
+          LIMIT 1
+        ),
+        (
+          SELECT CASE WHEN COUNT(*) = 1 THEN MIN(product_variants.id) END
+          FROM product_variants
+          WHERE product_variants.name = item.original_description COLLATE NOCASE
+        )
+      )
+      WHERE item.status = 'confirmed' AND item.product_variant_id IS NULL;
+
+      INSERT INTO canonical_products(id, name, category, category_id, description, created_at, updated_at)
+      SELECT
+        'product_receipt_' || receipt_items.id,
+        receipt_items.original_description,
+        NULL,
+        NULL,
+        NULL,
+        receipts.created_at,
+        receipts.created_at
+      FROM receipt_items
+      JOIN receipts ON receipts.id = receipt_items.receipt_id
+      WHERE receipt_items.status = 'confirmed'
+        AND receipt_items.product_variant_id IS NULL;
+
+      INSERT INTO product_variants(
+        id, canonical_product_id, name, brand, ean, package_minor, package_unit,
+        dietary_tags_json, created_at, updated_at
+      )
+      SELECT
+        'variant_receipt_' || receipt_items.id,
+        'product_receipt_' || receipt_items.id,
+        receipt_items.original_description,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        '[]',
+        receipts.created_at,
+        receipts.created_at
+      FROM receipt_items
+      JOIN receipts ON receipts.id = receipt_items.receipt_id
+      WHERE receipt_items.status = 'confirmed'
+        AND receipt_items.product_variant_id IS NULL;
+
+      INSERT INTO product_search(entity_id, name, aliases)
+      SELECT
+        'variant_receipt_' || receipt_items.id,
+        receipt_items.original_description,
+        ''
+      FROM receipt_items
+      WHERE receipt_items.status = 'confirmed'
+        AND receipt_items.product_variant_id IS NULL;
+
+      UPDATE receipt_items
+      SET product_variant_id = 'variant_receipt_' || id
+      WHERE status = 'confirmed' AND product_variant_id IS NULL;
+
+      INSERT INTO retailer_listings(
+        id, retailer_id, product_variant_id, retailer_sku, title, source_url, created_at, updated_at
+      )
+      SELECT
+        'listing_receipt_' || receipt_items.id,
+        receipts.retailer_id,
+        receipt_items.product_variant_id,
+        NULL,
+        receipt_items.original_description,
+        NULL,
+        receipts.created_at,
+        receipts.created_at
+      FROM receipt_items
+      JOIN receipts ON receipts.id = receipt_items.receipt_id
+      WHERE receipt_items.status = 'confirmed'
+        AND receipts.retailer_id IS NOT NULL
+        AND receipt_items.product_variant_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM retailer_listings
+          WHERE retailer_listings.retailer_id = receipts.retailer_id
+            AND retailer_listings.product_variant_id = receipt_items.product_variant_id
+        );
+
+      INSERT INTO external_evidence(
+        id, source_type, source_reference, observed_at, content_hash, metadata_json, created_at
+      )
+      SELECT
+        'evidence_receipt_' || receipt_items.id,
+        'receipt',
+        'receipt-item:' || receipt_items.id,
+        COALESCE(receipts.purchased_at, receipts.created_at),
+        NULL,
+        '{}',
+        receipts.created_at
+      FROM receipt_items
+      JOIN receipts ON receipts.id = receipt_items.receipt_id
+      WHERE receipt_items.status = 'confirmed'
+        AND receipts.retailer_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM external_evidence
+          WHERE external_evidence.source_type = 'receipt'
+            AND external_evidence.source_reference = 'receipt-item:' || receipt_items.id
+        );
+
+      INSERT INTO price_observations(
+        id, retailer_listing_id, retailer_id, store_id, price_minor,
+        package_numerator, package_denominator, package_unit,
+        normalized_price_numerator, normalized_price_denominator,
+        currency, stock_state, shipping_minor, promotion_json, conditions_json,
+        evidence_id, observed_at, confidence, created_at
+      )
+      SELECT
+        'price_receipt_' || receipt_items.id,
+        (
+          SELECT retailer_listings.id
+          FROM retailer_listings
+          WHERE retailer_listings.retailer_id = receipts.retailer_id
+            AND retailer_listings.product_variant_id = receipt_items.product_variant_id
+          ORDER BY retailer_listings.created_at, retailer_listings.id
+          LIMIT 1
+        ),
+        receipts.retailer_id,
+        NULL,
+        receipt_items.unit_price_minor,
+        1,
+        1,
+        'unit',
+        receipt_items.unit_price_minor,
+        1,
+        'EUR',
+        'unknown',
+        0,
+        '{}',
+        '[]',
+        external_evidence.id,
+        COALESCE(receipts.purchased_at, receipts.created_at),
+        receipt_items.confidence,
+        receipts.created_at
+      FROM receipt_items
+      JOIN receipts ON receipts.id = receipt_items.receipt_id
+      JOIN external_evidence
+        ON external_evidence.source_type = 'receipt'
+       AND external_evidence.source_reference = 'receipt-item:' || receipt_items.id
+      WHERE receipt_items.status = 'confirmed'
+        AND receipts.retailer_id IS NOT NULL
+        AND receipt_items.product_variant_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM price_observations
+          WHERE price_observations.evidence_id = external_evidence.id
+        );
+
+      CREATE TRIGGER receipt_items_project_catalog
+      AFTER INSERT ON receipt_items
+      WHEN NEW.status = 'confirmed'
+      BEGIN
+        INSERT INTO canonical_products(id, name, category, category_id, description, created_at, updated_at)
+        SELECT
+          'product_receipt_' || NEW.id,
+          NEW.original_description,
+          NULL,
+          NULL,
+          NULL,
+          receipts.created_at,
+          receipts.created_at
+        FROM receipts
+        WHERE receipts.id = NEW.receipt_id
+          AND NOT EXISTS (
+            SELECT 1
+            FROM retailer_listings
+            WHERE retailer_listings.retailer_id = receipts.retailer_id
+              AND retailer_listings.product_variant_id IS NOT NULL
+              AND retailer_listings.title = NEW.original_description COLLATE NOCASE
+          )
+          AND (
+            SELECT COUNT(*)
+            FROM product_variants
+            WHERE product_variants.name = NEW.original_description COLLATE NOCASE
+          ) <> 1;
+
+        INSERT INTO product_variants(
+          id, canonical_product_id, name, brand, ean, package_minor, package_unit,
+          dietary_tags_json, created_at, updated_at
+        )
+        SELECT
+          'variant_receipt_' || NEW.id,
+          'product_receipt_' || NEW.id,
+          NEW.original_description,
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          '[]',
+          receipts.created_at,
+          receipts.created_at
+        FROM receipts
+        WHERE receipts.id = NEW.receipt_id
+          AND EXISTS (
+            SELECT 1 FROM canonical_products WHERE id = 'product_receipt_' || NEW.id
+          );
+
+        INSERT INTO product_search(entity_id, name, aliases)
+        SELECT 'variant_receipt_' || NEW.id, NEW.original_description, ''
+        WHERE EXISTS (
+          SELECT 1 FROM product_variants WHERE id = 'variant_receipt_' || NEW.id
+        );
+
+        UPDATE receipt_items
+        SET product_variant_id = COALESCE(
+          (
+            SELECT retailer_listings.product_variant_id
+            FROM receipts
+            JOIN retailer_listings ON retailer_listings.retailer_id = receipts.retailer_id
+            WHERE receipts.id = NEW.receipt_id
+              AND retailer_listings.product_variant_id IS NOT NULL
+              AND retailer_listings.title = NEW.original_description COLLATE NOCASE
+            ORDER BY retailer_listings.created_at, retailer_listings.id
+            LIMIT 1
+          ),
+          (
+            SELECT CASE WHEN COUNT(*) = 1 THEN MIN(product_variants.id) END
+            FROM product_variants
+            WHERE product_variants.name = NEW.original_description COLLATE NOCASE
+              AND product_variants.id <> 'variant_receipt_' || NEW.id
+          ),
+          'variant_receipt_' || NEW.id
+        )
+        WHERE id = NEW.id AND product_variant_id IS NULL;
+
+        INSERT INTO retailer_listings(
+          id, retailer_id, product_variant_id, retailer_sku, title, source_url, created_at, updated_at
+        )
+        SELECT
+          'listing_receipt_' || NEW.id,
+          receipts.retailer_id,
+          receipt_items.product_variant_id,
+          NULL,
+          NEW.original_description,
+          NULL,
+          receipts.created_at,
+          receipts.created_at
+        FROM receipts
+        JOIN receipt_items ON receipt_items.id = NEW.id
+        WHERE receipts.id = NEW.receipt_id
+          AND receipts.retailer_id IS NOT NULL
+          AND receipt_items.product_variant_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM retailer_listings
+            WHERE retailer_listings.retailer_id = receipts.retailer_id
+              AND retailer_listings.product_variant_id = receipt_items.product_variant_id
+          );
+
+        INSERT INTO external_evidence(
+          id, source_type, source_reference, observed_at, content_hash, metadata_json, created_at
+        )
+        SELECT
+          'evidence_receipt_' || NEW.id,
+          'receipt',
+          'receipt-item:' || NEW.id,
+          COALESCE(receipts.purchased_at, receipts.created_at),
+          NULL,
+          '{}',
+          receipts.created_at
+        FROM receipts
+        WHERE receipts.id = NEW.receipt_id
+          AND receipts.retailer_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM external_evidence
+            WHERE external_evidence.source_type = 'receipt'
+              AND external_evidence.source_reference = 'receipt-item:' || NEW.id
+          );
+
+        INSERT INTO price_observations(
+          id, retailer_listing_id, retailer_id, store_id, price_minor,
+          package_numerator, package_denominator, package_unit,
+          normalized_price_numerator, normalized_price_denominator,
+          currency, stock_state, shipping_minor, promotion_json, conditions_json,
+          evidence_id, observed_at, confidence, created_at
+        )
+        SELECT
+          'price_receipt_' || NEW.id,
+          (
+            SELECT retailer_listings.id
+            FROM retailer_listings
+            WHERE retailer_listings.retailer_id = receipts.retailer_id
+              AND retailer_listings.product_variant_id = receipt_items.product_variant_id
+            ORDER BY retailer_listings.created_at, retailer_listings.id
+            LIMIT 1
+          ),
+          receipts.retailer_id,
+          NULL,
+          NEW.unit_price_minor,
+          1,
+          1,
+          'unit',
+          NEW.unit_price_minor,
+          1,
+          'EUR',
+          'unknown',
+          0,
+          '{}',
+          '[]',
+          external_evidence.id,
+          COALESCE(receipts.purchased_at, receipts.created_at),
+          NEW.confidence,
+          receipts.created_at
+        FROM receipts
+        JOIN receipt_items ON receipt_items.id = NEW.id
+        JOIN external_evidence
+          ON external_evidence.source_type = 'receipt'
+         AND external_evidence.source_reference = 'receipt-item:' || NEW.id
+        WHERE receipts.id = NEW.receipt_id
+          AND receipts.retailer_id IS NOT NULL
+          AND receipt_items.product_variant_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM price_observations WHERE price_observations.evidence_id = external_evidence.id
+          );
+      END;
+    `,
+  },
 ] as const;
