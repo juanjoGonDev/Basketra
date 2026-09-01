@@ -26,6 +26,7 @@ Expose the reusable product catalog as a first-class workflow so a user can see 
 - Element-scoping removed the page-level full-page capture but Playwright still composited fixed shell overlays while capturing the long `.catalog-view`: `Saltar al contenido` and the `Basketra / Conectado` header appeared mid-image although the final viewport screenshot showed correct runtime placement.
 - Pull Request Quality run `33446281252` on head `d3ff1e0999214d3e569b9f5f03689b4d802cbb12` again passed the catalog workflow and derived-total browser scenarios plus Quality, Security, smoke and both architectures; CodeQL run `33446281186` passed both analyses. Browser E2E finished 69/70 because `photo-upload.spec.mjs` counted every descendant `li` under `#capture-list`. The capture renderer appends nested OCR-evidence `<ul><li>` rows while processing, so that selector grew from three to four nodes even though exactly two capture cards existed. This is a test-selector defect, not duplicate capture creation.
 - Artifact `9778281961` from that run has digest `sha256:e43107403e17f8e124a01f24f7312e6b3c8ca2388357a9b0658a3a23267c9765`. Its catalog screenshot proves the Playwright `screenshot({ style })` option did not suppress external fixed overlays during locator stitching, so evidence suppression must be applied to the live test document before capture and removed afterward.
+- Pull Request Quality run `33447230236` on head `638bb534a7dac905b97d8975c238b9713630839d` passed Quality, Security, hardened container smoke, linux/amd64, linux/arm64 and 69/70 Browser E2E scenarios; CodeQL run `33447230221` passed both analyses. The photo-upload regression stayed fixed. The only browser failure was the catalog evidence setup: `page.addStyleTag({ content })` was blocked by the production CSP `style-src 'self'`. Relaxing CSP or adding `unsafe-inline` would be a security regression, so screenshot setup must not rely on inline styles.
 
 ## Decision
 
@@ -44,7 +45,7 @@ Expose the reusable product catalog as a first-class workflow so a user can see 
 - Publish the catalog's stabilized mobile screenshot in the direct PR visual evidence whenever this UI is part of a visual-impacting head, rather than relying on an artifact that reviewers must download manually.
 - Browser tests that need realtime reconnection use one shared controlled `EventSource` helper. A boundary test must trigger the event that owns the transition rather than wait for incidental timing.
 - Generate `catalog-mobile.png` from the `.catalog-view` element instead of a page-level `fullPage` screenshot.
-- Before the evidence capture, insert a test-only stylesheet into the live document that hides `.app-header`, `.bottom-nav` and `.skip-link`, assert that the shell is hidden, capture the catalog, remove the stylesheet in `finally`, and assert that the runtime header is visible again. This changes no production source or persisted DOM/CSS.
+- Before the evidence capture, preserve the existing `hidden` state of `.app-header`, `.bottom-nav` and `.skip-link`, set their HTML `hidden` property, assert that the shell is hidden, capture the catalog, restore every prior `hidden` value in `finally`, and assert that the runtime header is visible again. This uses native DOM visibility rather than inline CSS, remains compatible with the production CSP and changes no production source or persisted DOM/CSS.
 - Browser assertions that count receipt captures target `#capture-list > .capture-card`. Descendant `li` elements are allowed to represent progressive OCR evidence and must never be interpreted as additional captures.
 
 ## Acceptance
@@ -67,6 +68,7 @@ Expose the reusable product catalog as a first-class workflow so a user can see 
 16. The direct PR visual-evidence comment includes the stabilized catalog-management mobile screenshot generated from the same validated head as Browser E2E, without page-stitching or shell-overlay artifacts.
 17. The late durable-job recovery regression deterministically proves a realtime refresh cannot overwrite a manual-review transition without depending on scheduler timing or retrying a flaky test.
 18. Photo-upload browser tests count actual top-level capture cards and remain stable while nested progressive OCR evidence is added asynchronously.
+19. Visual-evidence setup respects the production Content Security Policy and does not weaken `style-src` to make screenshots pass.
 
 ## Scope
 
@@ -82,7 +84,7 @@ Included:
 - focused tests and documentation
 - direct PR publication of the new catalog screenshot from the authoritative browser artifact
 - deterministic shared browser-test control for receipt realtime reconnection
-- element-scoped catalog evidence capture with temporary suppression of unrelated shell overlays
+- element-scoped catalog evidence capture with temporary native-DOM suppression of unrelated shell overlays
 - stable top-level capture-card selectors in photo-upload browser tests
 
 Excluded:
@@ -100,7 +102,7 @@ Excluded:
 - Existing canonical parents with zero variants can remain after moves. They are retained rather than deleted because automatic data cleanup would be destructive.
 - A failed live-calculation request keeps the previous value visible for context but blocks save/validation/confirmation until a later successful calculation replaces it; the stale value is therefore never accepted as the current derived result.
 - Multiple browser tabs can edit catalog relationships concurrently. SQLite transactions make each write atomic; last completed relationship write wins. No new optimistic-version schema is introduced in this scope.
-- Long screenshots can composite fixed shell controls into the clipped capture even when the evidence locator is element-scoped. The temporary stylesheet must remain limited to shell selectors and must always be removed after capture.
+- Long screenshots can composite fixed shell controls into the clipped capture even when the evidence locator is element-scoped. Test-only shell suppression must preserve and restore every prior `hidden` state in `finally`, and must not require weakening CSP.
 - Progressive OCR evidence intentionally adds nested list items inside a capture card. Tests must use the capture-card boundary rather than generic descendant list selectors when asserting capture cardinality.
 - Receipt recovery depends on realtime invalidation rather than interval polling. Tests must explicitly model the realtime event when validating late refresh races; waiting for an unspecified reconnect creates nondeterminism without increasing production coverage.
 
@@ -112,7 +114,7 @@ Excluded:
 - browser tests proving total is read-only and follows quantity/price/discount changes without client arithmetic ownership
 - browser regression tests proving save/validation waits for the current derived total and stale responses cannot overwrite a newer edit
 - existing receipt validation browser regressions, including discount edit/cancel/validate/confirm flows
-- browser evidence checks that wait for terminal catalog mutations before capturing the `.catalog-view` as `catalog-mobile.png`, with external shell overlays hidden only for the duration of the screenshot and restored afterward
+- browser evidence checks that wait for terminal catalog mutations before capturing the `.catalog-view` as `catalog-mobile.png`, with external shell overlays hidden via native `hidden` state only for the duration of the screenshot and restored afterward
 - deterministic realtime recovery race coverage using `tests/browser/helpers/controlled-event-source.mjs`
 - photo-upload browser coverage using top-level `.capture-card` cardinality while OCR evidence may change internally
 - `pnpm quality` in authoritative Pull Request Quality CI
@@ -128,4 +130,4 @@ Use atomic Conventional Commits on `agent/feat-catalog-management-derived-total`
 
 ## Status
 
-Implementation and production behavior are validated. Head `d3ff1e0999214d3e569b9f5f03689b4d802cbb12` passed every non-browser check and 69/70 browser scenarios; catalog evidence generation itself passed, while FINAL REVIEW demonstrated that Playwright's screenshot-level style did not suppress shell overlays and the only browser failure came from a broad receipt-list selector counting nested OCR evidence. Commit `d8214442fd6dbca57628e1a0285664466c79cdf1` applies and verifies shell suppression in the live test document only for the evidence capture. Commit `3062a8844958f0b8cd419c304efb2bd5597852bb` changes photo-upload cardinality assertions to top-level capture cards. The next delivery head must pass the full matrix, publish `13-catalog-management.png` from the same SHA, and pass manual visual review before handoff.
+Implementation and production behavior are validated. Head `638bb534a7dac905b97d8975c238b9713630839d` passed Quality, Security, hardened container smoke, both container architectures, CodeQL and 69/70 browser scenarios. The photo-upload selector defect stayed fixed. Its only Browser E2E failure was test-only evidence setup attempting to inject an inline stylesheet that the production CSP correctly rejected. Commit `c7e513eb38d414fb03be04fe19751f838b94a863` replaces that inline-style technique with reversible native `hidden` state while preserving CSP. The resulting delivery head must pass the full matrix, publish `13-catalog-management.png` from the same SHA, and pass manual visual review before handoff.
