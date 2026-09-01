@@ -1,16 +1,24 @@
+export type ReceiptLineDiscount =
+  | Readonly<{ type: 'amount'; amountMinor: number }>
+  | Readonly<{ type: 'percentage'; basisPoints: number }>;
+
+export type ReceiptLineDiscountFields = Readonly<{
+  discount?: ReceiptLineDiscount;
+  /** @deprecated Compatibility input for historical amount-only clients. */
+  discountMinor?: number;
+}>;
+
 export type ReceiptLineInput = Readonly<{
   description: string;
   quantity: number;
   unitPriceMinor: number;
   lineTotalMinor: number;
-  discountMinor?: number;
-}>;
+}> & ReceiptLineDiscountFields;
 
 export type ReceiptLineCalculationInput = Readonly<{
   quantity: number;
   unitPriceMinor: number;
-  discountMinor?: number;
-}>;
+}> & ReceiptLineDiscountFields;
 
 export type ReceiptLineValidation = Readonly<{
   status: 'confirmed' | 'needs-review' | 'unreadable' | 'arithmetic-mismatch';
@@ -18,22 +26,81 @@ export type ReceiptLineValidation = Readonly<{
   differenceMinor: number;
 }>;
 
-export function calculateReceiptLineTotal(line: ReceiptLineCalculationInput): number {
-  const values = [line.quantity, line.unitPriceMinor, line.discountMinor ?? 0];
-  if (!values.every(Number.isSafeInteger) || values.some((value) => value < 0)) {
-    throw new RangeError('Receipt arithmetic values must be non-negative safe integers');
+const BASIS_POINTS_PER_PERCENT = 100;
+const BASIS_POINTS_PER_WHOLE = 100 * BASIS_POINTS_PER_PERCENT;
+const HALF_BASIS_POINT_DENOMINATOR = BASIS_POINTS_PER_WHOLE / 2;
+
+function assertNonNegativeSafeInteger(value: number, label: string): void {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RangeError(`${label} must be a non-negative safe integer`);
   }
+}
+
+function receiptLineSubtotalMinor(line: Pick<ReceiptLineCalculationInput, 'quantity' | 'unitPriceMinor'>): number {
+  assertNonNegativeSafeInteger(line.quantity, 'Receipt line quantity');
+  assertNonNegativeSafeInteger(line.unitPriceMinor, 'Receipt line unit price');
   const subtotalMinor = line.quantity * line.unitPriceMinor;
-  if (!Number.isSafeInteger(subtotalMinor)) throw new RangeError('Receipt line subtotal exceeds the safe integer range');
-  const discountMinor = line.discountMinor ?? 0;
-  if (discountMinor > subtotalMinor) throw new RangeError('Receipt line discount cannot exceed its subtotal');
+  if (!Number.isSafeInteger(subtotalMinor)) {
+    throw new RangeError('Receipt line subtotal exceeds the safe integer range');
+  }
+  return subtotalMinor;
+}
+
+function assertDiscountShape(discount: ReceiptLineDiscount): void {
+  if (typeof discount !== 'object' || discount === null) {
+    throw new RangeError('Receipt line discount must be a tagged object');
+  }
+  const candidate = discount as ReceiptLineDiscount & Record<string, unknown>;
+  if (candidate.type === 'amount') {
+    if ('basisPoints' in candidate) throw new RangeError('Receipt line discount representation is mixed');
+    assertNonNegativeSafeInteger(candidate.amountMinor, 'Receipt line amount discount');
+    return;
+  }
+  if (candidate.type === 'percentage') {
+    if ('amountMinor' in candidate) throw new RangeError('Receipt line discount representation is mixed');
+    assertNonNegativeSafeInteger(candidate.basisPoints, 'Receipt line percentage discount');
+    if (candidate.basisPoints > BASIS_POINTS_PER_WHOLE) {
+      throw new RangeError('Receipt line percentage discount cannot exceed 100%');
+    }
+    return;
+  }
+  throw new RangeError('Receipt line discount type must be amount or percentage');
+}
+
+/**
+ * Resolves the effective monetary discount in euro cents.
+ * Percentage discounts use basis points and integer half-up rounding to the nearest cent.
+ */
+export function calculateReceiptLineDiscountMinor(line: ReceiptLineCalculationInput): number {
+  const subtotalMinor = receiptLineSubtotalMinor(line);
+  if (line.discount !== undefined && line.discountMinor !== undefined) {
+    throw new RangeError('Receipt line discount representation is mixed');
+  }
+  if (line.discountMinor !== undefined) {
+    assertNonNegativeSafeInteger(line.discountMinor, 'Receipt line amount discount');
+    if (line.discountMinor > subtotalMinor) throw new RangeError('Receipt line discount cannot exceed its subtotal');
+    return line.discountMinor;
+  }
+  if (line.discount === undefined) return 0;
+
+  assertDiscountShape(line.discount);
+  if (line.discount.type === 'amount') {
+    if (line.discount.amountMinor > subtotalMinor) throw new RangeError('Receipt line discount cannot exceed its subtotal');
+    return line.discount.amountMinor;
+  }
+
+  const numerator = BigInt(subtotalMinor) * BigInt(line.discount.basisPoints);
+  return Number((numerator + BigInt(HALF_BASIS_POINT_DENOMINATOR)) / BigInt(BASIS_POINTS_PER_WHOLE));
+}
+
+export function calculateReceiptLineTotal(line: ReceiptLineCalculationInput): number {
+  const subtotalMinor = receiptLineSubtotalMinor(line);
+  const discountMinor = calculateReceiptLineDiscountMinor(line);
   return subtotalMinor - discountMinor;
 }
 
 export function validateReceiptLine(line: ReceiptLineInput): ReceiptLineValidation {
-  if (!Number.isSafeInteger(line.lineTotalMinor) || line.lineTotalMinor < 0) {
-    throw new RangeError('Receipt arithmetic values must be non-negative safe integers');
-  }
+  assertNonNegativeSafeInteger(line.lineTotalMinor, 'Receipt line total');
   const expectedMinor = calculateReceiptLineTotal(line);
   if (!line.description.trim()) {
     return { status: 'unreadable', expectedMinor, differenceMinor: line.lineTotalMinor - expectedMinor };
@@ -47,10 +114,13 @@ export function validateReceiptLine(line: ReceiptLineInput): ReceiptLineValidati
 }
 
 export function validateReceiptTotal(lines: readonly ReceiptLineInput[], declaredTotalMinor: number): Readonly<{ expectedMinor: number; differenceMinor: number; valid: boolean }> {
-  if (!Number.isSafeInteger(declaredTotalMinor) || declaredTotalMinor < 0) {
-    throw new RangeError('Declared total must be a non-negative safe integer');
+  assertNonNegativeSafeInteger(declaredTotalMinor, 'Declared total');
+  let expectedMinor = 0;
+  for (const line of lines) {
+    assertNonNegativeSafeInteger(line.lineTotalMinor, 'Receipt line total');
+    expectedMinor += line.lineTotalMinor;
+    if (!Number.isSafeInteger(expectedMinor)) throw new RangeError('Receipt total exceeds the safe integer range');
   }
-  const expectedMinor = lines.reduce((sum, line) => sum + line.lineTotalMinor, 0);
   const differenceMinor = declaredTotalMinor - expectedMinor;
   return { expectedMinor, differenceMinor, valid: differenceMinor === 0 };
 }
