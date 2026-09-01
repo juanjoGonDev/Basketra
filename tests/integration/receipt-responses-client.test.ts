@@ -106,7 +106,7 @@ test('durable receipt responses use the Responses background contract and parse 
     assert.equal(body['background'], true);
     assert.equal(body['store'], true);
     assert.equal(body['stream'], false);
-    assert.match(String(body['instructions']), /Keep each warning within 240 characters/u);
+    assert.match(String(body['instructions']), /Keep each warning and unassigned-discount reason within 240 characters/u);
     const input = body['input'] as Array<{ role: string; content: Array<Record<string, unknown>> }>;
     assert.equal(input[0]?.role, 'user');
     assert.match(String(input[0]?.content[0]?.['text']), /1: ALCAMPO/u);
