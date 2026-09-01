@@ -108,11 +108,22 @@ function percentageInputToBasisPoints(value) {
 }
 
 function normalizedDiscount(item) {
+  const quantity = Number.isSafeInteger(item?.discount?.quantity) && item.discount.quantity > 0
+    ? item.discount.quantity
+    : undefined;
   if (item?.discount?.type === 'amount' && Number.isSafeInteger(item.discount.amountMinor)) {
-    return { type: 'amount', amountMinor: item.discount.amountMinor };
+    return {
+      type: 'amount',
+      amountMinor: item.discount.amountMinor,
+      ...(quantity === undefined ? {} : { quantity }),
+    };
   }
   if (item?.discount?.type === 'percentage' && Number.isSafeInteger(item.discount.basisPoints)) {
-    return { type: 'percentage', basisPoints: item.discount.basisPoints };
+    return {
+      type: 'percentage',
+      basisPoints: item.discount.basisPoints,
+      ...(quantity === undefined ? {} : { quantity }),
+    };
   }
   if (Number.isSafeInteger(item?.discountMinor) && item.discountMinor > 0) {
     return { type: 'amount', amountMinor: item.discountMinor };
@@ -122,9 +133,12 @@ function normalizedDiscount(item) {
 
 function discountEditorValue(item) {
   const discount = normalizedDiscount(item);
-  if (!discount) return { type: 'none', value: '' };
-  if (discount.type === 'amount') return { type: 'amount', value: minorToEuroInput(discount.amountMinor) };
-  return { type: 'percentage', value: percentageBasisPointsToInput(discount.basisPoints) };
+  if (!discount) return { type: 'none', value: '', quantity: Number(item?.quantity) || 1 };
+  const quantity = discount.quantity ?? Number(item?.quantity) || 1;
+  if (discount.type === 'amount') {
+    return { type: 'amount', value: minorToEuroInput(discount.amountMinor), quantity };
+  }
+  return { type: 'percentage', value: percentageBasisPointsToInput(discount.basisPoints), quantity };
 }
 
 function upgradeReceiptTotal(fieldset) {
@@ -193,35 +207,93 @@ function addReceiptDiscountFields(fieldset, item) {
   input.value = initial.value;
   valueLabel.append(valueCaption, input);
 
+  const quantityLabel = document.createElement('label');
+  quantityLabel.className = 'field receipt-discount-quantity-field';
+  const quantityCaption = document.createElement('span');
+  quantityCaption.textContent = 'Unidades con descuento';
+  const quantityInput = document.createElement('input');
+  quantityInput.type = 'number';
+  quantityInput.inputMode = 'numeric';
+  quantityInput.autocomplete = 'off';
+  quantityInput.min = '1';
+  quantityInput.step = '1';
+  quantityInput.dataset.field = 'discountQuantity';
+  quantityInput.setAttribute('aria-label', 'Unidades con descuento');
+  quantityInput.value = String(initial.quantity);
+  const quantityHelp = document.createElement('small');
+  quantityHelp.className = 'field-help';
+  quantityHelp.dataset.discountQuantityHelp = 'true';
+  quantityLabel.append(quantityCaption, quantityInput, quantityHelp);
+
   if (totalContainer) {
     quantityRow.insertBefore(typeLabel, totalContainer);
     quantityRow.insertBefore(valueLabel, totalContainer);
+    quantityRow.insertBefore(quantityLabel, totalContainer);
   } else {
-    quantityRow.append(typeLabel, valueLabel);
+    quantityRow.append(typeLabel, valueLabel, quantityLabel);
   }
   syncDiscountValueControl(fieldset);
   rememberDiscountEditorValue(fieldset);
 }
 
+function lineQuantityFromFields(fieldset) {
+  const quantity = fieldset?.querySelector('[data-field="quantity"]');
+  if (!(quantity instanceof HTMLInputElement)) return 1;
+  const value = Number(quantity.value);
+  return Number.isSafeInteger(value) && value > 0 ? value : 1;
+}
+
 function syncDiscountValueControl(fieldset) {
   const type = fieldset?.querySelector('[data-field="discountType"]');
   const value = fieldset?.querySelector('[data-field="discountValue"]');
-  const label = value?.closest('.receipt-discount-value-field');
-  const caption = label?.querySelector('[data-discount-value-label]');
-  if (!(type instanceof HTMLSelectElement) || !(value instanceof HTMLInputElement) || !label || !caption) return;
+  const valueLabel = value?.closest('.receipt-discount-value-field');
+  const valueCaption = valueLabel?.querySelector('[data-discount-value-label]');
+  const quantity = fieldset?.querySelector('[data-field="discountQuantity"]');
+  const quantityLabel = quantity?.closest('.receipt-discount-quantity-field');
+  const quantityHelp = quantityLabel?.querySelector('[data-discount-quantity-help]');
+  if (!(type instanceof HTMLSelectElement)
+    || !(value instanceof HTMLInputElement)
+    || !valueLabel
+    || !valueCaption
+    || !(quantity instanceof HTMLInputElement)
+    || !quantityLabel
+    || !quantityHelp) return;
 
+  const lineQuantity = lineQuantityFromFields(fieldset);
   const disabled = type.value === 'none';
-  label.hidden = disabled;
+  valueLabel.hidden = disabled;
   value.disabled = disabled;
+  const showAffectedUnits = !disabled && lineQuantity > 1;
+  quantityLabel.hidden = !showAffectedUnits;
+  quantity.disabled = !showAffectedUnits;
+  quantity.max = String(lineQuantity);
+  const currentQuantity = Number(quantity.value);
+  if (!Number.isSafeInteger(currentQuantity) || currentQuantity < 1 || currentQuantity > lineQuantity) {
+    quantity.value = String(lineQuantity);
+  }
+  quantityHelp.textContent = `de ${lineQuantity} unidades`;
+
   if (disabled) {
     value.value = '';
     value.removeAttribute('aria-label');
+    quantity.value = String(lineQuantity);
     return;
   }
   const percentage = type.value === 'percentage';
   const labelText = percentage ? 'Descuento (%)' : 'Descuento (€)';
-  caption.textContent = labelText;
+  valueCaption.textContent = labelText;
   value.setAttribute('aria-label', labelText);
+}
+
+function discountQuantityFromFields(fieldset, lineQuantity) {
+  if (lineQuantity <= 1) return undefined;
+  const input = fieldset.querySelector('[data-field="discountQuantity"]');
+  if (!(input instanceof HTMLInputElement)) return undefined;
+  const quantity = Number(input.value);
+  if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > lineQuantity) {
+    throw new RangeError(`Las unidades con descuento deben estar entre 1 y ${lineQuantity}`);
+  }
+  return quantity === lineQuantity ? undefined : quantity;
 }
 
 function discountFromFields(fieldset) {
@@ -231,11 +303,14 @@ function discountFromFields(fieldset) {
   if (!(value instanceof HTMLInputElement) || !value.value.trim()) {
     throw new RangeError('Completa el valor del descuento');
   }
+  const lineQuantity = lineQuantityFromFields(fieldset);
+  const quantity = discountQuantityFromFields(fieldset, lineQuantity);
+  const quantityField = quantity === undefined ? {} : { quantity };
   if (type.value === 'amount') {
-    return { type: 'amount', amountMinor: euroInputToMinor(value.value) };
+    return { type: 'amount', amountMinor: euroInputToMinor(value.value), ...quantityField };
   }
   if (type.value === 'percentage') {
-    return { type: 'percentage', basisPoints: percentageInputToBasisPoints(value.value) };
+    return { type: 'percentage', basisPoints: percentageInputToBasisPoints(value.value), ...quantityField };
   }
   throw new RangeError('Selecciona un tipo de descuento válido');
 }
@@ -244,6 +319,11 @@ function formatDiscount(discount) {
   if (discount?.type === 'amount') return formatEuroMinor(discount.amountMinor);
   if (discount?.type === 'percentage') return `${percentageBasisPointsToInput(discount.basisPoints)}%`;
   return '';
+}
+
+function discountQuantitySummary(discount, lineQuantity) {
+  if (!discount?.quantity || lineQuantity <= 1) return '';
+  return ` · ${discount.quantity} de ${lineQuantity} uds.`;
 }
 
 function syncReceiptDiscountSummary(fieldset) {
@@ -267,7 +347,7 @@ function syncReceiptDiscountSummary(fieldset) {
     summary.dataset.receiptDiscountSummary = 'true';
     copy.append(summary);
   }
-  summary.textContent = `Dto. ${formatDiscount(discount)}`;
+  summary.textContent = `Dto. ${formatDiscount(discount)}${discountQuantitySummary(discount, lineQuantityFromFields(fieldset))}`;
 }
 
 function syncReceiptDiscountSummaries() {
@@ -281,9 +361,13 @@ function scheduleReceiptDiscountSummaries() {
 function rememberDiscountEditorValue(fieldset) {
   const type = fieldset?.querySelector('[data-field="discountType"]');
   const value = fieldset?.querySelector('[data-field="discountValue"]');
-  if (!(type instanceof HTMLSelectElement) || !(value instanceof HTMLInputElement)) return;
+  const quantity = fieldset?.querySelector('[data-field="discountQuantity"]');
+  if (!(type instanceof HTMLSelectElement)
+    || !(value instanceof HTMLInputElement)
+    || !(quantity instanceof HTMLInputElement)) return;
   fieldset.dataset.receiptEditorInitialDiscountType = type.value;
   fieldset.dataset.receiptEditorInitialDiscountValue = value.value;
+  fieldset.dataset.receiptEditorInitialDiscountQuantity = quantity.value;
 }
 
 function scheduleDiscountEditorRestore(dialog) {
@@ -292,13 +376,18 @@ function scheduleDiscountEditorRestore(dialog) {
   const index = Number(fieldset.dataset.itemIndex);
   const originalType = fieldset.dataset.receiptEditorInitialDiscountType ?? 'none';
   const originalValue = fieldset.dataset.receiptEditorInitialDiscountValue ?? '';
+  const originalQuantity = fieldset.dataset.receiptEditorInitialDiscountQuantity ?? '1';
   queueMicrotask(() => {
     const restored = receiptItemAt(index);
     const type = restored?.querySelector('[data-field="discountType"]');
     const value = restored?.querySelector('[data-field="discountValue"]');
-    if (!(type instanceof HTMLSelectElement) || !(value instanceof HTMLInputElement)) return;
+    const quantity = restored?.querySelector('[data-field="discountQuantity"]');
+    if (!(type instanceof HTMLSelectElement)
+      || !(value instanceof HTMLInputElement)
+      || !(quantity instanceof HTMLInputElement)) return;
     type.value = originalType;
     value.value = originalValue;
+    quantity.value = originalQuantity;
     syncDiscountValueControl(restored);
     syncReceiptDiscountSummary(restored);
   });
@@ -310,7 +399,11 @@ function installReceiptLineEnhancements() {
 
   document.addEventListener('input', event => {
     const fieldset = event.target.closest?.('.receipt-item');
-    if (fieldset) queueMicrotask(() => syncReceiptDiscountSummary(fieldset));
+    if (!fieldset) return;
+    queueMicrotask(() => {
+      if (event.target?.dataset?.field === 'quantity') syncDiscountValueControl(fieldset);
+      syncReceiptDiscountSummary(fieldset);
+    });
   });
   document.addEventListener('change', event => {
     if (event.target?.dataset?.field !== 'discountType') return;
