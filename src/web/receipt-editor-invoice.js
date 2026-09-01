@@ -3,6 +3,15 @@ import { euroInputToMinor, formatEuroMinor, hydrateIcons } from './ui.js';
 const DIALOG_ID = 'receipt-line-dialog';
 const EDITOR_FIELD_SELECTOR = '[data-field="description"], [data-field="quantity"], [data-field="unitPriceEuro"], [data-field="discountType"], [data-field="discountValue"], [data-field="discountQuantity"]';
 
+function ensureInvoiceEditorStylesheet() {
+  if (document.querySelector('link[data-receipt-invoice-styles]')) return;
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = '/receipt-editor-invoice.css';
+  link.dataset.receiptInvoiceStyles = 'true';
+  document.head.append(link);
+}
+
 function editorItem(dialog) {
   return dialog?.querySelector('.receipt-item--editing, #receipt-line-editor-slot .receipt-item') || null;
 }
@@ -170,6 +179,7 @@ function ensureItemLayout(item) {
   quantityRow.insertBefore(sectionHeading(2, 'Detalle de compra', 'cart'), quantityRow.firstChild);
   quantityRow.insertBefore(sectionHeading(3, 'Descuento', 'savings'), discountTypeLabel);
   quantityRow.insertAdjacentElement('afterend', createSummary());
+  item.classList.add('receipt-line-editor-layout');
   item.dataset.invoiceEditorLayout = 'true';
   syncSummary(item);
 }
@@ -213,14 +223,19 @@ function enhanceDialog(dialog) {
 }
 
 function installInvoiceEditor() {
+  ensureInvoiceEditorStylesheet();
   const current = document.getElementById(DIALOG_ID);
   if (current) enhanceDialog(current);
   new MutationObserver(records => {
     for (const record of records) {
       for (const node of record.addedNodes) {
         if (!(node instanceof Element)) continue;
-        if (node.id === DIALOG_ID) enhanceDialog(node);
-        node.querySelector?.(`#${DIALOG_ID}`) && enhanceDialog(node.querySelector(`#${DIALOG_ID}`));
+        if (node.id === DIALOG_ID) {
+          enhanceDialog(node);
+          continue;
+        }
+        const nestedDialog = node.querySelector?.(`#${DIALOG_ID}`);
+        if (nestedDialog) enhanceDialog(nestedDialog);
       }
     }
   }).observe(document.body, { childList: true, subtree: true });
