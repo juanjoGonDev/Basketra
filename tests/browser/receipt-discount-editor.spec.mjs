@@ -75,7 +75,7 @@ async function makeConfirmable(page, storageKey = 'file_typed_discount') {
   }), storageKey);
 }
 
-test('percentage discounts use the backend calculation and render the total as semantic output', async ({ page }) => {
+test('percentage discounts use the backend calculation and render the total as semantic output', async ({ page }, testInfo) => {
   const calculations = [];
   page.on('request', request => {
     const url = new URL(request.url());
@@ -100,6 +100,7 @@ test('percentage discounts use the backend calculation and render the total as s
   await expect(page.locator('link[data-receipt-review-styles]')).toHaveAttribute('href', '/receipt-review.css');
 
   const editor = await openEditor(page);
+  await editor.screenshot({ path: testInfo.outputPath('percentage-editor.png') });
   await editor.locator('[data-field="discountValue"]').fill('25');
   await expect(total).toHaveJSProperty('value', '1.31');
   await expect.poll(() => calculations.at(-1)?.discount).toEqual({ type: 'percentage', basisPoints: 2_500 });
@@ -118,7 +119,7 @@ test('percentage discounts use the backend calculation and render the total as s
   await expect(total).toHaveJSProperty('value', '0.87');
 });
 
-test('pending and failed calculations keep Save line blocked until the latest result is valid', async ({ page }) => {
+test('pending and failed calculations keep Save line blocked until the latest result is valid', async ({ page }, testInfo) => {
   let releaseCalculation;
   let failNext = false;
   await page.route('**/api/v1/receipts/calculate-line', async route => {
@@ -162,6 +163,7 @@ test('pending and failed calculations keep Save line blocked until the latest re
   await expect(failedState).toHaveCSS('grid-column-end', '-1');
   await expect(reopenedSave).toBeDisabled();
   await expect(reopened).toBeVisible();
+  await reopened.screenshot({ path: testInfo.outputPath('calculation-error.png') });
 
   failNext = false;
   releaseCalculation = undefined;
@@ -213,7 +215,7 @@ test('whole-ticket validation and confirmation wait for the latest derived calcu
   await expect.poll(() => validationCalls).toBeGreaterThan(0);
 });
 
-test('ambiguous duplicate-item discounts stay unassigned and visible for manual review', async ({ page }) => {
+test('ambiguous duplicate-item discounts stay unassigned and visible for manual review', async ({ page }, testInfo) => {
   await setup(page);
   await openReview(page, [item(), item()], {
     status: 'needs-review',
@@ -231,9 +233,10 @@ test('ambiguous duplicate-item discounts stay unassigned and visible for manual 
   await expect(page.locator('.receipt-item [data-field="discountType"]')).toHaveCount(2);
   await expect(page.locator('.receipt-item [data-field="discountType"]').nth(0)).toHaveValue('none');
   await expect(page.locator('.receipt-item [data-field="discountType"]').nth(1)).toHaveValue('none');
+  await page.locator('#receipt-review').screenshot({ path: testInfo.outputPath('ambiguous-discount.png') });
 });
 
-test('typed discount editor has no horizontal overflow on mobile or desktop', async ({ page }) => {
+test('typed discount editor has no horizontal overflow on mobile or desktop', async ({ page }, testInfo) => {
   await setup(page, 360, 800);
   await openReview(page, [item({
     lineTotalMinor: 87,
@@ -242,11 +245,13 @@ test('typed discount editor has no horizontal overflow on mobile or desktop', as
   const editor = await openEditor(page);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await expect.poll(() => editor.locator('.quantity-row').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await editor.screenshot({ path: testInfo.outputPath('responsive-editor-mobile.png') });
 
   await page.setViewportSize({ width: 1280, height: 900 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await expect.poll(() => editor.locator('.quantity-row').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   await expect(editor.locator('.receipt-line-result')).toBeVisible();
+  await editor.screenshot({ path: testInfo.outputPath('responsive-editor-desktop.png') });
 });
 
 test('percentage corrections retain user intent while confirmation sends the typed discount', async ({ page }) => {
