@@ -4,7 +4,7 @@ import test from 'node:test';
 import type { AiProvider, AiStructuredInput } from '../../src/ai/provider.ts';
 import { verifyReceiptWithAi } from '../../src/receipts/extraction.ts';
 
-test('receipt verification states the canonical warning length bound', async () => {
+test('receipt verification states the canonical review-message length bound', async () => {
   let captured: AiStructuredInput | undefined;
   const provider: AiProvider = {
     async getCapabilities() {
@@ -41,6 +41,6 @@ test('receipt verification states the canonical warning length bound', async () 
   assert.ok(captured);
   assert.match(
     captured.systemPrompt,
-    /Keep each warning within 240 characters/u,
+    /Keep each warning and unassigned-discount reason within 240 characters/u,
   );
 });

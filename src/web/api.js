@@ -9,7 +9,7 @@ const UNTHROTTLED_PATHS = new Set([
 ]);
 const RECEIPT_CALCULATION_DELAY_MS = 120;
 const RECEIPT_CALCULATION_PATH = '/api/v1/receipts/calculate-line';
-const RECEIPT_CALCULATION_DRIVER_FIELDS = new Set(['quantity', 'unitPriceEuro', 'discountEuro']);
+const RECEIPT_CALCULATION_DRIVER_FIELDS = new Set(['quantity', 'unitPriceEuro', 'discountType', 'discountValue']);
 const RECEIPT_CALCULATION_ACTION_SELECTOR = '#save-receipt-line-editor, [data-receipt-action="validate"], #review-receipt, #confirm-receipt';
 const receiptCalculationState = new WeakMap();
 let receiptDerivedTotalsInitialized = false;
@@ -227,7 +227,9 @@ function receiptLineField(root, field) {
 
 function receiptCalculationStatus(root, message) {
   const status = root?.querySelector('.receipt-line-derived-state');
-  if (status) status.textContent = message;
+  if (!status) return;
+  status.textContent = message;
+  status.hidden = !message;
 }
 
 function receiptCalculationStateFor(root) {
@@ -259,32 +261,83 @@ function waitForReceiptCalculation(root) {
 
 function markDerivedReceiptTotal(root) {
   const total = receiptLineField(root, 'lineTotalEuro');
-  if (!(total instanceof HTMLInputElement)) return undefined;
-  total.readOnly = true;
-  total.setAttribute('aria-readonly', 'true');
+  if (total instanceof HTMLInputElement) {
+    total.readOnly = true;
+    total.setAttribute('aria-readonly', 'true');
+  } else if (!(total instanceof HTMLOutputElement)) {
+    return undefined;
+  }
   total.dataset.derivedTotal = 'true';
   return total;
+}
+
+function percentageInputToBasisPoints(value) {
+  const normalized = String(value).trim().replace(',', '.');
+  const match = /^(\d{1,3})(?:\.(\d{0,2}))?$/u.exec(normalized);
+  if (!match) throw new RangeError('Introduce un porcentaje con hasta dos decimales');
+  const basisPoints = Number(match[1]) * 100 + Number((match[2] || '').padEnd(2, '0'));
+  if (!Number.isSafeInteger(basisPoints) || basisPoints > 10_000) {
+    throw new RangeError('El porcentaje debe estar entre 0 y 100');
+  }
+  return basisPoints;
 }
 
 async function readReceiptCalculationInput(root) {
   const quantityInput = receiptLineField(root, 'quantity');
   const unitPriceInput = receiptLineField(root, 'unitPriceEuro');
-  const discountInput = receiptLineField(root, 'discountEuro');
+  const discountTypeInput = receiptLineField(root, 'discountType');
+  const discountValueInput = receiptLineField(root, 'discountValue');
   if (!(quantityInput instanceof HTMLInputElement) || !(unitPriceInput instanceof HTMLInputElement)) return undefined;
   const quantity = Number(quantityInput.value);
   if (!Number.isSafeInteger(quantity) || quantity < 0) return undefined;
   try {
     const { euroInputToMinor } = await import('./ui.js');
-    return {
+    const input = {
       quantity,
       unitPriceMinor: euroInputToMinor(unitPriceInput.value),
-      ...(discountInput instanceof HTMLInputElement && discountInput.value.trim()
-        ? { discountMinor: euroInputToMinor(discountInput.value) }
-        : {}),
     };
+    if (!(discountTypeInput instanceof HTMLSelectElement) || discountTypeInput.value === 'none') return input;
+    if (!(discountValueInput instanceof HTMLInputElement) || !discountValueInput.value.trim()) return undefined;
+    if (discountTypeInput.value === 'amount') {
+      return { ...input, discount: { type: 'amount', amountMinor: euroInputToMinor(discountValueInput.value) } };
+    }
+    if (discountTypeInput.value === 'percentage') {
+      return { ...input, discount: { type: 'percentage', basisPoints: percentageInputToBasisPoints(discountValueInput.value) } };
+    }
+    return undefined;
   } catch {
     return undefined;
   }
+}
+
+function receiptActionRoots(button) {
+  if (button.id === 'save-receipt-line-editor') {
+    const root = button.closest('#receipt-line-dialog')?.querySelector('.receipt-item, [data-receipt-line-editor]');
+    return root ? [root] : [];
+  }
+  if (button.matches('[data-receipt-action="validate"]')) {
+    const root = button.closest('.receipt-item, [data-receipt-line-editor]');
+    return root ? [root] : [];
+  }
+  return [...document.querySelectorAll('.receipt-item, [data-receipt-line-editor]')];
+}
+
+function syncReceiptCalculationActions() {
+  document.querySelectorAll(RECEIPT_CALCULATION_ACTION_SELECTOR).forEach(button => {
+    if (!(button instanceof HTMLButtonElement)) return;
+    const blocked = receiptActionRoots(button).some(root => receiptCalculationState.get(root)?.error);
+    if (blocked) {
+      if (!button.disabled) {
+        button.disabled = true;
+        button.dataset.receiptCalculationDisabled = 'true';
+      }
+      return;
+    }
+    if (button.dataset.receiptCalculationDisabled === 'true') {
+      button.disabled = false;
+      delete button.dataset.receiptCalculationDisabled;
+    }
+  });
 }
 
 async function calculateReceiptLine(root, version) {
@@ -303,6 +356,7 @@ async function calculateReceiptLine(root, version) {
     if (!input) {
       state.error = new Error('Completa cantidad, precio y descuento para calcular el total.');
       receiptCalculationStatus(root, state.error.message);
+      syncReceiptCalculationActions();
       return;
     }
     const result = await api(RECEIPT_CALCULATION_PATH, {
@@ -317,10 +371,12 @@ async function calculateReceiptLine(root, version) {
     total.dispatchEvent(new Event('input', { bubbles: true }));
     state.error = null;
     receiptCalculationStatus(root, 'Total actualizado.');
+    syncReceiptCalculationActions();
   } catch (error) {
     if (error?.name === 'AbortError' || version !== state.version) return;
     state.error = error instanceof Error ? error : new Error(String(error));
     receiptCalculationStatus(root, `No se pudo calcular el total: ${state.error.message}`);
+    syncReceiptCalculationActions();
   } finally {
     if (version === state.version) {
       total.setAttribute('aria-busy', 'false');
@@ -338,21 +394,10 @@ function scheduleReceiptLineCalculation(root, immediate = false) {
   const version = ++state.version;
   state.pending = true;
   state.error = null;
+  syncReceiptCalculationActions();
   clearTimeout(state.timer);
   state.controller?.abort();
   state.timer = setTimeout(() => void calculateReceiptLine(root, version), immediate ? 0 : RECEIPT_CALCULATION_DELAY_MS);
-}
-
-function receiptActionRoots(button) {
-  if (button.id === 'save-receipt-line-editor') {
-    const root = button.closest('#receipt-line-dialog')?.querySelector('.receipt-item, [data-receipt-line-editor]');
-    return root ? [root] : [];
-  }
-  if (button.matches('[data-receipt-action="validate"]')) {
-    const root = button.closest('.receipt-item, [data-receipt-line-editor]');
-    return root ? [root] : [];
-  }
-  return [...document.querySelectorAll('.receipt-item, [data-receipt-line-editor]')];
 }
 
 function receiptActionNeedsCalculation(roots) {
@@ -367,6 +412,7 @@ async function resumeReceiptAction(button, roots) {
   await Promise.all(roots.map(waitForReceiptCalculation));
   const blocked = roots.some(root => receiptCalculationState.get(root)?.error);
   setBusy(button, false);
+  syncReceiptCalculationActions();
   if (blocked || !button.isConnected) return;
   button.click();
 }
@@ -384,17 +430,47 @@ function deferReceiptActionUntilCalculated(event) {
 function enhanceReceiptLine(root) {
   const total = markDerivedReceiptTotal(root);
   if (!total || root.querySelector('.receipt-line-derived-state')) return;
-  const label = total.closest('label');
-  if (!label) return;
+  const resultContainer = total.closest('.receipt-line-result, label');
+  if (!resultContainer) return;
   const status = document.createElement('small');
   status.className = 'receipt-line-derived-state field-help';
   status.setAttribute('aria-live', 'polite');
-  status.textContent = 'Se actualiza al cambiar cantidad, precio o descuento.';
-  label.append(status);
+  status.hidden = true;
+  const layoutContainer = resultContainer.closest('.quantity-row');
+  if (layoutContainer) {
+    status.style.gridColumn = '1 / -1';
+    status.style.minWidth = '0';
+    layoutContainer.append(status);
+  } else {
+    resultContainer.append(status);
+  }
 }
 
 function enhanceExistingReceiptLines(root) {
   root.querySelectorAll?.('.receipt-item, [data-receipt-line-editor]').forEach(enhanceReceiptLine);
+}
+
+function resetDiscountValueAfterTypeChange(target) {
+  if (target?.dataset?.field !== 'discountType') return;
+  const root = receiptLineRoot(target);
+  const value = receiptLineField(root, 'discountValue');
+  if (value instanceof HTMLInputElement) value.value = target.value === 'none' ? '' : '0';
+}
+
+function restoredEditorRootFromClick(event) {
+  const button = event.target.closest?.('#cancel-receipt-line-editor, #close-receipt-line-editor');
+  return button?.closest('#receipt-line-dialog')?.querySelector('.receipt-item, [data-receipt-line-editor]');
+}
+
+function restoredEditorRootFromCancel(event) {
+  const dialog = event.target;
+  if (!(dialog instanceof HTMLDialogElement) || dialog.id !== 'receipt-line-dialog') return undefined;
+  return dialog.querySelector('.receipt-item, [data-receipt-line-editor]');
+}
+
+function scheduleRestoredReceiptCalculation(root) {
+  if (!root) return;
+  queueMicrotask(() => scheduleReceiptLineCalculation(root, true));
 }
 
 function initializeReceiptDerivedTotals() {
@@ -418,9 +494,12 @@ function initializeReceiptDerivedTotals() {
     scheduleReceiptLineCalculation(receiptLineRoot(event.target));
   }, true);
   document.addEventListener('change', event => {
-    if (!RECEIPT_CALCULATION_DRIVER_FIELDS.has(event.target?.dataset?.field)) return;
+    if (event.target?.dataset?.field !== 'discountType') return;
+    resetDiscountValueAfterTypeChange(event.target);
     scheduleReceiptLineCalculation(receiptLineRoot(event.target), true);
   }, true);
+  document.addEventListener('click', event => scheduleRestoredReceiptCalculation(restoredEditorRootFromClick(event)), true);
+  document.addEventListener('cancel', event => scheduleRestoredReceiptCalculation(restoredEditorRootFromCancel(event)), true);
   document.addEventListener('click', deferReceiptActionUntilCalculated, true);
 }
 

@@ -4,7 +4,13 @@ import {
   type AiProvider,
 } from '../ai/provider.ts';
 import { StructuredAiExecutor, type RuntimeSchema } from '../ai/structured-executor.ts';
-import { validateReceiptLine, validateReceiptTotal, type ReceiptLineInput } from '../domain/receipt.ts';
+import {
+  parseReceiptLineDiscount,
+  validateReceiptLine,
+  validateReceiptTotal,
+  type ReceiptLineDiscount,
+  type ReceiptLineInput,
+} from '../domain/receipt.ts';
 import { asArray, asEnum, asRecord, asSafeInteger, asString } from '../domain/validation.ts';
 
 const CURRENCIES = ['EUR'] as const;
@@ -27,6 +33,13 @@ export type ReceiptMetadata = Readonly<{
   articleCount?: number;
 }>;
 
+export type AiUnassignedReceiptDiscount = Readonly<{
+  discount: ReceiptLineDiscount;
+  sourceLines: readonly number[];
+  description?: string;
+  reason: string;
+}>;
+
 export type AiReceiptInterpretation = Readonly<{
   retailerName?: string;
   purchasedAt?: string;
@@ -36,6 +49,7 @@ export type AiReceiptInterpretation = Readonly<{
   correctedText: string;
   items: readonly ReceiptExtractionItem[];
   warnings: readonly string[];
+  unassignedDiscounts?: readonly AiUnassignedReceiptDiscount[];
 }>;
 
 export type ReceiptAiSession = Readonly<{
@@ -55,6 +69,36 @@ export type ReceiptReview = Readonly<{
   lines: readonly ReceiptReviewLine[];
   total?: Readonly<{ expectedMinor: number; differenceMinor: number; valid: boolean }>;
 }>;
+
+const DISCOUNT_SCHEMA = {
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['type', 'amountMinor'],
+      properties: {
+        type: { type: 'string', enum: ['amount'] },
+        amountMinor: { type: 'integer', minimum: 0 },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['type', 'basisPoints'],
+      properties: {
+        type: { type: 'string', enum: ['percentage'] },
+        basisPoints: { type: 'integer', minimum: 0, maximum: 10_000 },
+      },
+    },
+  ],
+} as const;
+
+const SOURCE_LINES_SCHEMA = {
+  type: 'array',
+  minItems: 1,
+  maxItems: MAX_SOURCE_LINES,
+  items: { type: 'integer', minimum: 1, maximum: 100_000 },
+} as const;
 
 export const RECEIPT_SCHEMA: RuntimeSchema<AiReceiptInterpretation> = {
   jsonSchema: {
@@ -80,15 +124,25 @@ export const RECEIPT_SCHEMA: RuntimeSchema<AiReceiptInterpretation> = {
             quantity: { type: 'integer', minimum: 0, maximum: 100_000 },
             unitPriceMinor: { type: 'integer', minimum: 0 },
             lineTotalMinor: { type: 'integer', minimum: 0 },
-            discountMinor: { type: 'integer', minimum: 0 },
+            discount: DISCOUNT_SCHEMA,
             taxCategory: { type: 'string', enum: TAX_CATEGORIES },
             confidence: { type: 'number', minimum: 0, maximum: 1 },
-            sourceLines: {
-              type: 'array',
-              minItems: 1,
-              maxItems: MAX_SOURCE_LINES,
-              items: { type: 'integer', minimum: 1, maximum: 100_000 },
-            },
+            sourceLines: SOURCE_LINES_SCHEMA,
+          },
+        },
+      },
+      unassignedDiscounts: {
+        type: 'array',
+        maxItems: 100,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['discount', 'sourceLines', 'reason'],
+          properties: {
+            discount: DISCOUNT_SCHEMA,
+            sourceLines: SOURCE_LINES_SCHEMA,
+            description: { type: 'string', minLength: 1, maxLength: 240 },
+            reason: { type: 'string', minLength: 1, maxLength: 240 },
           },
         },
       },
@@ -110,32 +164,44 @@ export const RECEIPT_SCHEMA: RuntimeSchema<AiReceiptInterpretation> = {
       ? undefined
       : asSafeInteger(root['articleCount'], '$.articleCount', { min: 0, max: 100_000 });
     const items = asArray(root['items'], '$.items', 500).map((entry, index): ReceiptExtractionItem => {
-      const item = asRecord(entry, `$.items[${index}]`);
+      const path = `$.items[${index}]`;
+      const item = asRecord(entry, path);
       const confidence = Number(item['confidence']);
       if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
-        throw new RangeError(`$.items[${index}].confidence must be between 0 and 1`);
+        throw new RangeError(`${path}.confidence must be between 0 and 1`);
       }
-      const sourceLines = asArray(item['sourceLines'], `$.items[${index}].sourceLines`, MAX_SOURCE_LINES)
-        .map((line, lineIndex) => asSafeInteger(line, `$.items[${index}].sourceLines[${lineIndex}]`, { min: 1, max: 100_000 }));
-      if (sourceLines.length === 0) {
-        throw new RangeError(`$.items[${index}].sourceLines must contain at least one OCR line`);
-      }
+      const sourceLines = parseSourceLines(item['sourceLines'], `${path}.sourceLines`);
       const taxCategory = item['taxCategory'] === undefined
         ? undefined
-        : asEnum(item['taxCategory'], `$.items[${index}].taxCategory`, TAX_CATEGORIES);
-      return {
-        description: asString(item['description'], `$.items[${index}].description`, { max: 240 }),
-        quantity: asSafeInteger(item['quantity'], `$.items[${index}].quantity`, { min: 0, max: 100_000 }),
-        unitPriceMinor: asSafeInteger(item['unitPriceMinor'], `$.items[${index}].unitPriceMinor`, { min: 0 }),
-        lineTotalMinor: asSafeInteger(item['lineTotalMinor'], `$.items[${index}].lineTotalMinor`, { min: 0 }),
-        ...(item['discountMinor'] === undefined
-          ? {}
-          : { discountMinor: asSafeInteger(item['discountMinor'], `$.items[${index}].discountMinor`, { min: 0 }) }),
+        : asEnum(item['taxCategory'], `${path}.taxCategory`, TAX_CATEGORIES);
+      const parsed: ReceiptExtractionItem = {
+        description: asString(item['description'], `${path}.description`, { max: 240 }),
+        quantity: asSafeInteger(item['quantity'], `${path}.quantity`, { min: 0, max: 100_000 }),
+        unitPriceMinor: asSafeInteger(item['unitPriceMinor'], `${path}.unitPriceMinor`, { min: 0 }),
+        lineTotalMinor: asSafeInteger(item['lineTotalMinor'], `${path}.lineTotalMinor`, { min: 0 }),
+        ...(item['discount'] === undefined ? {} : { discount: parseReceiptLineDiscount(item['discount'], `${path}.discount`) }),
         ...(taxCategory ? { taxCategory } : {}),
         confidence,
         sourceLines,
       };
+      validateReceiptLine(parsed);
+      return parsed;
     });
+    const unassignedDiscounts = root['unassignedDiscounts'] === undefined
+      ? undefined
+      : asArray(root['unassignedDiscounts'], '$.unassignedDiscounts', 100).map((entry, index): AiUnassignedReceiptDiscount => {
+        const path = `$.unassignedDiscounts[${index}]`;
+        const discount = asRecord(entry, path);
+        const description = discount['description'] === undefined
+          ? undefined
+          : asString(discount['description'], `${path}.description`, { min: 1, max: 240 });
+        return {
+          discount: parseReceiptLineDiscount(discount['discount'], `${path}.discount`),
+          sourceLines: parseSourceLines(discount['sourceLines'], `${path}.sourceLines`),
+          ...(description ? { description } : {}),
+          reason: asString(discount['reason'], `${path}.reason`, { min: 1, max: 240 }),
+        };
+      });
     const warnings = asArray(root['warnings'], '$.warnings', 100)
       .map((warning, index) => asString(warning, `$.warnings[${index}]`, { max: 240 }));
     return {
@@ -146,10 +212,18 @@ export const RECEIPT_SCHEMA: RuntimeSchema<AiReceiptInterpretation> = {
       currency: asEnum(root['currency'], '$.currency', CURRENCIES),
       correctedText: asString(root['correctedText'], '$.correctedText', { min: 1, max: 500_000 }),
       items,
+      ...(unassignedDiscounts ? { unassignedDiscounts } : {}),
       warnings,
     };
   },
 };
+
+function parseSourceLines(value: unknown, path: string): readonly number[] {
+  const sourceLines = asArray(value, path, MAX_SOURCE_LINES)
+    .map((line, index) => asSafeInteger(line, `${path}[${index}]`, { min: 1, max: 100_000 }));
+  if (sourceLines.length === 0) throw new RangeError(`${path} must contain at least one OCR line`);
+  return sourceLines;
+}
 
 export function buildNumberedReceiptText(originalText: string): string {
   return originalText
@@ -164,14 +238,18 @@ export function buildReceiptVerificationInstructions(
   return [
     'Verify one grocery-receipt page using both the original attached capture and its OCR transcription.',
     'Treat the attachment as the visual or document source of truth and the numbered OCR as editable evidence for source-line references.',
-    'Do not invent unreadable products, quantities, prices, totals or retailer names.',
+    'Do not invent unreadable products, quantities, prices, totals, discounts or retailer names.',
     'Preserve physical line order and reconstruct a quantity prefix only when the immediately following product line supports it.',
     'For example, `6 x ,89` followed by `C.LADRON MANZAN 5,34 A` means quantity 6, unit price 89 cents, line total 534 cents and tax category A.',
     'Separate trailing tax letters A, B or C from monetary values.',
-    'Return monetary fields as integer euro cents.',
-    'Return sourceLines with the numbered OCR lines supporting every item, even when the attachment corrects OCR characters.',
+    'Return monetary fields as integer euro cents. lineTotalMinor is the post-discount line total.',
+    'When a discount has unique item ownership, return discount as either `{type:"amount",amountMinor:<euro cents>}` or `{type:"percentage",basisPoints:<percentage times 100>}`; for example 50% is 5000 basis points.',
+    'Do not return both amount and percentage fields for one discount. Do not convert a visible percentage to binary floating-point arithmetic.',
+    'For evidence such as `50% dto BEBIDA COCO 0% A 0,88-`, represent the visible 50% as 5000 basis points when its owning item is uniquely identifiable.',
+    'If a visible discount cannot be uniquely assigned, including duplicate identical products, do not attach it to any item. Add it to unassignedDiscounts with sourceLines, a description hint when visible and a short reason, and add a warning for manual review.',
+    'Return sourceLines with the numbered OCR lines supporting every item and unassigned discount, even when the attachment corrects OCR characters.',
     'Return correctedText in page order, retailerName, declaredTotalMinor and articleCount only when visible in the attachment or OCR.',
-    'Keep each warning within 240 characters.',
+    'Keep each warning and unassigned-discount reason within 240 characters.',
     'Mark uncertainty through confidence and warnings. Return JSON only.',
     ...(page
       ? [`This is page ${String(page.pagePosition + 1)} of ${String(page.pageCount)} of one receipt. Return only this page; do not repeat or modify prior pages.`]
@@ -391,7 +469,7 @@ function sameOverlapLine(left: ReceiptExtractionItem, right: ReceiptExtractionIt
   if (left.quantity !== right.quantity
     || left.unitPriceMinor !== right.unitPriceMinor
     || left.lineTotalMinor !== right.lineTotalMinor
-    || (left.discountMinor ?? 0) !== (right.discountMinor ?? 0)
+    || discountIdentity(left) !== discountIdentity(right)
     || left.taxCategory !== right.taxCategory) {
     return false;
   }
@@ -401,6 +479,12 @@ function sameOverlapLine(left: ReceiptExtractionItem, right: ReceiptExtractionIt
   const shorter = leftDescription.length <= rightDescription.length ? leftDescription : rightDescription;
   const longer = shorter === leftDescription ? rightDescription : leftDescription;
   return shorter.length >= 8 && longer.includes(shorter) && shorter.length / longer.length >= 0.75;
+}
+
+function discountIdentity(line: ReceiptExtractionItem): string {
+  if (line.discount?.type === 'amount') return `amount:${String(line.discount.amountMinor)}`;
+  if (line.discount?.type === 'percentage') return `percentage:${String(line.discount.basisPoints)}`;
+  return `legacy:${String(line.discountMinor ?? 0)}`;
 }
 
 function normalizeDescription(value: string): string {

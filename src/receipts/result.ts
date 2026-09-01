@@ -3,6 +3,7 @@ import {
   buildReceiptReview,
   mergeReceiptPageItems,
   type AiReceiptInterpretation,
+  type AiUnassignedReceiptDiscount,
   type ReceiptExtractionItem,
   type ReceiptMetadata,
 } from './extraction.ts';
@@ -48,6 +49,7 @@ export type ReceiptExtractionResult = Readonly<{
     declaredTotalMinor?: number;
     articleCount?: number;
     warnings: readonly string[];
+    unassignedDiscounts?: readonly AiUnassignedReceiptDiscount[];
     review: ReturnType<typeof buildReceiptReview>;
   }>;
 }>;
@@ -81,6 +83,7 @@ export function assembleReceiptExtraction(pages: readonly ReceiptPageEvidence[])
   const aiItemsByPage = pages.map((page) => page.ai?.interpretation.items ?? page.deterministic.items);
   const aiItems = mergeReceiptPageItems(aiItemsByPage);
   const warnings = aiInterpretations.flatMap((interpretation) => interpretation.warnings);
+  const unassignedDiscounts = aiInterpretations.flatMap((interpretation) => interpretation.unassignedDiscounts ?? []);
 
   let ai: ReceiptExtractionResult['ai'];
   if (aiPages.length > 0) {
@@ -97,6 +100,7 @@ export function assembleReceiptExtraction(pages: readonly ReceiptPageEvidence[])
         correctedText: aiInterpretations.map((interpretation) => interpretation.correctedText).join('\n').trim(),
         items: aiItems,
         warnings,
+        ...(unassignedDiscounts.length === 0 ? {} : { unassignedDiscounts }),
       },
       attempts: aiPages.reduce((sum, page) => sum + page.attempts, 0),
       pages: aiPages,
@@ -119,6 +123,7 @@ export function assembleReceiptExtraction(pages: readonly ReceiptPageEvidence[])
       ...(finalTotal === undefined ? {} : { declaredTotalMinor: finalTotal }),
       ...(finalArticleCount === undefined ? {} : { articleCount: finalArticleCount }),
       warnings,
+      ...(unassignedDiscounts.length === 0 ? {} : { unassignedDiscounts }),
       review: buildReceiptReview(finalItems, finalTotal),
     },
   };

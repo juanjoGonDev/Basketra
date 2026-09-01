@@ -287,7 +287,7 @@ test('automatic local OCR creates editable euro rows with source context and imp
   await expect(page.locator('#receipt-review-reference-image')).toBeVisible();
   await expect(page.locator('.receipt-item')).toHaveCount(1);
   await expect(page.getByLabel('Precio unitario (€)').first()).toHaveValue('1.20');
-  await expect(page.getByLabel('Total (€)').first()).toHaveValue('1.20');
+  await expect(page.getByLabel('Total calculado (€)').first()).toHaveText('1.20');
   await expect(page.getByLabel('Total declarado (€)')).toHaveValue('1.20');
   await expect(page.locator('#receipt-review-sticky-summary')).toContainText('1,20 €');
   await expect(page.getByText(/céntimos|cént\./i)).toHaveCount(0);
@@ -315,7 +315,7 @@ test('automatic local OCR creates editable euro rows with source context and imp
   await editorDialog.locator('[data-field="description"]').fill('Bread');
   await editorDialog.locator('[data-field="quantity"]').fill('1');
   await editorDialog.locator('[data-field="unitPriceEuro"]').fill('0.20');
-  await expect(editorDialog.locator('[data-field="lineTotalEuro"]')).toHaveValue('0.20');
+  await expect(editorDialog.locator('[data-field="lineTotalEuro"]')).toHaveText('0.20');
   await editorDialog.getByRole('button', { name: 'Guardar línea', exact: true }).click();
 
   const manualLineShell = page.locator('[data-swipe-kind="receipt-line"]').last();

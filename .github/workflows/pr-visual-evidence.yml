@@ -219,8 +219,14 @@ jobs:
           copy_flow_capture mobile-settings-receipts-s settings-light-768.png 11-settings-light-768.png
           copy_flow_capture receipt-auto-review-flow-r test-finished-1.png 12-auto-ocr-review.png
           copy_flow_capture catalog-management-saved-c catalog-mobile.png 13-catalog-management.png
+          copy_flow_capture semantic-output percentage-editor.png 14-discount-percentage.png
+          copy_flow_capture latest-result-is-valid calculation-error.png 14-discount-error.png
+          copy_flow_capture visible-for-manual-review ambiguous-discount.png 14-discount-ambiguous.png
+          copy_flow_capture mobile-or-desktop responsive-editor-mobile.png 14-discount-responsive-mobile.png
+          copy_flow_capture mobile-or-desktop responsive-editor-desktop.png 14-discount-responsive-desktop.png
+          copy_flow_capture restored-total cancel-restored.png 14-discount-cancel.png
 
-          test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 20
+          test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 26
           test "$(find evidence-assets -maxdepth 1 -type f -name '*.gif' | wc -l)" -eq 12
           test "$(find evidence-assets -maxdepth 1 -type f -name '*.webm' | wc -l)" -eq 12
 
@@ -310,6 +316,23 @@ jobs:
           ![Automatic OCR and retailer suggestion flow]($base/12-ocr-retailer.gif)
 
           [Open the full OCR and retailer video]($base/12-ocr-retailer.webm)
+
+          ### Receipt discount editor
+
+          <table>
+          <tr>
+          <td><strong>Percentage editor</strong><br><img src="$base/14-discount-percentage.png" width="320" alt="Receipt line editor showing a percentage discount and backend-derived total"></td>
+          <td><strong>Calculation error</strong><br><img src="$base/14-discount-error.png" width="320" alt="Receipt line editor showing a failed derived calculation while save remains blocked"></td>
+          </tr>
+          <tr>
+          <td><strong>Ambiguous discount warning</strong><br><img src="$base/14-discount-ambiguous.png" width="320" alt="Receipt review showing an unassigned percentage discount warning for duplicate items"></td>
+          <td><strong>Responsive editor · mobile</strong><br><img src="$base/14-discount-responsive-mobile.png" width="240" alt="Receipt discount editor on the 360 pixel mobile viewport without horizontal overflow"></td>
+          </tr>
+          <tr>
+          <td><strong>Responsive editor · desktop</strong><br><img src="$base/14-discount-responsive-desktop.png" width="320" alt="Receipt discount editor on the desktop viewport without horizontal overflow"></td>
+          <td><strong>Cancel race restored state</strong><br><img src="$base/14-discount-cancel.png" width="320" alt="Receipt line after cancelling an edit and restoring the original discount state without reopening the dialog"></td>
+          </tr>
+          </table>
 
           ### Runtime operations and private-route recovery
 

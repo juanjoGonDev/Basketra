@@ -214,7 +214,13 @@ function updateReceiptLinePresentation(root) {
     if (description instanceof HTMLInputElement) description.required = true;
     syncReceiptCompactSummary(item);
 
-    if (item.contains(document.activeElement) && !item.classList.contains('receipt-item--editing')) {
+    const activeElement = document.activeElement;
+    if (
+      activeElement instanceof HTMLElement
+      && activeElement.matches('[data-field]')
+      && item.contains(activeElement)
+      && !item.classList.contains('receipt-item--editing')
+    ) {
       queueMicrotask(() => openReceiptLineEditor(item));
     }
   });
@@ -309,13 +315,17 @@ function closeReceiptLineEditor({ revert = false, deleteLine = false, focus = tr
       if (input) input.value = value;
     }
   }
-  item.classList.remove('receipt-item--editing');
-  marker.replaceWith(item);
-  syncReceiptCompactSummary(item);
+
+  const activeElement = document.activeElement;
+  if (activeElement instanceof HTMLElement && item.contains(activeElement)) activeElement.blur();
   receiptEditorSession = null;
   const dialog = $('#receipt-line-dialog');
   if (dialog?.open && typeof dialog.close === 'function') dialog.close();
   else dialog?.removeAttribute('open');
+
+  marker.replaceWith(item);
+  item.classList.remove('receipt-item--editing');
+  syncReceiptCompactSummary(item);
 
   if (deleteLine) {
     const deleteButton = item.closest('[data-swipe-kind="receipt-line"]')?.querySelector('[data-receipt-action="delete"]');
