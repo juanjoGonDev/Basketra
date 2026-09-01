@@ -106,7 +106,7 @@ test('saved catalog products can be browsed, edited and related on mobile', asyn
 
   await expect(page.locator('#catalog-detail')).toBeVisible();
   await expect(page.locator('#catalog-canonical-name')).toHaveValue('Leche');
-  await expect(page.getByText('Mercadona', { exact: true })).toBeVisible();
+  await expect(page.locator('#catalog-retailer-names').getByText('Mercadona', { exact: true })).toBeVisible();
   await expect(page.getByText('Leche entera Hacendado 1 L', { exact: true })).toBeVisible();
   await expect(page.locator('#catalog-latest-prices')).toContainText('1,19');
   await expect(page.locator('#catalog-latest-prices')).toContainText('Mercadona');
@@ -219,7 +219,7 @@ test('receipt line total is read-only, backend-derived and ignores stale calcula
   await expect.poll(() => requests.at(-1)).toEqual({
     quantity: 2,
     unitPriceMinor: 125,
-    discount: { type: 'amount', amountMinor: 20 },
+    discount: { type: 'amount', amountMinor: 20, quantity: 1 },
   });
 
   releaseFirstRequest();
