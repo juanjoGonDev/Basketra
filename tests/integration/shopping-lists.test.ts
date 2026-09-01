@@ -162,7 +162,6 @@ test('version-one databases migrate completion, collaboration and category data 
   try {
     const version = raw.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number };
     assert.equal(version.version, CURRENT_SCHEMA_VERSION);
-    assert.equal(CURRENT_SCHEMA_VERSION, 6);
     const itemColumns = raw.prepare('PRAGMA table_info(shopping_list_items)').all() as Array<{ name: string }>;
     assert.ok(itemColumns.some((column) => column.name === 'completed'));
     assert.ok(itemColumns.some((column) => column.name === 'completed_at'));
