@@ -7,6 +7,7 @@ import {
   type ReceiptExtractionItem,
   type ReceiptMetadata,
 } from './extraction.ts';
+import { normalizeReceiptItems } from './normalization.ts';
 
 export type ReceiptPageEvidence = Readonly<{
   position: number;
@@ -107,10 +108,16 @@ export function assembleReceiptExtraction(pages: readonly ReceiptPageEvidence[])
     };
   }
 
-  const finalItems = ai?.interpretation.items.length ? ai.interpretation.items : deterministicItems;
+  const finalSourceItems = ai?.interpretation.items.length ? ai.interpretation.items : deterministicItems;
   const finalRetailerName = ai?.interpretation.retailerName ?? deterministicMetadata.retailerName;
   const finalTotal = ai?.interpretation.declaredTotalMinor ?? deterministicMetadata.declaredTotalMinor;
   const finalArticleCount = ai?.interpretation.articleCount ?? deterministicMetadata.articleCount;
+  const normalized = normalizeReceiptItems({
+    items: finalSourceItems,
+    warnings,
+    unassignedDiscounts,
+    ...(finalTotal === undefined ? {} : { declaredTotalMinor: finalTotal }),
+  });
 
   return {
     pages,
@@ -118,13 +125,13 @@ export function assembleReceiptExtraction(pages: readonly ReceiptPageEvidence[])
     deterministic,
     ...(ai ? { ai } : {}),
     final: {
-      items: finalItems,
+      items: normalized.items,
       ...(finalRetailerName ? { retailerName: finalRetailerName } : {}),
       ...(finalTotal === undefined ? {} : { declaredTotalMinor: finalTotal }),
       ...(finalArticleCount === undefined ? {} : { articleCount: finalArticleCount }),
-      warnings,
-      ...(unassignedDiscounts.length === 0 ? {} : { unassignedDiscounts }),
-      review: buildReceiptReview(finalItems, finalTotal),
+      warnings: normalized.warnings,
+      ...(normalized.unassignedDiscounts.length === 0 ? {} : { unassignedDiscounts: normalized.unassignedDiscounts }),
+      review: buildReceiptReview(normalized.items, finalTotal),
     },
   };
 }
