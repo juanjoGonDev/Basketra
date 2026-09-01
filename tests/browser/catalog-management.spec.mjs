@@ -126,14 +126,16 @@ test('saved catalog products can be browsed, edited and related on mobile', asyn
   await expectNoHorizontalOverflow(page);
   const catalogView = page.locator('.catalog-view');
   await expect(catalogView).toBeVisible();
-  const shellStyle = await page.addStyleTag({
-    content: '.app-header, .bottom-nav, .skip-link { visibility: hidden !important; }',
-  });
+  const shell = page.locator('.app-header, .bottom-nav, .skip-link');
+  const shellHiddenState = await shell.evaluateAll(elements => elements.map(element => element.hidden));
+  await shell.evaluateAll(elements => elements.forEach(element => { element.hidden = true; }));
   try {
     await expect(page.locator('.app-header')).toBeHidden();
     await catalogView.screenshot({ path: testInfo.outputPath('catalog-mobile.png') });
   } finally {
-    await shellStyle.evaluate(element => element.remove());
+    await shell.evaluateAll((elements, hiddenState) => {
+      elements.forEach((element, index) => { element.hidden = hiddenState[index]; });
+    }, shellHiddenState);
   }
   await expect(page.locator('.app-header')).toBeVisible();
 });
