@@ -104,5 +104,14 @@ test('cancel invalidates an edited calculation before a late response can overwr
   await expect(dialog).toBeHidden();
   await expect(total).toHaveJSProperty('value', '0.87');
   await expect(editorTrigger).toContainText('Dto. 50%');
-  await editorTrigger.screenshot({ path: testInfo.outputPath('cancel-restored.png') });
+
+  const bottomNav = page.locator('.bottom-nav');
+  const bottomNavWasHidden = await bottomNav.evaluate(element => element.hidden);
+  await bottomNav.evaluate(element => { element.hidden = true; });
+  try {
+    await row.scrollIntoViewIfNeeded();
+    await row.screenshot({ path: testInfo.outputPath('cancel-restored.png') });
+  } finally {
+    await bottomNav.evaluate((element, hidden) => { element.hidden = hidden; }, bottomNavWasHidden);
+  }
 });
