@@ -468,11 +468,13 @@
   font-size: 1.05rem;
   font-weight: 900;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .receipt-line-result output {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
+  white-space: nowrap;
 }
 
 .receipt-line-result output[aria-busy="true"] {
