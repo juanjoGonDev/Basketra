@@ -1,9 +1,28 @@
-import { validateReceiptLine, validateReceiptTotal } from '../domain/receipt.ts';
+import {
+  calculateReceiptLineDiscountMinor,
+  parseReceiptLineDiscount,
+  validateReceiptLine,
+  validateReceiptTotal,
+  type ReceiptLineDiscountFields,
+} from '../domain/receipt.ts';
 import { asArray, asBoolean, asEnum, asRecord, asSafeInteger, asString } from '../domain/validation.ts';
 import type { ReceiptImportInput } from '../infrastructure/database.ts';
 
 const CAPTURE_MIME_TYPES = ['image/jpeg', 'image/png', 'application/pdf'] as const;
 const REVIEW_CONFIDENCE_THRESHOLD = 0.75;
+
+function parseDiscountFields(item: Record<string, unknown>, path: string): ReceiptLineDiscountFields {
+  const discount = item['discount'];
+  const discountMinor = item['discountMinor'];
+  if (discount !== undefined && discountMinor !== undefined) {
+    throw new RangeError(`${path} discount representation is mixed`);
+  }
+  if (discount !== undefined) return { discount: parseReceiptLineDiscount(discount, `${path}.discount`) };
+  if (discountMinor !== undefined) {
+    return { discountMinor: asSafeInteger(discountMinor, `${path}.discountMinor`, { min: 0 }) };
+  }
+  return {};
+}
 
 export function parseReceiptConfirmation(value: unknown): Readonly<{
   input: ReceiptImportInput;
@@ -12,21 +31,26 @@ export function parseReceiptConfirmation(value: unknown): Readonly<{
   const root = asRecord(value);
   const declaredTotalMinor = asSafeInteger(root['declaredTotalMinor'], '$.declaredTotalMinor', { min: 0 });
   const items = asArray(root['items'], '$.items', 500).map((entry, index) => {
-    const item = asRecord(entry, `$.items[${index}]`);
+    const path = `$.items[${index}]`;
+    const item = asRecord(entry, path);
     const line = {
-      description: asString(item['description'], `$.items[${index}].description`, { min: 1, max: 240 }),
-      quantity: asSafeInteger(item['quantity'], `$.items[${index}].quantity`, { min: 0, max: 100_000 }),
-      unitPriceMinor: asSafeInteger(item['unitPriceMinor'], `$.items[${index}].unitPriceMinor`, { min: 0 }),
-      lineTotalMinor: asSafeInteger(item['lineTotalMinor'], `$.items[${index}].lineTotalMinor`, { min: 0 }),
-      ...(item['discountMinor'] === undefined ? {} : { discountMinor: asSafeInteger(item['discountMinor'], `$.items[${index}].discountMinor`, { min: 0 }) }),
+      description: asString(item['description'], `${path}.description`, { min: 1, max: 240 }),
+      quantity: asSafeInteger(item['quantity'], `${path}.quantity`, { min: 0, max: 100_000 }),
+      unitPriceMinor: asSafeInteger(item['unitPriceMinor'], `${path}.unitPriceMinor`, { min: 0 }),
+      lineTotalMinor: asSafeInteger(item['lineTotalMinor'], `${path}.lineTotalMinor`, { min: 0 }),
+      ...parseDiscountFields(item, path),
     };
     const validation = validateReceiptLine(line);
     if (validation.status !== 'confirmed') throw new RangeError(`Receipt item ${index + 1} must be corrected before confirmation`);
     const confidence = item['confidence'] === undefined ? 1 : Number(item['confidence']);
-    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) throw new RangeError(`$.items[${index}].confidence must be between 0 and 1`);
-    const userConfirmed = item['userConfirmed'] === undefined ? true : asBoolean(item['userConfirmed'], `$.items[${index}].userConfirmed`);
+    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) throw new RangeError(`${path}.confidence must be between 0 and 1`);
+    const userConfirmed = item['userConfirmed'] === undefined ? true : asBoolean(item['userConfirmed'], `${path}.userConfirmed`);
     return {
-      ...line,
+      description: line.description,
+      quantity: line.quantity,
+      unitPriceMinor: line.unitPriceMinor,
+      lineTotalMinor: line.lineTotalMinor,
+      discountMinor: calculateReceiptLineDiscountMinor(line),
       status: confidence < REVIEW_CONFIDENCE_THRESHOLD && !userConfirmed ? 'needs-review' : 'confirmed',
       confidence: userConfirmed ? 1 : confidence,
     };

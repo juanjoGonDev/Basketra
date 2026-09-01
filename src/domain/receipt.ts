@@ -46,25 +46,28 @@ function receiptLineSubtotalMinor(line: Pick<ReceiptLineCalculationInput, 'quant
   return subtotalMinor;
 }
 
-function assertDiscountShape(discount: ReceiptLineDiscount): void {
-  if (typeof discount !== 'object' || discount === null) {
-    throw new RangeError('Receipt line discount must be a tagged object');
+export function parseReceiptLineDiscount(value: unknown, path = 'discount'): ReceiptLineDiscount {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new RangeError(`${path} must be a tagged discount object`);
   }
-  const candidate = discount as ReceiptLineDiscount & Record<string, unknown>;
-  if (candidate.type === 'amount') {
-    if ('basisPoints' in candidate) throw new RangeError('Receipt line discount representation is mixed');
-    assertNonNegativeSafeInteger(candidate.amountMinor, 'Receipt line amount discount');
-    return;
+  const candidate = value as Record<string, unknown>;
+  const type = candidate['type'];
+  if (type === 'amount') {
+    if ('basisPoints' in candidate) throw new RangeError(`${path} representation is mixed`);
+    const amountMinor = Number(candidate['amountMinor']);
+    assertNonNegativeSafeInteger(amountMinor, `${path}.amountMinor`);
+    return { type, amountMinor };
   }
-  if (candidate.type === 'percentage') {
-    if ('amountMinor' in candidate) throw new RangeError('Receipt line discount representation is mixed');
-    assertNonNegativeSafeInteger(candidate.basisPoints, 'Receipt line percentage discount');
-    if (candidate.basisPoints > BASIS_POINTS_PER_WHOLE) {
-      throw new RangeError('Receipt line percentage discount cannot exceed 100%');
+  if (type === 'percentage') {
+    if ('amountMinor' in candidate) throw new RangeError(`${path} representation is mixed`);
+    const basisPoints = Number(candidate['basisPoints']);
+    assertNonNegativeSafeInteger(basisPoints, `${path}.basisPoints`);
+    if (basisPoints > BASIS_POINTS_PER_WHOLE) {
+      throw new RangeError(`${path}.basisPoints cannot exceed 100%`);
     }
-    return;
+    return { type, basisPoints };
   }
-  throw new RangeError('Receipt line discount type must be amount or percentage');
+  throw new RangeError(`${path}.type must be amount or percentage`);
 }
 
 /**
@@ -83,13 +86,13 @@ export function calculateReceiptLineDiscountMinor(line: ReceiptLineCalculationIn
   }
   if (line.discount === undefined) return 0;
 
-  assertDiscountShape(line.discount);
-  if (line.discount.type === 'amount') {
-    if (line.discount.amountMinor > subtotalMinor) throw new RangeError('Receipt line discount cannot exceed its subtotal');
-    return line.discount.amountMinor;
+  const discount = parseReceiptLineDiscount(line.discount, 'Receipt line discount');
+  if (discount.type === 'amount') {
+    if (discount.amountMinor > subtotalMinor) throw new RangeError('Receipt line discount cannot exceed its subtotal');
+    return discount.amountMinor;
   }
 
-  const numerator = BigInt(subtotalMinor) * BigInt(line.discount.basisPoints);
+  const numerator = BigInt(subtotalMinor) * BigInt(discount.basisPoints);
   return Number((numerator + BigInt(HALF_BASIS_POINT_DENOMINATOR)) / BigInt(BASIS_POINTS_PER_WHOLE));
 }
 
