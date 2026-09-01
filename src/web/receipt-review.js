@@ -134,7 +134,7 @@ function normalizedDiscount(item) {
 function discountEditorValue(item) {
   const discount = normalizedDiscount(item);
   if (!discount) return { type: 'none', value: '', quantity: Number(item?.quantity) || 1 };
-  const quantity = discount.quantity ?? Number(item?.quantity) || 1;
+  const quantity = discount.quantity ?? (Number(item?.quantity) || 1);
   if (discount.type === 'amount') {
     return { type: 'amount', value: minorToEuroInput(discount.amountMinor), quantity };
   }
