@@ -79,6 +79,7 @@ const DISCOUNT_SCHEMA = {
       properties: {
         type: { type: 'string', enum: ['amount'] },
         amountMinor: { type: 'integer', minimum: 0 },
+        quantity: { type: 'integer', minimum: 1, maximum: 100_000 },
       },
     },
     {
@@ -88,6 +89,7 @@ const DISCOUNT_SCHEMA = {
       properties: {
         type: { type: 'string', enum: ['percentage'] },
         basisPoints: { type: 'integer', minimum: 0, maximum: 10_000 },
+        quantity: { type: 'integer', minimum: 1, maximum: 100_000 },
       },
     },
   ],
@@ -242,15 +244,19 @@ export function buildReceiptVerificationInstructions(
     'Preserve physical line order and reconstruct a quantity prefix only when the immediately following product line supports it.',
     'For example, `6 x ,89` followed by `C.LADRON MANZAN 5,34 A` means quantity 6, unit price 89 cents, line total 534 cents and tax category A.',
     'Separate trailing tax letters A, B or C from monetary values.',
+    'Scan discounts and promotions across the whole receipt, including discount lines that appear after an intermediate total or subtotal.',
+    'Group repeated identical product rows when description, original quantity, unit price and tax category match; sum their quantities and include every supporting source line.',
+    'Duplicate identical rows are not ambiguous after exact grouping. Do not leave a discount unassigned solely because the same identical product row appeared more than once.',
     'Return monetary fields as integer euro cents. lineTotalMinor is the post-discount line total.',
-    'When a discount has unique item ownership, return discount as either `{type:"amount",amountMinor:<euro cents>}` or `{type:"percentage",basisPoints:<percentage times 100>}`; for example 50% is 5000 basis points.',
+    'When a discount has unique product ownership, return discount as either `{type:"amount",amountMinor:<euro cents>}` or `{type:"percentage",basisPoints:<percentage times 100>}`; for example 50% is 5000 basis points.',
+    'When a discount applies to only part of an aggregated quantity, set discount.quantity to the affected quantity. Omit discount.quantity only when the discount applies to the whole item quantity.',
     'Do not return both amount and percentage fields for one discount. Do not convert a visible percentage to binary floating-point arithmetic.',
-    'For evidence such as `50% dto BEBIDA COCO 0% A 0,88-`, represent the visible 50% as 5000 basis points when its owning item is uniquely identifiable.',
-    'If a visible discount cannot be uniquely assigned, including duplicate identical products, do not attach it to any item. Add it to unassignedDiscounts with sourceLines, a description hint when visible and a short reason, and add a warning for manual review.',
+    'For two identical `BEBIDA COCO 0% A` rows at 1.75 EUR followed by `50% dto BEBIDA COCO 0% A 0,88-`, return one item with quantity 2, unitPriceMinor 175, lineTotalMinor 262 and discount `{type:"percentage",basisPoints:5000,quantity:1}`.',
+    'Use unassignedDiscounts only when product ownership or affected quantity is genuinely unresolved after exact grouping. Include sourceLines, a description hint when visible and a short reason. Do not repeat an unassigned-discount reason in warnings.',
     'Return sourceLines with the numbered OCR lines supporting every item and unassigned discount, even when the attachment corrects OCR characters.',
     'Return correctedText in page order, retailerName, declaredTotalMinor and articleCount only when visible in the attachment or OCR.',
     'Keep each warning and unassigned-discount reason within 240 characters.',
-    'Mark uncertainty through confidence and warnings. Return JSON only.',
+    'Mark other uncertainty through confidence and warnings. Return JSON only.',
     ...(page
       ? [`This is page ${String(page.pagePosition + 1)} of ${String(page.pageCount)} of one receipt. Return only this page; do not repeat or modify prior pages.`]
       : []),
@@ -482,8 +488,12 @@ function sameOverlapLine(left: ReceiptExtractionItem, right: ReceiptExtractionIt
 }
 
 function discountIdentity(line: ReceiptExtractionItem): string {
-  if (line.discount?.type === 'amount') return `amount:${String(line.discount.amountMinor)}`;
-  if (line.discount?.type === 'percentage') return `percentage:${String(line.discount.basisPoints)}`;
+  if (line.discount?.type === 'amount') {
+    return `amount:${String(line.discount.amountMinor)}:${String(line.discount.quantity ?? 'all')}`;
+  }
+  if (line.discount?.type === 'percentage') {
+    return `percentage:${String(line.discount.basisPoints)}:${String(line.discount.quantity ?? 'all')}`;
+  }
   return `legacy:${String(line.discountMinor ?? 0)}`;
 }
 
