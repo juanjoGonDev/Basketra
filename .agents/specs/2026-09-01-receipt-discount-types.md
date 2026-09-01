@@ -53,11 +53,11 @@ Support explicit and exclusive receipt-line discounts as no discount, fixed EUR 
 - [ ] `pnpm quality`
 - [ ] domain coverage remains 100% lines/functions/branches
 - [ ] browser E2E for amount, percentage, type switching, pending/error blocking, confirmation, and Cancel race
-- [x] container smoke on validated functional code before the final documentation-only commits
+- [ ] container smoke on final head
 - [ ] linux/amd64 container build on final head
-- [x] linux/arm64 container build on validated functional code before the final documentation-only commits
-- [x] security checks on validated functional code before the final documentation-only commits
-- [ ] CodeQL
+- [ ] linux/arm64 container build on final head
+- [ ] security checks on final head
+- [ ] CodeQL on final head
 - [ ] visual evidence workflow for the exact functional head
 - [ ] desktop/mobile screenshot review: alignment, overflow, spacing, semantic output, controls, pending/error states, focus and responsive behavior
 - [ ] final diff/PR/review-thread inspection
