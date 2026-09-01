@@ -169,7 +169,7 @@ test('AI receipt schema rejects malformed or mixed discount objects', () => {
   }), /discount cannot exceed/i);
 });
 
-test('ambiguous Alcampo duplicate discounts remain unassigned for manual review', () => {
+test('unresolved duplicate discounts without total evidence remain available for manual review', () => {
   const interpretation = RECEIPT_SCHEMA.parse({
     currency: 'EUR',
     correctedText: [
@@ -185,7 +185,7 @@ test('ambiguous Alcampo duplicate discounts remain unassigned for manual review'
       discount: { type: 'percentage', basisPoints: 5_000 },
       sourceLines: [3],
       description: 'BEBIDA COCO',
-      reason: 'Two identical item rows make ownership ambiguous.',
+      reason: 'Affected quantity is unresolved without total evidence.',
     }],
     warnings: ['A 50% / EUR 0.88 discount needs manual assignment.'],
   });
@@ -207,10 +207,12 @@ test('ambiguous Alcampo duplicate discounts remain unassigned for manual review'
   assert.match(assembled.final.warnings[0] ?? '', /manual assignment/i);
 });
 
-test('AI instructions define tagged discounts and ambiguous ownership behavior', () => {
+test('AI instructions group exact duplicates while preserving genuinely unresolved discounts', () => {
   const instructions = buildReceiptVerificationInstructions();
   assert.match(instructions, /basis points/i);
   assert.match(instructions, /50%.*5000/iu);
-  assert.match(instructions, /unassignedDiscounts/u);
-  assert.match(instructions, /do not attach it to any item/iu);
+  assert.match(instructions, /group repeated identical product rows/iu);
+  assert.match(instructions, /duplicate identical rows are not ambiguous/iu);
+  assert.match(instructions, /discount\.quantity/iu);
+  assert.match(instructions, /unassignedDiscounts only when product ownership or affected quantity is genuinely unresolved/iu);
 });
