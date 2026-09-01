@@ -9,7 +9,7 @@ const UNTHROTTLED_PATHS = new Set([
 ]);
 const RECEIPT_CALCULATION_DELAY_MS = 120;
 const RECEIPT_CALCULATION_PATH = '/api/v1/receipts/calculate-line';
-const RECEIPT_CALCULATION_DRIVER_FIELDS = new Set(['quantity', 'unitPriceEuro', 'discountType', 'discountValue']);
+const RECEIPT_CALCULATION_DRIVER_FIELDS = new Set(['quantity', 'unitPriceEuro', 'discountType', 'discountValue', 'discountQuantity']);
 const RECEIPT_CALCULATION_ACTION_SELECTOR = '#save-receipt-line-editor, [data-receipt-action="validate"], #review-receipt, #confirm-receipt';
 const receiptCalculationState = new WeakMap();
 let receiptDerivedTotalsInitialized = false;
@@ -282,6 +282,14 @@ function percentageInputToBasisPoints(value) {
   return basisPoints;
 }
 
+function affectedDiscountQuantity(root, lineQuantity) {
+  const input = receiptLineField(root, 'discountQuantity');
+  if (!(input instanceof HTMLInputElement)) return undefined;
+  const quantity = Number(input.value);
+  if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > lineQuantity) return undefined;
+  return quantity;
+}
+
 async function readReceiptCalculationInput(root) {
   const quantityInput = receiptLineField(root, 'quantity');
   const unitPriceInput = receiptLineField(root, 'unitPriceEuro');
@@ -298,11 +306,19 @@ async function readReceiptCalculationInput(root) {
     };
     if (!(discountTypeInput instanceof HTMLSelectElement) || discountTypeInput.value === 'none') return input;
     if (!(discountValueInput instanceof HTMLInputElement) || !discountValueInput.value.trim()) return undefined;
+    const discountQuantity = affectedDiscountQuantity(root, quantity);
+    const quantityField = discountQuantity === undefined ? {} : { quantity: discountQuantity };
     if (discountTypeInput.value === 'amount') {
-      return { ...input, discount: { type: 'amount', amountMinor: euroInputToMinor(discountValueInput.value) } };
+      return {
+        ...input,
+        discount: { type: 'amount', amountMinor: euroInputToMinor(discountValueInput.value), ...quantityField },
+      };
     }
     if (discountTypeInput.value === 'percentage') {
-      return { ...input, discount: { type: 'percentage', basisPoints: percentageInputToBasisPoints(discountValueInput.value) } };
+      return {
+        ...input,
+        discount: { type: 'percentage', basisPoints: percentageInputToBasisPoints(discountValueInput.value), ...quantityField },
+      };
     }
     return undefined;
   } catch {
