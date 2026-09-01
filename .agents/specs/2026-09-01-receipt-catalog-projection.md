@@ -14,8 +14,10 @@ The same PR must also make receipt review behave like a compact inventory workfl
 - The deployed catalog could consequently show zero saved products while confirmed receipts existed.
 - Existing databases require a historical backfill as well as fixing future receipt confirmations.
 - The Alcampo receipt evidence contains two identical `BEBIDA COCO 0% A` rows at 1.75 EUR and a later `50% dto BEBIDA COCO 0% A 0,88-` line. AI detected the discount but returned it as unassigned because Basketra explicitly instructed duplicate identical products to be treated as ambiguous.
-- The current receipt domain applies one percentage discount to the complete line subtotal, so it cannot express “50% on 1 of 2 units”.
-- Receipt review currently renders repeated identical purchase rows separately and exposes only discount type/value, with no affected-unit control.
+- The previous receipt domain applied one percentage discount to the complete line subtotal, so it could not express “50% on 1 of 2 units”.
+- The previous receipt review rendered repeated identical purchase rows separately and exposed only discount type/value, with no affected-unit control.
+- Review of migration 7 found that resolving every historical row before creating listings could fragment two equivalent historical tickets into separate variants. The backfill now chooses a deterministic representative for an unambiguous retailer/title group and regression coverage requires one shared variant/listing with separate immutable observations.
+- Browser evidence review found that the initial six-column desktop editor allowed the derived total to wrap. The result/output is now explicitly non-wrapping and browser coverage asserts that behavior.
 
 ## Decision
 
@@ -49,6 +51,7 @@ The same PR must also make receipt review behave like a compact inventory workfl
 - A receipt with retailer metadata creates/preserves the retailer-specific listing title and latest price in catalog output.
 - A receipt without retailer metadata still creates/reuses the global product variant but does not invent a price observation without a retailer.
 - Previously confirmed receipt rows with no `product_variant_id` are projected by migration and become visible in the catalog.
+- Multiple equivalent historical receipt rows converge on one variant/listing while preserving one immutable observation per receipt item.
 - Original receipt descriptions/extractions/corrections remain unchanged after reconciliation.
 - Catalog list/detail UI shows latest price by retailer/store with EUR formatting and retains parent/retailer editing.
 - Empty-state copy no longer claims only explicitly saved list products will appear.
@@ -57,38 +60,53 @@ The same PR must also make receipt review behave like a compact inventory workfl
 - Two equivalent receipt rows with the same product identity and unit price render as one line with summed quantity rather than duplicated rows.
 - `2 × 1.75 EUR` with a 50% discount affecting 1 unit yields an 0.88 EUR discount and a 2.62 EUR line total using backend integer arithmetic.
 - Whole-line percentage/amount discounts without affected quantity retain their existing behavior.
-- Affected discount quantity greater than the line quantity or zero is rejected.
+- Affected discount quantity greater than the line quantity, zero, fractional or non-numeric is rejected.
 - The Alcampo duplicate-coconut example resolves to one quantity-2 line with a one-unit 50% discount and no false duplicate-row ambiguity warning.
 - AI instructions explicitly require looking for discounts/promotions across the whole receipt and returning affected quantity where supported by evidence.
 - The line editor lets the user change discount type, value and affected units without manually splitting identical products into multiple lines.
 - Updating affected units triggers the same stale-safe backend-derived total flow as quantity, unit price and discount value changes.
+- Desktop and mobile editors do not overflow horizontally and derived monetary totals remain on one line.
 - Truly unresolved discounts remain visible for manual review instead of silently modifying a product.
 - No polling, dependency, destructive migration, merge, release or deploy is introduced.
 
 ## Checks
 
 - [x] regression integration tests added for future receipt projection and idempotency
-- [x] regression integration test added for historical receipt migration
+- [x] regression integration tests added for historical receipt migration, including multiple equivalent historical tickets
 - [x] migration ownership contract test added
 - [x] catalog API/store-price tests added
 - [x] browser coverage added for ticket-derived catalog product and price rendering
-- [ ] unit coverage for partial-unit amount/percentage arithmetic and validation
-- [ ] AI schema/prompt regression for duplicate aggregation and affected-unit discounts
-- [ ] extraction regression for the Alcampo duplicate-coconut/50% example
-- [ ] browser coverage for grouped repeated rows and affected-unit discount editing
-- [ ] `pnpm quality`
-- [ ] Browser E2E
-- [ ] security/container/CodeQL CI
-- [ ] desktop/mobile visual review of populated catalog and partial-unit discount editor
-- [ ] final diff/PR/review-thread inspection
+- [x] unit coverage added for partial-unit amount/percentage arithmetic and strict quantity validation
+- [x] AI schema/prompt regression added for duplicate aggregation and affected-unit discounts
+- [x] extraction/normalization regression added for the Alcampo duplicate-coconut/50% example
+- [x] browser coverage added for grouped repeated rows and affected-unit discount editing
+- [x] `pnpm quality` via Pull Request Quality run `33564618043`
+- [x] Browser E2E: 79/79 passed in run `33564618043`
+- [x] Security, container smoke, linux/amd64 and linux/arm64 passed in run `33564618043`
+- [x] CodeQL Advanced run `33564617909` passed
+- [x] browser artifact `9822772907` is bound to functional head `486e5ba4aae86bb9be8539668a5282820bc3c170`, digest `sha256:ddb413b44c30e1814d7da5bb63e6b62884cc236a9221f5b0d8c1c2159fb43bc1`
+- [x] Publish PR visual evidence run `33564617966` passed for the same functional head
+- [x] desktop/mobile visual review completed for populated catalog, partial-unit discount editor, standard percentage editor, calculation error, genuine ambiguity, responsive editor and restored cancel state
+- [x] final functional diff scope inspected; PR has no review threads at the functional validation head
+
+## Visual review
+
+- Catalog mobile: product card, retailer-specific title, latest Mercadona price, reusable ficha and parent/retailer controls are readable with no horizontal overflow.
+- Partial discount mobile: one grouped quantity-2 row exposes `Unidades con descuento = 1`, `50%` and backend-derived total `2.62 EUR` without horizontal overflow.
+- Partial discount desktop: six-column editor remains readable and `2.62 EUR` stays on one line after the nowrap regression fix.
+- Standard percentage editor: `50%` and derived `0.87 EUR` remain readable on desktop and mobile.
+- Calculation error: full error message spans the row and `Guardar línea` is visibly disabled while the stale total is not accepted as a valid calculation.
+- Genuine ambiguity: two same-label products at different prices remain separate and the unassigned 50% warning is visible for manual review.
+- Cancel race: dialog remains closed after the late response; the compact restored row shows `BEBIDA COCO`, `0.87 EUR` and `Dto. 50%`.
 
 ## Delivery
 
 - Branch: `agent/fix-receipt-catalog-projection`
 - Pull request: `#47`
+- Functional validation head: `486e5ba4aae86bb9be8539668a5282820bc3c170`
 - Merge/release/deploy: prohibited without explicit approval.
 - Rollback: revert this PR. Receipt evidence is preserved because projection only adds/reuses catalog relations and immutable observations; receipt normalization changes review/import interpretation but never overwrites source extraction evidence.
 
 ## Status
 
-Catalog projection, historical backfill, latest-price API/UI and initial browser coverage are implemented. Receipt aggregation and partial-unit discounts are now in scope for the same PR. The first CI run reached format checking and reported missing final newlines in `src/infrastructure/collaboration-schema.ts` and `src/web/sw.js`; those formatting defects and all expanded behavior still require exact-head validation.
+Functional implementation and visual evidence are complete on `486e5ba4aae86bb9be8539668a5282820bc3c170`. Quality, Browser E2E, Security, both container architectures, container smoke, CodeQL and direct PR visual publication are green, and the relevant artifact screenshots have been manually reviewed. This documentation update is the final repository change; the resulting documentation head must be revalidated exactly before the PR is considered ready for human review. No merge, release or deployment has been performed.
