@@ -42,7 +42,7 @@ async function openPartialDiscountReview(page) {
   });
 }
 
-test('partial-unit discount editor keeps one grouped row and backend-derived totals', async ({ page }, testInfo) => {
+test('partial-unit-discount-editor', async ({ page }, testInfo) => {
   const calculations = [];
   page.on('request', request => {
     const url = new URL(request.url());
