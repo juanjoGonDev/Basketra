@@ -284,10 +284,12 @@ function percentageInputToBasisPoints(value) {
 
 function affectedDiscountQuantity(root, lineQuantity) {
   const input = receiptLineField(root, 'discountQuantity');
-  if (!(input instanceof HTMLInputElement)) return undefined;
+  if (!(input instanceof HTMLInputElement) || input.disabled || lineQuantity <= 1) return undefined;
   const quantity = Number(input.value);
-  if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > lineQuantity) return undefined;
-  return quantity;
+  if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > lineQuantity) {
+    throw new RangeError(`Las unidades con descuento deben estar entre 1 y ${lineQuantity}`);
+  }
+  return quantity === lineQuantity ? undefined : quantity;
 }
 
 async function readReceiptCalculationInput(root) {
