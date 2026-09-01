@@ -420,8 +420,12 @@
 
 @media (min-width: 48rem) {
   .receipt-item .quantity-row {
-    grid-template-columns: minmax(5.5rem, .7fr) minmax(7rem, 1fr) minmax(8rem, 1fr) minmax(7rem, 1fr) minmax(7rem, .9fr);
+    grid-template-columns: minmax(0, .7fr) minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, .9fr);
     align-items: end;
+  }
+
+  .receipt-item .quantity-row > * {
+    min-width: 0;
   }
 
   .receipt-line-result {
