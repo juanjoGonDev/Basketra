@@ -109,19 +109,28 @@ export const COLLABORATION_MIGRATIONS: readonly MigrationDefinition[] = [
       UPDATE receipt_items AS item
       SET product_variant_id = COALESCE(
         (
-          SELECT retailer_listings.product_variant_id
+          SELECT CASE
+            WHEN COUNT(DISTINCT retailer_listings.product_variant_id) = 1
+              THEN MIN(retailer_listings.product_variant_id)
+          END
           FROM receipts
           JOIN retailer_listings ON retailer_listings.retailer_id = receipts.retailer_id
           WHERE receipts.id = item.receipt_id
             AND retailer_listings.product_variant_id IS NOT NULL
             AND retailer_listings.title = item.original_description COLLATE NOCASE
-          ORDER BY retailer_listings.created_at, retailer_listings.id
-          LIMIT 1
         ),
         (
           SELECT CASE WHEN COUNT(*) = 1 THEN MIN(product_variants.id) END
           FROM product_variants
           WHERE product_variants.name = item.original_description COLLATE NOCASE
+            AND (
+              SELECT COUNT(DISTINCT retailer_listings.product_variant_id)
+              FROM receipts
+              JOIN retailer_listings ON retailer_listings.retailer_id = receipts.retailer_id
+              WHERE receipts.id = item.receipt_id
+                AND retailer_listings.product_variant_id IS NOT NULL
+                AND retailer_listings.title = item.original_description COLLATE NOCASE
+            ) = 0
         )
       )
       WHERE item.status = 'confirmed' AND item.product_variant_id IS NULL;
@@ -282,18 +291,27 @@ export const COLLABORATION_MIGRATIONS: readonly MigrationDefinition[] = [
           receipts.created_at
         FROM receipts
         WHERE receipts.id = NEW.receipt_id
-          AND NOT EXISTS (
-            SELECT 1
+          AND (
+            SELECT COUNT(DISTINCT retailer_listings.product_variant_id)
             FROM retailer_listings
             WHERE retailer_listings.retailer_id = receipts.retailer_id
               AND retailer_listings.product_variant_id IS NOT NULL
               AND retailer_listings.title = NEW.original_description COLLATE NOCASE
-          )
+          ) <> 1
           AND (
-            SELECT COUNT(*)
-            FROM product_variants
-            WHERE product_variants.name = NEW.original_description COLLATE NOCASE
-          ) <> 1;
+            (
+              SELECT COUNT(DISTINCT retailer_listings.product_variant_id)
+              FROM retailer_listings
+              WHERE retailer_listings.retailer_id = receipts.retailer_id
+                AND retailer_listings.product_variant_id IS NOT NULL
+                AND retailer_listings.title = NEW.original_description COLLATE NOCASE
+            ) > 1
+            OR (
+              SELECT COUNT(*)
+              FROM product_variants
+              WHERE product_variants.name = NEW.original_description COLLATE NOCASE
+            ) <> 1
+          );
 
         INSERT INTO product_variants(
           id, canonical_product_id, name, brand, ean, package_minor, package_unit,
@@ -325,20 +343,29 @@ export const COLLABORATION_MIGRATIONS: readonly MigrationDefinition[] = [
         UPDATE receipt_items
         SET product_variant_id = COALESCE(
           (
-            SELECT retailer_listings.product_variant_id
+            SELECT CASE
+              WHEN COUNT(DISTINCT retailer_listings.product_variant_id) = 1
+                THEN MIN(retailer_listings.product_variant_id)
+            END
             FROM receipts
             JOIN retailer_listings ON retailer_listings.retailer_id = receipts.retailer_id
             WHERE receipts.id = NEW.receipt_id
               AND retailer_listings.product_variant_id IS NOT NULL
               AND retailer_listings.title = NEW.original_description COLLATE NOCASE
-            ORDER BY retailer_listings.created_at, retailer_listings.id
-            LIMIT 1
           ),
           (
             SELECT CASE WHEN COUNT(*) = 1 THEN MIN(product_variants.id) END
             FROM product_variants
             WHERE product_variants.name = NEW.original_description COLLATE NOCASE
               AND product_variants.id <> 'variant_receipt_' || NEW.id
+              AND (
+                SELECT COUNT(DISTINCT retailer_listings.product_variant_id)
+                FROM receipts
+                JOIN retailer_listings ON retailer_listings.retailer_id = receipts.retailer_id
+                WHERE receipts.id = NEW.receipt_id
+                  AND retailer_listings.product_variant_id IS NOT NULL
+                  AND retailer_listings.title = NEW.original_description COLLATE NOCASE
+              ) = 0
           ),
           'variant_receipt_' || NEW.id
         )
