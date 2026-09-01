@@ -152,13 +152,25 @@ test('pending and failed calculations keep Save line blocked until the latest re
   await expect(editor).toBeHidden();
 
   const reopened = await openEditor(page);
+  const reopenedSave = reopened.getByRole('button', { name: 'Guardar línea', exact: true });
   failNext = true;
   await reopened.locator('[data-field="discountType"]').selectOption('percentage');
   await reopened.locator('[data-field="discountValue"]').fill('50');
-  await expect(reopened.locator('.receipt-line-derived-state')).toContainText('No se pudo calcular el total');
-  await reopened.getByRole('button', { name: 'Guardar línea', exact: true }).click();
+  const failedState = reopened.locator('.receipt-line-derived-state');
+  await expect(failedState).toContainText('No se pudo calcular el total: Invalid discount');
+  await expect(failedState).toHaveCSS('grid-column-start', '1');
+  await expect(failedState).toHaveCSS('grid-column-end', '-1');
+  await expect(reopenedSave).toBeDisabled();
   await expect(reopened).toBeVisible();
-  await expect(reopened.locator('.receipt-line-derived-state')).toContainText('Invalid discount');
+
+  failNext = false;
+  releaseCalculation = undefined;
+  await reopened.locator('[data-field="discountValue"]').fill('25');
+  await expect.poll(() => typeof releaseCalculation).toBe('function');
+  releaseCalculation();
+  await expect(reopenedSave).toBeEnabled();
+  await reopenedSave.click();
+  await expect(reopened).toBeHidden();
 });
 
 test('whole-ticket validation and confirmation wait for the latest derived calculation', async ({ page }) => {
