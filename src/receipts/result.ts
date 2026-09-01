@@ -49,7 +49,7 @@ export type ReceiptExtractionResult = Readonly<{
     declaredTotalMinor?: number;
     articleCount?: number;
     warnings: readonly string[];
-    unassignedDiscounts: readonly AiUnassignedReceiptDiscount[];
+    unassignedDiscounts?: readonly AiUnassignedReceiptDiscount[];
     review: ReturnType<typeof buildReceiptReview>;
   }>;
 }>;
@@ -123,7 +123,7 @@ export function assembleReceiptExtraction(pages: readonly ReceiptPageEvidence[])
       ...(finalTotal === undefined ? {} : { declaredTotalMinor: finalTotal }),
       ...(finalArticleCount === undefined ? {} : { articleCount: finalArticleCount }),
       warnings,
-      unassignedDiscounts,
+      ...(unassignedDiscounts.length === 0 ? {} : { unassignedDiscounts }),
       review: buildReceiptReview(finalItems, finalTotal),
     },
   };

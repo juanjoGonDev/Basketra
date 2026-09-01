@@ -54,18 +54,22 @@ export function parseReceiptLineDiscount(value: unknown, path = 'discount'): Rec
   const type = candidate['type'];
   if (type === 'amount') {
     if ('basisPoints' in candidate) throw new RangeError(`${path} representation is mixed`);
-    const amountMinor = Number(candidate['amountMinor']);
-    assertNonNegativeSafeInteger(amountMinor, `${path}.amountMinor`);
-    return { type, amountMinor };
+    if (typeof candidate['amountMinor'] !== 'number') {
+      throw new RangeError(`${path}.amountMinor must be a non-negative safe integer`);
+    }
+    assertNonNegativeSafeInteger(candidate['amountMinor'], `${path}.amountMinor`);
+    return { type, amountMinor: candidate['amountMinor'] };
   }
   if (type === 'percentage') {
     if ('amountMinor' in candidate) throw new RangeError(`${path} representation is mixed`);
-    const basisPoints = Number(candidate['basisPoints']);
-    assertNonNegativeSafeInteger(basisPoints, `${path}.basisPoints`);
-    if (basisPoints > BASIS_POINTS_PER_WHOLE) {
+    if (typeof candidate['basisPoints'] !== 'number') {
+      throw new RangeError(`${path}.basisPoints must be a non-negative safe integer`);
+    }
+    assertNonNegativeSafeInteger(candidate['basisPoints'], `${path}.basisPoints`);
+    if (candidate['basisPoints'] > BASIS_POINTS_PER_WHOLE) {
       throw new RangeError(`${path}.basisPoints cannot exceed 100%`);
     }
-    return { type, basisPoints };
+    return { type, basisPoints: candidate['basisPoints'] };
   }
   throw new RangeError(`${path}.type must be amount or percentage`);
 }
