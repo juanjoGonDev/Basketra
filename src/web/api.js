@@ -310,6 +310,36 @@ async function readReceiptCalculationInput(root) {
   }
 }
 
+function receiptActionRoots(button) {
+  if (button.id === 'save-receipt-line-editor') {
+    const root = button.closest('#receipt-line-dialog')?.querySelector('.receipt-item, [data-receipt-line-editor]');
+    return root ? [root] : [];
+  }
+  if (button.matches('[data-receipt-action="validate"]')) {
+    const root = button.closest('.receipt-item, [data-receipt-line-editor]');
+    return root ? [root] : [];
+  }
+  return [...document.querySelectorAll('.receipt-item, [data-receipt-line-editor]')];
+}
+
+function syncReceiptCalculationActions() {
+  document.querySelectorAll(RECEIPT_CALCULATION_ACTION_SELECTOR).forEach(button => {
+    if (!(button instanceof HTMLButtonElement)) return;
+    const blocked = receiptActionRoots(button).some(root => receiptCalculationState.get(root)?.error);
+    if (blocked) {
+      if (!button.disabled) {
+        button.disabled = true;
+        button.dataset.receiptCalculationDisabled = 'true';
+      }
+      return;
+    }
+    if (button.dataset.receiptCalculationDisabled === 'true') {
+      button.disabled = false;
+      delete button.dataset.receiptCalculationDisabled;
+    }
+  });
+}
+
 async function calculateReceiptLine(root, version) {
   const total = markDerivedReceiptTotal(root);
   if (!total) return;
@@ -326,6 +356,7 @@ async function calculateReceiptLine(root, version) {
     if (!input) {
       state.error = new Error('Completa cantidad, precio y descuento para calcular el total.');
       receiptCalculationStatus(root, state.error.message);
+      syncReceiptCalculationActions();
       return;
     }
     const result = await api(RECEIPT_CALCULATION_PATH, {
@@ -340,10 +371,12 @@ async function calculateReceiptLine(root, version) {
     total.dispatchEvent(new Event('input', { bubbles: true }));
     state.error = null;
     receiptCalculationStatus(root, 'Total actualizado.');
+    syncReceiptCalculationActions();
   } catch (error) {
     if (error?.name === 'AbortError' || version !== state.version) return;
     state.error = error instanceof Error ? error : new Error(String(error));
     receiptCalculationStatus(root, `No se pudo calcular el total: ${state.error.message}`);
+    syncReceiptCalculationActions();
   } finally {
     if (version === state.version) {
       total.setAttribute('aria-busy', 'false');
@@ -361,21 +394,10 @@ function scheduleReceiptLineCalculation(root, immediate = false) {
   const version = ++state.version;
   state.pending = true;
   state.error = null;
+  syncReceiptCalculationActions();
   clearTimeout(state.timer);
   state.controller?.abort();
   state.timer = setTimeout(() => void calculateReceiptLine(root, version), immediate ? 0 : RECEIPT_CALCULATION_DELAY_MS);
-}
-
-function receiptActionRoots(button) {
-  if (button.id === 'save-receipt-line-editor') {
-    const root = button.closest('#receipt-line-dialog')?.querySelector('.receipt-item, [data-receipt-line-editor]');
-    return root ? [root] : [];
-  }
-  if (button.matches('[data-receipt-action="validate"]')) {
-    const root = button.closest('.receipt-item, [data-receipt-line-editor]');
-    return root ? [root] : [];
-  }
-  return [...document.querySelectorAll('.receipt-item, [data-receipt-line-editor]')];
 }
 
 function receiptActionNeedsCalculation(roots) {
@@ -407,13 +429,20 @@ function deferReceiptActionUntilCalculated(event) {
 function enhanceReceiptLine(root) {
   const total = markDerivedReceiptTotal(root);
   if (!total || root.querySelector('.receipt-line-derived-state')) return;
-  const container = total.closest('.receipt-line-result, label');
-  if (!container) return;
+  const resultContainer = total.closest('.receipt-line-result, label');
+  if (!resultContainer) return;
   const status = document.createElement('small');
   status.className = 'receipt-line-derived-state field-help';
   status.setAttribute('aria-live', 'polite');
   status.hidden = true;
-  container.append(status);
+  const layoutContainer = resultContainer.closest('.quantity-row');
+  if (layoutContainer) {
+    status.style.gridColumn = '1 / -1';
+    status.style.minWidth = '0';
+    layoutContainer.append(status);
+  } else {
+    resultContainer.append(status);
+  }
 }
 
 function enhanceExistingReceiptLines(root) {
