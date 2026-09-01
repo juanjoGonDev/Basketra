@@ -46,7 +46,7 @@ async function setup(page) {
   });
 }
 
-test('cancel invalidates an edited calculation before a late response can overwrite the restored total', async ({ page }) => {
+test('cancel invalidates an edited calculation before a late response can overwrite the restored total', async ({ page }, testInfo) => {
   let releaseEditedCalculation;
   let editedCalculationStarted = false;
   let editedCalculationSettled = false;
@@ -103,4 +103,5 @@ test('cancel invalidates an edited calculation before a late response can overwr
   await expect.poll(() => editedCalculationSettled).toBe(true);
   await expect(dialog).toBeHidden();
   await expect(total).toHaveJSProperty('value', '0.87');
+  await row.screenshot({ path: testInfo.outputPath('cancel-restored.png') });
 });
