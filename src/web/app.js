@@ -214,7 +214,13 @@ function updateReceiptLinePresentation(root) {
     if (description instanceof HTMLInputElement) description.required = true;
     syncReceiptCompactSummary(item);
 
-    if (item.contains(document.activeElement) && !item.classList.contains('receipt-item--editing')) {
+    const activeElement = document.activeElement;
+    if (
+      activeElement instanceof HTMLElement
+      && activeElement.matches('[data-field]')
+      && item.contains(activeElement)
+      && !item.classList.contains('receipt-item--editing')
+    ) {
       queueMicrotask(() => openReceiptLineEditor(item));
     }
   });
