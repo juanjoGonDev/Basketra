@@ -10,7 +10,7 @@ import { asArray, asBoolean, asEnum, asRecord, asSafeInteger, asString } from '.
 import { UNIT_VALUES } from '../domain/units.ts';
 import { optimizeBasket, type ShoppingRequirement } from '../domain/optimization.ts';
 import type { Offer } from '../domain/offers.ts';
-import { validateReceiptLine, validateReceiptTotal, type ReceiptLineInput } from '../domain/receipt.ts';
+import { parseReceiptLineDiscount, validateReceiptLine, validateReceiptTotal, type ReceiptLineInput } from '../domain/receipt.ts';
 import { ApiError, mapError } from './errors.ts';
 import { handleCatalogManagementRequest } from './catalog-management.ts';
 import { handleReceiptCalculationRequest } from './receipt-calculation.ts';
@@ -1015,13 +1015,20 @@ export class BasketraServer {
 
   private parseReceiptLines(value: unknown): ReceiptLineInput[] {
     return asArray(value, '$.items', 500).map((entry, index) => {
-      const record = asRecord(entry, `$.items[${index}]`);
+      const path = `$.items[${index}]`;
+      const record = asRecord(entry, path);
+      const discount = record['discount'];
+      const discountMinor = record['discountMinor'];
+      if (discount !== undefined && discountMinor !== undefined) {
+        throw new RangeError(`${path} cannot combine discount and discountMinor`);
+      }
       return {
-        description: asString(record['description'], `$.items[${index}].description`, { max: 240 }),
-        quantity: asSafeInteger(record['quantity'], `$.items[${index}].quantity`, { min: 0, max: 100_000 }),
-        unitPriceMinor: asSafeInteger(record['unitPriceMinor'], `$.items[${index}].unitPriceMinor`, { min: 0 }),
-        lineTotalMinor: asSafeInteger(record['lineTotalMinor'], `$.items[${index}].lineTotalMinor`, { min: 0 }),
-        ...(record['discountMinor'] === undefined ? {} : { discountMinor: asSafeInteger(record['discountMinor'], `$.items[${index}].discountMinor`, { min: 0 }) }),
+        description: asString(record['description'], `${path}.description`, { max: 240 }),
+        quantity: asSafeInteger(record['quantity'], `${path}.quantity`, { min: 0, max: 100_000 }),
+        unitPriceMinor: asSafeInteger(record['unitPriceMinor'], `${path}.unitPriceMinor`, { min: 0 }),
+        lineTotalMinor: asSafeInteger(record['lineTotalMinor'], `${path}.lineTotalMinor`, { min: 0 }),
+        ...(discount === undefined ? {} : { discount: parseReceiptLineDiscount(discount, `${path}.discount`) }),
+        ...(discountMinor === undefined ? {} : { discountMinor: asSafeInteger(discountMinor, `${path}.discountMinor`, { min: 0 }) }),
       };
     });
   }
