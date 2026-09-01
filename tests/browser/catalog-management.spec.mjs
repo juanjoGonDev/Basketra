@@ -189,7 +189,8 @@ test('receipt line total is read-only, backend-derived and ignores stale calcula
   const discount = editor.locator('[data-field="discountEuro"]');
   const total = editor.locator('[data-field="lineTotalEuro"]');
   await expect(total).toBeVisible();
-  await expect(total).toHaveJSProperty('readOnly', true);
+  await expect(total).toHaveJSProperty('tagName', 'OUTPUT');
+  await expect(total).toHaveAttribute('aria-readonly', 'true');
 
   await quantity.fill('1');
   await unitPrice.fill('1.25');
@@ -198,11 +199,11 @@ test('receipt line total is read-only, backend-derived and ignores stale calcula
 
   await quantity.fill('2');
   await expect.poll(() => requests.length).toBeGreaterThanOrEqual(2);
-  await expect(total).toHaveValue('7.77');
+  await expect(total).toHaveText('7.77');
   await expect.poll(() => requests.at(-1)).toEqual({ quantity: 2, unitPriceMinor: 125, discountMinor: 20 });
 
   releaseFirstRequest();
   await firstRequestFinished;
-  await expect(total).toHaveValue('7.77');
+  await expect(total).toHaveText('7.77');
   await expect(total).toHaveAttribute('aria-readonly', 'true');
 });
