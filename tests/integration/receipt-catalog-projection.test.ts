@@ -76,7 +76,7 @@ test('confirmed receipt lines become reusable catalog variants with retailer nam
     const firstProjection = readProjection(databasePath, firstReceiptId);
     assert.equal(firstProjection.item.productVariantId, variantId);
     assert.equal(firstProjection.item.description, 'Bebida coco 0% A');
-    assert.deepEqual(firstProjection.listing, { retailerName: 'Alcampo', title: 'Bebida coco 0% A' });
+    assert.deepEqual({ ...firstProjection.listing }, { retailerName: 'Alcampo', title: 'Bebida coco 0% A' });
 
     assert.equal(database.importReceipt(firstInput), firstReceiptId);
     assert.equal(database.listPriceObservations(variantId).length, 1);
@@ -136,8 +136,8 @@ test('migration reconciles historical confirmed receipt rows without overwriting
     const projection = readProjection(databasePath, 'receipt_legacy');
     assert.equal(projection.item.description, 'Leche entera 1L');
     assert.equal(projection.item.productVariantId, products[0]!.id);
-    assert.deepEqual(projection.listing, { retailerName: 'Mercadona', title: 'Leche entera 1L' });
-    assert.deepEqual(projection.counts, { canonicalProducts: 1, variants: 1, prices: 1, receiptEvidence: 1 });
+    assert.deepEqual({ ...projection.listing }, { retailerName: 'Mercadona', title: 'Leche entera 1L' });
+    assert.deepEqual({ ...projection.counts }, { canonicalProducts: 1, variants: 1, prices: 1, receiptEvidence: 1 });
   } finally {
     upgraded.close();
     rmSync(root, { recursive: true, force: true });
