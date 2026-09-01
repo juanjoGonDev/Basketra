@@ -53,10 +53,10 @@ Support explicit and exclusive receipt-line discounts as no discount, fixed EUR 
 - [ ] `pnpm quality`
 - [ ] domain coverage remains 100% lines/functions/branches
 - [ ] browser E2E for amount, percentage, type switching, pending/error blocking, confirmation, and Cancel race
-- [ ] container smoke
-- [ ] linux/amd64 container build
-- [ ] linux/arm64 container build
-- [ ] security checks
+- [x] container smoke on pre-final functional head `353ce27491e33f54e01cee0560a177674330564b`
+- [ ] linux/amd64 container build on final head
+- [x] linux/arm64 container build on pre-final functional head `353ce27491e33f54e01cee0560a177674330564b`
+- [x] security checks on pre-final functional head `353ce27491e33f54e01cee0560a177674330564b`
 - [ ] CodeQL
 - [ ] visual evidence workflow for the exact functional head
 - [ ] desktop/mobile screenshot review: alignment, overflow, spacing, semantic output, controls, pending/error states, focus and responsive behavior
@@ -71,4 +71,4 @@ Support explicit and exclusive receipt-line discounts as no discount, fixed EUR 
 
 ## Status
 
-Implementation and regression coverage are in place. CI and final visual review remain authoritative before completion.
+Implementation and regression coverage are in place. CI and final visual review remain authoritative before completion. The coverage gate on `353ce27491e33f54e01cee0560a177674330564b` identified only the malformed-container guard in `parseReceiptLineDiscount`; focused public-contract coverage was added in the subsequent functional commit before this documentation update.
