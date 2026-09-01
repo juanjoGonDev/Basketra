@@ -8,6 +8,12 @@ test('typed receipt discounts reject numeric strings instead of coercing them', 
   assert.throws(() => parseReceiptLineDiscount({ type: 'percentage', basisPoints: '5000' }), /non-negative safe integer/i);
 });
 
+test('typed receipt discounts reject non-object and array containers', () => {
+  for (const value of [null, 88, '50%', []]) {
+    assert.throws(() => parseReceiptLineDiscount(value), /tagged discount object/i);
+  }
+});
+
 test('receipt extraction omits empty unassigned discount collections for compatibility', () => {
   const result = assembleReceiptExtraction([{
     position: 0,
