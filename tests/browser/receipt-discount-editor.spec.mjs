@@ -168,6 +168,7 @@ test('pending and failed calculations keep Save line blocked until the latest re
   await reopened.locator('[data-field="discountValue"]').fill('25');
   await expect.poll(() => typeof releaseCalculation).toBe('function');
   releaseCalculation();
+  await expect(failedState).toContainText('Total actualizado.');
   await expect(reopenedSave).toBeEnabled();
   await reopenedSave.click();
   await expect(reopened).toBeHidden();
