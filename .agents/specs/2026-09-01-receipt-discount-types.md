@@ -71,4 +71,4 @@ Support explicit and exclusive receipt-line discounts as no discount, fixed EUR 
 
 ## Status
 
-Implementation and regression coverage are in place. CI and final visual review remain authoritative before completion. A prior coverage run identified only the malformed-container guard in `parseReceiptLineDiscount`; focused public-contract coverage was added before these documentation-only updates.
+Implementation and regression coverage are in place. CI and final visual review remain authoritative before completion. A prior coverage run identified only the malformed-container guard in `parseReceiptLineDiscount`; focused public-contract coverage was added before these documentation-only updates. This checklist intentionally remains unresolved until the exact final head has completed CI and visual review.
