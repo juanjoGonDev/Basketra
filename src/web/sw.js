@@ -17,7 +17,6 @@ const SHELL = [
   '/receipt-processing.js',
   '/receipt-review.js',
   '/receipt-review.css',
-  '/receipt-discount.css',
   '/receipt-ai-recovery.js',
   '/ui.js',
   '/styles.css',

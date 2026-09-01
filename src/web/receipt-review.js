@@ -14,16 +14,16 @@ import { abortPageWork, clearReceiptExtractionJob } from './receipt-lifecycle.js
 
 let receiptLineEnhancementsInstalled = false;
 
-function ensureReceiptDiscountStylesheet() {
-  if (document.querySelector('link[data-receipt-discount-styles]')) return;
+function ensureReceiptReviewStylesheet() {
+  if (document.querySelector('link[data-receipt-review-styles]')) return;
   const link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = '/receipt-discount.css';
-  link.dataset.receiptDiscountStyles = 'true';
+  link.href = '/receipt-review.css';
+  link.dataset.receiptReviewStyles = 'true';
   document.head.append(link);
 }
 
-ensureReceiptDiscountStylesheet();
+ensureReceiptReviewStylesheet();
 
 export function selectedReviewCapture() {
   return captureByKey(state.selectedReviewCaptureKey) || state.captures[0] || null;
