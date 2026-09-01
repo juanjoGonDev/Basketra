@@ -88,25 +88,25 @@ test('percentage discounts use the backend calculation and render the total as s
   await expect(row.locator('[data-field="discountType"]')).toHaveValue('percentage');
   await expect(row.locator('[data-field="discountValue"]')).toHaveValue('50');
   await expect(total).toHaveJSProperty('tagName', 'OUTPUT');
-  await expect(total).toHaveValue('0.87');
+  await expect(total).toHaveJSProperty('value', '0.87');
   await expect(row).not.toContainText('Se actualiza al cambiar cantidad, precio o descuento.');
   await expect(page.locator('link[data-receipt-discount-styles]')).toHaveAttribute('href', '/receipt-discount.css');
 
   const editor = await openEditor(page);
   await editor.locator('[data-field="discountValue"]').fill('25');
-  await expect(total).toHaveValue('1.31');
+  await expect(total).toHaveJSProperty('value', '1.31');
   await expect.poll(() => calculations.at(-1)?.discount).toEqual({ type: 'percentage', basisPoints: 2_500 });
 
   await editor.locator('[data-field="discountType"]').selectOption('amount');
   await expect(editor.locator('[data-field="discountValue"]')).toHaveValue('');
   await editor.locator('[data-field="discountValue"]').fill('0.25');
-  await expect(total).toHaveValue('1.50');
+  await expect(total).toHaveJSProperty('value', '1.50');
   await expect.poll(() => calculations.at(-1)?.discount).toEqual({ type: 'amount', amountMinor: 25 });
 
   await editor.getByRole('button', { name: 'Cancelar', exact: true }).click();
   await expect(row.locator('[data-field="discountType"]')).toHaveValue('percentage');
   await expect(row.locator('[data-field="discountValue"]')).toHaveValue('50');
-  await expect(total).toHaveValue('0.87');
+  await expect(total).toHaveJSProperty('value', '0.87');
 });
 
 test('pending and failed calculations keep Save line blocked until the latest result is valid', async ({ page }) => {
@@ -215,7 +215,7 @@ test('typed discount editor has no horizontal overflow on mobile or desktop', as
     lineTotalMinor: 87,
     discount: { type: 'percentage', basisPoints: 5_000 },
   })]);
-  let editor = await openEditor(page);
+  const editor = await openEditor(page);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await expect.poll(() => editor.locator('.quantity-row').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
 
@@ -241,7 +241,7 @@ test('percentage corrections retain user intent while confirmation sends the typ
   const editor = await openEditor(page);
   await editor.locator('[data-field="discountType"]').selectOption('percentage');
   await editor.locator('[data-field="discountValue"]').fill('50');
-  await expect(editor.locator('[data-field="lineTotalEuro"]')).toHaveValue('0.87');
+  await expect(editor.locator('[data-field="lineTotalEuro"]')).toHaveJSProperty('value', '0.87');
   await editor.getByRole('button', { name: 'Guardar línea', exact: true }).click();
 
   await page.locator('#receipt-total').fill('0.87');
