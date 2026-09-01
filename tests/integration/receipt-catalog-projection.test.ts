@@ -63,7 +63,8 @@ function readProjection(path: string, receiptId: string) {
 test('confirmed receipt lines become reusable catalog variants with retailer names and immutable prices', () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-receipt-catalog-'));
   const databasePath = join(root, 'basketra.db');
-  const database = new BasketraDatabase(databasePath, { clock: () => new Date('2026-09-01T12:00:00.000Z') });
+  let now = new Date('2026-09-01T12:00:00.000Z');
+  const database = new BasketraDatabase(databasePath, { clock: () => now });
   try {
     const firstInput = receiptInput('receipt-catalog-0001', 'Bebida coco 0% A', 88, 'Alcampo');
     const firstReceiptId = database.importReceipt(firstInput);
@@ -81,6 +82,7 @@ test('confirmed receipt lines become reusable catalog variants with retailer nam
     assert.equal(database.importReceipt(firstInput), firstReceiptId);
     assert.equal(database.listPriceObservations(variantId).length, 1);
 
+    now = new Date('2026-09-01T12:01:00.000Z');
     database.importReceipt(receiptInput('receipt-catalog-0002', 'Bebida coco 0% A', 92, 'Alcampo'));
     assert.equal(database.searchProducts('bebida', 8).length, 1);
     assert.deepEqual(database.listPriceObservations(variantId).map((entry) => entry.priceMinor), [92, 88]);
