@@ -49,6 +49,7 @@ async function setup(page) {
 test('cancel invalidates an edited calculation before a late response can overwrite the restored total', async ({ page }) => {
   let releaseEditedCalculation;
   let editedCalculationStarted = false;
+  let editedCalculationSettled = false;
   let restoredCalculationSeen = false;
 
   await page.route('**/api/v1/receipts/calculate-line', async route => {
@@ -61,6 +62,7 @@ test('cancel invalidates an edited calculation before a late response can overwr
         contentType: 'application/json',
         body: JSON.stringify({ lineTotalMinor: 131, discountMinor: 44 }),
       }).catch(() => {});
+      editedCalculationSettled = true;
       return;
     }
 
@@ -95,6 +97,6 @@ test('cancel invalidates an edited calculation before a late response can overwr
   await expect(total).toHaveJSProperty('value', '0.87');
 
   releaseEditedCalculation?.();
-  await page.waitForTimeout(50);
+  await expect.poll(() => editedCalculationSettled).toBe(true);
   await expect(total).toHaveJSProperty('value', '0.87');
 });
