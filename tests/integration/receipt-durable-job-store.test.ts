@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { BasketraDatabase, CURRENT_SCHEMA_VERSION } from '../../src/infrastructure/database.ts';
+import { BasketraDatabase } from '../../src/infrastructure/database.ts';
 import {
   normalizeReceiptRemoteErrorCode,
   ReceiptDurableJobStore,
@@ -30,13 +30,12 @@ const ocrPage = {
   },
 };
 
-test('schema v6 persists receipt OCR and remote response checkpoints across store restarts', () => {
+test('durable receipt state persists OCR and remote response checkpoints across store restarts', () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-durable-receipt-'));
   const databasePath = join(root, 'basketra.db');
   const deadlineAt = '2026-08-28T12:05:00.000Z';
   let now = new Date('2026-08-28T12:00:00.000Z');
   const database = new BasketraDatabase(databasePath, { clock: () => now });
-  assert.equal(CURRENT_SCHEMA_VERSION, 6);
   const job = database.createReceiptExtractionJob({ captures: [capture], verifyWithAi: true });
 
   const store = new ReceiptDurableJobStore(database.path, { clock: () => now });

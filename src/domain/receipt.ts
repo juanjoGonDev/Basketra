@@ -1,6 +1,6 @@
 export type ReceiptLineDiscount =
-  | Readonly<{ type: 'amount'; amountMinor: number }>
-  | Readonly<{ type: 'percentage'; basisPoints: number }>;
+  | Readonly<{ type: 'amount'; amountMinor: number; quantity?: number }>
+  | Readonly<{ type: 'percentage'; basisPoints: number; quantity?: number }>;
 
 export type ReceiptLineDiscountFields = Readonly<{
   discount?: ReceiptLineDiscount;
@@ -36,6 +36,12 @@ function assertNonNegativeSafeInteger(value: number, label: string): void {
   }
 }
 
+function assertPositiveSafeInteger(value: number, label: string): void {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new RangeError(`${label} must be a positive safe integer`);
+  }
+}
+
 function receiptLineSubtotalMinor(line: Pick<ReceiptLineCalculationInput, 'quantity' | 'unitPriceMinor'>): number {
   assertNonNegativeSafeInteger(line.quantity, 'Receipt line quantity');
   assertNonNegativeSafeInteger(line.unitPriceMinor, 'Receipt line unit price');
@@ -46,19 +52,28 @@ function receiptLineSubtotalMinor(line: Pick<ReceiptLineCalculationInput, 'quant
   return subtotalMinor;
 }
 
+function parseDiscountQuantity(candidate: Record<string, unknown>, path: string): number | undefined {
+  const quantity = candidate['quantity'];
+  if (quantity === undefined) return undefined;
+  if (typeof quantity !== 'number') throw new RangeError(`${path}.quantity must be a positive safe integer`);
+  assertPositiveSafeInteger(quantity, `${path}.quantity`);
+  return quantity;
+}
+
 export function parseReceiptLineDiscount(value: unknown, path = 'discount'): ReceiptLineDiscount {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new RangeError(`${path} must be a tagged discount object`);
   }
   const candidate = value as Record<string, unknown>;
   const type = candidate['type'];
+  const quantity = parseDiscountQuantity(candidate, path);
   if (type === 'amount') {
     if ('basisPoints' in candidate) throw new RangeError(`${path} representation is mixed`);
     if (typeof candidate['amountMinor'] !== 'number') {
       throw new RangeError(`${path}.amountMinor must be a non-negative safe integer`);
     }
     assertNonNegativeSafeInteger(candidate['amountMinor'], `${path}.amountMinor`);
-    return { type, amountMinor: candidate['amountMinor'] };
+    return { type, amountMinor: candidate['amountMinor'], ...(quantity === undefined ? {} : { quantity }) };
   }
   if (type === 'percentage') {
     if ('amountMinor' in candidate) throw new RangeError(`${path} representation is mixed`);
@@ -69,9 +84,18 @@ export function parseReceiptLineDiscount(value: unknown, path = 'discount'): Rec
     if (candidate['basisPoints'] > BASIS_POINTS_PER_WHOLE) {
       throw new RangeError(`${path}.basisPoints cannot exceed 100%`);
     }
-    return { type, basisPoints: candidate['basisPoints'] };
+    return { type, basisPoints: candidate['basisPoints'], ...(quantity === undefined ? {} : { quantity }) };
   }
   throw new RangeError(`${path}.type must be amount or percentage`);
+}
+
+function discountSubtotalMinor(line: ReceiptLineCalculationInput, discount: ReceiptLineDiscount): number {
+  const affectedQuantity = discount.quantity ?? line.quantity;
+  assertPositiveSafeInteger(affectedQuantity, 'Receipt line discount quantity');
+  if (affectedQuantity > line.quantity) {
+    throw new RangeError('Receipt line discount quantity cannot exceed the receipt line quantity');
+  }
+  return receiptLineSubtotalMinor({ quantity: affectedQuantity, unitPriceMinor: line.unitPriceMinor });
 }
 
 /**
@@ -91,12 +115,17 @@ export function calculateReceiptLineDiscountMinor(line: ReceiptLineCalculationIn
   if (line.discount === undefined) return 0;
 
   const discount = parseReceiptLineDiscount(line.discount, 'Receipt line discount');
+  const affectedSubtotalMinor = discountSubtotalMinor(line, discount);
   if (discount.type === 'amount') {
-    if (discount.amountMinor > subtotalMinor) throw new RangeError('Receipt line discount cannot exceed its subtotal');
+    if (discount.amountMinor > affectedSubtotalMinor) {
+      throw new RangeError(discount.quantity === undefined
+        ? 'Receipt line discount cannot exceed its subtotal'
+        : 'Receipt line discount cannot exceed its affected subtotal');
+    }
     return discount.amountMinor;
   }
 
-  const numerator = BigInt(subtotalMinor) * BigInt(discount.basisPoints);
+  const numerator = BigInt(affectedSubtotalMinor) * BigInt(discount.basisPoints);
   return Number((numerator + BigInt(HALF_BASIS_POINT_DENOMINATOR)) / BigInt(BASIS_POINTS_PER_WHOLE));
 }
 

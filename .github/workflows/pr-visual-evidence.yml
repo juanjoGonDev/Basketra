@@ -225,8 +225,10 @@ jobs:
           copy_flow_capture mobile-or-desktop responsive-editor-mobile.png 14-discount-responsive-mobile.png
           copy_flow_capture mobile-or-desktop responsive-editor-desktop.png 14-discount-responsive-desktop.png
           copy_flow_capture restored-total cancel-restored.png 14-discount-cancel.png
+          copy_flow_capture partial-unit-discount-editor partial-unit-discount-mobile.png 14-discount-partial-mobile.png
+          copy_flow_capture partial-unit-discount-editor partial-unit-discount-desktop.png 14-discount-partial-desktop.png
 
-          test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 26
+          test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 28
           test "$(find evidence-assets -maxdepth 1 -type f -name '*.gif' | wc -l)" -eq 12
           test "$(find evidence-assets -maxdepth 1 -type f -name '*.webm' | wc -l)" -eq 12
 
@@ -325,12 +327,16 @@ jobs:
           <td><strong>Calculation error</strong><br><img src="$base/14-discount-error.png" width="320" alt="Receipt line editor showing a failed derived calculation while save remains blocked"></td>
           </tr>
           <tr>
-          <td><strong>Ambiguous discount warning</strong><br><img src="$base/14-discount-ambiguous.png" width="320" alt="Receipt review showing an unassigned percentage discount warning for duplicate items"></td>
+          <td><strong>Genuinely ambiguous discount warning</strong><br><img src="$base/14-discount-ambiguous.png" width="320" alt="Receipt review showing an unassigned percentage discount warning for multiple plausible item matches"></td>
           <td><strong>Responsive editor · mobile</strong><br><img src="$base/14-discount-responsive-mobile.png" width="240" alt="Receipt discount editor on the 360 pixel mobile viewport without horizontal overflow"></td>
           </tr>
           <tr>
           <td><strong>Responsive editor · desktop</strong><br><img src="$base/14-discount-responsive-desktop.png" width="320" alt="Receipt discount editor on the desktop viewport without horizontal overflow"></td>
           <td><strong>Cancel race restored state</strong><br><img src="$base/14-discount-cancel.png" width="320" alt="Receipt line after cancelling an edit and restoring the original discount state without reopening the dialog"></td>
+          </tr>
+          <tr>
+          <td><strong>Partial-unit discount · mobile</strong><br><img src="$base/14-discount-partial-mobile.png" width="240" alt="Receipt editor on mobile showing a grouped two-unit line with a percentage discount applied to one affected unit"></td>
+          <td><strong>Partial-unit discount · desktop</strong><br><img src="$base/14-discount-partial-desktop.png" width="320" alt="Receipt editor on desktop showing a grouped two-unit line with a percentage discount applied to one affected unit"></td>
           </tr>
           </table>
 

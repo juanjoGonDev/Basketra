@@ -1,8 +1,9 @@
 import { api, setBusy } from './api.js';
-import { escapeHtml, hydrateIcons } from './ui.js';
+import { escapeHtml, formatEuroMinor, hydrateIcons } from './ui.js';
 
 const CATALOG_PAGE_SIZE = 50;
 const CATALOG_SEARCH_DELAY_MS = 250;
+const CATALOG_DATE_FORMATTER = new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium' });
 
 const $ = selector => document.querySelector(selector);
 
@@ -36,8 +37,8 @@ function installCatalogView() {
     <div class="page-header catalog-page-header">
       <div>
         <p class="eyebrow">Catálogo</p>
-        <h1>Productos guardados</h1>
-        <p>Reutiliza una ficha, agrupa variantes bajo el mismo producto y guarda cómo se llama en cada comercio.</p>
+        <h1>Catálogo de productos</h1>
+        <p>Tus tickets alimentan este catálogo. Agrupa variantes y consulta cómo se llama y cuánto cuesta cada producto en cada comercio.</p>
       </div>
       <button id="catalog-home" class="button secondary" type="button"><span data-icon="home"></span>Inicio</button>
     </div>
@@ -47,7 +48,7 @@ function installCatalogView() {
         <p class="field-help">Busca por producto, variante, marca, alias o nombre de comercio.</p>
       </div>
       <label class="field catalog-search-field">
-        <span>Buscar productos guardados</span>
+        <span>Buscar productos</span>
         <input id="catalog-search" type="search" maxlength="160" autocomplete="off" placeholder="Ej. leche, arroz o Mercadona">
       </label>
       <p id="catalog-state" class="inline-status" role="status" aria-live="polite"></p>
@@ -55,7 +56,7 @@ function installCatalogView() {
     <div class="catalog-layout">
       <section class="surface catalog-browser" aria-labelledby="catalog-products-title">
         <div class="section-header">
-          <div><p class="eyebrow">Variantes</p><h2 id="catalog-products-title">Guardados</h2></div>
+          <div><p class="eyebrow">Productos</p><h2 id="catalog-products-title">Variantes y precios</h2></div>
           <span id="catalog-product-count" class="count-badge">0</span>
         </div>
         <div id="catalog-products" class="catalog-product-list" aria-live="polite"></div>
@@ -87,6 +88,12 @@ function installCatalogView() {
           <button id="catalog-save-product" class="button primary full" type="submit"><span data-icon="check"></span>Guardar ficha</button>
           <p id="catalog-product-form-state" class="inline-status" role="status"></p>
         </form>
+
+        <fieldset class="flow-group catalog-price-group">
+          <legend>Últimos precios confirmados</legend>
+          <p class="field-help">Se muestra la observación más reciente por comercio o tienda. El historial completo se conserva sin sobrescribir precios anteriores.</p>
+          <div id="catalog-latest-prices" class="catalog-retailer-names" aria-live="polite"></div>
+        </fieldset>
 
         <fieldset class="flow-group catalog-relation-group">
           <legend>Producto padre</legend>
@@ -121,7 +128,7 @@ function installHomeEntry() {
   button.type = 'button';
   button.className = 'dashboard-card';
   button.dataset.catalogEntry = 'true';
-  button.innerHTML = '<span data-icon="store"></span><strong>Productos guardados</strong><small>Editar y relacionar catálogo</small>';
+  button.innerHTML = '<span data-icon="store"></span><strong>Catálogo de productos</strong><small>Variantes y precios por comercio</small>';
   button.addEventListener('click', () => void activateCatalog());
   grid.append(button);
   document.dispatchEvent(new CustomEvent('basketra:hydrate-icons', { detail: { root: button } }));
@@ -187,6 +194,14 @@ function retailerSummary(product) {
   return product.retailerNames.slice(0, 2).map(entry => `${entry.retailerName}: ${entry.title}`).join(' · ');
 }
 
+function latestPriceSummary(product) {
+  if (!product.latestPrices?.length) return 'Sin precios confirmados';
+  return product.latestPrices.slice(0, 2).map(entry => {
+    const location = entry.storeName || entry.retailerName;
+    return `${location}: ${formatEuroMinor(entry.priceMinor)}`;
+  }).join(' · ');
+}
+
 function renderCatalogProducts({ append = false } = {}) {
   const container = $('#catalog-products');
   if (!container) return;
@@ -195,7 +210,7 @@ function renderCatalogProducts({ append = false } = {}) {
   if (products.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'catalog-empty';
-    empty.innerHTML = '<strong>No hay productos que mostrar.</strong><span>Los productos reutilizables que guardes desde tus listas aparecerán aquí.</span>';
+    empty.innerHTML = '<strong>No hay productos que mostrar.</strong><span>Los productos confirmados en tus tickets y los que vincules desde listas aparecerán aquí.</span>';
     container.replaceChildren(empty);
   } else {
     const existingIds = new Set([...container.querySelectorAll('[data-catalog-product-id]')].map(element => element.dataset.catalogProductId));
@@ -211,8 +226,9 @@ function renderCatalogProducts({ append = false } = {}) {
           <strong>${escapeHtml(product.variantName)}</strong>
           <small>${escapeHtml(product.canonicalName)}${product.categoryName ? ` · ${escapeHtml(product.categoryName)}` : ''}</small>
           <small>${escapeHtml(retailerSummary(product))}</small>
+          <small>${escapeHtml(latestPriceSummary(product))}</small>
         </span>
-        <span class="catalog-product-row__action">Editar</span>`;
+        <span class="catalog-product-row__action">Ver ficha</span>`;
       button.addEventListener('click', () => selectCatalogProduct(product.id));
       container.append(button);
     }
@@ -247,6 +263,27 @@ function renderRetailerNames(product) {
   }
 }
 
+function renderLatestPrices(product) {
+  const container = $('#catalog-latest-prices');
+  if (!container) return;
+  container.replaceChildren();
+  if (!product?.latestPrices?.length) {
+    const empty = document.createElement('p');
+    empty.className = 'field-help';
+    empty.textContent = 'Todavía no hay precios confirmados con comercio para esta variante.';
+    container.append(empty);
+    return;
+  }
+  for (const entry of product.latestPrices) {
+    const row = document.createElement('div');
+    row.className = 'catalog-retailer-row';
+    const location = entry.storeName ? `${entry.retailerName} · ${entry.storeName}` : entry.retailerName;
+    const observed = Number.isNaN(Date.parse(entry.observedAt)) ? entry.observedAt : CATALOG_DATE_FORMATTER.format(new Date(entry.observedAt));
+    row.innerHTML = `<span><strong>${escapeHtml(location)}</strong><small>Observado ${escapeHtml(observed)}</small></span><span>${escapeHtml(formatEuroMinor(entry.priceMinor))}</span>`;
+    container.append(row);
+  }
+}
+
 function populateProductForm(product) {
   const detail = $('#catalog-detail');
   if (!detail) return;
@@ -271,6 +308,7 @@ function populateProductForm(product) {
   $('#catalog-retailer-title').value = '';
   renderParents(product);
   renderRetailerNames(product);
+  renderLatestPrices(product);
 }
 
 function selectCatalogProduct(productId) {
@@ -301,7 +339,7 @@ async function loadCatalog({ reset = false } = {}) {
   state.loadController = controller;
   const query = $('#catalog-search')?.value.trim() || '';
   const offset = reset ? 0 : state.catalog.products.length;
-  setCatalogStatus(reset ? 'Cargando productos guardados…' : 'Cargando más productos…');
+  setCatalogStatus(reset ? 'Cargando catálogo…' : 'Cargando más productos…');
   try {
     await ensureCatalogMetadata();
     const result = await api(`/api/v1/catalog?q=${encodeURIComponent(query)}&limit=${CATALOG_PAGE_SIZE}&offset=${offset}`, { signal: controller.signal });
@@ -317,7 +355,7 @@ async function loadCatalog({ reset = false } = {}) {
     }
     renderCatalogProducts({ append: !reset });
     if (state.selectedProductId) populateProductForm(selectedProduct());
-    setCatalogStatus(state.catalog.products.length === 0 ? 'No hay productos guardados para este filtro.' : `${state.catalog.products.length} productos cargados.`, 'success');
+    setCatalogStatus(state.catalog.products.length === 0 ? 'No hay productos para este filtro.' : `${state.catalog.products.length} productos cargados.`, 'success');
   } catch (error) {
     if (error?.name === 'AbortError') return;
     setCatalogStatus(`No se pudo cargar el catálogo: ${error.message}`, 'error');
