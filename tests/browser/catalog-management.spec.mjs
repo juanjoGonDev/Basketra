@@ -186,24 +186,31 @@ test('receipt line total is read-only, backend-derived and ignores stale calcula
   await expect(editor).toBeVisible();
   const quantity = editor.locator('[data-field="quantity"]');
   const unitPrice = editor.locator('[data-field="unitPriceEuro"]');
-  const discount = editor.locator('[data-field="discountEuro"]');
+  const discountType = editor.locator('[data-field="discountType"]');
+  const discountValue = editor.locator('[data-field="discountValue"]');
   const total = editor.locator('[data-field="lineTotalEuro"]');
   await expect(total).toBeVisible();
   await expect(total).toHaveJSProperty('tagName', 'OUTPUT');
-  await expect(total).toHaveAttribute('aria-readonly', 'true');
+  await expect(total).toHaveAttribute('data-derived-total', 'true');
 
   await quantity.fill('1');
   await unitPrice.fill('1.25');
-  await discount.fill('0.20');
+  await discountType.selectOption('amount');
+  await expect(discountValue).toHaveValue('0');
+  await discountValue.fill('0.20');
   await firstRequestStarted;
 
   await quantity.fill('2');
   await expect.poll(() => requests.length).toBeGreaterThanOrEqual(2);
   await expect(total).toHaveText('7.77');
-  await expect.poll(() => requests.at(-1)).toEqual({ quantity: 2, unitPriceMinor: 125, discountMinor: 20 });
+  await expect.poll(() => requests.at(-1)).toEqual({
+    quantity: 2,
+    unitPriceMinor: 125,
+    discount: { type: 'amount', amountMinor: 20 },
+  });
 
   releaseFirstRequest();
   await firstRequestFinished;
   await expect(total).toHaveText('7.77');
-  await expect(total).toHaveAttribute('aria-readonly', 'true');
+  await expect(total).toHaveAttribute('data-derived-total', 'true');
 });
