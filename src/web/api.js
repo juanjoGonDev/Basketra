@@ -427,6 +427,22 @@ function resetDiscountValueAfterTypeChange(target) {
   if (value instanceof HTMLInputElement) value.value = target.value === 'none' ? '' : '0';
 }
 
+function restoredEditorRootFromClick(event) {
+  const button = event.target.closest?.('#cancel-receipt-line-editor, #close-receipt-line-editor');
+  return button?.closest('#receipt-line-dialog')?.querySelector('.receipt-item, [data-receipt-line-editor]');
+}
+
+function restoredEditorRootFromCancel(event) {
+  const dialog = event.target;
+  if (!(dialog instanceof HTMLDialogElement) || dialog.id !== 'receipt-line-dialog') return undefined;
+  return dialog.querySelector('.receipt-item, [data-receipt-line-editor]');
+}
+
+function scheduleRestoredReceiptCalculation(root) {
+  if (!root) return;
+  queueMicrotask(() => scheduleReceiptLineCalculation(root, true));
+}
+
 function initializeReceiptDerivedTotals() {
   if (receiptDerivedTotalsInitialized) return;
   receiptDerivedTotalsInitialized = true;
@@ -452,6 +468,8 @@ function initializeReceiptDerivedTotals() {
     resetDiscountValueAfterTypeChange(event.target);
     scheduleReceiptLineCalculation(receiptLineRoot(event.target), true);
   }, true);
+  document.addEventListener('click', event => scheduleRestoredReceiptCalculation(restoredEditorRootFromClick(event)), true);
+  document.addEventListener('cancel', event => scheduleRestoredReceiptCalculation(restoredEditorRootFromCancel(event)), true);
   document.addEventListener('click', deferReceiptActionUntilCalculated, true);
 }
 
