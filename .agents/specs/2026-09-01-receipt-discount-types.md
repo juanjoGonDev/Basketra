@@ -65,6 +65,7 @@ Support explicit and exclusive receipt-line discounts as no discount, fixed EUR 
 - [x] visual evidence workflow for the exact functional head
 - [x] desktop/mobile screenshot review: alignment, overflow, spacing, semantic output, controls, pending/error states, focus and responsive behavior
 - [x] final functional diff/PR/review-thread inspection
+- [x] documentation-only head revalidation after recording functional evidence
 
 ## Validation evidence
 
@@ -86,14 +87,25 @@ Support explicit and exclusive receipt-line discounts as no discount, fixed EUR 
 - The Cancel E2E additionally asserts the restored percentage type, `50` value, `0.87` derived total, focus restoration, and protection against the late edited calculation after the dialog closes.
 - PR #46 was open, non-draft, mergeable, scoped to 25 discount/evidence/test files, and had no review threads at final functional-head inspection.
 
+### Documentation-head revalidation
+
+- Evidence-recording head: `690d0b01cecaea5177b2f84b8313a5073d3a3cf3`.
+- It is exactly one commit ahead of the validated functional head and changes only `.agents/specs/2026-09-01-receipt-discount-types.md`.
+- Pull Request Quality run: `33528832231` (success), including Quality, Browser E2E, Security, container smoke, linux/amd64 and linux/arm64.
+- CodeQL run: `33528832052` (success).
+- Visual evidence workflow: `33528832213` (success).
+- Browser evidence artifact: `9809047939`, digest `sha256:d99e17ddc4100a13ca8d05e00a5769663ac9f77eedeefc0683e4915c93c326ee`.
+- The exact-head percentage, error, ambiguity, mobile, desktop and Cancel-restoration captures were reviewed again and remained clean.
+- PR #46 remained open, non-draft and mergeable with no review threads or submitted reviews.
+
 ## Delivery
 
 - Branch: `agent/fix-receipt-discount-types`
 - Pull request: #46
 - Merge/release/deploy: prohibited for this task.
 - Rollback: revert the PR; persisted historical `discount_minor` data remains unchanged because no migration is applied.
-- The documentation-only head produced by this spec update must be revalidated after this commit; functional visual evidence remains anchored to the exact validated functional head above.
+- The final status-recording commit is documentation-only. Repository exact-head CI remains the external delivery gate for that commit; the PR validation section is the delivery SSOT for its final SHA and run results.
 
 ## Status
 
-Implementation, regression coverage, exact-head CI, CodeQL, visual evidence publication, manual desktop/mobile screenshot review, and final functional-head PR inspection are complete for `57f18886b254b28d68a3bb52542dd5240a315b26`. The remaining delivery gate is revalidation of the documentation-only head created by this spec update; no further functional change is expected unless that revalidation finds a regression or repository-state issue.
+The requested receipt-discount work is complete: implementation, regression coverage, exact functional-head CI, CodeQL, explicit visual evidence, manual desktop/mobile review, PR inspection, and the subsequent documentation-head revalidation all passed. No merge, release, deployment, dependency addition, or database migration is part of this task.
