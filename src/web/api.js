@@ -424,7 +424,7 @@ function resetDiscountValueAfterTypeChange(target) {
   if (target?.dataset?.field !== 'discountType') return;
   const root = receiptLineRoot(target);
   const value = receiptLineField(root, 'discountValue');
-  if (value instanceof HTMLInputElement) value.value = '';
+  if (value instanceof HTMLInputElement) value.value = target.value === 'none' ? '' : '0';
 }
 
 function initializeReceiptDerivedTotals() {
