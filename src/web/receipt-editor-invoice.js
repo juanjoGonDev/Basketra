@@ -2,6 +2,10 @@ import { euroInputToMinor, formatEuroMinor, hydrateIcons } from './ui.js';
 
 const DIALOG_ID = 'receipt-line-dialog';
 const EDITOR_CALCULATION_FIELD_SELECTOR = '[data-field="quantity"], [data-field="unitPriceEuro"], [data-field="discountType"], [data-field="discountValue"], [data-field="discountQuantity"]';
+const LOCAL_SECTION_ICONS = {
+  package: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z"/><path d="m4.2 7.5 7.8 4.4 7.8-4.4M12 12v9"/></svg>',
+  tag: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13 13 20l-9-9V4h7Z"/><circle cx="8.5" cy="8.5" r="1"/></svg>',
+};
 
 function ensureInvoiceEditorStylesheet() {
   if (document.querySelector('link[data-receipt-invoice-styles]')) return;
@@ -25,11 +29,13 @@ function sectionHeading(step, title, iconName) {
   icon.className = 'receipt-editor-section-heading__icon';
   icon.dataset.icon = iconName;
   icon.setAttribute('aria-hidden', 'true');
+  const localIcon = LOCAL_SECTION_ICONS[iconName];
+  if (localIcon) icon.innerHTML = localIcon;
 
   const titleElement = document.createElement('h3');
   titleElement.textContent = `${step}. ${title}`;
   heading.append(icon, titleElement);
-  hydrateIcons(heading);
+  if (!localIcon) hydrateIcons(heading);
   return heading;
 }
 
@@ -43,6 +49,18 @@ function summaryRow(label, dataAttribute, extraClass = '') {
   value.textContent = '—';
   row.append(term, value);
   return row;
+}
+
+function createSummaryStamp() {
+  const stamp = document.createElement('div');
+  stamp.className = 'receipt-editor-summary__stamp';
+  stamp.setAttribute('aria-hidden', 'true');
+  const mark = document.createElement('span');
+  mark.className = 'receipt-editor-summary__stamp-mark';
+  mark.dataset.icon = 'check';
+  stamp.append(mark);
+  hydrateIcons(stamp);
+  return stamp;
 }
 
 function createSummary() {
@@ -66,7 +84,7 @@ function createSummary() {
   state.className = 'receipt-editor-summary__state status-pill';
   state.dataset.editorSummaryValidation = 'true';
   state.setAttribute('role', 'status');
-  summary.append(heading, values, state);
+  summary.append(heading, values, state, createSummaryStamp());
   return summary;
 }
 
@@ -85,13 +103,122 @@ function editorHeaderValidation(dialog) {
   return status;
 }
 
-function copyValidationState(item, target) {
-  if (!target) return;
+function validationState(item) {
   const canonical = item.querySelector('.receipt-item__legend-actions .status-pill');
-  const confirmed = canonical?.classList.contains('success') || canonical?.dataset.receiptValidation === 'confirmed';
+  return canonical?.classList.contains('success') || canonical?.dataset.receiptValidation === 'confirmed';
+}
+
+function copyValidationState(item, target, summary = false) {
+  if (!target) return;
+  const confirmed = validationState(item);
   target.classList.toggle('success', confirmed);
   target.classList.toggle('warning', !confirmed);
-  target.textContent = confirmed ? 'Validada' : 'Revisar';
+  if (!summary) {
+    target.textContent = confirmed ? 'Validada' : 'Revisar';
+    return;
+  }
+
+  target.replaceChildren();
+  const icon = document.createElement('span');
+  icon.dataset.icon = confirmed ? 'check' : 'alert';
+  icon.setAttribute('aria-hidden', 'true');
+  const text = document.createElement('span');
+  text.textContent = confirmed ? 'Total validado' : 'Revisar total';
+  target.append(icon, text);
+  hydrateIcons(target);
+}
+
+function fieldCaption(control) {
+  const label = control?.closest('label.field');
+  if (!label) return null;
+  return [...label.children].find(child => (
+    child instanceof HTMLSpanElement && !child.classList.contains('receipt-editor-control')
+  )) || null;
+}
+
+function setFieldCaption(control, text) {
+  const caption = fieldCaption(control);
+  if (caption) caption.textContent = text;
+}
+
+function ensureControlShell(control, key) {
+  if (!(control instanceof HTMLInputElement)) return null;
+  const current = control.closest(`.receipt-editor-control[data-editor-affix="${key}"]`);
+  if (current) return current;
+  const shell = document.createElement('span');
+  shell.className = 'receipt-editor-control';
+  shell.dataset.editorAffix = key;
+  control.before(shell);
+  shell.append(control);
+  return shell;
+}
+
+function ensureSuffix(shell, role) {
+  if (!shell) return null;
+  let suffix = shell.querySelector(`[data-editor-affix-role="${role}"]`);
+  if (suffix) return suffix;
+  suffix = document.createElement('span');
+  suffix.className = 'receipt-editor-control__suffix';
+  suffix.dataset.editorAffixRole = role;
+  suffix.setAttribute('aria-hidden', 'true');
+  shell.append(suffix);
+  return suffix;
+}
+
+function ensureAffectedUnitsMeta(shell) {
+  if (!shell) return null;
+  let meta = shell.querySelector('[data-editor-affix-role="affected-units"]');
+  if (meta) return meta;
+  meta = document.createElement('span');
+  meta.className = 'receipt-editor-control__suffix receipt-editor-control__suffix--units';
+  meta.dataset.editorAffixRole = 'affected-units';
+  meta.setAttribute('aria-hidden', 'true');
+  const text = document.createElement('span');
+  text.dataset.editorAffectedUnitsText = 'true';
+  const icon = document.createElement('span');
+  icon.className = 'receipt-editor-control__info';
+  icon.dataset.icon = 'info';
+  meta.append(text, icon);
+  shell.append(meta);
+  hydrateIcons(meta);
+  return meta;
+}
+
+function lineQuantity(item) {
+  const input = item.querySelector('[data-field="quantity"]');
+  const quantity = input instanceof HTMLInputElement ? Number(input.value) : 1;
+  return Number.isSafeInteger(quantity) && quantity > 0 ? quantity : 1;
+}
+
+function syncPresentationControls(item) {
+  const unitPrice = item.querySelector('[data-field="unitPriceEuro"]');
+  const discountType = item.querySelector('[data-field="discountType"]');
+  const discountValue = item.querySelector('[data-field="discountValue"]');
+  const discountQuantity = item.querySelector('[data-field="discountQuantity"]');
+
+  setFieldCaption(item.querySelector('[data-field="description"]'), 'Producto');
+  setFieldCaption(item.querySelector('[data-field="quantity"]'), 'Cantidad');
+  setFieldCaption(unitPrice, 'Precio unitario');
+  setFieldCaption(discountType, 'Tipo');
+  setFieldCaption(discountValue, 'Valor');
+  setFieldCaption(discountQuantity, 'Unidades con descuento');
+
+  const priceShell = ensureControlShell(unitPrice, 'unit-price');
+  const priceSuffix = ensureSuffix(priceShell, 'currency');
+  if (priceSuffix) priceSuffix.textContent = '€';
+
+  const discountShell = ensureControlShell(discountValue, 'discount-value');
+  const discountSuffix = ensureSuffix(discountShell, 'discount');
+  if (discountSuffix) {
+    discountSuffix.textContent = discountType?.value === 'percentage'
+      ? '%'
+      : discountType?.value === 'amount' ? '€' : '';
+  }
+
+  const quantityShell = ensureControlShell(discountQuantity, 'discount-quantity');
+  const quantityMeta = ensureAffectedUnitsMeta(quantityShell);
+  const quantityText = quantityMeta?.querySelector('[data-editor-affected-units-text]');
+  if (quantityText) quantityText.textContent = `de ${lineQuantity(item)}`;
 }
 
 function safeSummaryValues(item) {
@@ -128,8 +255,9 @@ function syncSummary(item) {
   const total = summary.querySelector('[data-editor-summary-total]');
   const validation = summary.querySelector('[data-editor-summary-validation]');
   const dialog = item.closest(`#${DIALOG_ID}`);
-  copyValidationState(item, validation);
+  copyValidationState(item, validation, true);
   copyValidationState(item, editorHeaderValidation(dialog));
+  syncPresentationControls(item);
 
   if (!values) {
     if (base) base.textContent = '—';
@@ -156,6 +284,7 @@ function markSummaryPending(item) {
 function syncCalculationSummaryState(dialog, item) {
   const summary = item.querySelector('.receipt-line-editor-summary');
   if (!summary) return;
+  syncPresentationControls(item);
   const total = item.querySelector('[data-field="lineTotalEuro"]');
   if (total?.getAttribute('aria-busy') === 'true') {
     summary.dataset.summaryState = 'pending';
@@ -196,6 +325,7 @@ function observeCalculationState(dialog, item) {
 function ensureItemLayout(item) {
   if (!(item instanceof HTMLElement)) return;
   if (item.dataset.invoiceEditorLayout === 'true') {
+    syncPresentationControls(item);
     syncSummary(item);
     return;
   }
@@ -215,12 +345,13 @@ function ensureItemLayout(item) {
   const discountTypeLabel = discountType.closest('label');
   if (!descriptionLabel || !discountTypeLabel) return;
 
-  descriptionLabel.before(sectionHeading(1, 'Producto', 'receipt'));
+  descriptionLabel.before(sectionHeading(1, 'Producto', 'package'));
   quantityRow.insertBefore(sectionHeading(2, 'Detalle de compra', 'cart'), quantityRow.firstChild);
-  quantityRow.insertBefore(sectionHeading(3, 'Descuento', 'savings'), discountTypeLabel);
+  quantityRow.insertBefore(sectionHeading(3, 'Descuento', 'tag'), discountTypeLabel);
   quantityRow.insertAdjacentElement('afterend', createSummary());
   item.classList.add('receipt-line-editor-layout');
   item.dataset.invoiceEditorLayout = 'true';
+  syncPresentationControls(item);
   syncSummary(item);
 }
 
@@ -230,6 +361,13 @@ function prepareEditorItem(dialog) {
   ensureItemLayout(item);
   observeCalculationState(dialog, item);
   return item;
+}
+
+function schedulePresentationSync(dialog) {
+  queueMicrotask(() => {
+    const item = editorItem(dialog);
+    if (item) syncPresentationControls(item);
+  });
 }
 
 function enhanceDialog(dialog) {
@@ -251,6 +389,7 @@ function enhanceDialog(dialog) {
   dialog.addEventListener('input', event => {
     const item = editorItem(dialog);
     if (!item) return;
+    schedulePresentationSync(dialog);
     if (event.target?.dataset?.field === 'lineTotalEuro') {
       syncCalculationSummaryState(dialog, item);
       return;
@@ -260,6 +399,7 @@ function enhanceDialog(dialog) {
 
   dialog.addEventListener('change', event => {
     const item = editorItem(dialog);
+    schedulePresentationSync(dialog);
     if (item && event.target?.matches?.(EDITOR_CALCULATION_FIELD_SELECTOR)) markSummaryPending(item);
   });
 
