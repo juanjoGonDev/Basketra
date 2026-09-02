@@ -45,7 +45,7 @@ Stop Basketra from owning AI attachment limits. Use WebAPI as the only functiona
 - Provider runtime-capability coverage includes an attachment larger than the JSON budget but smaller than the live image limit and requires the multipart request to succeed.
 - Canonical Pull Request Quality covers quality, Browser E2E, linux/amd64, linux/arm64, container smoke and Security.
 - CodeQL and visual-evidence publication are required exact-head delivery gates.
-- Browser evidence covers desktop, mobile and calculation-error states; the latest inspected evidence showed no horizontal overflow, inaccessible actions, functional misalignment or hidden error feedback.
+- Final browser evidence must cover desktop, mobile and calculation-error states with no horizontal overflow, inaccessible actions, functional misalignment or hidden error feedback.
 
 ## Risks
 
@@ -64,4 +64,4 @@ Branch `agent/fix-webapi-limit-contract`. Coordinated WebAPI branch `agent/fix-d
 
 ## Status
 
-Implementation and final review are complete. Delivery requires green exact-head CI in Basketra plus a green coordinated WebAPI PR #108; no further code or documentation change is expected unless a gate exposes a new defect.
+Implementation is prepared. Delivery remains contingent on green exact-head Basketra CI, clean exact-head visual/runtime review, and the already-coordinated WebAPI PR #108 remaining green. Any gate defect reopens implementation and must be fixed before final delivery.
