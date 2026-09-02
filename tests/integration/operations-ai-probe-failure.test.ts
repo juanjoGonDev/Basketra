@@ -8,23 +8,22 @@ import test from 'node:test';
 import type { AppConfig } from '../../src/infrastructure/config.ts';
 import { OperationsGateway } from '../../src/operations/gateway.ts';
 
-function config(dataDir: string, providerPort: number): AppConfig {
+function config(dataDir: string): AppConfig {
   return {
     host: '127.0.0.1',
     port: 0,
     dataDir,
     tempDir: `${dataDir}/tmp`,
-    maxBodyBytes: 8 * 1024 * 1024,
-    aiBaseUrl: `http://127.0.0.2:${providerPort}/v1/`,
-    aiModel: 'test-model',
-    aiTimeoutMs: 1_000,
-    aiMaxRetries: 0,
-    aiImageCapability: true,
-    aiPdfCapability: false,
-    overpassBaseUrl: 'http://127.0.0.1:9/api/',
-    idleHibernateAfterMs: 0,
-    idleExitAfterMs: 0,
   };
+}
+
+async function putJson(url: URL, body: Record<string, unknown>): Promise<number> {
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return response.status;
 }
 
 async function postJson(url: URL): Promise<Readonly<{ status: number; body: { connection: Record<string, unknown> } }>> {
@@ -75,7 +74,7 @@ test('operations gateway returns a redacted stable failure when the real capabil
   });
   await new Promise<void>((resolve, reject) => {
     providerServer.once('error', reject);
-    providerServer.listen(0, '0.0.0.0', () => {
+    providerServer.listen(0, '0.0.0', () => {
       providerServer.off('error', reject);
       resolve();
     });
@@ -83,9 +82,17 @@ test('operations gateway returns a redacted stable failure when the real capabil
 
   let gateway: OperationsGateway | undefined;
   try {
-    gateway = new OperationsGateway(config(directory, (providerServer.address() as AddressInfo).port));
+    gateway = new OperationsGateway(config(directory));
     await gateway.listen();
-    const response = await postJson(new URL('/api/v1/settings/ai-provider/test', `http://127.0.0.1:${gateway.address().port}`));
+    const baseUrl = new URL(`http://127.0.0.1:${gateway.address().port}`);
+    assert.equal(await putJson(new URL('/api/v1/settings/runtime', baseUrl), {
+      aiBaseUrl: `http://127.0.0.2:${(providerServer.address() as AddressInfo).port}/v1/`,
+      aiModel: 'test-model',
+      aiApiKey: null,
+      aiMaxRetries: 0,
+    }), 200);
+
+    const response = await postJson(new URL('/api/v1/settings/ai-provider/test', baseUrl));
 
     assert.equal(response.status, 502);
     assert.equal(authorization, undefined);
