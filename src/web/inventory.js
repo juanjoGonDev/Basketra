@@ -5,7 +5,7 @@ const STORE_PAGE_SIZE = 12;
 const SEARCH_DELAY_MS = 250;
 const DATE_FORMATTER = new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium' });
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium', timeStyle: 'short' });
-const OVERVIEW_DESTINATIONS = ['catalog', 'categories', 'stores'] as const;
+const OVERVIEW_DESTINATIONS = ['catalog', 'categories', 'stores'];
 
 const $ = selector => document.querySelector(selector);
 
