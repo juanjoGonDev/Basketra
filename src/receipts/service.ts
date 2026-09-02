@@ -140,17 +140,16 @@ export class ReceiptPageTaskQueue {
 export class ReceiptExtractionService {
   readonly #fileStore: FileStore;
   readonly #getAiProvider: () => AiProvider;
-  readonly #maxRetries: number;
+  readonly #getMaxRetries: () => number;
   readonly #localOcrProvider: OcrProvider;
   readonly #pageQueue: ReceiptPageTaskQueue;
   readonly #aiQueue: ReceiptPageTaskQueue;
   readonly #aiVerificationBudgetMs: number;
-  #aiOcrProvider: MultimodalAiOcrProvider | undefined;
 
   constructor(
     fileStore: FileStore,
     getAiProvider: () => AiProvider,
-    maxRetries: number,
+    maxRetries: number | (() => number),
     localOcrProvider: OcrProvider = new TesseractCliOcrProvider(),
     pageQueue: ReceiptPageTaskQueue = new ReceiptPageTaskQueue(),
     aiQueue: ReceiptPageTaskQueue = new ReceiptPageTaskQueue(DEFAULT_AI_CONCURRENCY),
@@ -166,11 +165,12 @@ export class ReceiptExtractionService {
     }
     this.#fileStore = fileStore;
     this.#getAiProvider = getAiProvider;
-    this.#maxRetries = maxRetries;
+    this.#getMaxRetries = typeof maxRetries === 'function' ? maxRetries : () => maxRetries;
     this.#localOcrProvider = localOcrProvider;
     this.#pageQueue = pageQueue;
     this.#aiQueue = aiQueue;
     this.#aiVerificationBudgetMs = aiVerificationBudgetMs;
+    this.maxRetries();
   }
 
   parseRequest(value: unknown): ReceiptExtractionRequest {
@@ -239,8 +239,6 @@ export class ReceiptExtractionService {
     this.#pageQueue.dispose();
     this.#aiQueue.dispose();
     this.#localOcrProvider.dispose();
-    this.#aiOcrProvider?.dispose();
-    this.#aiOcrProvider = undefined;
   }
 
   private queueOcrPages(
@@ -321,10 +319,14 @@ export class ReceiptExtractionService {
       return this.#localOcrProvider.recognize(input, signal);
     }
 
-    return this.#aiQueue.run(
-      () => this.getAiOcrProvider().recognize(input, signal),
-      signal,
-    );
+    return this.#aiQueue.run(async () => {
+      const provider = new MultimodalAiOcrProvider(this.#getAiProvider(), this.maxRetries());
+      try {
+        return await provider.recognize(input, signal);
+      } finally {
+        provider.dispose();
+      }
+    }, signal);
   }
 
   private async verifyPageWithAi(
@@ -336,7 +338,7 @@ export class ReceiptExtractionService {
     const stored = this.#fileStore.read(capture.storageKey);
     const ai = await verifyReceiptWithAi(
       this.#getAiProvider(),
-      this.#maxRetries,
+      this.maxRetries(),
       page.text,
       {
         mimeType: stored.mimeType,
@@ -382,9 +384,12 @@ export class ReceiptExtractionService {
     return verified;
   }
 
-  private getAiOcrProvider(): MultimodalAiOcrProvider {
-    this.#aiOcrProvider ??= new MultimodalAiOcrProvider(this.#getAiProvider(), this.#maxRetries);
-    return this.#aiOcrProvider;
+  private maxRetries(): number {
+    const maxRetries = this.#getMaxRetries();
+    if (!Number.isSafeInteger(maxRetries) || maxRetries < 0 || maxRetries > 10) {
+      throw new RangeError('AI max retries must be an integer between 0 and 10');
+    }
+    return maxRetries;
   }
 }
 
