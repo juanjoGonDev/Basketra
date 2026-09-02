@@ -1,6 +1,8 @@
 import { AiProviderError, type AiAttachmentInput } from '../ai/provider.ts';
+import type { CategoryDescriptor } from '../domain/categories.ts';
 import { asRecord } from '../domain/validation.ts';
 import {
+  buildReceiptCategoryContext,
   buildReceiptVerificationInstructions,
   buildNumberedReceiptText,
   RECEIPT_PAGE_VERIFICATION_SCHEMA_NAME,
@@ -44,6 +46,7 @@ export type CreateReceiptResponseInput = Readonly<{
   attachment: AiAttachmentInput;
   pageCount: number;
   pagePosition: number;
+  categoryInventory?: readonly CategoryDescriptor[];
   signal?: AbortSignal;
 }>;
 
@@ -95,6 +98,7 @@ export class ReceiptResponsesClient {
               text: [
                 'Numbered OCR transcription for this same attachment:',
                 buildNumberedReceiptText(originalText),
+                buildReceiptCategoryContext(input.categoryInventory ?? []),
               ].join('\n'),
             },
             buildResponsesAttachment(input.attachment),
