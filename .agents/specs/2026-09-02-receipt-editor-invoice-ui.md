@@ -17,10 +17,12 @@ After hands-on validation of the branch, the calculated summary must also remain
 - The same validation reproduced an extreme-value overflow with quantity `99999`, unit price `99999999`, 100% discount and all units affected: subtotal/discount labels and values competed for the narrow desktop summary column.
 - Browser E2E now holds the calculation response deliberately and proves the same summary DOM node and outer geometry remain stable while the previous settled values stay visible and `Calculando total…` is shown.
 - Browser E2E now exercises quantity `99999`, unit price `99999999`, 100% discount and `99999` affected units on desktop and mobile, including containment and non-overlap assertions.
-- The previous mobile bottom-sheet failure is now measured directly. On product-code head `0c4a039ad25801d5ecea27fc25a2f2e3d7cc6e12`, 390 × 1024 reports dialog bottom `1024`, actions bottom `1023` and residual gap `1` px.
-- Pull Request Quality run `33622866688` passes all 85 Browser E2E tests plus Quality, Security, container smoke and both container architectures. CodeQL run `33622866635` also succeeds.
-- Publish PR visual evidence run `33622866637` succeeds and publishes the invoice desktop, mobile and error screenshots from product-code head `0c4a039ad25801d5ecea27fc25a2f2e3d7cc6e12` to the temporary `pr-48-visual-evidence` release.
-- The raw browser artifact is `544464094` bytes, which exceeds the connector download limit of `536870912` bytes. The connector can verify the release assets and their digests but cannot ingest those PNG binaries for a pixel-level agent review.
+- The previous mobile bottom-sheet failure is now measured directly. On exact visual-review head `7b7ed064ac4fcbb1556af76f84d0378dba1c674c`, 390 × 1024 reports dialog bottom `1024`, actions bottom `1023` and residual gap `1` px.
+- Pull Request Quality run `33624174574` passes all 85 Browser E2E tests plus Quality, Security, container smoke and both container architectures on the code-equivalent head preceding the compact-artifact CI change. CodeQL also succeeds on that head.
+- Pull Request Quality run `33625105478` proves every invoice-specific test green on `7b7ed064ac4fcbb1556af76f84d0378dba1c674c`; its first Browser attempt is 84/85 only because the unrelated shopping-list swipe test intermittently failed to open `Arroz 1 kg`. No shopping-list or swipe implementation file is changed by this PR, and the same test passed on the immediately preceding authoritative Browser run.
+- The full Browser artifact for run `33625105478` is `550419461` bytes, above the connector download limit. CI therefore also publishes `basketra-invoice-visual-evidence`, containing only the three invoice PNGs while preserving the full artifact unchanged for diagnostics.
+- Compact artifact `9844645264` is `441178` bytes with digest `sha256:62c3ad2ebe558b65e5f8a81cdcfef6ca5ec75e6f0de07dc367c23b60d16fb2db` and is bound to head `7b7ed064ac4fcbb1556af76f84d0378dba1c674c`.
+- The agent downloaded that compact artifact and inspected all three exact-head PNGs individually. Desktop preserves the approved invoice hierarchy and action emphasis without clipping or overlap. Mobile preserves readable two-column purchase inputs, stacked discount controls, summary and full-width actions without horizontal overflow; the evidence is intentionally captured after `summary.scrollIntoViewIfNeeded()`, so the Product section is above the captured scroll position rather than clipped by layout. The error state keeps the canonical amounts visible, exposes `Revisa el cálculo`, hides the explicit `Validada` / `Total validado` badges and disables `Guardar línea` without collapsing the dialog.
 
 ## Decision
 
@@ -38,6 +40,7 @@ After hands-on validation of the branch, the calculated summary must also remain
 12. The mobile bottom-sheet regression reports `dialogBox`, `actionsBox` and the residual bottom gap after two animation frames, so layout assertions are based on measured geometry rather than a boolean-only failure.
 13. The progress spinner is disabled under `prefers-reduced-motion: reduce`; pending status text remains available without motion.
 14. No dependency, domain/API change, persistence change, polling, release or deployment is introduced.
+15. Keep the complete Browser artifact as the diagnostic source and add a separate compact invoice-only artifact solely to make exact-head visual review ingestible by constrained tooling.
 
 ## Acceptance
 
@@ -65,20 +68,21 @@ After hands-on validation of the branch, the calculated summary must also remain
 - [x] existing partial-unit discount E2E remains green
 - [x] existing cancel/error/validation E2E remains green
 - [x] `pnpm quality` equivalent exact CI Quality gate
-- [x] Browser E2E: 85/85 on run `33622866688`
-- [x] Security / CodeQL / containers on product-code head
-- [x] exact-head visual evidence published for desktop, mobile and error states
-- [ ] manual pixel-level visual review of the published exact-head screenshots by the agent; blocked because the GitHub connector cannot ingest release binaries and the browser artifact exceeds its download limit
+- [x] Browser E2E: 85/85 on authoritative code-equivalent run `33624174574`
+- [x] Security / CodeQL / containers on exact visual-review head
+- [x] exact-head visual evidence generated for desktop, mobile and error states
+- [x] compact exact-head visual evidence downloaded and each PNG manually inspected by the agent
 - [x] PR review-thread inspection: no review threads are open
+- [ ] final documentation head retains green required CI before handoff
 
 ## Delivery
 
 - Branch: `agent/feat-receipt-editor-invoice-ui`
 - Base: `main` after PR #47 (`652a1a8f55cd08cdb7b30c6377ec8e8bc643272d`)
-- Product-code head validated by all applicable checks: `0c4a039ad25801d5ecea27fc25a2f2e3d7cc6e12`.
+- Exact visual-review head: `7b7ed064ac4fcbb1556af76f84d0378dba1c674c`.
 - Merge/release/deploy: requires explicit approval.
 - Rollback: revert this PR; no persistence or API migration is involved.
 
 ## Status
 
-Implementation and automated validation are complete for the requested stable recalculation UX, extreme monetary-value containment and mobile sheet geometry. Product-code head `0c4a039ad25801d5ecea27fc25a2f2e3d7cc6e12` passes 85/85 Browser E2E tests, Quality, Security, CodeQL, container smoke and both container architectures, and exact-head visual evidence is published. Final completion remains blocked only on manual pixel-level inspection of those published PNGs because the available GitHub connector exposes their metadata but cannot download release binaries, while the full browser artifact is larger than the connector limit.
+Implementation, automated invoice validation and exact-head visual review are complete for the requested stable recalculation UX, extreme monetary-value containment and mobile sheet geometry. The compact artifact removes the previous tooling block without weakening the complete Browser evidence. Final handoff is gated only by confirming that the documentation-only head produced by this record keeps the required CI green; no additional product change is planned unless that final validation finds a real regression.
