@@ -217,7 +217,7 @@ export class BasketraServer {
         databasePath: this.#database.path,
         readJson: async () => await this.readJson(request),
         send: (status, body) => this.json(response, status, body),
-        publish: (entityId) => this.publishRealtime({ entityType: 'product', mutation: 'updated', entityId, updatedAt: undefined }),
+        publish: (entityId) => this.publishRealtime({ entityType: 'product', mutation: 'updated', entityId }),
       })) return;
       if (await handleReceiptCalculationRequest({
         method: request.method,
