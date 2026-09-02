@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { UNKNOWN_CATEGORY_COLOR, UNKNOWN_CATEGORY_NAME } from '../../src/domain/categories.ts';
+import { DatabaseSync } from 'node:sqlite';
+import {
+  UNKNOWN_CATEGORY_COLOR,
+  UNKNOWN_CATEGORY_ID,
+  UNKNOWN_CATEGORY_NAME,
+} from '../../src/domain/categories.ts';
 import { CategoryRepository } from '../../src/infrastructure/category-repository.ts';
 import { BasketraDatabase, CURRENT_SCHEMA_VERSION } from '../../src/infrastructure/database.ts';
 
@@ -15,8 +20,9 @@ test('category migration and repository preserve an arbitrary-depth hierarchy wi
   const repository = new CategoryRepository(database.path, () => FIXED_NOW);
 
   try {
-    assert.equal(CURRENT_SCHEMA_VERSION, 8);
+    assert.equal(CURRENT_SCHEMA_VERSION, 9);
     const unknown = repository.ensureUnknown();
+    assert.equal(unknown.id, UNKNOWN_CATEGORY_ID);
     assert.equal(unknown.name, UNKNOWN_CATEGORY_NAME);
     assert.equal(unknown.color, UNKNOWN_CATEGORY_COLOR);
     assert.equal(unknown.parentId, undefined);
@@ -59,6 +65,88 @@ test('category migration and repository preserve an arbitrary-depth hierarchy wi
     assert.equal(unchangedFood?.parentId, undefined);
   } finally {
     database.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('category migration normalizes a legacy desconocido id without breaking references', () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-category-identity-'));
+  const databasePath = join(root, 'basketra.db');
+  const legacy = new DatabaseSync(databasePath);
+  try {
+    legacy.exec(`
+      PRAGMA foreign_keys = ON;
+      CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+      CREATE TABLE schema_migration_backups(
+        backup_name TEXT PRIMARY KEY,
+        from_version INTEGER NOT NULL CHECK(from_version >= 0),
+        to_version INTEGER NOT NULL CHECK(to_version > from_version),
+        bytes INTEGER NOT NULL CHECK(bytes > 0),
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE product_categories(
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+        description TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        parent_id TEXT REFERENCES product_categories(id) CHECK(parent_id IS NULL OR parent_id <> id),
+        color TEXT
+      );
+      CREATE TABLE canonical_products(
+        id TEXT PRIMARY KEY,
+        category_id TEXT REFERENCES product_categories(id)
+      );
+      CREATE TABLE receipt_items(
+        id TEXT PRIMARY KEY,
+        category_id TEXT REFERENCES product_categories(id)
+      );
+      INSERT INTO schema_migrations(version, applied_at) VALUES (8, '2026-09-02T00:00:00.000Z');
+      INSERT INTO product_categories(id, name, parent_id, color, description, created_at, updated_at)
+      VALUES ('category_legacy_unknown', 'desconocido', NULL, '#64748B', NULL, '2026-09-02T00:00:00.000Z', '2026-09-02T00:00:00.000Z');
+      INSERT INTO product_categories(id, name, parent_id, color, description, created_at, updated_at)
+      VALUES ('category_child', 'Sin clasificar hijo', 'category_legacy_unknown', '#AABBCC', NULL, '2026-09-02T00:00:00.000Z', '2026-09-02T00:00:00.000Z');
+      INSERT INTO canonical_products(id, category_id) VALUES ('product_legacy', 'category_legacy_unknown');
+      INSERT INTO receipt_items(id, category_id) VALUES ('receipt_item_legacy', 'category_legacy_unknown');
+    `);
+  } finally {
+    legacy.close();
+  }
+
+  const database = new BasketraDatabase(databasePath, { clock: () => FIXED_NOW });
+  database.close();
+
+  const migrated = new DatabaseSync(databasePath, { readOnly: true });
+  try {
+    const unknown = migrated.prepare(`
+      SELECT id, name, parent_id AS parentId, color
+      FROM product_categories
+      WHERE name = ? COLLATE NOCASE
+    `).get(UNKNOWN_CATEGORY_NAME) as { id: string; name: string; parentId: string | null; color: string | null };
+    assert.deepEqual(unknown, {
+      id: UNKNOWN_CATEGORY_ID,
+      name: UNKNOWN_CATEGORY_NAME,
+      parentId: null,
+      color: UNKNOWN_CATEGORY_COLOR,
+    });
+    assert.equal(
+      (migrated.prepare('SELECT parent_id AS parentId FROM product_categories WHERE id = ?').get('category_child') as { parentId: string }).parentId,
+      UNKNOWN_CATEGORY_ID,
+    );
+    assert.equal(
+      (migrated.prepare('SELECT category_id AS categoryId FROM canonical_products WHERE id = ?').get('product_legacy') as { categoryId: string }).categoryId,
+      UNKNOWN_CATEGORY_ID,
+    );
+    assert.equal(
+      (migrated.prepare('SELECT category_id AS categoryId FROM receipt_items WHERE id = ?').get('receipt_item_legacy') as { categoryId: string }).categoryId,
+      UNKNOWN_CATEGORY_ID,
+    );
+    assert.equal(
+      (migrated.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number }).version,
+      CURRENT_SCHEMA_VERSION,
+    );
+  } finally {
+    migrated.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
