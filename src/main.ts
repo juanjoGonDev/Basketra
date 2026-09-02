@@ -29,8 +29,6 @@ async function shutdown(signal: string): Promise<void> {
   deadline.unref();
   try {
     await gateway.close();
-    uninstallAiRuntimeCapabilitiesCache?.();
-    uninstallAiRuntimeCapabilitiesCache = undefined;
     clearTimeout(deadline);
     process.exitCode = 0;
   } catch (error) {
@@ -41,19 +39,23 @@ async function shutdown(signal: string): Promise<void> {
       errorName: error instanceof Error ? error.name : typeof error,
     })}\n`);
     process.exitCode = 1;
+  } finally {
+    uninstallAiRuntimeCapabilitiesCache?.();
+    uninstallAiRuntimeCapabilitiesCache = undefined;
   }
 }
 
 gateway = new OperationsGateway(config, {
   requestRestart: () => void shutdown('RESTORE_STAGED'),
 });
-if (config.aiBaseUrl && config.aiModel) {
-  uninstallAiRuntimeCapabilitiesCache = installAiRuntimeCapabilitiesCache({
-    databasePath: join(config.dataDir, 'basketra.db'),
-    baseUrl: new URL(config.aiBaseUrl),
-    model: config.aiModel,
-  });
-}
+uninstallAiRuntimeCapabilitiesCache = installAiRuntimeCapabilitiesCache({
+  databasePath: join(config.dataDir, 'basketra.db'),
+  provider: () => {
+    const settings = gateway.runtimeSettings();
+    if (!settings.aiBaseUrl || !settings.aiModel) return undefined;
+    return { baseUrl: new URL(settings.aiBaseUrl), model: settings.aiModel };
+  },
+});
 
 process.once('SIGTERM', () => void shutdown('SIGTERM'));
 process.once('SIGINT', () => void shutdown('SIGINT'));
@@ -61,8 +63,3 @@ process.once('SIGINT', () => void shutdown('SIGINT'));
 await gateway.listen();
 const address = gateway.address();
 console.log(JSON.stringify({ level: 'info', event: 'server_started', host: address.host, port: address.port }));
-
-if (config.idleExitAfterMs > 0) {
-  const idleExitTimer = setTimeout(() => void shutdown('IDLE_EXIT'), config.idleExitAfterMs);
-  idleExitTimer.unref();
-}
