@@ -62,7 +62,7 @@ async function elementBox(locator) {
   };
 }
 
-test('receipt editor uses invoice hierarchy on desktop', async ({ page }, testInfo) => {
+test('invoice-editor-desktop', async ({ page }, testInfo) => {
   await setup(page, 1280, 900);
   const dialog = await openEditor(page);
 
@@ -90,7 +90,7 @@ test('receipt editor uses invoice hierarchy on desktop', async ({ page }, testIn
   await dialog.screenshot({ path: testInfo.outputPath('invoice-editor-desktop.png') });
 });
 
-test('receipt editor reflows as an invoice sheet across mobile widths', async ({ page }, testInfo) => {
+test('invoice-editor-mobile', async ({ page }, testInfo) => {
   await setup(page, 360, 800);
   const dialog = await openEditor(page);
 
@@ -140,7 +140,7 @@ test('invoice summary follows the backend-derived total without treating descrip
   await expect(dialog.locator('[data-editor-summary-total]')).toHaveText('2,62 €');
 });
 
-test('invoice summary exposes calculation failure and recovers with the canonical backend total', async ({ page }, testInfo) => {
+test('invoice-editor-error', async ({ page }, testInfo) => {
   await setup(page, 1280, 900);
   let rejectNextCalculation = true;
   await page.route('**/api/v1/receipts/calculate-line', async route => {
