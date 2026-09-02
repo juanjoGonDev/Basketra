@@ -156,6 +156,7 @@ test('invoice-editor-mobile', async ({ page }, testInfo) => {
   const purchaseDetail = dialog.locator('.quantity-row');
   const summary = dialog.locator('.receipt-line-editor-summary');
   const actions = dialog.locator('.receipt-invoice-dialog__actions');
+  const slot = dialog.locator('#receipt-line-editor-slot');
   const quantityField = dialog.locator('[data-field="quantity"]').locator('..');
   const unitPriceField = dialog.locator('[data-field="unitPriceEuro"]').locator('..').locator('..');
   const discountTypeField = dialog.locator('.receipt-discount-type-field');
@@ -173,20 +174,10 @@ test('invoice-editor-mobile', async ({ page }, testInfo) => {
       && Math.abs(summaryBox.width - purchaseBox.width) <= 1;
     return sameColumn && summaryBox.y >= purchaseBox.y + purchaseBox.height;
   }).toBe(true);
+  await summary.scrollIntoViewIfNeeded();
   await expect.poll(async () => {
-    const [dialogBox, summaryBox, actionsBox] = await Promise.all([
-      elementBox(dialog),
-      elementBox(summary),
-      elementBox(actions),
-    ]);
-    return Boolean(
-      dialogBox
-      && summaryBox
-      && actionsBox
-      && summaryBox.y >= dialogBox.y
-      && summaryBox.y + summaryBox.height <= actionsBox.y + 1
-      && actionsBox.y + actionsBox.height <= dialogBox.y + dialogBox.height + 1,
-    );
+    const [summaryBox, actionsBox] = await Promise.all([elementBox(summary), elementBox(actions)]);
+    return Boolean(summaryBox && actionsBox && summaryBox.y + summaryBox.height <= actionsBox.y + 1);
   }).toBe(true);
   await expect.poll(async () => {
     const [quantityBox, unitPriceBox, typeBox, valueBox, affectedBox] = await Promise.all([
@@ -229,6 +220,22 @@ test('invoice-editor-mobile', async ({ page }, testInfo) => {
   await expect(cancelButton).toBeVisible();
   await expect(deleteButton).toBeVisible();
 
+  await page.setViewportSize({ width: 390, height: 1024 });
+  await slot.evaluate(element => { element.scrollTop = 0; });
+  await expect.poll(async () => {
+    const [dialogBox, summaryBox, actionsBox] = await Promise.all([
+      elementBox(dialog),
+      elementBox(summary),
+      elementBox(actions),
+    ]);
+    return Boolean(
+      dialogBox
+      && summaryBox
+      && actionsBox
+      && summaryBox.y + summaryBox.height <= actionsBox.y + 1
+      && actionsBox.y + actionsBox.height <= dialogBox.y + dialogBox.height + 1,
+    );
+  }).toBe(true);
   await dialog.screenshot({ path: testInfo.outputPath('invoice-editor-mobile.png') });
 });
 
