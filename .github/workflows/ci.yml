@@ -97,6 +97,14 @@ jobs:
             test-results
           if-no-files-found: warn
           retention-days: 7
+      - name: Upload compact invoice evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: basketra-invoice-visual-evidence
+          path: test-results/**/invoice-editor-*.png
+          if-no-files-found: warn
+          retention-days: 7
 
   container:
     name: "📦 Container (${{ matrix.platform }})"

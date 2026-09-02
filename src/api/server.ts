@@ -50,6 +50,8 @@ const STATIC_ASSETS = new Set([
   'receipt-processing.js',
   'receipt-review.js',
   'receipt-review.css',
+  'receipt-editor-invoice.js',
+  'receipt-editor-invoice.css',
   'receipt-ai-recovery.js',
   'ui.js',
   'styles.css',
