@@ -25,6 +25,9 @@ test('inventory management keeps one owner per ticket and statistics boundary', 
 
   assert.match(reads, /pathname === '\/api\/v1\/inventory\/statistics'/u);
   assert.match(reads, /pathname === '\/api\/v1\/inventory\/tickets'/u);
-  assert.match(tickets, /\/api\/v1\/inventory\/tickets/u);
+  assert.match(tickets, /handleInventoryTicketManagementRequest/u);
+  assert.match(tickets, /delete-impact/u);
+  assert.match(tickets, /context\.method === 'PATCH'/u);
+  assert.match(tickets, /context\.method === 'DELETE'/u);
   assert.match(tickets, /status = 'deleted'/u);
 });
