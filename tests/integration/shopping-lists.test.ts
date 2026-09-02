@@ -150,8 +150,9 @@ test('version-one databases migrate completion, collaboration and category data 
     assert.equal(completed.version, 2);
 
     const categories = database.listCategories();
-    assert.equal(categories.length, 1);
-    assert.equal(categories[0]?.name, 'Lácteos');
+    assert.equal(categories.length, 2);
+    assert.ok(categories.some((category) => category.name === 'Lácteos'));
+    assert.ok(categories.some((category) => category.name === 'desconocido'));
     const product = database.getProductVariant('legacy_variant');
     assert.equal(product?.categoryName, 'Lácteos');
   } finally {
@@ -173,6 +174,11 @@ test('version-one databases migrate completion, collaboration and category data 
     const receiptJobColumns = raw.prepare('PRAGMA table_info(receipt_extraction_jobs)').all() as Array<{ name: string }>;
     assert.ok(receiptJobColumns.some((column) => column.name === 'status'));
     assert.ok(receiptJobColumns.some((column) => column.name === 'result_json'));
+    const categoryColumns = raw.prepare('PRAGMA table_info(product_categories)').all() as Array<{ name: string }>;
+    assert.ok(categoryColumns.some((column) => column.name === 'parent_id'));
+    assert.ok(categoryColumns.some((column) => column.name === 'color'));
+    const receiptItemColumns = raw.prepare('PRAGMA table_info(receipt_items)').all() as Array<{ name: string }>;
+    assert.ok(receiptItemColumns.some((column) => column.name === 'category_id'));
     const row = raw.prepare('SELECT completed, completed_at AS completedAt, version FROM shopping_list_items WHERE list_id = ?').get('list_fixture') as { completed: number; completedAt: string | null; version: number };
     assert.equal(row.completed, 1);
     assert.equal(row.version, 2);
