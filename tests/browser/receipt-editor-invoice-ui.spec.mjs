@@ -112,3 +112,38 @@ test('invoice summary follows the backend-derived total', async ({ page }) => {
   await expect(dialog.locator('[data-editor-summary-discount]')).toHaveText('-0,88 €');
   await expect(dialog.locator('[data-editor-summary-total]')).toHaveText('2,62 €');
 });
+
+test('invoice summary exposes calculation failure and recovers with the canonical backend total', async ({ page }, testInfo) => {
+  await setup(page, 1280, 900);
+  let rejectNextCalculation = true;
+  await page.route('**/api/v1/receipts/calculate-line', async route => {
+    if (!rejectNextCalculation) {
+      await route.fallback();
+      return;
+    }
+    rejectNextCalculation = false;
+    await route.fulfill({
+      status: 422,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'VALIDATION_ERROR', message: 'Invalid discount' } }),
+    });
+  });
+
+  const dialog = await openEditor(page);
+  const affectedUnits = dialog.getByLabel('Unidades con descuento');
+  const summary = dialog.locator('.receipt-line-editor-summary');
+  const save = dialog.getByRole('button', { name: 'Guardar línea', exact: true });
+
+  await affectedUnits.fill('2');
+  await expect(dialog.locator('.receipt-line-derived-state')).toContainText('No se pudo calcular el total: Invalid discount');
+  await expect(save).toBeDisabled();
+  await expect(summary).toHaveAttribute('data-summary-state', 'error');
+  await expect(summary).not.toHaveAttribute('data-summary-state', 'pending');
+  await dialog.screenshot({ path: testInfo.outputPath('invoice-editor-calculation-error.png') });
+
+  await affectedUnits.fill('1');
+  await expect(dialog.locator('[data-field="lineTotalEuro"]')).toHaveJSProperty('value', '2.62');
+  await expect(save).toBeEnabled();
+  await expect(summary).toHaveAttribute('data-summary-state', 'ready');
+  await expect(dialog.locator('[data-editor-summary-total]')).toHaveText('2,62 €');
+});
