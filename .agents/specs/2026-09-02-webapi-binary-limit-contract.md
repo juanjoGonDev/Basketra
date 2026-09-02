@@ -40,9 +40,9 @@ Stop Basketra from owning AI attachment limits. Use WebAPI as the only functiona
 
 - Focused unit/integration coverage validates response multipart transport and capability caching.
 - Database persistence/reopen regression is covered.
-- Existing receipt durable recovery and browser capability suites passed on head `1c10f65c1050e38f9557a2946f5c3bc5631d318e` before this documentation-only final-review commit.
+- Existing receipt durable recovery and browser capability suites passed on head `1c10f65c1050e38f9557a2946f5c3bc5631d318e` before the final-review documentation update.
 - Pull Request Quality, Browser E2E, container/smoke, Security, CodeQL and visual-evidence workflows were green on that implementation head.
-- Canonical CI must be rechecked on the final documentation head before handoff.
+- Canonical exact-head CI remains the delivery gate for the final branch state.
 
 ## Risks
 
@@ -61,4 +61,4 @@ Branch `agent/fix-webapi-limit-contract`. Coordinated WebAPI branch `agent/fix-d
 
 ## Status
 
-Implementation complete. Final exact-head CI and coordinated WebAPI CI/final review remain pending.
+Implementation complete. Canonical exact-head CI and final PR review are required before handoff.
