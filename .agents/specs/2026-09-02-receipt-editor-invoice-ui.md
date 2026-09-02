@@ -23,6 +23,7 @@ After hands-on validation of the branch, the calculated summary must also remain
 - The full Browser artifact for run `33625105478` is `550419461` bytes, above the connector download limit. CI therefore also publishes `basketra-invoice-visual-evidence`, containing only the three invoice PNGs while preserving the full artifact unchanged for diagnostics.
 - Compact artifact `9844645264` is `441178` bytes with digest `sha256:62c3ad2ebe558b65e5f8a81cdcfef6ca5ec75e6f0de07dc367c23b60d16fb2db` and is bound to head `7b7ed064ac4fcbb1556af76f84d0378dba1c674c`.
 - The agent downloaded that compact artifact and inspected all three exact-head PNGs individually. Desktop preserves the approved invoice hierarchy and action emphasis without clipping or overlap. Mobile preserves readable two-column purchase inputs, stacked discount controls, summary and full-width actions without horizontal overflow; the evidence is intentionally captured after `summary.scrollIntoViewIfNeeded()`, so the Product section is above the captured scroll position rather than clipped by layout. The error state keeps the canonical amounts visible, exposes `Revisa el cálculo`, hides the explicit `Validada` / `Total validado` badges and disables `Guardar línea` without collapsing the dialog.
+- Documentation checkpoint `e8892ece9413fceaff683c3e754136029a233fc4` retained all delivery gates: Pull Request Quality run `33625985497` passed 85/85 Browser E2E plus Quality, Security, container smoke and both architectures; CodeQL run `33625983216` and Publish PR visual evidence run `33625983270` also completed successfully. The previously intermittent shopping-list swipe scenario passed on this checkpoint.
 
 ## Decision
 
@@ -73,7 +74,7 @@ After hands-on validation of the branch, the calculated summary must also remain
 - [x] exact-head visual evidence generated for desktop, mobile and error states
 - [x] compact exact-head visual evidence downloaded and each PNG manually inspected by the agent
 - [x] PR review-thread inspection: no review threads are open
-- [ ] final documentation head retains green required CI before handoff
+- [x] documentation checkpoint retains green required CI before handoff
 
 ## Delivery
 
@@ -85,4 +86,4 @@ After hands-on validation of the branch, the calculated summary must also remain
 
 ## Status
 
-Implementation, automated invoice validation and exact-head visual review are complete for the requested stable recalculation UX, extreme monetary-value containment and mobile sheet geometry. The compact artifact removes the previous tooling block without weakening the complete Browser evidence. Final handoff is gated only by confirming that the documentation-only head produced by this record keeps the required CI green; no additional product change is planned unless that final validation finds a real regression.
+Implementation, automated invoice validation, exact-head visual review and the delivery-gate documentation checkpoint are complete for the requested stable recalculation UX, extreme monetary-value containment and mobile sheet geometry. The compact artifact removes the previous tooling block without weakening the complete Browser evidence. This commit only closes the validation record; it does not alter product code or runtime behavior.
