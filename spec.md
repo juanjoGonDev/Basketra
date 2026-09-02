@@ -19,7 +19,7 @@ Suposiciones explícitas: una única instalación personal compartida por los di
 - Añadir, completar o restaurar un producto de una lista no crea una observación de precio si no existe precio real confirmado con retailer.
 - El matching prioriza EAN/GTIN, SKU, alias confirmado, mapeo histórico, atributos deterministas, similitud léxica, reranking IA y confirmación humana.
 - Las salidas IA se validan localmente antes de persistirlas o mostrarlas como estructuradas.
-- La IA nunca persiste cambios directamente; toda propuesta de producto, categoría, precio o tienda se revisa y confirma antes de persistir.
+- La IA nunca recibe capacidad directa de persistencia. Las propuestas de producto, precio y tienda requieren revisión y confirmación; las propuestas de categoría validadas y referenciadas por una clasificación de ticket sólo pueden materializarse en servidor mediante `CategoryRepository` antes de exponer el resultado completado.
 - Las ofertas conservan fuente, momento de observación, confianza, stock, condiciones y transporte.
 - Prime sólo reduce transporte a cero con evidencia vigente o regla confirmada por el usuario.
 - La optimización es determinista y evalúa subconjuntos de retailers mientras el tamaño sea pequeño.
@@ -61,7 +61,7 @@ Suposiciones explícitas: una única instalación personal compartida por los di
 ### Productos, categorías, precios y tiendas
 
 1. `canonical_products` y `product_variants` siguen siendo el catálogo global; un `shopping_list_item` puede enlazar a una variante global sin dejar de aceptar ítems legacy sólo con texto.
-2. Las categorías son entidades reutilizables persistidas y planas. Los valores históricos de categoría se migran sin pérdida ni borrado prematuro.
+2. Las categorías son entidades reutilizables persistidas con jerarquía padre-hijo acíclica de profundidad arbitraria, color canónico y fallback protegido `category_unknown` / `desconocido`. Los valores históricos y relaciones de producto se migran sin pérdida ni borrado prematuro.
 3. El usuario puede editar metadata global aplicable: nombre canónico, variante, categoría, descripción, marca, EAN/GTIN, package y aliases; todos los campos no esenciales siguen siendo opcionales.
 4. Un match exacto y una categoría confirmados se reutilizan antes de solicitar IA.
 5. Una observación de precio sólo nace de evidencia confirmada: foto, ticket, entrada manual u otra fuente soportada explícitamente.
@@ -135,7 +135,7 @@ Suposiciones explícitas: una única instalación personal compartida por los di
 
 La migración inicial crea retailers, stores, canonical_products, product_variants, product_aliases, retailer_listings, price_observations, external_evidence, receipts, receipt_captures, receipt_extractions, receipt_items, receipt_corrections, shopping_lists, shopping_list_items, optimization_runs, optimization_plans, optimization_plan_items, ai_provider_configurations, ai_executions y ocr_executions.
 
-La migración 2 registra backups previos a migraciones. La migración 3 añade `completed` y `completed_at` a productos de listas. Las migraciones posteriores para la colaboración realtime son aditivas: versiones optimistas, categorías reutilizables, referencia opcional de variante desde ítems, metadata global necesaria y localización opcional de stores. Las migraciones aplicadas no se reescriben. Se habilitan claves foráneas, WAL, busy timeout, índices y FTS5.
+La migración 2 registra backups previos a migraciones. La migración 3 añade `completed` y `completed_at` a productos de listas. Las migraciones posteriores para la colaboración realtime son aditivas: versiones optimistas, categorías reutilizables, referencia opcional de variante desde ítems, metadata global necesaria y localización opcional de stores. La migración 8 extiende categorías con `parent_id` y `color`, persiste `receipt_items.category_id` y garantiza el fallback `category_unknown`. Las migraciones aplicadas no se reescriben. Se habilitan claves foráneas, WAL, busy timeout, índices y FTS5.
 
 ## Persistencia, archivos y recuperación
 
@@ -163,6 +163,7 @@ La migración 2 registra backups previos a migraciones. La migración 3 añade `
 - Cliente HTTP frontend: módulo `api.js`.
 - Conversión y formato EUR de la interfaz: funciones canónicas de `ui.js`; el backend conserva unidades menores enteras.
 - Gestos móviles: un único componente reutilizable de swipe en `ui.js`; las features consumen sus acciones y no reimplementan umbrales.
+- Categorías: `CategoryRepository` es el owner canónico de identidad, jerarquía, color, fallback protegido y materialización validada; API, catálogo y clasificación de tickets delegan en él.
 - Operaciones transversales: `OperationsGateway`; no se duplican en el servidor de dominio ni en el navegador.
 - Logs y redacción: `ApplicationLogStore` y `sanitizeClientLog`.
 - Import/restore: `operations/restore.ts`.
@@ -179,6 +180,7 @@ La migración 2 registra backups previos a migraciones. La migración 3 añade `
 - No existe worker OCR residente; el proceso nace durante la petición y se libera al terminar.
 - El contenido del ticket, salida OCR, nombre de archivo, rutas y errores crudos del proceso no se registran.
 - The generic AI executor centralizes caller cancellation, capability selection, validation, bounded retries, redaction, and stable errors without imposing a product deadline. Receipt verification owns one separate five-minute total budget across OCR, queue wait, ordered pages, provider calls, retries, and continuation; expiry preserves OCR/manual recovery and surfaces `AI_RECEIPT_TIMEOUT`.
+- La verificación IA de tickets recibe un snapshot compacto y persistido del inventario de categorías. Su salida estructurada requiere `items[].categoryId` y `newCategories`; sólo las propuestas referenciadas y sus ancestros se resuelven en servidor, y referencias inválidas degradan a `category_unknown` sin perder la extracción.
 - La URL del proveedor procede exclusivamente de configuración administrativa; no se acepta por petición.
 - En Docker, `127.0.0.1` apunta al contenedor Basketra. Un proveedor del host usa `host.docker.internal` con mapeo explícito al host gateway.
 - Cambiar `.env` requiere validar Compose y recrear el contenedor; la aplicación no finge que una configuración no inyectada está activa.
@@ -265,12 +267,12 @@ Los diagnósticos IA diferencian `AI_NOT_CONFIGURED`, `AI_LOOPBACK_CONTAINER`, `
 ## Criterios de aceptación automatizados
 
 - Unitarios cubren configuración sin token, unidades y MIME compartidos, archivos, dinero, matching, tickets, optimización, TSV OCR, argumentos fijos, serialización, cancelación, límites de salida, redacción/rotación de logs, versión y política de release, streaming de import y restore.
-- Persistencia cubre migración desde schemas soportados, ítems legacy, categorías, version increments/CAS, variant linkage, stores y observaciones de precio inmutables.
+- Persistencia cubre migración desde schemas soportados, ítems legacy, categorías jerárquicas, fallback protegido, version increments/CAS, variant linkage, stores y observaciones de precio inmutables.
 - Integración usa SQLite temporal real para CRUD de listas, cantidades, completado, reordenamiento, conflictos stale, cascada, backups, descarga, import binario, content type, restore staged, previews, catálogo/precio/ubicación y flujo de tickets.
 - API cubre SSE, invalidaciones, reconnect semantics, `409`, retry contra versión actual, catálogo/categorías, propuesta de foto, IA no disponible y fallo externo de nearby stores.
 - E2E estático verifica módulos, cámara, cache, OCR local, operaciones y ausencia de token.
 - Playwright usa dos contextos móviles independientes contra el mismo backend real para demostrar add/complete/edit conflict/resolution/convergencia sin reload ni polling.
-- Playwright verifica overview y detalle de listas, add-product sheet compacto, categorías, swipe reutilizable, delete/Undo, IA siempre accesible, cámara/galería, preview, geolocalización disponible y fallback inseguro/no disponible.
+- Playwright verifica overview y detalle de listas, add-product sheet compacto, gestión de categorías con creación/reparentado/color/fallback, swipe reutilizable, delete/Undo, IA siempre accesible, cámara/galería, preview, geolocalización disponible y fallback inseguro/no disponible.
 - Playwright comprueba 320, 375/390, 430 y desktop/tablet sin overflow, solapamiento de navegación o acciones flotantes.
 - Las pruebas de navegador generan captura, GIF, vídeo y traza sin retries, y el PR las renderiza directamente.
 - Código determinista nuevo mantiene cobertura significativa cercana al 100%; los gates de cobertura diferenciales existentes no se debilitan.
@@ -300,7 +302,7 @@ Los diagnósticos IA diferencian `AI_NOT_CONFIGURED`, `AI_LOOPBACK_CONTAINER`, `
 - Dos dispositivos visibles convergen mediante SSE+REST sin polling/manual refresh; ocultar el documento suspende el stream y volver a mostrarlo re-sincroniza.
 - Simultaneous explicit edits y reorders no sobrescriben silenciosamente; producen conflicto resoluble y retry intencional.
 - Ítems pueden enlazar a variantes globales y los legacy siguen válidos.
-- Categorías son reutilizables y la metadata confirmada se reaprovecha sin IA innecesaria.
+- Categorías son reutilizables, jerárquicas, coloreables y acíclicas; `category_unknown` permanece protegido y la clasificación de tickets reutiliza el inventario persistido antes de proponer categorías nuevas.
 - Historial de precio contiene sólo observaciones reales confirmadas e inmutables.
 - Foto/galería produce propuesta estructurada editable y cancelar no persiste.
 - Ubicación es opt-in, local-first y degradable sobre HTTP; nearby lookup sólo es explícito, OSM/Overpass y sin servicios de pago.
