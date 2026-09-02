@@ -40,7 +40,7 @@ async function get(baseUrl: string, path: string): Promise<Readonly<{ status: nu
   });
 }
 
-test('inventory feature assets are served through the canonical static allowlist', async () => {
+test('inventory and ticket-history feature assets are served through the canonical static allowlist', async () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-inventory-assets-'));
   const server = new BasketraServer(config(root));
   await server.listen();
@@ -48,15 +48,25 @@ test('inventory feature assets are served through the canonical static allowlist
   const baseUrl = `http://${address.host}:${address.port}`;
 
   try {
-    const script = await get(baseUrl, '/inventory.js');
-    assert.equal(script.status, 200);
-    assert.match(script.contentType, /^text\/javascript\b/u);
-    assert.match(script.body, /initializeInventoryFeature/u);
+    const inventoryScript = await get(baseUrl, '/inventory.js');
+    assert.equal(inventoryScript.status, 200);
+    assert.match(inventoryScript.contentType, /^text\/javascript\b/u);
+    assert.match(inventoryScript.body, /initializeInventoryFeature/u);
 
-    const stylesheet = await get(baseUrl, '/inventory.css');
-    assert.equal(stylesheet.status, 200);
-    assert.match(stylesheet.contentType, /^text\/css\b/u);
-    assert.match(stylesheet.body, /inventory-store-grid/u);
+    const inventoryStylesheet = await get(baseUrl, '/inventory.css');
+    assert.equal(inventoryStylesheet.status, 200);
+    assert.match(inventoryStylesheet.contentType, /^text\/css\b/u);
+    assert.match(inventoryStylesheet.body, /inventory-store-grid/u);
+
+    const ticketScript = await get(baseUrl, '/ticket-history.js');
+    assert.equal(ticketScript.status, 200);
+    assert.match(ticketScript.contentType, /^text\/javascript\b/u);
+    assert.match(ticketScript.body, /initializeTicketHistoryFeature/u);
+
+    const ticketStylesheet = await get(baseUrl, '/ticket-history.css');
+    assert.equal(ticketStylesheet.status, 200);
+    assert.match(ticketStylesheet.contentType, /^text\/css\b/u);
+    assert.match(ticketStylesheet.body, /ticket-history-grid/u);
 
     const unknown = await get(baseUrl, '/inventory-private.js');
     assert.equal(unknown.status, 404);
