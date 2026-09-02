@@ -5,6 +5,11 @@ import { parseAiRuntimeCapabilities, type WebApiRuntimeCapabilities } from './ru
 const CACHE_DISPLAY_NAME = 'WebAPI runtime capabilities cache';
 const CACHE_RESPONSE_HEADER = 'x-basketra-capabilities-cache';
 
+type CapabilityProviderIdentity = Readonly<{
+  baseUrl: URL;
+  model: string;
+}>;
+
 export class AiRuntimeCapabilitiesCacheStore {
   readonly #database: DatabaseSync;
 
@@ -66,17 +71,20 @@ export class AiRuntimeCapabilitiesCacheStore {
 
 export function installAiRuntimeCapabilitiesCache(input: Readonly<{
   databasePath: string;
-  baseUrl: URL;
-  model: string;
+  baseUrl?: URL;
+  model?: string;
+  provider?: () => CapabilityProviderIdentity | undefined;
 }>): () => void {
   const store = new AiRuntimeCapabilitiesCacheStore(input.databasePath);
   const delegate = globalThis.fetch;
-  const capabilitiesUrl = new URL('capabilities', ensureTrailingSlash(input.baseUrl)).href;
   const cachedFetch = (async (
     resource: string | URL | Request,
     init?: RequestInit,
   ): Promise<Response> => {
+    const provider = resolveProviderIdentity(input);
+    if (!provider) return await delegate(resource, init);
     const requestUrl = resource instanceof Request ? resource.url : String(resource);
+    const capabilitiesUrl = new URL('capabilities', ensureTrailingSlash(provider.baseUrl)).href;
     if (new URL(requestUrl).href !== capabilitiesUrl) return await delegate(resource, init);
 
     try {
@@ -84,15 +92,15 @@ export function installAiRuntimeCapabilitiesCache(input: Readonly<{
       if (response.ok) {
         const capabilities = await parseResponseCapabilities(response.clone());
         if (capabilities) {
-          store.write(input.baseUrl, input.model, capabilities);
+          store.write(provider.baseUrl, provider.model, capabilities);
           return response;
         }
-        return cachedCapabilitiesResponse(store.read(input.baseUrl, input.model)) ?? response;
+        return cachedCapabilitiesResponse(store.read(provider.baseUrl, provider.model)) ?? response;
       }
       if (response.status === 401 || response.status === 403) return response;
-      return cachedCapabilitiesResponse(store.read(input.baseUrl, input.model)) ?? response;
+      return cachedCapabilitiesResponse(store.read(provider.baseUrl, provider.model)) ?? response;
     } catch (error) {
-      const cached = cachedCapabilitiesResponse(store.read(input.baseUrl, input.model));
+      const cached = cachedCapabilitiesResponse(store.read(provider.baseUrl, provider.model));
       if (cached) return cached;
       throw error;
     }
@@ -106,6 +114,16 @@ export function installAiRuntimeCapabilitiesCache(input: Readonly<{
     if (globalThis.fetch === cachedFetch) globalThis.fetch = delegate;
     store.close();
   };
+}
+
+function resolveProviderIdentity(input: Readonly<{
+  baseUrl?: URL;
+  model?: string;
+  provider?: () => CapabilityProviderIdentity | undefined;
+}>): CapabilityProviderIdentity | undefined {
+  if (input.provider) return input.provider();
+  if (input.baseUrl && input.model) return { baseUrl: input.baseUrl, model: input.model };
+  return undefined;
 }
 
 async function parseResponseCapabilities(response: Response): Promise<WebApiRuntimeCapabilities | undefined> {
