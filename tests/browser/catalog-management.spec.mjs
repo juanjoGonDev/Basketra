@@ -34,6 +34,7 @@ const catalog = {
     { id: 'parent_milk', name: 'Leche', variantCount: 1 },
     { id: 'parent_dairy', name: 'Lácteos', variantCount: 2 },
   ],
+  total: 1,
   offset: 0,
   limit: 100,
   hasMore: false,
