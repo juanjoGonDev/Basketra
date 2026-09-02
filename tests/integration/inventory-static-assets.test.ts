@@ -68,6 +68,16 @@ test('inventory and ticket-history feature assets are served through the canonic
     assert.match(ticketStylesheet.contentType, /^text\/css\b/u);
     assert.match(ticketStylesheet.body, /ticket-history-grid/u);
 
+    const ticketValues = await get(baseUrl, '/ticket-history-values.js');
+    assert.equal(ticketValues.status, 200);
+    assert.match(ticketValues.contentType, /^text\/javascript\b/u);
+    assert.match(ticketValues.body, /parsePercentageBasisPoints/u);
+
+    const routes = await get(baseUrl, '/routes.js');
+    assert.equal(routes.status, 200);
+    assert.match(routes.contentType, /^text\/javascript\b/u);
+    assert.match(routes.body, /resolveApplicationRoute/u);
+
     const unknown = await get(baseUrl, '/inventory-private.js');
     assert.equal(unknown.status, 404);
   } finally {
