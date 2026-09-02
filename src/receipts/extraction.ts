@@ -5,6 +5,16 @@ import {
 } from '../ai/provider.ts';
 import { StructuredAiExecutor, type RuntimeSchema } from '../ai/structured-executor.ts';
 import {
+  AI_CATEGORY_REFERENCE_PATTERN,
+  AI_NEW_CATEGORY_ID_PATTERN,
+  UNKNOWN_CATEGORY_ID,
+  compactCategoryInventory,
+  normalizeCategoryColor,
+  normalizeCategoryName,
+  type AiCategoryProposal,
+  type CategoryDescriptor,
+} from '../domain/categories.ts';
+import {
   parseReceiptLineDiscount,
   validateReceiptLine,
   validateReceiptTotal,
@@ -17,12 +27,14 @@ const CURRENCIES = ['EUR'] as const;
 const TAX_CATEGORIES = ['A', 'B', 'C'] as const;
 const REVIEW_CONFIDENCE_THRESHOLD = 0.75;
 const MAX_SOURCE_LINES = 20;
+const MAX_AI_NEW_CATEGORIES = 50;
 export const RECEIPT_PAGE_VERIFICATION_SCHEMA_NAME = 'receipt_page_verification';
 
 type ReceiptTaxCategory = typeof TAX_CATEGORIES[number];
 
 export type ReceiptExtractionItem = ReceiptLineInput & Readonly<{
   confidence: number;
+  categoryId?: string;
   taxCategory?: ReceiptTaxCategory;
   sourceLines?: readonly number[];
 }>;
@@ -48,6 +60,7 @@ export type AiReceiptInterpretation = Readonly<{
   currency: 'EUR';
   correctedText: string;
   items: readonly ReceiptExtractionItem[];
+  newCategories: readonly AiCategoryProposal[];
   warnings: readonly string[];
   unassignedDiscounts?: readonly AiUnassignedReceiptDiscount[];
 }>;
@@ -102,11 +115,24 @@ const SOURCE_LINES_SCHEMA = {
   items: { type: 'integer', minimum: 1, maximum: 100_000 },
 } as const;
 
+const NEW_CATEGORY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'name', 'parentId', 'color'],
+  properties: {
+    id: { type: 'string', minLength: 5, maxLength: 84, pattern: '^new:[a-z0-9][a-z0-9_-]{0,79}$' },
+    name: { type: 'string', minLength: 1, maxLength: 120 },
+    parentId: { type: ['string', 'null'], maxLength: 128 },
+    color: { type: 'string', pattern: '^#[0-9A-F]{6}$' },
+    description: { type: 'string', minLength: 1, maxLength: 500 },
+  },
+} as const;
+
 export const RECEIPT_SCHEMA: RuntimeSchema<AiReceiptInterpretation> = {
   jsonSchema: {
     type: 'object',
     additionalProperties: false,
-    required: ['currency', 'correctedText', 'items', 'warnings'],
+    required: ['currency', 'correctedText', 'items', 'newCategories', 'warnings'],
     properties: {
       retailerName: { type: 'string', minLength: 1, maxLength: 160 },
       purchasedAt: { type: 'string', minLength: 10, maxLength: 40 },
@@ -120,7 +146,7 @@ export const RECEIPT_SCHEMA: RuntimeSchema<AiReceiptInterpretation> = {
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['description', 'quantity', 'unitPriceMinor', 'lineTotalMinor', 'confidence', 'sourceLines'],
+          required: ['description', 'quantity', 'unitPriceMinor', 'lineTotalMinor', 'confidence', 'categoryId', 'sourceLines'],
           properties: {
             description: { type: 'string', maxLength: 240 },
             quantity: { type: 'integer', minimum: 0, maximum: 100_000 },
@@ -129,9 +155,15 @@ export const RECEIPT_SCHEMA: RuntimeSchema<AiReceiptInterpretation> = {
             discount: DISCOUNT_SCHEMA,
             taxCategory: { type: 'string', enum: TAX_CATEGORIES },
             confidence: { type: 'number', minimum: 0, maximum: 1 },
+            categoryId: { type: 'string', minLength: 1, maxLength: 128 },
             sourceLines: SOURCE_LINES_SCHEMA,
           },
         },
+      },
+      newCategories: {
+        type: 'array',
+        maxItems: MAX_AI_NEW_CATEGORIES,
+        items: NEW_CATEGORY_SCHEMA,
       },
       unassignedDiscounts: {
         type: 'array',
@@ -176,12 +208,16 @@ export const RECEIPT_SCHEMA: RuntimeSchema<AiReceiptInterpretation> = {
       const taxCategory = item['taxCategory'] === undefined
         ? undefined
         : asEnum(item['taxCategory'], `${path}.taxCategory`, TAX_CATEGORIES);
+      const categoryId = item['categoryId'] === undefined
+        ? UNKNOWN_CATEGORY_ID
+        : parseAiCategoryReference(item['categoryId'], `${path}.categoryId`);
       const parsed: ReceiptExtractionItem = {
         description: asString(item['description'], `${path}.description`, { max: 240 }),
         quantity: asSafeInteger(item['quantity'], `${path}.quantity`, { min: 0, max: 100_000 }),
         unitPriceMinor: asSafeInteger(item['unitPriceMinor'], `${path}.unitPriceMinor`, { min: 0 }),
         lineTotalMinor: asSafeInteger(item['lineTotalMinor'], `${path}.lineTotalMinor`, { min: 0 }),
         ...(item['discount'] === undefined ? {} : { discount: parseReceiptLineDiscount(item['discount'], `${path}.discount`) }),
+        categoryId,
         ...(taxCategory ? { taxCategory } : {}),
         confidence,
         sourceLines,
@@ -189,6 +225,10 @@ export const RECEIPT_SCHEMA: RuntimeSchema<AiReceiptInterpretation> = {
       validateReceiptLine(parsed);
       return parsed;
     });
+    const newCategories = root['newCategories'] === undefined
+      ? []
+      : asArray(root['newCategories'], '$.newCategories', MAX_AI_NEW_CATEGORIES)
+        .map((entry, index) => parseAiCategoryProposal(entry, `$.newCategories[${index}]`));
     const unassignedDiscounts = root['unassignedDiscounts'] === undefined
       ? undefined
       : asArray(root['unassignedDiscounts'], '$.unassignedDiscounts', 100).map((entry, index): AiUnassignedReceiptDiscount => {
@@ -214,6 +254,7 @@ export const RECEIPT_SCHEMA: RuntimeSchema<AiReceiptInterpretation> = {
       currency: asEnum(root['currency'], '$.currency', CURRENCIES),
       correctedText: asString(root['correctedText'], '$.correctedText', { min: 1, max: 500_000 }),
       items,
+      newCategories,
       ...(unassignedDiscounts ? { unassignedDiscounts } : {}),
       warnings,
     };
@@ -227,11 +268,44 @@ function parseSourceLines(value: unknown, path: string): readonly number[] {
   return sourceLines;
 }
 
+function parseAiCategoryReference(value: unknown, path: string): string {
+  const id = asString(value, path, { min: 1, max: 128 });
+  if (!AI_CATEGORY_REFERENCE_PATTERN.test(id)) throw new RangeError(`${path} is not a valid category reference`);
+  return id;
+}
+
+function parseAiCategoryProposal(value: unknown, path: string): AiCategoryProposal {
+  const proposal = asRecord(value, path);
+  const id = asString(proposal['id'], `${path}.id`, { min: 5, max: 84 });
+  if (!AI_NEW_CATEGORY_ID_PATTERN.test(id)) throw new RangeError(`${path}.id must use a new:* temporary category id`);
+  const parentValue = proposal['parentId'];
+  const parentId = parentValue === undefined || parentValue === null || parentValue === ''
+    ? undefined
+    : parseAiCategoryReference(parentValue, `${path}.parentId`);
+  const description = proposal['description'] === undefined
+    ? undefined
+    : asString(proposal['description'], `${path}.description`, { min: 1, max: 500 });
+  return {
+    id,
+    name: normalizeCategoryName(asString(proposal['name'], `${path}.name`, { min: 1, max: 120 })),
+    ...(parentId ? { parentId } : {}),
+    color: normalizeCategoryColor(asString(proposal['color'], `${path}.color`, { min: 7, max: 7 })),
+    ...(description ? { description } : {}),
+  };
+}
+
 export function buildNumberedReceiptText(originalText: string): string {
   return originalText
     .split(/\r?\n/u)
     .map((line, index) => `${index + 1}: ${line}`)
     .join('\n');
+}
+
+export function buildReceiptCategoryContext(categories: readonly CategoryDescriptor[]): string {
+  return [
+    'Available product categories (id, name, parentId, color):',
+    compactCategoryInventory(categories),
+  ].join('\n');
 }
 
 export function buildReceiptVerificationInstructions(
@@ -241,6 +315,11 @@ export function buildReceiptVerificationInstructions(
     'Verify one grocery-receipt page using both the original attached capture and its OCR transcription.',
     'Treat the attachment as the visual or document source of truth and the numbered OCR as editable evidence for source-line references.',
     'Do not invent unreadable products, quantities, prices, totals, discounts or retailer names.',
+    'Classify every product item using categoryId. Reuse an available category when it is semantically suitable, including nested categories through parentId.',
+    'Use the category named desconocido when the product cannot be classified safely from the receipt evidence.',
+    'Create a category only when no existing category is semantically suitable. Declare each missing category once in newCategories with a temporary id using new:<token>, name, parentId, color as #RRGGBB and optional description.',
+    'A new category parentId may reference either an existing category id or another new:<token> declared in the same response. Do not rename, reparent or duplicate an existing category.',
+    'When an item uses a newly proposed category, its categoryId must be that exact new:<token>. Return an empty newCategories array when no category is missing.',
     'Preserve physical line order and reconstruct a quantity prefix only when the immediately following product line supports it.',
     'For example, `6 x ,89` followed by `C.LADRON MANZAN 5,34 A` means quantity 6, unit price 89 cents, line total 534 cents and tax category A.',
     'Separate trailing tax letters A, B or C from monetary values.',
@@ -397,6 +476,7 @@ export async function verifyReceiptWithAi(
   attachment: AiAttachmentInput,
   signal?: AbortSignal,
   session?: ReceiptAiSession,
+  categoryInventory: readonly CategoryDescriptor[] = [],
 ): Promise<Readonly<{ value: AiReceiptInterpretation; attempts: number }>> {
   const executor = new StructuredAiExecutor(provider, maxRetries);
   const attachmentPart = buildAiAttachmentContentPart(attachment, await provider.getCapabilities());
@@ -410,6 +490,7 @@ export async function verifyReceiptWithAi(
         text: [
           'Numbered OCR transcription for this same attachment:',
           buildNumberedReceiptText(originalText),
+          buildReceiptCategoryContext(categoryInventory),
         ].join('\n'),
       },
       attachmentPart,
