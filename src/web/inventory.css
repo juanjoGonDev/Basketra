@@ -1,0 +1,218 @@
+.inventory-store-list {
+  display: grid;
+}
+
+.inventory-store-grid {
+  display: grid;
+  grid-template-columns: minmax(15rem, 2fr) minmax(13rem, 1.35fr) minmax(6rem, .65fr) minmax(6rem, .65fr) minmax(10rem, 1fr) minmax(5rem, .55fr);
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.inventory-store-row {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  padding: 1rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color .16s ease, box-shadow .16s ease;
+}
+
+.inventory-store-row:hover,
+.inventory-store-row:focus-visible {
+  background: color-mix(in srgb, var(--surface) 88%, var(--primary) 12%);
+  outline: none;
+  box-shadow: inset .2rem 0 0 var(--primary);
+}
+
+.inventory-period-control {
+  display: grid;
+  gap: .35rem;
+  min-width: 9rem;
+  color: var(--muted);
+  font-size: .78rem;
+  font-weight: 700;
+}
+
+.inventory-period-control select {
+  min-height: 2.75rem;
+}
+
+.inventory-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.inventory-kpi {
+  display: grid;
+  gap: .35rem;
+  min-width: 0;
+  padding: var(--space-4);
+}
+
+.inventory-kpi > span,
+.inventory-kpi small {
+  color: var(--muted);
+}
+
+.inventory-kpi > span {
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.inventory-kpi strong {
+  overflow-wrap: anywhere;
+  font-size: clamp(1.5rem, 3vw, 2.15rem);
+  line-height: 1;
+}
+
+.inventory-statistics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.inventory-stat-card {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--space-4);
+}
+
+.inventory-bars,
+.inventory-trend {
+  display: grid;
+  gap: .65rem;
+}
+
+.inventory-bar-row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1.1fr) minmax(8rem, 2fr) auto;
+  gap: .75rem;
+  align-items: center;
+  min-width: 0;
+}
+
+.inventory-bar-row > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inventory-bar-track {
+  display: block;
+  height: .65rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border) 72%, transparent);
+}
+
+.inventory-bar-fill {
+  display: block;
+  width: var(--inventory-bar, 0%);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+}
+
+.inventory-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.inventory-data-table {
+  width: 100%;
+  min-width: 34rem;
+  border-collapse: collapse;
+  font-size: .9rem;
+}
+
+.inventory-data-table th,
+.inventory-data-table td {
+  padding: .7rem .8rem;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  vertical-align: top;
+}
+
+.inventory-data-table th:first-child,
+.inventory-data-table td:first-child {
+  text-align: left;
+}
+
+.inventory-data-table thead th {
+  background: color-mix(in srgb, var(--surface) 90%, var(--primary) 10%);
+  color: var(--muted);
+  font-size: .72rem;
+  letter-spacing: .035em;
+  text-transform: uppercase;
+}
+
+.inventory-data-table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+@media (max-width: 70rem) {
+  .inventory-store-grid {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .inventory-store-row {
+    width: calc(100% - 1.3rem);
+    margin: .4rem .65rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .inventory-store-row > :not(.inventory-product-cell--name):not(.inventory-row-action) {
+    display: none;
+  }
+
+  .inventory-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .inventory-statistics-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 52rem) {
+  .inventory-kpi-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inventory-period-control {
+    width: 100%;
+  }
+
+  .inventory-bar-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .inventory-bar-track {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .inventory-stat-card {
+    padding: var(--space-3);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inventory-store-row {
+    transition: none;
+  }
+}
