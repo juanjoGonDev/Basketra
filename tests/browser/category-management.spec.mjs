@@ -106,7 +106,7 @@ test('hierarchical categories can be created, reparented and reviewed on mobile 
   await expect(page.locator('#category-count')).toHaveText('3');
   const dairyRow = page.getByRole('button', { name: /Lácteos/ });
   await expect(dairyRow).toBeVisible();
-  await expect.poll(() => dairyRow.evaluate(element => element.style.getPropertyValue('--category-depth'))).toBe('1');
+  await expect.poll(() => dairyRow.evaluate(element => element.style.getPropertyValue('--category-indent'))).toBe('1.1rem');
 
   await dairyRow.click();
   await page.locator('#category-name').fill('Lácteos y huevos');
@@ -121,7 +121,7 @@ test('hierarchical categories can be created, reparented and reviewed on mobile 
     description: 'Leche, yogur y derivados',
   });
   const movedRow = page.getByRole('button', { name: /Lácteos y huevos/ });
-  await expect.poll(() => movedRow.evaluate(element => element.style.getPropertyValue('--category-depth'))).toBe('0');
+  await expect.poll(() => movedRow.evaluate(element => element.style.getPropertyValue('--category-indent'))).toBe('0rem');
 
   const unknownRow = page.getByRole('button', { name: /desconocido/ });
   await unknownRow.click();
