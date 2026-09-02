@@ -34,7 +34,7 @@
       </div>
       <div class="dashboard-grid" aria-label="Acciones rápidas">
         <button class="dashboard-card" data-nav="scan"><span data-icon="receipt"></span><strong>Importar ticket</strong><small>Cámara, galería o PDF</small></button>
-        <button class="dashboard-card" data-nav="prices"><span data-icon="prices"></span><strong>Comparar planes</strong><small>Compara opciones con evidencia</small></button>
+        <button class="dashboard-card" data-nav="inventory"><span data-icon="prices"></span><strong>Inventario</strong><small>Productos, categorías, tiendas y estadísticas</small></button>
       </div>
     </section>
 
@@ -107,10 +107,8 @@
       <button id="confirm-receipt" class="button primary full sticky-action" type="button" hidden><span data-icon="check"></span>Confirmar e importar</button>
     </section>
 
-    <section class="view" data-view="prices">
-      <div class="page-header"><div><p class="eyebrow">Comparación</p><h1>Planes de compra</h1><p>Compara coste, confianza, faltantes y número de comercios.</p></div></div>
-      <div class="surface comparison-intro"><span data-icon="prices"></span><div><strong>Compara tres estrategias</strong><p>Genera un ejemplo verificable para revisar el resultado.</p></div><button id="run-demo-comparison" class="button primary full" type="button">Generar ejemplo verificable</button></div>
-      <div id="plans" class="plans" aria-live="polite"></div>
+    <section class="view" data-view="inventory">
+      <div class="inventory-hub" aria-live="polite"></div>
     </section>
 
     <section class="view" data-view="settings">
@@ -258,12 +256,14 @@
     <button data-nav="home" aria-current="page"><span data-icon="home"></span><span>Inicio</span></button>
     <button data-nav="lists"><span data-icon="list"></span><span>Listas</span></button>
     <button data-nav="scan"><span data-icon="camera"></span><span>Tickets</span></button>
-    <button data-nav="prices"><span data-icon="prices"></span><span>Planes</span></button>
+    <button data-nav="inventory"><span data-icon="prices"></span><span>Inventario</span></button>
     <button data-nav="settings"><span data-icon="settings"></span><span>Ajustes</span></button>
   </nav>
+  <button id="run-demo-comparison" type="button" hidden aria-hidden="true" tabindex="-1"></button>
   <div id="toast" role="status" aria-live="polite"><span id="toast-message"></span><button id="toast-action" type="button" hidden></button></div>
   <script type="module" src="/app.js"></script>
   <script type="module" src="/catalog.js"></script>
+  <script type="module" src="/inventory.js"></script>
   <script type="module" src="/receipt-editor-invoice.js"></script>
 </body>
 </html>
