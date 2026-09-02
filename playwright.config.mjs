@@ -1,9 +1,11 @@
 import './tests/browser/register-coverage-loader.mjs';
 import { defineConfig, devices } from '@playwright/test';
 
-const temporaryDirectory = process.env.CI
+const repositoryDirectory = process.cwd();
+const runtimeDirectory = process.env.CI
   ? `/dev/shm/basketra-playwright-${process.env.GITHUB_RUN_ID ?? process.pid}`
-  : '.playwright-tmp';
+  : '.playwright-runtime';
+const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
 
 export default defineConfig({
   testDir: './tests/browser',
@@ -18,15 +20,22 @@ export default defineConfig({
     ['./tests/browser/coverage-reporter.mjs'],
   ],
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: 'http://127.0.0.1:3000',
     trace: 'on',
     screenshot: 'on',
     video: 'on',
     ...devices['Pixel 7'],
   },
   webServer: {
-    command: `chmod +x tests/fixtures/tesseract && node scripts/build.mjs && PATH="$PWD/tests/fixtures:$PATH" BASKETRA_HOST=127.0.0.1 BASKETRA_PORT=4173 BASKETRA_DATA_DIR=.playwright-data BASKETRA_TEMP_DIR=${temporaryDirectory} BASKETRA_VERSION=1.4.2-test BASKETRA_REVISION=abcdef1234567 node dist/main.js`,
-    url: 'http://127.0.0.1:4173/readiness',
+    command: [
+      `rm -rf ${quote(runtimeDirectory)}`,
+      `mkdir -p ${quote(runtimeDirectory)}`,
+      'chmod +x tests/fixtures/tesseract',
+      'node scripts/build.mjs',
+      `cd ${quote(runtimeDirectory)}`,
+      `PATH=${quote(`${repositoryDirectory}/tests/fixtures`)}:$PATH BASKETRA_VERSION=1.4.2-test BASKETRA_REVISION=abcdef1234567 node ${quote(`${repositoryDirectory}/dist/main.js`)}`,
+    ].join(' && '),
+    url: 'http://127.0.0.1:3000/readiness',
     timeout: 30_000,
     reuseExistingServer: false,
     stdout: 'pipe',
