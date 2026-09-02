@@ -15,6 +15,7 @@ const interpretation = {
   currency: 'EUR' as const,
   correctedText: 'ALCAMPO\nTOTAL 1,20',
   items: [],
+  newCategories: [],
   warnings: [],
 };
 
@@ -108,37 +109,42 @@ test('durable receipt responses use the Responses background contract and parse 
     assert.equal(body['stream'], false);
     assert.match(String(body['instructions']), /Keep each warning and unassigned-discount reason within 240 characters/u);
     const input = body['input'] as Array<{ role: string; content: Array<Record<string, unknown>> }>;
-    assert.equal(input[0]?.role, 'user');
-    assert.match(String(input[0]?.content[0]?.['text']), /1: ALCAMPO/u);
-    assert.equal(input[0]?.content[1]?.['type'], 'input_image');
-    assert.match(String(input[0]?.content[1]?.['image_url']), /^data:image\/png;base64,/u);
-    const text = body['text'] as { format?: { type?: string; strict?: boolean; name?: string; schema?: Record<string, unknown> } };
-    assert.equal(text.format?.type, 'json_schema');
-    assert.equal(text.format?.strict, true);
-    assert.equal(text.format?.name, 'receipt_page_verification');
-    assert.ok(text.format?.schema?.['properties']);
+    const content = input[0]?.content ?? [];
+    assert.equal(content[0]?.['type'], 'input_text');
+    assert.match(String(content[0]?.['text']), /Numbered OCR transcription/u);
+    assert.equal(content[1]?.['type'], 'input_image');
+    assert.equal(content[1]?.['image_url'], `data:image/png;base64,${Buffer.from(attachment.bytes).toString('base64')}`);
+    const text = body['text'] as Record<string, unknown>;
+    const format = text['format'] as Record<string, unknown>;
+    assert.equal(format['type'], 'json_schema');
+    assert.equal(format['strict'], true);
+    assert.equal(format['name'], 'receipt_page_verification');
 
     const get = requests[1]!;
     assert.equal(get.method, 'GET');
-    assert.equal(get.headers['prefer'], 'wait=240');
+    assert.equal(get.url, '/v1/responses/resp_1234567');
+    assert.equal(get.headers['authorization'], `Bearer ${apiKey}`);
+    assert.equal(get.body, undefined);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 });
 
 test('durable receipt responses expose cancellation and never include an original POST in get or cancel', async () => {
-  const methods: string[] = [];
+  const requests: Array<{ method: string; url: string }> = [];
   const server = createServer(async (request, response) => {
-    methods.push(`${request.method ?? ''} ${request.url ?? ''}`);
+    requests.push({ method: request.method ?? '', url: request.url ?? '' });
     response.setHeader('content-type', 'application/json');
-    response.end(JSON.stringify({
-      id: 'resp_7654321',
-      object: 'response',
-      status: request.url?.endsWith('/cancel') ? 'cancelled' : 'in_progress',
-      background: true,
-      output: [],
-      error: null,
-    }));
+    if (request.method === 'GET') {
+      response.end(JSON.stringify({ id: 'resp_1234567', status: 'in_progress', output: [], error: null }));
+      return;
+    }
+    if (request.method === 'POST' && request.url === '/v1/responses/resp_1234567/cancel') {
+      response.end(JSON.stringify({ id: 'resp_1234567', status: 'cancelled', output: [], error: null }));
+      return;
+    }
+    response.writeHead(404);
+    response.end('{}');
   });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
@@ -150,14 +156,14 @@ test('durable receipt responses expose cancellation and never include an origina
     baseUrl: new URL(`http://127.0.0.1:${address.port}/v1/`),
     model: 'default',
   });
-
   try {
-    await client.get('resp_7654321', { waitSeconds: 5 });
-    const cancelled = await client.cancel('resp_7654321');
+    const running = await client.get('resp_1234567');
+    assert.equal(running.status, 'in_progress');
+    const cancelled = await client.cancel('resp_1234567');
     assert.equal(cancelled.status, 'cancelled');
-    assert.deepEqual(methods, [
-      'GET /v1/responses/resp_7654321',
-      'POST /v1/responses/resp_7654321/cancel',
+    assert.deepEqual(requests, [
+      { method: 'GET', url: '/v1/responses/resp_1234567' },
+      { method: 'POST', url: '/v1/responses/resp_1234567/cancel' },
     ]);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
