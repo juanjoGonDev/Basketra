@@ -18,12 +18,18 @@ test('approved inventory visual baselines are committed and referenced by the ma
   }
 });
 
-test('primary navigation replaces Plans with Inventory in the same slot', () => {
+test('primary navigation replaces Plans with Inventory in the same slot and removes the legacy Plans implementation', () => {
   const html = source('src/web/index.html');
+  const app = source('src/web/app.js');
   assert.match(html, /<button data-nav="inventory"><span data-icon="prices"><\/span><span>Inventario<\/span><\/button>/u);
+  assert.match(html, /<script type="module" src="\/inventory\.js"><\/script>/u);
   assert.doesNotMatch(html, /data-nav="prices"/u);
   assert.doesNotMatch(html, />Planes<\/span>/u);
-  assert.doesNotMatch(html, /src="\/inventory\.(?:js|css)"/u);
+  assert.doesNotMatch(html, /run-demo-comparison/u);
+  assert.doesNotMatch(html, /id="plans"/u);
+  assert.doesNotMatch(app, /runDemoComparison/u);
+  assert.doesNotMatch(app, /renderPlanTabs/u);
+  assert.doesNotMatch(app, /planPresentation/u);
 });
 
 test('inventory hub is served by the existing shell and defines the four approved destinations', () => {
