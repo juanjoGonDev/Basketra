@@ -100,7 +100,8 @@ test('stores provide mobile list, editable detail and dependency-aware delete wa
   await expectNoHorizontalOverflow(page);
   await page.locator('.view[data-view="stores"]').screenshot({ path: testInfo.outputPath('stores-mobile.png') });
 
-  await page.locator('[data-store-id="store_central"]').click();
+  const storeSwipe = page.locator('[data-swipe-kind="inventory-store"][data-swipe-id="store_central"]');
+  await storeSwipe.locator('[data-inventory-touch-surface]').click();
   await expect(page).toHaveURL(/#stores:store_central$/);
   await expect(page.locator('#store-detail-name')).toHaveText('Centro');
   await expect(page.locator('#store-detail-products')).toHaveText('4');
