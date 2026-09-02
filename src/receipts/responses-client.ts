@@ -77,7 +77,7 @@ export class ReceiptResponsesClient {
     }
     const originalText = requireNonEmptyString(input.originalText, 'originalText', 500_000);
     const releaseSlot = await this.acquireResponseSlot(input.signal);
-    const body = {
+    const metadata = {
       model: this.#model,
       background: true,
       store: true,
@@ -97,7 +97,6 @@ export class ReceiptResponsesClient {
                 buildNumberedReceiptText(originalText),
               ].join('\n'),
             },
-            buildResponsesAttachment(input.attachment),
           ],
         },
       ],
@@ -110,16 +109,22 @@ export class ReceiptResponsesClient {
         },
       },
     } as const;
+    const body = new FormData();
+    body.set('request', JSON.stringify(metadata));
+    body.append(
+      'files',
+      new Blob([Uint8Array.from(input.attachment.bytes)], { type: input.attachment.mimeType }),
+      receiptAttachmentFileName(input.attachment),
+    );
 
     try {
       const response = await this.request(new URL('responses', this.#baseUrl), {
         method: 'POST',
         headers: {
           ...this.headers(),
-          'content-type': 'application/json',
           'idempotency-key': input.idempotencyKey,
         },
-        body: JSON.stringify(body),
+        body,
         ...(input.signal ? { signal: input.signal } : {}),
       });
       if (isTerminalStatus(response.status)) releaseSlot();
@@ -255,19 +260,12 @@ function isTerminalStatus(status: ReceiptResponseStatus): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'incomplete';
 }
 
-function buildResponsesAttachment(attachment: AiAttachmentInput): Readonly<Record<string, string>> {
-  const dataUrl = `data:${attachment.mimeType};base64,${Buffer.from(attachment.bytes).toString('base64')}`;
-  if (attachment.mimeType === 'image/jpeg' || attachment.mimeType === 'image/png') {
-    return {
-      type: 'input_image',
-      image_url: dataUrl,
-    };
-  }
-  return {
-    type: 'input_file',
-    filename: attachment.fileName?.trim() || 'receipt.pdf',
-    file_data: dataUrl,
-  };
+function receiptAttachmentFileName(attachment: AiAttachmentInput): string {
+  const configured = attachment.fileName?.trim();
+  if (configured) return configured;
+  if (attachment.mimeType === 'image/jpeg') return 'receipt.jpg';
+  if (attachment.mimeType === 'image/png') return 'receipt.png';
+  return 'receipt.pdf';
 }
 
 function parseRemoteResponse(input: unknown): ReceiptRemoteResponse {
