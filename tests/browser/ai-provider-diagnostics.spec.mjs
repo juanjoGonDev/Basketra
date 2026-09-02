@@ -81,7 +81,7 @@ test('provider diagnostic renders every stable recovery message and 200-level ne
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
-    body: JSON.stringify(settings()),
+    body: JSON.stringify(settings({ baseUrl: 'http://127.0.0.1:3001/v1/', loopbackWarning: true })),
   }));
   await page.route('**/api/v1/settings/ai-provider/test', route => route.fulfill({
     status: successfulHttp ? 200 : 502,
