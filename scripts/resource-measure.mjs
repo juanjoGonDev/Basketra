@@ -14,6 +14,7 @@ const MAX_IDEMPOTENT_STORAGE_GROWTH_BYTES = 64 * 1024;
 const MAX_IDLE_CPU_PERCENT = 1;
 const MAX_STARTUP_MS = 5_000;
 const MAX_SHUTDOWN_MS = 20_000;
+const RESOURCE_IDLE_HIBERNATE_AFTER_MS = 20;
 
 function assertAtMost(actual, maximum, name) {
   if (actual > maximum) throw new Error(`${name} exceeded its limit: ${actual} > ${maximum}`);
@@ -60,14 +61,6 @@ const config = {
   port: 0,
   dataDir: join(root, 'data'),
   tempDir: join(root, 'tmp'),
-  maxBodyBytes: 1024 * 1024,
-  aiTimeoutMs: 1000,
-  aiMaxRetries: 0,
-  aiImageCapability: true,
-  aiPdfCapability: false,
-  overpassBaseUrl: 'http://127.0.0.1:9/api/',
-  idleHibernateAfterMs: 20,
-  idleExitAfterMs: 0,
 };
 
 let server;
@@ -77,6 +70,14 @@ try {
   await server.listen();
   const startupMs = performance.now() - before;
   const base = `http://127.0.0.1:${server.address().port}`;
+  const runtimeSettings = await fetch(`${base}/api/v1/settings/runtime`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ idleHibernateAfterMs: RESOURCE_IDLE_HIBERNATE_AFTER_MS }),
+  });
+  if (!runtimeSettings.ok) {
+    throw new Error(`Runtime settings update failed: ${runtimeSettings.status}`);
+  }
   const health = await fetch(`${base}/health`);
   if (!health.ok) throw new Error(`Health request failed: ${health.status}`);
 
