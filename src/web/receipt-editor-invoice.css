@@ -256,11 +256,25 @@
   opacity: .72;
 }
 
+.receipt-line-editor-summary[data-summary-state="pending"]::after,
+.receipt-line-editor-summary[data-summary-state="error"]::after {
+  font-size: .72rem;
+  text-align: center;
+}
+
 .receipt-line-editor-summary[data-summary-state="pending"]::after {
   color: var(--color-on-surface-variant);
   content: "Actualizando total…";
-  font-size: .72rem;
-  text-align: center;
+}
+
+.receipt-line-editor-summary[data-summary-state="error"] {
+  border-color: color-mix(in srgb, var(--color-error) 38%, var(--color-outline-variant));
+}
+
+.receipt-line-editor-summary[data-summary-state="error"]::after {
+  color: var(--color-error);
+  content: "Revisa el cálculo";
+  font-weight: 750;
 }
 
 .receipt-invoice-dialog #receipt-line-editor-state {
