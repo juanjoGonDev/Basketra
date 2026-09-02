@@ -32,37 +32,18 @@ async function readProviderRequestBody(request: Request): Promise<Record<string,
   return asRecord(JSON.parse(await request.clone().text()));
 }
 
-test('configuration uses private defaults and ignores removed token and AI timeout configuration', () => {
-  const config = loadConfig({ BASKETRA_AUTH_TOKEN: 'legacy-token', BASKETRA_AI_TIMEOUT_MS: 'not-an-integer' });
+test('configuration uses private zero-env defaults and validates provider URLs', () => {
+  const config = loadConfig();
   assert.equal(config.host, '127.0.0.1');
   assert.equal(config.port, 3000);
   assert.equal('authToken' in config, false);
   assert.equal('aiTimeoutMs' in config, false);
+  assert.equal('aiApiKey' in config, false);
+  assert.equal('aiModel' in config, false);
   assert.equal(validateProviderBaseUrl('http://10.0.0.2:8080/v1/').hostname, '10.0.0.2');
   assert.throws(() => validateProviderBaseUrl('ftp://example.com'), /HTTP/);
   assert.throws(() => validateProviderBaseUrl('https://user:pass@example.com'), /credentials/);
   assert.throws(() => validateProviderBaseUrl('https://example.com/path?q=1'), /query/);
-  assert.throws(() => loadConfig({ BASKETRA_PORT: '0' }), />= 1/);
-  assert.throws(() => loadConfig({ BASKETRA_PORT: 'abc' }), />= 1/);
-
-  const configured = loadConfig({
-    BASKETRA_HOST: ' 0.0.0.0 ',
-    BASKETRA_PORT: '4000',
-    BASKETRA_AI_BASE_URL: 'http://localhost:8080/v1',
-    BASKETRA_AI_API_KEY: ' key ',
-    BASKETRA_AI_MODEL: ' model ',
-    BASKETRA_AI_TIMEOUT_MS: '5000',
-    BASKETRA_AI_MAX_RETRIES: '2',
-    BASKETRA_IDLE_HIBERNATE_AFTER_MS: '0',
-    IDLE_EXIT_AFTER_MS: '1000',
-    BASKETRA_DATA_DIR: './x',
-    BASKETRA_TEMP_DIR: './y',
-  });
-  assert.equal(configured.host, '0.0.0.0');
-  assert.equal(configured.port, 4000);
-  assert.equal(configured.aiApiKey, 'key');
-  assert.equal(configured.aiModel, 'model');
-  assert.equal('aiTimeoutMs' in configured, false);
   assert.deepEqual(UNIT_VALUES, ['g', 'kg', 'ml', 'l', 'unit', 'pack', 'roll', 'sheet', 'capsule', 'dose', 'wash', 'm']);
   assert.deepEqual(SUPPORTED_FILE_MIME_TYPES, ['image/jpeg', 'image/png', 'application/pdf']);
 });
