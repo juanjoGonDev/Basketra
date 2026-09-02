@@ -675,7 +675,7 @@ function installOperationsUi() {
           <summary>Red y recursos locales</summary>
           <div class="details-body runtime-settings-grid">
             <label class="field runtime-settings-wide"><span>URL de Overpass</span><input id="runtime-overpass-base-url" type="url" maxlength="2048" autocomplete="url" required></label>
-            <label class="field"><span>Límite local por solicitud (MiB)</span><input id="runtime-max-body-mib" type="number" min="0.0009765625" max="512" step="0.25" inputmode="decimal" required><small>No sustituye los límites de adjuntos de WebAPI.</small></label>
+            <label class="field"><span>Límite local por solicitud (MiB)</span><input id="runtime-max-body-mib" type="number" min="0.0009765625" max="512" step="any" inputmode="decimal" required><small>No sustituye los límites de adjuntos de WebAPI.</small></label>
             <label class="field"><span>Hibernar tras inactividad (min)</span><input id="runtime-idle-minutes" type="number" min="0" max="1440" step="0.5" inputmode="decimal" required><small>0 desactiva la hibernación interna.</small></label>
           </div>
         </details>
