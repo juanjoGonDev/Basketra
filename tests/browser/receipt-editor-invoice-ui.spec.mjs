@@ -96,10 +96,15 @@ test('receipt editor reflows as an invoice sheet across mobile widths', async ({
   await dialog.screenshot({ path: testInfo.outputPath('invoice-editor-mobile.png') });
 });
 
-test('invoice summary follows the backend-derived total', async ({ page }) => {
+test('invoice summary follows the backend-derived total without treating description edits as calculations', async ({ page }) => {
   await setup(page, 1280, 900);
   const dialog = await openEditor(page);
+  const summary = dialog.locator('.receipt-line-editor-summary');
   const affectedUnits = dialog.getByLabel('Unidades con descuento');
+
+  await dialog.locator('[data-field="description"]').fill('BEBIDA COCO SIN AZÚCAR');
+  await expect(summary).toHaveAttribute('data-summary-state', 'ready');
+  await expect(dialog.locator('[data-editor-summary-total]')).toHaveText('2,62 €');
 
   await affectedUnits.fill('2');
   await expect(dialog.locator('[data-field="lineTotalEuro"]')).toHaveJSProperty('value', '1.75');
