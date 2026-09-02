@@ -107,6 +107,15 @@ async function openAccessibleActions(wrapper) {
   await expect(wrapper.locator('[data-swipe-actions]')).toHaveAttribute('aria-hidden', 'false');
 }
 
+async function dragLeft(page, surface) {
+  const box = await surface.boundingBox();
+  if (!box) throw new Error('Swipe surface is not visible');
+  await page.mouse.move(box.x + box.width * 0.85, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.05, box.y + box.height / 2, { steps: 6 });
+  await page.mouse.up();
+}
+
 test('inventory entity rows share accessible swipe actions and preserve canonical delete preflights', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await installRoutes(page);
@@ -162,12 +171,9 @@ test('inventory entity rows share accessible swipe actions and preserve canonica
   await openInventorySection(page, 'Tiendas');
   const storeWrapper = page.locator('[data-swipe-kind="inventory-store"][data-swipe-id="store_central"]');
   await expect(storeWrapper).toBeVisible();
-  const box = await storeWrapper.boundingBox();
-  expect(box).not.toBeNull();
-  await page.mouse.move(box.x + box.width * 0.85, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(box.x + box.width * 0.05, box.y + box.height / 2, { steps: 6 });
-  await page.mouse.up();
+  const touchSurface = storeWrapper.locator('[data-inventory-touch-surface]');
+  await expect(touchSurface).toBeVisible();
+  await dragLeft(page, touchSurface);
 
   const storeDelete = page.locator('#store-delete-dialog');
   await expect(storeDelete).toBeVisible();
