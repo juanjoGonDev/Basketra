@@ -8,6 +8,12 @@ import { CategoryRepository, type ProductCategoryRecord } from '../infrastructur
 import type { AiReceiptInterpretation, ReceiptExtractionItem } from './extraction.ts';
 
 const CATEGORY_FALLBACK_WARNING = 'Some receipt items could not be assigned to a valid category and were classified as desconocido.';
+const CATEGORY_SEMANTIC_MATERIALIZATION_ERRORS = new Set([
+  'AI_CATEGORY_REFERENCE_INVALID',
+  'AI_CATEGORY_REFERENCE_DUPLICATED',
+  'AI_CATEGORY_PARENT_NOT_FOUND',
+  'AI_CATEGORY_CYCLE',
+]);
 
 type CategoryStore = Pick<CategoryRepository, 'ensureUnknown' | 'list' | 'materialize'>;
 
@@ -43,6 +49,11 @@ function appendFallbackWarning(warnings: readonly string[]): readonly string[] {
   return warnings.includes(CATEGORY_FALLBACK_WARNING)
     ? warnings
     : [...warnings, CATEGORY_FALLBACK_WARNING].slice(0, 100);
+}
+
+function isSemanticCategoryMaterializationError(error: unknown): boolean {
+  if (error instanceof RangeError) return true;
+  return error instanceof Error && CATEGORY_SEMANTIC_MATERIALIZATION_ERRORS.has(error.message);
 }
 
 function resolveItems(
@@ -93,7 +104,8 @@ export function resolveReceiptCategories(
       newCategories: materialized.created.map(asMaterializedProposal),
       warnings: resolved.usedFallback ? appendFallbackWarning(interpretation.warnings) : interpretation.warnings,
     };
-  } catch {
+  } catch (error) {
+    if (!isSemanticCategoryMaterializationError(error)) throw error;
     const validIds = new Set(existing.map((category) => category.id));
     validIds.add(unknown.id);
     const resolved = resolveItems(interpretation.items, validIds, new Map(), unknown.id);
