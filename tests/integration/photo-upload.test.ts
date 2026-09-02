@@ -38,14 +38,6 @@ test('photo API uploads and previews real images across the Docker filesystem bo
     port: 0,
     dataDir: join(root, 'data'),
     tempDir: temporary.path,
-    maxBodyBytes: 16_384,
-    aiTimeoutMs: 1_000,
-    aiMaxRetries: 1,
-    aiImageCapability: true,
-    aiPdfCapability: false,
-    overpassBaseUrl: 'http://127.0.0.1:9/api/',
-    idleHibernateAfterMs: 0,
-    idleExitAfterMs: 0,
   };
   const server = new BasketraServer(config);
   await server.listen();
