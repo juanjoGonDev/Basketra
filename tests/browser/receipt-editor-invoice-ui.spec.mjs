@@ -223,18 +223,23 @@ test('invoice-editor-mobile', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 1024 });
   await slot.evaluate(element => { element.scrollTop = 0; });
   await expect.poll(async () => {
-    const [dialogBox, summaryBox, actionsBox] = await Promise.all([
+    const [dialogBox, actionsBox] = await Promise.all([
       elementBox(dialog),
-      elementBox(summary),
       elementBox(actions),
     ]);
     return Boolean(
       dialogBox
-      && summaryBox
       && actionsBox
-      && summaryBox.y + summaryBox.height <= actionsBox.y + 1
+      && dialogBox.y >= -1
+      && actionsBox.y >= dialogBox.y
       && actionsBox.y + actionsBox.height <= dialogBox.y + dialogBox.height + 1,
     );
+  }).toBe(true);
+  await expectNoHorizontalOverflow(page, dialog);
+  await summary.scrollIntoViewIfNeeded();
+  await expect.poll(async () => {
+    const [summaryBox, actionsBox] = await Promise.all([elementBox(summary), elementBox(actions)]);
+    return Boolean(summaryBox && actionsBox && summaryBox.y + summaryBox.height <= actionsBox.y + 1);
   }).toBe(true);
   await dialog.screenshot({ path: testInfo.outputPath('invoice-editor-mobile.png') });
 });
