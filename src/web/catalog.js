@@ -426,7 +426,7 @@ function renderCategoryTree() {
       row.type = 'button';
       row.className = 'category-row';
       row.dataset.categoryId = category.id;
-      row.style.setProperty('--category-depth', String(depth));
+      row.style.setProperty('--category-indent', `${depth * 1.1}rem`);
       row.setAttribute('aria-pressed', String(category.id === state.selectedCategoryId));
       const swatch = document.createElement('span');
       swatch.className = 'category-swatch';
@@ -810,9 +810,9 @@ function installCatalogInteractions() {
   });
 }
 
-export function initializeCatalogFeature({ activate = false, activateCategories = false } = {}) {
+export function initializeCatalogFeature({ activate = false, activateCategoryView = false } = {}) {
   if (state.initialized) {
-    if (activateCategories) void activateCategories();
+    if (activateCategoryView) void activateCategories();
     else if (activate) void activateCatalog();
     return;
   }
@@ -824,7 +824,7 @@ export function initializeCatalogFeature({ activate = false, activateCategories 
   installCatalogInteractions();
   hydrateIcons(document.querySelector('.view[data-view="catalog"]') || document);
   hydrateIcons(document.querySelector('.view[data-view="categories"]') || document);
-  if (activateCategories) void activateCategories();
+  if (activateCategoryView) void activateCategories();
   else if (activate) void activateCatalog();
 }
 
@@ -832,7 +832,7 @@ function autoInitializeCatalogFeature() {
   const requested = location.hash.slice(1);
   initializeCatalogFeature({
     activate: requested === 'catalog',
-    activateCategories: requested === 'categories',
+    activateCategoryView: requested === 'categories',
   });
 }
 
