@@ -73,7 +73,7 @@ test('inventory schema upgrade preserves legacy receipt rows and initializes edi
       taxMinor: number;
       receiptDiscountMinor: number;
     };
-    assert.deepEqual(receipt, {
+    assert.deepEqual({ ...receipt }, {
       id: 'receipt_inventory_upgrade',
       declaredTotalMinor: 350,
       purchasedAt: '2026-07-01T10:30:00.000Z',
@@ -100,7 +100,7 @@ test('inventory schema upgrade preserves legacy receipt rows and initializes edi
       discountQuantity: number;
       lineTotalMinor: number;
     };
-    assert.deepEqual(item, {
+    assert.deepEqual({ ...item }, {
       id: 'receipt_item_inventory_upgrade',
       originalDescription: 'Producto legado',
       status: 'confirmed',
