@@ -5,11 +5,15 @@ const STORE_PAGE_SIZE = 12;
 const SEARCH_DELAY_MS = 250;
 const DATE_FORMATTER = new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium' });
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium', timeStyle: 'short' });
+const OVERVIEW_DESTINATIONS = ['catalog', 'categories', 'stores'] as const;
 
 const $ = selector => document.querySelector(selector);
 
 const state = {
   initialized: false,
+  overview: { productCount: 0, categoryCount: 0, storeCount: 0, latestCatalogValueMinor: 0 },
+  overviewLoadGeneration: 0,
+  overviewLoadController: null,
   stores: { stores: [], total: 0, offset: 0, limit: STORE_PAGE_SIZE, hasMore: false },
   storePage: 1,
   storeQuery: '',
@@ -43,6 +47,54 @@ function formatDateTime(value) {
   if (!value) return 'Sin actividad';
   const date = new Date(value);
   return Number.isNaN(date.valueOf()) ? String(value) : DATE_TIME_FORMATTER.format(date);
+}
+
+function installOverviewView() {
+  const view = document.querySelector('.view[data-view="inventory"]');
+  if (!view || view.dataset.inventoryOverviewEnhanced === 'true') return;
+  view.dataset.inventoryOverviewEnhanced = 'true';
+  view.innerHTML = `
+    <section class="inventory-overview-shell" aria-labelledby="inventory-overview-title">
+      <header class="inventory-entity-header inventory-overview-header">
+        <div><p class="eyebrow">Inventario</p><h1 id="inventory-overview-title">Inventario</h1><p>Gestiona productos, categorías y tiendas desde un único punto y revisa métricas derivadas de datos persistidos.</p></div>
+        <button id="inventory-overview-new-product" class="button primary" type="button"><span data-icon="plus"></span>Nuevo producto</button>
+      </header>
+      <nav class="task-tablist inventory-overview-tabs" aria-label="Secciones de inventario">
+        <button class="task-tab" type="button" data-inventory-destination="catalog">Productos</button>
+        <button class="task-tab" type="button" data-inventory-destination="categories">Categorías</button>
+        <button class="task-tab" type="button" data-inventory-destination="stores">Tiendas</button>
+        <button class="task-tab" type="button" data-inventory-destination="inventory-statistics">Estadísticas</button>
+      </nav>
+      <p id="inventory-overview-state" class="inline-status" role="status" aria-live="polite"></p>
+      <section class="inventory-kpi-grid inventory-overview-kpis" aria-label="Resumen del inventario">
+        <article class="surface inventory-kpi"><span>Productos</span><strong id="inventory-overview-products">—</strong><small>Variantes persistidas en el catálogo.</small></article>
+        <article class="surface inventory-kpi"><span>Categorías</span><strong id="inventory-overview-categories">—</strong><small>Categorías disponibles en la jerarquía.</small></article>
+        <article class="surface inventory-kpi"><span>Tiendas</span><strong id="inventory-overview-stores">—</strong><small>Ubicaciones físicas guardadas.</small></article>
+        <article class="surface inventory-kpi"><span>Valor catálogo reciente</span><strong id="inventory-overview-value">—</strong><small>Último precio conocido por producto; no representa stock.</small></article>
+      </section>
+      <form id="inventory-overview-search-form" class="surface inventory-overview-query" aria-label="Buscar en inventario">
+        <label class="field inventory-overview-search"><span>Buscar</span><input id="inventory-overview-search" type="search" maxlength="160" autocomplete="off" placeholder="Producto, categoría o tienda"></label>
+        <label class="field"><span>Buscar en</span><select id="inventory-overview-scope"><option value="catalog">Productos</option><option value="categories">Categorías</option><option value="stores">Tiendas</option></select></label>
+        <label class="field"><span>Orden</span><select id="inventory-overview-sort"><option value="recent">Recientes</option><option value="name">Nombre A-Z</option></select></label>
+        <div class="inventory-overview-query-actions"><button class="button primary" type="submit"><span data-icon="search"></span>Buscar</button><button id="inventory-overview-open-filters" class="button secondary" type="button">Abrir filtros</button></div>
+        <div class="inventory-overview-chips" aria-label="Búsqueda rápida por tipo">
+          <button class="button secondary" type="button" data-inventory-scope="catalog" aria-pressed="true">Productos</button>
+          <button class="button secondary" type="button" data-inventory-scope="categories" aria-pressed="false">Categorías</button>
+          <button class="button secondary" type="button" data-inventory-scope="stores" aria-pressed="false">Tiendas</button>
+        </div>
+      </form>
+      <section class="surface inventory-overview-sections" aria-labelledby="inventory-sections-title">
+        <div class="section-header"><div><p class="eyebrow">Gestión</p><h2 id="inventory-sections-title">Explora el inventario</h2></div></div>
+        <div class="dashboard-grid inventory-overview-cards">
+          <button class="dashboard-card" type="button" data-inventory-destination="catalog"><span data-icon="store"></span><strong>Productos</strong><small>Buscar, filtrar y abrir fichas</small></button>
+          <button class="dashboard-card" type="button" data-inventory-destination="categories"><span data-icon="list"></span><strong>Categorías</strong><small>Jerarquía, detalle y nuevas categorías</small></button>
+          <button class="dashboard-card" type="button" data-inventory-destination="stores"><span data-icon="store"></span><strong>Tiendas</strong><small>Listado, detalle y actividad</small></button>
+          <button class="dashboard-card" type="button" data-inventory-destination="inventory-statistics"><span data-icon="prices"></span><strong>Estadísticas</strong><small>KPIs, categorías y tiendas</small></button>
+        </div>
+      </section>
+      <aside class="surface inventory-overview-guidance" role="note"><span data-icon="info"></span><div><strong>Datos canónicos, sin inventar stock</strong><p>Los importes y recuentos proceden del servidor. Basketra no muestra valoración ni alertas de stock mientras no exista una cantidad de stock canónica.</p></div></aside>
+    </section>`;
+  hydrateIcons(view);
 }
 
 function installStoreView() {
@@ -126,7 +178,7 @@ function installStatisticsView() {
 
 function activateView(viewName, { dispatch = true } = {}) {
   const target = document.querySelector(`.view[data-view="${CSS.escape(viewName)}"]`);
-  if (!target) return;
+  if (!target) return false;
   document.querySelectorAll('.view').forEach(view => view.classList.toggle('active', view === target));
   document.querySelectorAll('.bottom-nav [data-nav]').forEach(button => button.removeAttribute('aria-current'));
   document.querySelector('.bottom-nav [data-nav="inventory"]')?.setAttribute('aria-current', 'page');
@@ -134,12 +186,101 @@ function activateView(viewName, { dispatch = true } = {}) {
   if (dispatch) document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: viewName } }));
   window.scrollTo(0, 0);
   $('#main')?.focus({ preventScroll: true });
+  return true;
 }
 
 function goInventory() {
   const button = document.querySelector('.bottom-nav [data-nav="inventory"]');
   if (button instanceof HTMLButtonElement) button.click();
   else activateView('inventory');
+}
+
+function overviewDestination(value) {
+  return OVERVIEW_DESTINATIONS.includes(value) ? value : 'catalog';
+}
+
+function overviewTarget(destination) {
+  if (destination === 'categories') return { search: '#category-search', filter: '#category-filter', sort: null };
+  if (destination === 'stores') return { search: '#store-search', filter: '#store-retailer-filter', sort: '#store-sort' };
+  return { search: '#catalog-search', filter: '#catalog-filter-category', sort: '#catalog-sort' };
+}
+
+function syncOverviewScope() {
+  const scope = overviewDestination($('#inventory-overview-scope')?.value);
+  const sort = $('#inventory-overview-sort');
+  if (sort instanceof HTMLSelectElement) {
+    sort.disabled = scope === 'categories';
+    if (sort.disabled) sort.value = 'name';
+  }
+  document.querySelectorAll('[data-inventory-scope]').forEach(button => {
+    button.setAttribute('aria-pressed', String(button.dataset.inventoryScope === scope));
+  });
+}
+
+function transferOverviewQuery({ focusFilters = false } = {}) {
+  const scope = overviewDestination($('#inventory-overview-scope')?.value);
+  const query = $('#inventory-overview-search')?.value.trim() || '';
+  const requestedSort = $('#inventory-overview-sort')?.value === 'name' ? 'name' : 'recent';
+  if (!activateView(scope)) return;
+
+  requestAnimationFrame(() => {
+    const target = overviewTarget(scope);
+    const search = $(target.search);
+    if (search instanceof HTMLInputElement) search.value = query;
+
+    if (target.sort) {
+      const sort = $(target.sort);
+      if (sort instanceof HTMLSelectElement) {
+        sort.value = requestedSort;
+        sort.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    } else if (search instanceof HTMLInputElement) {
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    if (focusFilters) {
+      requestAnimationFrame(() => $(target.filter)?.focus({ preventScroll: false }));
+    } else {
+      requestAnimationFrame(() => search?.focus({ preventScroll: false }));
+    }
+  });
+}
+
+function renderOverview(overview) {
+  state.overview = {
+    productCount: Number(overview.productCount || 0),
+    categoryCount: Number(overview.categoryCount || 0),
+    storeCount: Number(overview.storeCount || 0),
+    latestCatalogValueMinor: Number(overview.latestCatalogValueMinor || 0),
+  };
+  $('#inventory-overview-products').textContent = String(state.overview.productCount);
+  $('#inventory-overview-categories').textContent = String(state.overview.categoryCount);
+  $('#inventory-overview-stores').textContent = String(state.overview.storeCount);
+  $('#inventory-overview-value').textContent = formatEuroMinor(Math.max(0, state.overview.latestCatalogValueMinor));
+}
+
+async function loadOverview() {
+  const generation = ++state.overviewLoadGeneration;
+  state.overviewLoadController?.abort();
+  const controller = new AbortController();
+  state.overviewLoadController = controller;
+  $('#inventory-overview-state').textContent = 'Actualizando resumen…';
+  try {
+    const result = await api('/api/v1/inventory/overview', { signal: controller.signal });
+    if (generation !== state.overviewLoadGeneration) return;
+    renderOverview(result.overview || {});
+    $('#inventory-overview-state').textContent = 'Resumen actualizado con datos persistidos.';
+  } catch (error) {
+    if (error?.name === 'AbortError' || generation !== state.overviewLoadGeneration) return;
+    $('#inventory-overview-state').textContent = `No se pudo cargar el resumen: ${error.message}`;
+  } finally {
+    if (generation === state.overviewLoadGeneration) state.overviewLoadController = null;
+  }
+}
+
+function openOverviewDestination(destination) {
+  const target = String(destination || '');
+  if (target === 'inventory-statistics' || OVERVIEW_DESTINATIONS.includes(target)) activateView(target);
 }
 
 function storeQueryString() {
@@ -462,7 +603,32 @@ async function activateStatistics() {
   await loadStatistics();
 }
 
+function bindOverviewInteractions() {
+  $('#inventory-overview-new-product').addEventListener('click', () => {
+    if (!activateView('catalog')) return;
+    requestAnimationFrame(() => $('#catalog-new-product')?.click());
+  });
+  document.querySelectorAll('[data-inventory-destination]').forEach(button => {
+    button.addEventListener('click', () => openOverviewDestination(button.dataset.inventoryDestination));
+  });
+  $('#inventory-overview-scope').addEventListener('change', syncOverviewScope);
+  document.querySelectorAll('[data-inventory-scope]').forEach(button => {
+    button.addEventListener('click', () => {
+      $('#inventory-overview-scope').value = overviewDestination(button.dataset.inventoryScope);
+      syncOverviewScope();
+      $('#inventory-overview-search').focus();
+    });
+  });
+  $('#inventory-overview-search-form').addEventListener('submit', event => {
+    event.preventDefault();
+    transferOverviewQuery();
+  });
+  $('#inventory-overview-open-filters').addEventListener('click', () => transferOverviewQuery({ focusFilters: true }));
+  syncOverviewScope();
+}
+
 function bindInteractions() {
+  bindOverviewInteractions();
   $('#stores-back-inventory').addEventListener('click', goInventory);
   $('#statistics-back-inventory').addEventListener('click', goInventory);
   $('#stores-back-list').addEventListener('click', closeStoreDetail);
@@ -492,24 +658,28 @@ function bindInteractions() {
 
 function handleViewChanged(event) {
   const view = String(event.detail?.view || '');
+  if (view === 'inventory') void loadOverview();
+  else state.overviewLoadController?.abort();
   if (view === 'stores') void loadStores({ resetPage: true });
   else state.storeLoadController?.abort();
   if (view === 'inventory-statistics') void loadStatistics();
   else state.statisticsLoadController?.abort();
-  if (view === 'stores' || view === 'inventory-statistics') {
+  if (view === 'inventory' || view === 'catalog' || view === 'categories' || view === 'stores' || view === 'inventory-statistics') {
     document.querySelector('.bottom-nav [data-nav="inventory"]')?.setAttribute('aria-current', 'page');
   }
 }
 
-export function initializeInventoryFeature({ activateStoreView = false, activateStatisticsView = false } = {}) {
+export function initializeInventoryFeature({ activateOverviewView = false, activateStoreView = false, activateStatisticsView = false } = {}) {
   if (!state.initialized) {
     state.initialized = true;
     injectStylesheet();
+    installOverviewView();
     installStoreView();
     installStatisticsView();
     bindInteractions();
     document.addEventListener('basketra:view-changed', handleViewChanged);
   }
+  if (activateOverviewView) void loadOverview();
   if (activateStoreView) void activateStores(location.hash.slice(1));
   else if (activateStatisticsView) void activateStatistics();
 }
@@ -517,6 +687,7 @@ export function initializeInventoryFeature({ activateStoreView = false, activate
 function autoInitializeInventoryFeature() {
   const requested = location.hash.slice(1);
   initializeInventoryFeature({
+    activateOverviewView: requested === 'inventory',
     activateStoreView: requested === 'stores' || requested.startsWith('stores:'),
     activateStatisticsView: requested === 'inventory-statistics',
   });
