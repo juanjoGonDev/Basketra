@@ -52,6 +52,16 @@ async function expectNoHorizontalOverflow(page, dialog) {
   await expect.poll(() => dialog.locator('.receipt-line-editor-layout').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
 }
 
+async function elementBox(locator) {
+  const box = await locator.boundingBox();
+  return box && {
+    x: Math.round(box.x),
+    y: Math.round(box.y),
+    width: Math.round(box.width),
+    height: Math.round(box.height),
+  };
+}
+
 test('receipt editor uses invoice hierarchy on desktop', async ({ page }, testInfo) => {
   await setup(page, 1280, 900);
   const dialog = await openEditor(page);
@@ -68,8 +78,13 @@ test('receipt editor uses invoice hierarchy on desktop', async ({ page }, testIn
   await expect(dialog.locator('[data-editor-summary-total]')).toHaveText('2,62 €');
 
   const layout = dialog.locator('.receipt-line-editor-layout');
+  const purchaseDetail = dialog.locator('.quantity-row');
+  const summary = dialog.locator('.receipt-line-editor-summary');
   await expect(layout).toHaveCSS('display', 'grid');
-  await expect.poll(async () => (await layout.evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length)) >= 2).toBe(true);
+  await expect.poll(async () => {
+    const [purchaseBox, summaryBox] = await Promise.all([elementBox(purchaseDetail), elementBox(summary)]);
+    return Boolean(purchaseBox && summaryBox && summaryBox.x > purchaseBox.x + purchaseBox.width);
+  }).toBe(true);
   await expectNoHorizontalOverflow(page, dialog);
 
   await dialog.screenshot({ path: testInfo.outputPath('invoice-editor-desktop.png') });
@@ -85,8 +100,15 @@ test('receipt editor reflows as an invoice sheet across mobile widths', async ({
     await expect(dialog.locator('[data-editor-summary-total]')).toHaveText('2,62 €');
   }
 
-  const layout = dialog.locator('.receipt-line-editor-layout');
-  await expect.poll(async () => (await layout.evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length)) === 1).toBe(true);
+  const purchaseDetail = dialog.locator('.quantity-row');
+  const summary = dialog.locator('.receipt-line-editor-summary');
+  await expect.poll(async () => {
+    const [purchaseBox, summaryBox] = await Promise.all([elementBox(purchaseDetail), elementBox(summary)]);
+    if (!purchaseBox || !summaryBox) return false;
+    const sameColumn = Math.abs(summaryBox.x - purchaseBox.x) <= 1
+      && Math.abs(summaryBox.width - purchaseBox.width) <= 1;
+    return sameColumn && summaryBox.y >= purchaseBox.y + purchaseBox.height;
+  }).toBe(true);
   await expect(dialog.getByLabel('Unidades con descuento')).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Guardar línea', exact: true })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Cancelar', exact: true })).toBeVisible();
