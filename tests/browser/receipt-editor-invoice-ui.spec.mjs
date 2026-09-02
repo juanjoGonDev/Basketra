@@ -62,12 +62,51 @@ async function elementBox(locator) {
   };
 }
 
+async function settleLayout(page) {
+  await page.evaluate(() => new Promise(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  }));
+}
+
+async function mobileSheetGeometry(dialog, actions) {
+  const [dialogBox, actionsBox] = await Promise.all([
+    elementBox(dialog),
+    elementBox(actions),
+  ]);
+  if (!dialogBox || !actionsBox) return { dialogBox, actionsBox, bottomGap: null };
+  const dialogBottom = dialogBox.y + dialogBox.height;
+  const actionsBottom = actionsBox.y + actionsBox.height;
+  return {
+    dialogBox,
+    actionsBox,
+    dialogBottom,
+    actionsBottom,
+    bottomGap: dialogBottom - actionsBottom,
+  };
+}
+
 function sameRow(first, second, tolerance = 4) {
   return first && second && Math.abs(first.y - second.y) <= tolerance;
 }
 
 function sameWidth(first, second, tolerance = 4) {
   return first && second && Math.abs(first.width - second.width) <= tolerance;
+}
+
+function sameSize(first, second, tolerance = 1) {
+  return first
+    && second
+    && Math.abs(first.width - second.width) <= tolerance
+    && Math.abs(first.height - second.height) <= tolerance;
+}
+
+function containedBy(inner, outer, tolerance = 1) {
+  return inner
+    && outer
+    && inner.x >= outer.x - tolerance
+    && inner.y >= outer.y - tolerance
+    && inner.x + inner.width <= outer.x + outer.width + tolerance
+    && inner.y + inner.height <= outer.y + outer.height + tolerance;
 }
 
 test('invoice-editor-desktop', async ({ page }, testInfo) => {
@@ -222,19 +261,15 @@ test('invoice-editor-mobile', async ({ page }, testInfo) => {
 
   await page.setViewportSize({ width: 390, height: 1024 });
   await slot.evaluate(element => { element.scrollTop = 0; });
-  await expect.poll(async () => {
-    const [dialogBox, actionsBox] = await Promise.all([
-      elementBox(dialog),
-      elementBox(actions),
-    ]);
-    if (!dialogBox || !actionsBox) return false;
-    const dialogBottom = dialogBox.y + dialogBox.height;
-    const actionsBottom = actionsBox.y + actionsBox.height;
-    return dialogBox.y >= -1
-      && actionsBox.y >= dialogBox.y
-      && actionsBottom <= dialogBottom + 1
-      && Math.abs(dialogBottom - actionsBottom) <= 4;
-  }).toBe(true);
+  await settleLayout(page);
+  const geometry = await mobileSheetGeometry(dialog, actions);
+  console.log(`[invoice-editor-mobile geometry] ${JSON.stringify(geometry)}`);
+  expect(geometry.dialogBox, 'mobile invoice dialog must have a measurable box').not.toBeNull();
+  expect(geometry.actionsBox, 'mobile invoice actions must have a measurable box').not.toBeNull();
+  expect(geometry.dialogBox?.y ?? -2, `dialog box: ${JSON.stringify(geometry)}`).toBeGreaterThanOrEqual(-1);
+  expect(geometry.actionsBox?.y ?? -2, `actions box: ${JSON.stringify(geometry)}`).toBeGreaterThanOrEqual(geometry.dialogBox?.y ?? -1);
+  expect(geometry.actionsBottom ?? Number.POSITIVE_INFINITY, `actions overflow dialog: ${JSON.stringify(geometry)}`).toBeLessThanOrEqual((geometry.dialogBottom ?? 0) + 1);
+  expect(Math.abs(geometry.bottomGap ?? Number.POSITIVE_INFINITY), `unexpected residual bottom gap: ${JSON.stringify(geometry)}`).toBeLessThanOrEqual(4);
   await expectNoHorizontalOverflow(page, dialog);
   await summary.scrollIntoViewIfNeeded();
   await expect.poll(async () => {
@@ -242,6 +277,97 @@ test('invoice-editor-mobile', async ({ page }, testInfo) => {
     return Boolean(summaryBox && actionsBox && summaryBox.y + summaryBox.height <= actionsBox.y + 1);
   }).toBe(true);
   await dialog.screenshot({ path: testInfo.outputPath('invoice-editor-mobile.png') });
+});
+
+test('invoice summary stays mounted and stable while a calculation is pending', async ({ page }) => {
+  await setup(page, 1280, 900);
+  const dialog = await openEditor(page);
+  const summary = dialog.locator('.receipt-line-editor-summary');
+  const affectedUnits = dialog.getByLabel('Unidades con descuento');
+  const displayedTotal = dialog.locator('[data-editor-summary-total]');
+  let releaseCalculation = () => {};
+  const calculationGate = new Promise(resolve => { releaseCalculation = resolve; });
+  let heldRequest = false;
+
+  await summary.evaluate(element => { element.dataset.stabilityProbe = 'same-node'; });
+  const settledBox = await elementBox(summary);
+  await page.route('**/api/v1/receipts/calculate-line', async route => {
+    if (heldRequest) {
+      await route.fallback();
+      return;
+    }
+    heldRequest = true;
+    const response = await route.fetch();
+    await calculationGate;
+    await route.fulfill({ response });
+  });
+
+  try {
+    await affectedUnits.fill('2');
+    await expect(summary).toHaveAttribute('data-summary-state', 'pending');
+    await expect(summary.locator('[data-editor-summary-progress]')).toContainText('Calculando');
+    await expect(displayedTotal).toHaveText('2,62 €');
+    await expect(summary).toHaveAttribute('data-stability-probe', 'same-node');
+    await settleLayout(page);
+    const pendingBox = await elementBox(summary);
+    expect(sameSize(settledBox, pendingBox), `summary resized while pending: ${JSON.stringify({ settledBox, pendingBox })}`).toBe(true);
+
+    releaseCalculation();
+    await expect(dialog.locator('[data-field="lineTotalEuro"]')).toHaveJSProperty('value', '1.75');
+    await expect(summary).toHaveAttribute('data-summary-state', 'ready');
+    await expect(displayedTotal).toHaveText('1,75 €');
+    await expect(summary).toHaveAttribute('data-stability-probe', 'same-node');
+    await settleLayout(page);
+    const completedBox = await elementBox(summary);
+    expect(sameSize(settledBox, completedBox), `summary resized after calculation: ${JSON.stringify({ settledBox, completedBox })}`).toBe(true);
+  } finally {
+    releaseCalculation();
+  }
+});
+
+test('invoice summary contains extreme localized values without overlap or overflow', async ({ page }) => {
+  await setup(page, 1280, 900);
+  const dialog = await openEditor(page);
+  const summary = dialog.locator('.receipt-line-editor-summary');
+  const quantity = dialog.locator('[data-field="quantity"]');
+  const unitPrice = dialog.locator('[data-field="unitPriceEuro"]');
+  const discountValue = dialog.locator('[data-field="discountValue"]');
+  const affectedUnits = dialog.getByLabel('Unidades con descuento');
+  const expectedAmount = '9.999.899.900.001,00 €';
+
+  await quantity.fill('99999');
+  await unitPrice.fill('99999999');
+  await discountValue.fill('100');
+  await affectedUnits.fill('99999');
+
+  await expect(dialog.locator('[data-field="lineTotalEuro"]')).toHaveJSProperty('value', '0');
+  await expect(dialog.locator('[data-editor-summary-base]')).toHaveText(expectedAmount);
+  await expect(dialog.locator('[data-editor-summary-discount]')).toHaveText(`-${expectedAmount}`);
+  await expect(dialog.locator('[data-editor-summary-total]')).toHaveText('0,00 €');
+  await expect(summary).toHaveAttribute('data-summary-state', 'ready');
+  await expectNoHorizontalOverflow(page, dialog);
+
+  const rows = summary.locator('.receipt-editor-summary__row');
+  for (let index = 0; index < await rows.count(); index += 1) {
+    const row = rows.nth(index);
+    const [rowBox, labelBox, valueBox] = await Promise.all([
+      elementBox(row),
+      elementBox(row.locator('dt')),
+      elementBox(row.locator('dd')),
+    ]);
+    expect(containedBy(labelBox, rowBox), `summary label escaped row ${index}: ${JSON.stringify({ rowBox, labelBox })}`).toBe(true);
+    expect(containedBy(valueBox, rowBox), `summary value escaped row ${index}: ${JSON.stringify({ rowBox, valueBox })}`).toBe(true);
+    expect(valueBox && labelBox && valueBox.y >= labelBox.y + labelBox.height - 1, `desktop summary label/value overlap in row ${index}: ${JSON.stringify({ labelBox, valueBox })}`).toBe(true);
+  }
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expectNoHorizontalOverflow(page, dialog);
+  await summary.scrollIntoViewIfNeeded();
+  const summaryBox = await elementBox(summary);
+  for (const selector of ['[data-editor-summary-base]', '[data-editor-summary-discount]', '[data-editor-summary-total]']) {
+    const valueBox = await elementBox(summary.locator(selector));
+    expect(containedBy(valueBox, summaryBox), `mobile extreme amount escaped summary: ${JSON.stringify({ selector, summaryBox, valueBox })}`).toBe(true);
+  }
 });
 
 test('invoice summary follows the backend-derived total without treating description edits as calculations', async ({ page }) => {
