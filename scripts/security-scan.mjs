@@ -174,7 +174,7 @@ forbidText(webApi, ['Bearer', 'authorization', 'authToken'], 'browser HTTP clien
 requireText(webApi, ['basketra:api-log', "import('./operations.js')"], 'browser observability contract');
 const operationsUi = readFileSync('src/web/operations.js', 'utf8');
 requireText(operationsUi, ['client.connection_restored', 'setInterval(updateUptime, 1000)', 'RESTAURAR', '/api/v1/logs/client', '/api/v1/settings/runtime', 'runtimeSettingsPayload'], 'browser operations contract');
-forbidText(operationsUi, ['BASKETRA_AI_BASE_URL', 'BASKETRA_AI_API_KEY', 'BASKETRA_AI_MODEL', 'recrea el contenedor', 'recrear el contenedor'], 'browser runtime settings UX');
+forbidText(operationsUi, ['BASKETRA_AI_', 'IDLE_EXIT_AFTER_MS'], 'browser runtime settings UX');
 const serviceWorker = readFileSync('src/web/sw.js', 'utf8');
 requireText(serviceWorker, ["url.pathname.startsWith('/api/')", "'/lists.js'", "'/receipts.js'", "'/operations.js'", "'/operations.css'"], 'PWA cache contract');
 
