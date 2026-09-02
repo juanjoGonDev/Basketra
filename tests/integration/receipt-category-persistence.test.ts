@@ -82,7 +82,7 @@ test('existing product category remains canonical and invalid or absent receipt 
         WHERE receipt_items.receipt_id = ?
       `).get(receiptId) as { receiptCategoryId: string; productCategoryId: string; receiptCategoryName: string };
 
-      assert.deepEqual(categoryFor(secondReceiptId), {
+      assert.deepEqual({ ...categoryFor(secondReceiptId) }, {
         receiptCategoryId: dairy.id,
         productCategoryId: dairy.id,
         receiptCategoryName: 'Lácteos',
