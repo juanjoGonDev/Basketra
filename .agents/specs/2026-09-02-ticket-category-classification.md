@@ -116,4 +116,4 @@ Use atomic Conventional Commits on `agent/feat-ticket-category-classification`, 
 
 ## Status
 
-Specification created from main `f598e97c771bc918947de6adc8e42a780f97e12d`. Implementation and validation are pending.
+Implementation is present in PR #49 on `agent/feat-ticket-category-classification`. Migration v8, `CategoryRepository`, hierarchical/color API behavior, durable receipt category snapshots, strict `categoryId`/`newCategories` output, server-side proposal materialization, confirmation/catalog projection and the `Categorías` browser workflow are covered by focused unit/integration/browser tests. On head `1a7282aa401a140cc90274455787f17c90290012`, Quality, resource budgets, Security, amd64, arm64, container smoke and CodeQL were green; Browser E2E exposed three test-locator regressions rather than runtime failures. Those locators were corrected in atomic test commits through `fe03b4d4d203e472f83426f38baa8069ce72ce35`. Final same-head CI, visual evidence inspection, stable `spec.md` synchronization, PR body synchronization and final review remain pending. No merge, release or deploy has been performed.
