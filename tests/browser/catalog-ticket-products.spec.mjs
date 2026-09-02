@@ -59,7 +59,7 @@ test('ticket-derived catalog shows retailer prices on desktop', async ({ page },
   const hidden = await shell.evaluateAll(elements => elements.map(element => element.hidden));
   await shell.evaluateAll(elements => elements.forEach(element => { element.hidden = true; }));
   try {
-    await page.locator('.catalog-view').screenshot({ path: testInfo.outputPath('catalog-ticket-desktop.png') });
+    await page.locator('.view[data-view="catalog"]').screenshot({ path: testInfo.outputPath('catalog-ticket-desktop.png') });
   } finally {
     await shell.evaluateAll((elements, previous) => {
       elements.forEach((element, index) => { element.hidden = previous[index]; });
