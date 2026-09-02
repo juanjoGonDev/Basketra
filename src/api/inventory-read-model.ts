@@ -65,6 +65,32 @@ function count(database: DatabaseSync, sql: string, ...params: SqlValue[]): numb
   return Number((database.prepare(sql).get(...params) as { count: number }).count);
 }
 
+function latestCatalogValueMinor(database: DatabaseSync): number {
+  return Number((database.prepare(`
+    WITH ranked AS (
+      SELECT retailer_listings.product_variant_id AS productVariantId,
+        price_observations.price_minor AS priceMinor,
+        ROW_NUMBER() OVER (
+          PARTITION BY retailer_listings.product_variant_id
+          ORDER BY price_observations.observed_at DESC, price_observations.id DESC
+        ) AS rank
+      FROM price_observations
+      JOIN retailer_listings ON retailer_listings.id = price_observations.retailer_listing_id
+      WHERE retailer_listings.product_variant_id IS NOT NULL
+    )
+    SELECT COALESCE(SUM(priceMinor), 0) AS value FROM ranked WHERE rank = 1
+  `).get() as { value: number }).value);
+}
+
+function overview(databasePath: string): Readonly<Record<string, number>> {
+  return withDatabase(databasePath, (database) => ({
+    productCount: count(database, 'SELECT COUNT(*) AS count FROM product_variants'),
+    categoryCount: count(database, 'SELECT COUNT(*) AS count FROM product_categories'),
+    storeCount: count(database, 'SELECT COUNT(*) AS count FROM stores'),
+    latestCatalogValueMinor: latestCatalogValueMinor(database),
+  }));
+}
+
 function periodStart(period: StatisticPeriod): string | null {
   if (period === 'all') return null;
   const start = new Date();
@@ -80,20 +106,7 @@ function statistics(databasePath: string, params: URLSearchParams): Readonly<Rec
   return withDatabase(databasePath, (database) => {
     const activeProducts = count(database, 'SELECT COUNT(*) AS count FROM product_variants');
     const uncategorizedProducts = count(database, "SELECT COUNT(*) AS count FROM canonical_products WHERE category_id IS NULL OR category_id = 'category_unknown'");
-    const latestCatalogValueMinor = Number((database.prepare(`
-      WITH ranked AS (
-        SELECT retailer_listings.product_variant_id AS productVariantId,
-          price_observations.price_minor AS priceMinor,
-          ROW_NUMBER() OVER (
-            PARTITION BY retailer_listings.product_variant_id
-            ORDER BY price_observations.observed_at DESC, price_observations.id DESC
-          ) AS rank
-        FROM price_observations
-        JOIN retailer_listings ON retailer_listings.id = price_observations.retailer_listing_id
-        WHERE retailer_listings.product_variant_id IS NOT NULL
-      )
-      SELECT COALESCE(SUM(priceMinor), 0) AS value FROM ranked WHERE rank = 1
-    `).get() as { value: number }).value);
+    const catalogValueMinor = latestCatalogValueMinor(database);
 
     const periodCondition = start ? 'AND COALESCE(purchased_at, created_at) >= ?' : '';
     const periodValues: SqlValue[] = start ? [start] : [];
@@ -186,7 +199,7 @@ function statistics(databasePath: string, params: URLSearchParams): Readonly<Rec
     return {
       period,
       summary: {
-        latestCatalogValueMinor,
+        latestCatalogValueMinor: catalogValueMinor,
         activeProducts,
         ticketsProcessed: Number(ticketSummary.ticketCount),
         totalSpentMinor: Number(ticketSummary.totalSpentMinor),
@@ -324,6 +337,10 @@ function tickets(databasePath: string, params: URLSearchParams): Readonly<Record
 
 export function handleInventoryReadModelRequest(context: InventoryReadModelContext): boolean {
   if (context.method !== 'GET') return false;
+  if (context.pathname === '/api/v1/inventory/overview') {
+    context.send(200, { overview: overview(context.databasePath) });
+    return true;
+  }
   if (context.pathname === '/api/v1/inventory/statistics') {
     context.send(200, { statistics: statistics(context.databasePath, context.searchParams) });
     return true;
