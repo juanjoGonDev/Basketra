@@ -21,7 +21,7 @@ Make the Basketra image boot and remain operable without an operator-managed `.e
 - SQLite-backed Overpass base URL, local upload/body limit and idle-hibernation delay;
 - GET/PUT Settings API with runtime validation, secret masking and explicit secret clear semantics;
 - Settings UI that can edit/save/test the provider without environment files or container recreation;
-- immediate next-operation application of settings, including invalidation/reconstruction of cached provider and Responses clients;
+- immediate next-operation application of settings, including retirement/reconstruction of cached provider and Responses clients;
 - dynamic Overpass and local upload/body/hibernate behavior from the same runtime owner;
 - image/container defaults for host, port, data and temporary paths so the runtime image does not need Basketra application ENV values;
 - removal of obsolete Basketra functional ENV wiring and documentation;
@@ -40,7 +40,7 @@ Make the Basketra image boot and remain operable without an operator-managed `.e
 2. Container orchestration values are not application settings. The Raspberry Compose file supplies safe fixed/default orchestration values and can be used without a `.env` file. Basketra never receives Docker daemon access.
 3. Startup-only application paths are image defaults: container host `0.0.0.0`, port `3000`, data `/data`, temporary files `/tmp/basketra`; local non-container execution uses loopback and repository-local data/temp defaults.
 4. The API token is write-only. GET responses expose only a mask. Omitting `apiKey` preserves the stored token; `apiKey: null` explicitly clears it.
-5. Saving AI connection identity disposes cached provider/Responses clients so the next operation uses the new URL/token/model. In-flight operations retain the configuration they started with.
+5. Saving AI connection identity retires cached provider/Responses clients from active selection so the next operation uses the new URL/token/model. Retired clients remain alive until hibernation or process close so operations that already captured them can finish without being disposed underneath an in-flight request.
 6. Static image/PDF environment capability toggles are removed as operator policy. WebAPI remains the capability/limit owner; Basketra uses its provider contract and live WebAPI capability endpoint rather than configurable duplicate limits.
 7. Local request/upload size remains a Basketra runtime operational guard because it bounds Basketra's own request buffering/storage boundary, not WebAPI's AI attachment policy. It is visible and editable in Settings.
 8. Idle hibernation is a Basketra process-local optimization and is runtime configurable. Idle process exit is removed from normal runtime configuration; containers should remain supervised by Docker.
@@ -68,11 +68,18 @@ Make the Basketra image boot and remain operable without an operator-managed `.e
 - runtime settings defaults are deterministic and typed;
 - update + reopen preserves non-secret values and token;
 - API public projection masks the token and supports preserve/replace/clear semantics;
-- provider client is rebuilt after a settings update and the next request uses the new connection identity;
+- provider client is retired from active selection after a settings update, the next request uses the new connection identity, and an in-flight operation may finish with the previously captured client;
 - Overpass and local body-limit updates are observed by the next operation;
 - config/bootstrap tests prove application functional environment variables are ignored/not required;
 - browser Settings flow saves configuration, shows masked secret state, tests connection and remains responsive/mobile accessible;
 - canonical repository quality/CI remains authoritative.
+
+## Checks
+
+- Pull Request Quality must pass on the current PR head, including changed-code coverage, resource/growth budgets, Browser E2E, Security, container smoke and linux/amd64 + linux/arm64 image builds.
+- CodeQL and visual-evidence publication must pass on the same current head.
+- Browser E2E publishes a compact PNG-only screenshot artifact in addition to the complete Playwright report/traces so final review can inspect responsive and error states without depending on an oversized all-evidence archive.
+- Final review inspects Settings at the covered mobile/tablet widths and the relevant receipt/error states for overflow, inaccessible actions, misalignment and hidden feedback.
 
 ## Risks
 
@@ -91,4 +98,4 @@ Continue on `agent/fix-webapi-limit-contract`, PR #50. Companion WebAPI PR #108 
 
 ## Status
 
-Implementation is prepared. Exact-head CI and final runtime/UI evidence remain mandatory delivery gates; any failure discovered there reopens implementation rather than being accepted as a documentation-only exception.
+Implementation is prepared. Delivery is complete only when the current PR head has green exact-head CI, CodeQL and visual-evidence publication and the compact screenshot evidence has been inspected. Any gate or visual defect reopens implementation rather than being accepted as an exception.
