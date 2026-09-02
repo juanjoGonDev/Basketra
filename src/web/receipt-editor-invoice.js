@@ -1,7 +1,7 @@
 import { euroInputToMinor, formatEuroMinor, hydrateIcons } from './ui.js';
 
 const DIALOG_ID = 'receipt-line-dialog';
-const EDITOR_FIELD_SELECTOR = '[data-field="description"], [data-field="quantity"], [data-field="unitPriceEuro"], [data-field="discountType"], [data-field="discountValue"], [data-field="discountQuantity"]';
+const EDITOR_CALCULATION_FIELD_SELECTOR = '[data-field="quantity"], [data-field="unitPriceEuro"], [data-field="discountType"], [data-field="discountValue"], [data-field="discountQuantity"]';
 
 function ensureInvoiceEditorStylesheet() {
   if (document.querySelector('link[data-receipt-invoice-styles]')) return;
@@ -153,6 +153,46 @@ function markSummaryPending(item) {
   summary.dataset.summaryState = 'pending';
 }
 
+function syncCalculationSummaryState(dialog, item) {
+  const summary = item.querySelector('.receipt-line-editor-summary');
+  if (!summary) return;
+  const total = item.querySelector('[data-field="lineTotalEuro"]');
+  if (total?.getAttribute('aria-busy') === 'true') {
+    summary.dataset.summaryState = 'pending';
+    return;
+  }
+
+  const save = dialog.querySelector('#save-receipt-line-editor');
+  if (save?.dataset.receiptCalculationDisabled === 'true') {
+    summary.dataset.summaryState = 'error';
+    return;
+  }
+  syncSummary(item);
+}
+
+function observeCalculationState(dialog, item) {
+  if (!(item instanceof HTMLElement) || item.dataset.invoiceCalculationObserver === 'true') return;
+  item.dataset.invoiceCalculationObserver = 'true';
+  const sync = () => syncCalculationSummaryState(dialog, item);
+  const total = item.querySelector('[data-field="lineTotalEuro"]');
+  const derivedState = item.querySelector('.receipt-line-derived-state');
+
+  if (total) {
+    new MutationObserver(sync).observe(total, {
+      attributes: true,
+      attributeFilter: ['aria-busy'],
+    });
+  }
+  if (derivedState) {
+    new MutationObserver(sync).observe(derivedState, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+  }
+  sync();
+}
+
 function ensureItemLayout(item) {
   if (!(item instanceof HTMLElement)) return;
   if (item.dataset.invoiceEditorLayout === 'true') {
@@ -184,6 +224,14 @@ function ensureItemLayout(item) {
   syncSummary(item);
 }
 
+function prepareEditorItem(dialog) {
+  const item = editorItem(dialog);
+  if (!item) return null;
+  ensureItemLayout(item);
+  observeCalculationState(dialog, item);
+  return item;
+}
+
 function enhanceDialog(dialog) {
   if (!(dialog instanceof HTMLDialogElement)) return;
   if (dialog.dataset.invoiceEditorUi === 'true') return;
@@ -197,29 +245,25 @@ function enhanceDialog(dialog) {
 
   const slot = dialog.querySelector('#receipt-line-editor-slot');
   if (slot) {
-    new MutationObserver(() => {
-      const item = editorItem(dialog);
-      if (item) ensureItemLayout(item);
-    }).observe(slot, { childList: true });
+    new MutationObserver(() => prepareEditorItem(dialog)).observe(slot, { childList: true });
   }
 
   dialog.addEventListener('input', event => {
     const item = editorItem(dialog);
     if (!item) return;
     if (event.target?.dataset?.field === 'lineTotalEuro') {
-      syncSummary(item);
+      syncCalculationSummaryState(dialog, item);
       return;
     }
-    if (event.target?.matches?.(EDITOR_FIELD_SELECTOR)) markSummaryPending(item);
+    if (event.target?.matches?.(EDITOR_CALCULATION_FIELD_SELECTOR)) markSummaryPending(item);
   });
 
   dialog.addEventListener('change', event => {
     const item = editorItem(dialog);
-    if (item && event.target?.matches?.(EDITOR_FIELD_SELECTOR)) markSummaryPending(item);
+    if (item && event.target?.matches?.(EDITOR_CALCULATION_FIELD_SELECTOR)) markSummaryPending(item);
   });
 
-  const item = editorItem(dialog);
-  if (item) ensureItemLayout(item);
+  prepareEditorItem(dialog);
 }
 
 function installInvoiceEditor() {
