@@ -33,6 +33,6 @@ test('receipt confirmation keeps manual lines uncategorized for database fallbac
 test('receipt confirmation rejects oversized category ids at the API boundary', () => {
   assert.throws(
     () => parseReceiptConfirmation(confirmation(`category_${'x'.repeat(121)}`)),
-    /categoryId/,
+    /Expected at most 128 characters/,
   );
 });
