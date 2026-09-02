@@ -98,7 +98,7 @@ test('Inventory replaces Plans with canonical overview metrics, search handoff a
   await inventory.getByRole('button', { name: 'Buscar', exact: true }).click();
   await expect(page).toHaveURL(/#catalog$/);
   await expect(page.locator('#catalog-search')).toHaveValue('leche');
-  await expect(page.locator('#catalog-sort')).toHaveValue('name');
+  await expect(page.locator('#catalog-sort')).toHaveValue('recent');
   await expect(page.locator('.bottom-nav [data-nav="inventory"]')).toHaveAttribute('aria-current', 'page');
 
   await page.locator('.bottom-nav [data-nav="inventory"]').click();
