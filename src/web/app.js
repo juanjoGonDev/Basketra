@@ -1,12 +1,9 @@
-import { api, setBusy } from './api.js';
+import { api } from './api.js';
 import { initLists } from './lists.js';
 import { initReceipts } from './receipts.js';
 import {
   bindSwipeActions,
-  escapeHtml,
-  formatEuroMinor,
   hydrateIcons,
-  optimizationPlan,
 } from './ui.js';
 
 const toastState = {
@@ -571,50 +568,6 @@ function installSettingsDisclosureWatcher() {
   observer.observe(settings, { childList: true, subtree: true });
 }
 
-function planPresentation(kind) {
-  return {
-    'single-retailer': 'Un solo comercio',
-    balanced: 'Equilibrio recomendado',
-    'maximum-saving': 'Máximo ahorro',
-  }[kind] || String(kind || 'Plan');
-}
-
-function renderPlanTabs(plans) {
-  const container = $('#plans');
-  const recommended = plans.find(plan => plan.kind === 'balanced') || plans[0];
-  if (!recommended) {
-    container.replaceChildren();
-    return;
-  }
-
-  const { root, panels } = createTabGroup('plans', 'Vistas de comparación', [
-    { value: 'best', label: 'Mejor opción', panelClass: 'plans-tab-panel' },
-    { value: 'compare', label: 'Comparativa', panelClass: 'plans-tab-panel' },
-    { value: 'detail', label: 'Detalle', panelClass: 'plans-tab-panel' },
-  ]);
-  root.classList.add('plans-task-tabs');
-  panels.get('best').innerHTML = `<div class="plan-featured">${optimizationPlan(recommended)}</div>`;
-
-  const comparison = document.createElement('div');
-  comparison.className = 'plan-comparison-list';
-  comparison.innerHTML = plans.map(plan => `
-    <article class="plan-comparison-row${plan === recommended ? ' is-recommended' : ''}">
-      <div><strong>${escapeHtml(planPresentation(plan.kind))}</strong><small>${plan.retailerIds.length} comercios · ${plan.missingItemIds.length} faltantes · ${Math.round(plan.confidence * 100)}% confianza</small></div>
-      <strong>${formatEuroMinor(plan.effectiveTotalMinor)}</strong>
-    </article>`).join('');
-  panels.get('compare').append(comparison);
-
-  const details = document.createElement('div');
-  details.className = 'plan-detail-disclosures';
-  details.innerHTML = plans.map((plan, index) => `
-    <details class="plan-detail-disclosure" ${index === 0 ? 'open' : ''}>
-      <summary>${escapeHtml(planPresentation(plan.kind))}</summary>
-      ${optimizationPlan(plan)}
-    </details>`).join('');
-  panels.get('detail').append(details);
-  container.replaceChildren(root);
-}
-
 installReceiptReviewPresentation();
 installTicketContinuousWorkflow();
 installCompletedListDisclosure();
@@ -676,34 +629,6 @@ $$('[data-nav]').forEach(element => element.addEventListener('click', event => {
   navigate(element.dataset.nav);
 }));
 
-async function runDemoComparison(button) {
-  setBusy(button, true);
-  try {
-    const now = new Date().toISOString();
-    const result = await api('/api/v1/optimization-runs', {
-      method: 'POST',
-      body: JSON.stringify({
-        requirements: [
-          { itemId: 'milk', label: 'Leche entera 1 L', exactRequired: false, substitutionAllowed: true },
-          { itemId: 'rice', label: 'Arroz 1 kg', exactRequired: true, substitutionAllowed: false },
-        ],
-        retailerPenaltyMinor: 100,
-        offers: [
-          { id: 'a-milk', itemId: 'milk', retailerId: 'market-a', title: 'Leche entera 1 L', priceMinor: 105, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'l' }, stock: 'in-stock', observedAt: now, confidence: 0.95, evidence: 'manual fixture', exact: true, substitutionQuality: 1 },
-          { id: 'a-rice', itemId: 'rice', retailerId: 'market-a', title: 'Arroz 1 kg', priceMinor: 210, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'kg' }, stock: 'in-stock', observedAt: now, confidence: 0.9, evidence: 'manual fixture', exact: true, substitutionQuality: 1 },
-          { id: 'b-milk', itemId: 'milk', retailerId: 'market-b', title: 'Leche alternativa 1 L', priceMinor: 90, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'l' }, stock: 'in-stock', observedAt: now, confidence: 0.88, evidence: 'manual fixture', exact: false, substitutionQuality: 0.85 },
-          { id: 'b-rice', itemId: 'rice', retailerId: 'market-b', title: 'Arroz 1 kg', priceMinor: 180, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'kg' }, stock: 'in-stock', observedAt: now, confidence: 0.92, evidence: 'manual fixture', exact: true, substitutionQuality: 1 },
-        ],
-      }),
-    });
-    renderPlanTabs(result.plans || []);
-  } catch (error) {
-    toast(error.message);
-  } finally {
-    setBusy(button, false);
-  }
-}
-
 async function loadAiConfiguration() {
   try {
     return (await api('/api/v1/settings/ai-provider')).configured === true;
@@ -714,7 +639,6 @@ async function loadAiConfiguration() {
 
 async function initialize() {
   navigate(location.hash.slice(1) || 'home');
-  $('#run-demo-comparison').addEventListener('click', event => void runDemoComparison(event.currentTarget));
   try {
     const metadata = await api('/api/v1/meta');
     const aiConfigured = await loadAiConfiguration();
