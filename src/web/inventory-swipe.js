@@ -3,6 +3,7 @@ import { escapeHtml, icon } from './ui.js';
 const ENHANCED_ATTR = 'inventorySwipeEnhanced';
 const STYLE_ID = 'inventory-swipe-styles';
 const ACTION_WAIT_MS = 5_000;
+const DRAG_THRESHOLD_PX = 8;
 
 const ENTITY_CONFIG = {
   'inventory-product': {
@@ -12,6 +13,7 @@ const ENTITY_CONFIG = {
     detail: '#catalog-detail',
     edit: '#catalog-edit-product',
     delete: '#catalog-delete-product',
+    status: '#catalog-state',
   },
   'inventory-category': {
     container: '#category-tree',
@@ -20,6 +22,7 @@ const ENTITY_CONFIG = {
     detail: '#category-detail',
     edit: '#category-edit',
     delete: '#category-delete',
+    status: '#category-state',
     deleteBlocked: row => row.dataset.categoryId === 'category_unknown',
   },
   'inventory-store': {
@@ -29,8 +32,11 @@ const ENTITY_CONFIG = {
     detail: '#store-detail-screen',
     edit: '#store-edit',
     delete: '#store-delete',
+    status: '#store-state',
   },
 };
+
+let touchGesture;
 
 function rowLabel(row) {
   return row.querySelector('strong')?.textContent?.trim() || 'elemento';
@@ -69,8 +75,12 @@ function injectStyles() {
       background: var(--surface);
     }
 
-    .inventory-entity-swipe .inventory-row-more {
+    .inventory-entity-swipe .inventory-row-more,
+    .inventory-swipe-touch-surface {
       display: none;
+    }
+
+    .inventory-entity-swipe .inventory-row-more {
       align-self: center;
       margin-inline-end: var(--space-2);
     }
@@ -108,6 +118,16 @@ function injectStyles() {
         display: grid;
       }
     }
+
+    @media (max-width: 52rem) {
+      .inventory-swipe-touch-surface {
+        position: absolute;
+        inset: 0 calc(var(--touch, 3rem) + var(--space-2, .5rem)) 0 0;
+        z-index: 3;
+        display: block;
+        cursor: pointer;
+      }
+    }
   `;
   document.head.append(style);
 }
@@ -137,10 +157,14 @@ function enhanceRow(row, kind, config) {
   const content = document.createElement('div');
   content.className = 'inventory-entity-swipe__content swipe-content';
   content.dataset.swipeContent = '';
+  const touchSurface = document.createElement('span');
+  touchSurface.className = 'inventory-swipe-touch-surface';
+  touchSurface.dataset.inventoryTouchSurface = '';
+  touchSurface.setAttribute('aria-hidden', 'true');
   const toggle = fragment(inventorySwipeToggle(label));
 
   row.before(wrapper);
-  content.append(row, toggle);
+  content.append(row, touchSurface, toggle);
   wrapper.append(rail, content);
 }
 
@@ -182,6 +206,14 @@ function wrapperFor(kind, id) {
   ));
 }
 
+function reportActionFailure(kind, error) {
+  const statusSelector = ENTITY_CONFIG[kind]?.status;
+  const status = statusSelector ? document.querySelector(statusSelector) : null;
+  if (!(status instanceof HTMLElement)) return;
+  const message = error instanceof Error ? error.message : String(error);
+  status.textContent = `No se pudo abrir la acción: ${message}`;
+}
+
 async function activateRowAction(wrapper, action) {
   const kind = wrapper?.dataset.swipeKind;
   const config = ENTITY_CONFIG[kind];
@@ -196,7 +228,59 @@ async function activateRowAction(wrapper, action) {
   if (trigger instanceof HTMLButtonElement && !trigger.disabled) trigger.click();
 }
 
+function runRowAction(wrapper, action) {
+  const kind = String(wrapper?.dataset.swipeKind || '');
+  void activateRowAction(wrapper, action).catch(error => reportActionFailure(kind, error));
+}
+
+function bindTouchSurface() {
+  document.addEventListener('pointerdown', event => {
+    const surface = event.target.closest?.('[data-inventory-touch-surface]');
+    if (!(surface instanceof HTMLElement)) return;
+    touchGesture = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      dragged: false,
+      wrapper: surface.closest('.inventory-entity-swipe'),
+    };
+  }, true);
+
+  document.addEventListener('pointermove', event => {
+    if (!touchGesture || event.pointerId !== touchGesture.pointerId) return;
+    const deltaX = event.clientX - touchGesture.x;
+    const deltaY = event.clientY - touchGesture.y;
+    if (Math.abs(deltaX) >= DRAG_THRESHOLD_PX || Math.abs(deltaY) >= DRAG_THRESHOLD_PX) touchGesture.dragged = true;
+  }, true);
+
+  const finishGesture = event => {
+    if (!touchGesture || event.pointerId !== touchGesture.pointerId) return;
+    const { wrapper, dragged } = touchGesture;
+    touchGesture = undefined;
+    if (wrapper instanceof HTMLElement) wrapper.dataset.inventorySuppressTap = String(dragged);
+  };
+  document.addEventListener('pointerup', finishGesture, true);
+  document.addEventListener('pointercancel', finishGesture, true);
+
+  document.addEventListener('click', event => {
+    const surface = event.target.closest?.('[data-inventory-touch-surface]');
+    if (!(surface instanceof HTMLElement)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const wrapper = surface.closest('.inventory-entity-swipe');
+    if (!(wrapper instanceof HTMLElement)) return;
+    const suppressTap = wrapper.dataset.inventorySuppressTap === 'true';
+    delete wrapper.dataset.inventorySuppressTap;
+    if (suppressTap) return;
+    const config = ENTITY_CONFIG[wrapper.dataset.swipeKind];
+    const row = config ? wrapper.querySelector(config.row) : null;
+    if (row instanceof HTMLButtonElement) row.click();
+  }, true);
+}
+
 function bindActions() {
+  bindTouchSurface();
+
   document.addEventListener('click', event => {
     const actionButton = event.target.closest?.('[data-inventory-row-action]');
     if (!(actionButton instanceof HTMLButtonElement) || actionButton.disabled) return;
@@ -204,7 +288,7 @@ function bindActions() {
     if (!wrapper) return;
     event.preventDefault();
     event.stopPropagation();
-    void activateRowAction(wrapper, actionButton.dataset.inventoryRowAction).catch(() => {});
+    runRowAction(wrapper, actionButton.dataset.inventoryRowAction);
   });
 
   document.addEventListener('basketra:swipe-action', event => {
@@ -212,7 +296,7 @@ function bindActions() {
     const id = String(event.detail?.id || '');
     if (!ENTITY_CONFIG[kind] || event.detail?.action !== 'delete' || !id) return;
     const wrapper = wrapperFor(kind, id);
-    if (wrapper) void activateRowAction(wrapper, 'delete').catch(() => {});
+    if (wrapper) runRowAction(wrapper, 'delete');
   });
 }
 
