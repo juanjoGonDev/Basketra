@@ -33,100 +33,128 @@ The six visual references under `.agents/specs/assets/2026-09-02-professional-in
 2. Lists support server-backed pagination, search, filters and deterministic sorting.
 3. Filters are relevant to the entity, composable, visibly active and resettable.
 4. Desktop follows the professional table/list density in the references and may open a transient contextual preview without replacing the dedicated detail route.
-5. Mobile uses cards/rows and the established short-left-swipe interaction to reveal Edit/Delete. Accessible pointer/keyboard/button equivalents are mandatory.
-6. Query/action state is race-safe; stale remote responses cannot overwrite newer search/filter/page state.
-7. Loading, empty, no-results, error and success states use application components, never browser-native alerts/confirms/prompts.
+5. Mobile uses compact cards and the existing progressive swipe language: a short left swipe reveals Edit/Delete; destructive threshold behavior must preserve the existing undo/confirmation rules where applicable.
+6. All swipe actions have pointer, keyboard and assistive-technology equivalents.
+7. Loading, empty, error, no-results and permission/recovery states must be designed for every list.
+8. Search/filter requests cancel or ignore stale responses and never reorder the user's currently visible results with an obsolete response.
 
 ### Products
 
-1. Product list follows reference 02 with search by relevant identifiers, filters, sorting, stock/status signals, pagination and concise hierarchy/store/price context.
-2. Product detail is a dedicated view/route following reference 03.
-3. Parent/category relationships are explicit links to separate dedicated entity views.
-4. Product detail surfaces linked stores, recent prices, ticket history and notes without duplicating historical sources of truth.
-5. Editing follows the reference side-panel/sheet language with server/domain validation authoritative.
-6. Product deletion requires a server-side dependency preflight showing at least ticket usage, linked store/inventory usage and price-history impact.
-7. If hard deletion would violate immutable receipt evidence or price-observation history, block it or expose the safe detach/deactivate operation and explain why.
+1. Products have a paginated list with search by canonical name/SKU/barcode and filters including category, parent-category/hierarchy, store availability and stock state when that data exists canonically.
+2. Product list rows/cards expose enough context for decisions without rendering the whole editor: identity, hierarchy, store count, recent price, stock state and updated time.
+3. Product detail is a dedicated view showing identity, category and parent-category navigation, linked stores, recent price history, recent ticket usage and notes/metadata.
+4. Product editing is a dedicated editor/sheet reachable from list/detail and follows the reference field hierarchy.
+5. Product deletion always runs a server-side preflight immediately before destructive commit and presents current dependency counts, including ticket usage, linked inventory/store records and price history.
+6. Deletion must never silently destroy immutable receipt evidence or price observations. If a hard delete would violate historical invariants, block it or use an explicit safe archival/tombstone strategy owned by the domain; do not cascade evidence away for convenience.
+7. Parent-category navigation is visually separated from the product's own detail/edit form.
+8. Product mobile rows support progressive swipe Edit/Delete with equivalent buttons/menu actions.
 
 ### Categories
 
-1. Category list follows reference 04 with pagination, search, filters, sorting, color indicators and expandable arbitrary-depth hierarchy.
-2. Category detail is a dedicated view/route; parent categories open their own dedicated views.
-3. `Nueva categoría` is a dedicated creation view/form with name, parent, color, description and live hierarchy preview.
-4. Edit/reparent preserves acyclic hierarchy and `category_unknown` invariants.
-5. Category deletion preflight shows direct product count plus descendant/subcategory impact, including descendants that contain products.
-6. `category_unknown` / `desconocido` is protected and cannot be deleted.
-7. Destructive actions never silently orphan products or descendants.
+1. Categories have a paginated searchable/filterable list while still visualizing arbitrary-depth hierarchy.
+2. Category rows show name, color, direct product count, subcategory count, parent and status; hierarchy is represented with expansion/indentation rather than rendering the entire tree permanently.
+3. Category detail is separate from list and shows general metadata, its exact location in the hierarchy, direct/derived counts and technical identity.
+4. A dedicated New Category view/form supports name, parent, color and description plus a live hierarchy preview.
+5. Editing may change name, parent, color and description through the validated category domain boundaries; cycles remain impossible.
+6. Deletion preflight shows direct product count, subcategory count and descendant-with-products impact before confirmation.
+7. `category_unknown` / `desconocido` remains protected from destructive rename/reparent/delete behavior defined by the category domain.
+8. Deleting a category cannot orphan products silently. The API must require an explicit safe resolution such as reassignment to another valid category or fallback according to the canonical domain rule.
+9. Category mobile rows support the same progressive swipe Edit/Delete language with accessible equivalents.
 
 ### Stores
 
-1. Stores are a first-class Inventory subsection following reference 05.
-2. Provide paginated/searchable/filterable list, create, dedicated detail, edit and delete workflows.
-3. Store detail includes location/metadata, linked product counts, ticket/activity summary and recent activity.
-4. Store deletion preflight shows linked product and historical ticket counts.
-5. Block hard deletion while required historical/evidence relationships cannot be preserved; provide reassignment/deactivation where appropriate instead of cascading evidence destruction.
+1. Stores become a first-class Inventory subsection with list, detail, create, edit and delete flows matching reference 05.
+2. Store list supports pagination, search, filters, deterministic sort and state indicators.
+3. Store detail separates general information, linked products/inventory and recent activity/tickets.
+4. Store create/edit manages canonical store metadata supported by the data model; do not invent unavailable address/geo fields without a schema decision.
+5. Store deletion always runs a dependency preflight showing linked product/listing/inventory usage and historical ticket usage.
+6. Historical price/ticket evidence must not be destroyed by deleting a store. Block, archive or explicitly reassign according to domain invariants.
+7. Stores have the same loading/empty/error/responsive/accessibility standards as Products and Categories.
 
-### Inventory Statistics
+### Inventory statistics
 
-1. Statistics is a first-class Inventory subsection following reference 05.
-2. Provide at least Overview, Categories and Stores perspectives.
-3. Include actionable KPIs and charts represented in the reference when supported by canonical data: inventory value, product counts, ticket activity, category distribution, store activity, ticket evolution, uncategorized products and low-stock indicators.
-4. Statistics are derived/read-only views over canonical data, never a second source of truth.
-5. Charts require accessible text/table equivalents and deterministic contracts.
+1. Statistics is a first-class Inventory subsection, not a separate primary-navigation destination.
+2. Provide a date/period selector and useful KPIs derived from canonical persisted data, including inventory/product/category/store/ticket metrics that are actually computable.
+3. Reference 05 defines the target visual system: KPI cards, category distribution, store activity, ticket evolution and secondary actionable metrics.
+4. Every chart has an accessible text/table equivalent and must not be the only representation of information.
+5. No metric is recomputed independently in multiple layers: define canonical server-side queries/calculations and consume their results in the UI.
+6. Statistics loading and aggregation must stay bounded for Raspberry Pi deployment; add indexes/queries based on measured plans rather than unbounded client aggregation.
 
 ### Ticket history
 
-1. Tickets gains a historical list following reference 06.
-2. History is paginated and supports search plus relevant date-range, store, category, status/payment and sorting/filter controls.
-3. Show period summary metrics such as ticket count, total spend, item count and average ticket when derivable canonically.
-4. Mobile rows support the established swipe affordance with equivalent accessible actions.
-5. A historical ticket opens a dedicated detail/editor; do not edit the entire history inline.
+1. The Tickets destination gains a dedicated historical list for confirmed/imported tickets.
+2. History supports pagination, search and filters for date range, store and category when supported by canonical relationships, plus deterministic sorting.
+3. History shows summary metrics for the active filter period: ticket count, total spent, total line/items and average ticket derived server-side.
+4. Desktop follows reference 06 table hierarchy; mobile uses ticket cards and progressive swipe Edit/Delete with accessible equivalents.
+5. A ticket row opens a dedicated ticket detail/editor rather than editing historical data inline in the list.
 
-### Ticket detail/editor
+### Historical ticket editor
 
-1. Follow the invoice-style editor in reference 06.
-2. Editable metadata includes date/time, store, payment/status and notes where supported by the domain.
-3. Line items expose product, category, quantity, unit, unit price, discount and backend-derived total.
-4. Add/edit/remove lines with the same invoice-style component language already used for ticket-line editing.
-5. Ticket totals remain canonical/backend-derived; the frontend never becomes a second arithmetic owner.
-6. Historical edits preserve original captures, OCR/AI extraction and immutable historical price evidence; corrections are explicit rather than destructive rewrites.
-7. Ticket deletion always uses an explicit application confirmation and displays ticket identity/date/store/total/item impact.
-8. If deleting the logical ticket would destroy immutable evidence or price history, block hard deletion and expose the safe supported operation instead.
-9. Mobile gestures must not bypass persistence/integrity rules.
+1. The ticket editor follows the existing invoice visual language: ticket metadata at top, backend-derived totals, item table/list, notes and clear final actions.
+2. Editable ticket metadata includes date/time and canonical store/retailer relationship where the current model safely supports it.
+3. Ticket lines can be added, edited and removed through the existing canonical line-validation/calculation boundaries.
+4. Line editing uses the same invoice-style component language already used for receipt-line editing; do not duplicate monetary/discount calculations in the browser.
+5. Editing historical tickets must preserve original receipt captures, extraction and correction evidence. Changes create/update canonical correction/current-state records without rewriting source evidence.
+6. Ticket total is backend-derived from canonical lines and cannot become an independent editable source of truth. If the reference appears to show an editable total, implementation must preserve the invariant and visually present the derived result.
+7. Ticket date edits are validated and persisted explicitly; UTC/storage semantics and `es-ES` presentation remain consistent.
+8. Ticket deletion always requires explicit confirmation with identity/date/store/total/item count and a server-side impact/preflight check immediately before commit.
+9. Hard deletion is forbidden if it would destroy immutable evidence required by existing product/price/history invariants. Use a safe domain deletion/archive strategy instead of cascade-by-default.
+10. The editor provides loading/error/conflict/recovery states and prevents duplicate submit/races.
 
-## UX and visual parity contract
+## Visual parity contract
 
-1. Treat the six PNGs as screenshot baselines for affected views.
-2. No intentional visual deviations are accepted unless the user explicitly approves revised references.
-3. Match information hierarchy, widths, card/table density, whitespace, corner radii, icon placement, badges, status colors, destructive red treatment, editor positioning and responsive stacking visible in the references.
-4. Use canonical Basketra typography/tokens/components where they reproduce the references; extend the canonical design system rather than adding one-off page systems.
-5. No browser-native `alert`, `confirm` or `prompt`.
-6. WCAG AA, keyboard operability, visible focus and semantic controls remain mandatory.
-7. Mobile must not introduce horizontal page overflow or broken viewport behavior/accidental zoom.
-8. Swipe is an enhancement, never the only path to edit/delete.
-9. Destructive actions show clear consequence language and authoritative dependency counts before commit.
+1. The six committed PNG files are approved visual baselines and permanent task artifacts.
+2. Final implementation must target pixel-level parity for the affected views. "Close", "inspired by", alternate layouts and materially different spacing are not acceptable.
+3. The PNG is authoritative for visual hierarchy and placement; `visual-reference.json` is authoritative for searchable semantic decomposition.
+4. Components represented consistently across boards must be implemented as reusable primitives/feature components rather than copied markup.
+5. Existing Basketra design tokens, icons and platform shell are reused where they correspond to the reference. If a concept image contains incidental shell destinations not requested by the product requirements, do not invent those destinations.
+6. Mobile and desktop screenshots must be captured at the reference viewport sizes where declared and compared during final review.
+7. Any intentional divergence from a reference because of accessibility, real-domain invariants or unavailable data must be the minimum necessary, documented in this spec with evidence, and require explicit user approval if visually material.
+8. Do not modify, regenerate, optimize, crop, recompress or replace the six approved PNG files without explicit user approval.
 
-## Data and API requirements
+## Data and deletion safety
 
-1. Reuse and extend existing canonical product/category/store/ticket owners; do not create parallel repositories for the same concept.
-2. Pagination/filter/search parameters have one canonical API contract per entity and deterministic ordering.
-3. Select cursor or offset pagination according to existing query characteristics, but expose stable semantics and test boundary pages.
-4. Delete preflight/impact counts are computed server-side from canonical relationships; the browser never infers them.
-5. Delete mutations revalidate dependencies transactionally to prevent TOCTOU between warning and commit.
-6. Preserve immutable price observations, original receipt extraction/captures and append-only correction history.
-7. Realtime remains invalidation-only; clients re-read canonical state without domain polling.
+1. Delete UI warnings are backed by fresh server-side dependency queries, not client estimates.
+2. Confirmation and commit must revalidate dependencies transactionally to close TOCTOU races.
+3. Destructive actions use stable error codes and actionable UI when dependencies changed after preflight.
+4. Receipt captures, original extraction, corrections and immutable price observations retain their existing preservation rules.
+5. Category/product/store deletion strategy must be explicit in domain/API tests; never rely on broad SQLite cascades to decide product semantics.
+6. All destructive UI has accessible confirmation and recovery/undo where domain semantics make undo safe.
+
+## API and persistence requirements
+
+1. Add bounded query endpoints/contracts for Products, Categories, Stores and Ticket history instead of shipping full collections to the browser for client pagination.
+2. Pagination uses deterministic stable ordering and a documented page-size maximum.
+3. Search/filter inputs are runtime-validated as untrusted data.
+4. Detail endpoints expose only canonical/derived fields required by their screens.
+5. Dependency-preflight endpoints return typed counts/reasons and a version/token or equivalent mechanism when useful for transactional revalidation.
+6. Statistics are computed server-side from canonical owners and tested once; client charts consume the returned series/KPIs.
+7. Any schema migration is additive; do not rewrite migrations v1-v9.
+8. Add indexes only for demonstrated list/filter/history query plans and include migration/upgrade coverage.
+
+## UX/accessibility requirements
+
+1. Preserve progress and active filters across list→detail→back navigation when reasonable; do not force re-entry.
+2. Browser history/back works for Inventory hub, subsection lists and entity details.
+3. Search inputs provide immediate local input feedback; remote searches are debounced/cancelled where appropriate.
+4. Prevent duplicate creates/edits/deletes and stale-request UI races.
+5. Maintain visible keyboard focus, semantic headings/tables/forms, labels, status text beyond color and WCAG AA contrast.
+6. Respect reduced motion; gestures are enhancement rather than the only interaction.
+7. No horizontal page overflow at supported mobile widths.
+8. Bottom navigation/FAB and sticky actions never obscure content or focused form fields.
 
 ## Acceptance
 
-1. Plans is absent and Inventory occupies its former main-menu position.
-2. Inventory overview matches reference 01 at representative mobile/desktop viewports.
-3. Product list/detail/edit/delete states match references 02-03 and satisfy pagination/search/filter requirements.
-4. Category list/detail/new/delete states match reference 04, including hierarchy and dependency warnings.
-5. Store list/detail/delete and Inventory Statistics match reference 05.
-6. Ticket history/detail/item editor/delete states match reference 06.
-7. Product/category/store lists do not render every entity plus a full editor in one unbounded view.
-8. Parent entity navigation opens a separate dedicated detail view.
-9. Delete warnings show authoritative dependency counts and destructive operations preserve evidence/history invariants.
-10. Mobile swipe edit/delete has accessible equivalents.
+1. `Planes` is completely absent from primary navigation and its previous slot is now `Inventario` on both mobile and expanded navigation.
+2. Inventory overview matches reference 01 and routes to Products, Categories, Stores and Statistics.
+3. Product list and detail/edit/delete states match references 02 and 03, with server-side pagination/search/filtering and dependency-aware deletion.
+4. Category list/new/detail/delete states match reference 04 while supporting arbitrary-depth validated hierarchy.
+5. Store list/detail/delete and Statistics states match reference 05 using real canonical data and safe deletion semantics.
+6. Ticket history/editor/item-editor/delete states match reference 06 and preserve immutable ticket/price evidence.
+7. Every destructive action revalidates impact server-side and surfaces changed dependencies rather than deleting stale assumptions.
+8. Mobile swipe actions have keyboard/button equivalents and match existing Basketra progressive swipe behavior.
+9. No affected reference view has unexplained visual differences in final screenshot review.
+10. Existing critical receipt capture, OCR/AI, lists, catalog matching, realtime and operations flows remain regression-green.
 11. List queries handle pagination, filters, search, sorting and stale-response races.
 12. Screenshot regression tests compare affected states against the committed references with a documented low tolerance; visual differences require explicit approval and baseline update.
 13. Browser tests cover mobile/desktop critical paths, keyboard, focus, no-horizontal-overflow, loading/error/empty states and delete confirmation/preflight.
@@ -152,4 +180,4 @@ Implement this as a separate redesign scope stacked on the category foundation f
 
 ## Status
 
-Specification and visual contract defined. Runtime implementation has not started.
+Specification, structured visual decomposition and all six approved PNG baselines are committed on `agent/feat-professional-inventory-redesign`. The PNG files are the normative visual authority and `visual-reference.json` intentionally does not include content hashes. Runtime implementation has not started. No merge, release or deploy has been performed.
