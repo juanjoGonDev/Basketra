@@ -430,7 +430,7 @@
 
 @media (max-width: 41.99rem) {
   .receipt-invoice-dialog {
-    --invoice-control-height: 2.45rem;
+    --invoice-control-height: var(--touch);
     width: 100%;
     max-height: 100dvh;
     margin: auto 0 0;
@@ -581,7 +581,7 @@
   }
 
   .receipt-invoice-dialog .receipt-invoice-dialog__actions .button {
-    min-height: 2.4rem;
+    min-height: var(--touch);
     font-size: .78rem;
   }
 
