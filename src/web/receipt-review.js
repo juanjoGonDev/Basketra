@@ -636,6 +636,7 @@ export function readReceiptItems() {
       unitPriceMinor: euroInputToMinor(fieldset.querySelector('[data-field="unitPriceEuro"]').value),
       lineTotalMinor: euroInputToMinor(fieldset.querySelector('[data-field="lineTotalEuro"]').value),
       ...(discount ? { discount } : {}),
+      ...(previous.categoryId ? { categoryId: previous.categoryId } : {}),
       ...(previous.taxCategory ? { taxCategory: previous.taxCategory } : {}),
       ...(previous.sourceLines ? { sourceLines: previous.sourceLines } : {}),
       confidence: 1,
