@@ -6,10 +6,10 @@ Make the Basketra image boot and remain operable without an operator-managed `.e
 
 ## Evidence
 
-- `src/infrastructure/config.ts` currently reads AI provider URL/token/model/retries/capability flags, Overpass URL, upload/body limit and idle behavior from environment variables.
-- `src/operations/gateway.ts` reports `requiresContainerRecreate: true`, names missing `BASKETRA_AI_*` variables, and tells the operator to recreate the container.
-- `src/web/operations.js` repeats that environment/recreate workflow in the visible Settings UX.
-- `compose.raspberry.yml` forwards the same functional settings into the container even though Basketra already owns a persistent SQLite volume.
+- Before this task, `src/infrastructure/config.ts` read AI provider URL/token/model/retries/capability flags, Overpass URL, upload/body limit and idle behavior from environment variables.
+- Before this task, `src/operations/gateway.ts` reported `requiresContainerRecreate: true`, named missing `BASKETRA_AI_*` variables, and told the operator to recreate the container.
+- Before this task, `src/web/operations.js` repeated that environment/recreate workflow in the visible Settings UX.
+- Before this task, `compose.raspberry.yml` forwarded the same functional settings into the container even though Basketra already owns a persistent SQLite volume.
 - The root deployment contract states that Basketra is a single-user LAN/VPN application and operator-adjustable runtime settings should be persisted/configurable through the app instead of owned by environment variables.
 - WebAPI `/v1/capabilities` remains the canonical owner of AI/provider attachment limits; Basketra must not recreate those provider limits locally.
 
@@ -91,4 +91,4 @@ Continue on `agent/fix-webapi-limit-contract`, PR #50. Companion WebAPI PR #108 
 
 ## Status
 
-Implementation in progress. Exact-head CI and final runtime/UI review remain required.
+Implementation is prepared. Exact-head CI and final runtime/UI evidence remain mandatory delivery gates; any failure discovered there reopens implementation rather than being accepted as a documentation-only exception.
