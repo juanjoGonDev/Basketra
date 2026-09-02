@@ -1,3 +1,5 @@
+import { join } from 'node:path';
+import { installAiRuntimeCapabilitiesCache } from './ai/runtime-capabilities-cache.ts';
 import { loadConfig } from './infrastructure/config.ts';
 import { OperationsGateway } from './operations/gateway.ts';
 import { applyPendingRestore } from './operations/restore.ts';
@@ -18,6 +20,7 @@ if (restore.status === 'failed') {
 
 let shuttingDown = false;
 let gateway: OperationsGateway;
+let uninstallAiRuntimeCapabilitiesCache: (() => void) | undefined;
 
 async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
@@ -26,6 +29,8 @@ async function shutdown(signal: string): Promise<void> {
   deadline.unref();
   try {
     await gateway.close();
+    uninstallAiRuntimeCapabilitiesCache?.();
+    uninstallAiRuntimeCapabilitiesCache = undefined;
     clearTimeout(deadline);
     process.exitCode = 0;
   } catch (error) {
@@ -42,6 +47,13 @@ async function shutdown(signal: string): Promise<void> {
 gateway = new OperationsGateway(config, {
   requestRestart: () => void shutdown('RESTORE_STAGED'),
 });
+if (config.aiBaseUrl && config.aiModel) {
+  uninstallAiRuntimeCapabilitiesCache = installAiRuntimeCapabilitiesCache({
+    databasePath: join(config.dataDir, 'basketra.db'),
+    baseUrl: new URL(config.aiBaseUrl),
+    model: config.aiModel,
+  });
+}
 
 process.once('SIGTERM', () => void shutdown('SIGTERM'));
 process.once('SIGINT', () => void shutdown('SIGINT'));
