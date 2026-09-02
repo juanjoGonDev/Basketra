@@ -657,8 +657,8 @@ function installOperationsUi() {
       <p class="operations-secondary">Revisión: <span id="runtime-revision">Cargando…</span></p>
       <p id="runtime-state" class="inline-status" role="status"></p>
     </section>
-    <section class="surface operations-card" aria-labelledby="runtime-settings-title">
-      <div class="panel-heading"><div><p class="eyebrow">Configuración persistente</p><h2 id="runtime-settings-title">Conexiones y límites locales</h2></div></div>
+    <section class="surface operations-card" aria-labelledby="ai-config-title">
+      <div class="panel-heading"><div><p class="eyebrow">Configuración persistente</p><h2 id="ai-config-title">Conexiones y límites locales</h2></div></div>
       <p class="operations-help">Estos valores se guardan en SQLite y se aplican a la siguiente operación. No necesitas un archivo <code>.env</code>, reiniciar Basketra ni recrear el contenedor.</p>
       <form id="runtime-settings-form" class="runtime-settings-form">
         <fieldset class="runtime-settings-group">
@@ -682,8 +682,8 @@ function installOperationsUi() {
         <button id="save-runtime-settings" class="button primary full" type="submit">${icon('checkCircle')}<span>Guardar cambios</span></button>
         <p id="runtime-settings-save-state" class="inline-status runtime-settings-state" role="status" aria-live="polite"></p>
       </form>
-      <div class="runtime-settings-diagnostic" aria-labelledby="ai-config-title">
-        <div><p class="eyebrow">Estado WebAPI</p><h3 id="ai-config-title">Diagnóstico de IA</h3></div>
+      <div class="runtime-settings-diagnostic" aria-labelledby="ai-diagnostic-title">
+        <div><p class="eyebrow">Estado WebAPI</p><h3 id="ai-diagnostic-title">Diagnóstico de IA</h3></div>
         <strong id="ai-configuration-status">Cargando…</strong>
         <p id="ai-configuration-detail"></p>
         <dl class="provider-check">
