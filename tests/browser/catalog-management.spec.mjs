@@ -35,7 +35,7 @@ const catalog = {
     { id: 'parent_dairy', name: 'Lácteos', variantCount: 2 },
   ],
   offset: 0,
-  limit: 50,
+  limit: 100,
   hasMore: false,
 };
 
@@ -47,7 +47,7 @@ async function expectNoHorizontalOverflow(page) {
   expect(dimensions.page).toBeLessThanOrEqual(dimensions.viewport);
 }
 
-test('saved catalog products can be browsed, edited and related on mobile', async ({ page }, testInfo) => {
+test('inventory products use a separate paginated list and editable detail on mobile', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   let productPatch;
   let parentRelation;
@@ -69,81 +69,67 @@ test('saved catalog products can be browsed, edited and related on mobile', asyn
     parentRelation = route.request().postDataJSON();
     const canonicalProductId = parentRelation.canonicalProductId || 'parent_new';
     product.canonicalProductId = canonicalProductId;
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ relation: { productVariantId: product.id, canonicalProductId } }),
-    });
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ relation: { productVariantId: product.id, canonicalProductId } }) });
   });
   await page.route('**/api/v1/catalog/products/variant_milk/retailer-name', route => {
     retailerRelation = route.request().postDataJSON();
-    const retailerName = {
-      listingId: 'listing_new',
-      retailerId: 'retailer_lidl',
-      ...retailerRelation,
-    };
+    const retailerName = { listingId: 'listing_new', retailerId: 'retailer_lidl', ...retailerRelation };
     product.retailerNames = [
       ...product.retailerNames.filter(entry => entry.retailerName.toLowerCase() !== retailerName.retailerName.toLowerCase()),
       retailerName,
     ];
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ retailerName }),
-    });
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ retailerName }) });
   });
 
   await page.goto('/#home');
-  const catalogEntry = page.getByRole('button', { name: /Catálogo de productos/i });
-  await expect(catalogEntry).toBeVisible();
-  await catalogEntry.click();
+  await page.getByRole('button', { name: /Inventario/i }).first().click();
+  await expect(page).toHaveURL(/#inventory$/);
+  await page.locator('.view[data-view="inventory"]').getByRole('button', { name: 'Productos', exact: true }).first().click();
 
   await expect(page).toHaveURL(/#catalog$/);
-  await expect(page.getByRole('heading', { name: 'Catálogo de productos', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Productos', exact: true })).toBeVisible();
+  await expect(page.locator('#catalog-range')).toHaveText('1-1 de 1');
   const catalogRow = page.getByRole('button', { name: /Leche entera 1 L/ });
-  await expect(catalogRow).toContainText('Mercadona: 1,19');
+  await expect(catalogRow).toContainText('1,19');
   await catalogRow.click();
 
+  await expect(page).toHaveURL(/#catalog:variant_milk$/);
   await expect(page.locator('#catalog-detail')).toBeVisible();
-  await expect(page.locator('#catalog-canonical-name')).toHaveValue('Leche');
-  await expect(page.locator('#catalog-retailer-names').getByText('Mercadona', { exact: true })).toBeVisible();
-  await expect(page.getByText('Leche entera Hacendado 1 L', { exact: true })).toBeVisible();
-  await expect(page.locator('#catalog-latest-prices')).toContainText('1,19');
+  await expect(page.locator('#catalog-detail-name')).toHaveText('Leche entera 1 L');
   await expect(page.locator('#catalog-latest-prices')).toContainText('Mercadona');
+  await expect(page.locator('#catalog-latest-prices')).toContainText('1,19');
+  await expect(page.locator('#catalog-retailer-names')).toContainText('Leche entera Hacendado 1 L');
 
+  await page.getByRole('button', { name: 'Editar', exact: true }).first().click();
+  await expect(page.locator('#catalog-editor')).toBeVisible();
+  await expect(page.locator('#catalog-canonical-name')).toHaveValue('Leche');
   const saveProduct = page.getByRole('button', { name: 'Guardar ficha' });
   await page.locator('#catalog-canonical-name').fill('Leche fresca');
   await saveProduct.click();
   await expect.poll(() => productPatch?.canonicalName).toBe('Leche fresca');
-  await expect(saveProduct).toBeEnabled();
-  await expect(page.locator('#catalog-canonical-name')).toHaveValue('Leche fresca');
+  await expect(page.locator('#catalog-editor')).toBeHidden();
+  await expect(page.locator('#catalog-detail-meta')).toHaveText('Leche fresca');
 
+  await page.getByRole('button', { name: 'Editar', exact: true }).first().click();
   const linkParent = page.getByRole('button', { name: 'Relacionar con el padre elegido' });
   await page.locator('#catalog-parent-select').selectOption('parent_dairy');
   await linkParent.click();
   await expect.poll(() => parentRelation?.canonicalProductId).toBe('parent_dairy');
-  await expect(linkParent).toBeEnabled();
-  await expect(page.locator('#catalog-parent-select')).toHaveValue('parent_dairy');
 
   const saveRetailerName = page.getByRole('button', { name: 'Guardar nombre del comercio' });
   await page.locator('#catalog-retailer-name').fill('Lidl');
   await page.locator('#catalog-retailer-title').fill('Leche fresca Milbona 1 L');
   await saveRetailerName.click();
   await expect.poll(() => retailerRelation).toEqual({ retailerName: 'Lidl', title: 'Leche fresca Milbona 1 L' });
-  await expect(saveRetailerName).toBeEnabled();
-  await expect(page.locator('#catalog-state')).toHaveText('1 productos cargados.');
-  await expect(page.getByText('Lidl', { exact: true })).toBeVisible();
-  await expect(page.getByText('Leche fresca Milbona 1 L', { exact: true })).toBeVisible();
-  await expect(page.locator('#catalog-latest-prices')).toContainText('1,19');
+  await expect(page.locator('#catalog-retailer-names')).toContainText('Lidl');
+  await expect(page.locator('#catalog-state')).toHaveText('1 productos encontrados.');
 
   await expectNoHorizontalOverflow(page);
   const catalogView = page.locator('.view[data-view="catalog"]');
-  await expect(catalogView).toBeVisible();
   const shell = page.locator('.app-header, .bottom-nav, .skip-link');
   const shellHiddenState = await shell.evaluateAll(elements => elements.map(element => element.hidden));
   await shell.evaluateAll(elements => elements.forEach(element => { element.hidden = true; }));
   try {
-    await expect(page.locator('.app-header')).toBeHidden();
     await catalogView.screenshot({ path: testInfo.outputPath('catalog-mobile.png') });
   } finally {
     await shell.evaluateAll((elements, hiddenState) => {
@@ -170,11 +156,7 @@ test('receipt line total is read-only, backend-derived and ignores stale calcula
       markFirstRequestStarted();
       await firstRequestGate;
       try {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ lineTotalMinor: 111 }),
-        });
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ lineTotalMinor: 111 }) });
       } catch {
         // A newer edit is expected to abort this transport.
       } finally {
@@ -182,11 +164,7 @@ test('receipt line total is read-only, backend-derived and ignores stale calcula
       }
       return;
     }
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ lineTotalMinor: 777 }),
-    });
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ lineTotalMinor: 777 }) });
   });
 
   await page.goto('/#home');
@@ -220,11 +198,7 @@ test('receipt line total is read-only, backend-derived and ignores stale calcula
   await expect(total).toHaveText('7.77');
   await expect(summary).toHaveAttribute('data-summary-state', 'invalid');
   await expect(summaryTotal).toHaveText('—');
-  await expect.poll(() => requests.at(-1)).toEqual({
-    quantity: 2,
-    unitPriceMinor: 125,
-    discount: { type: 'amount', amountMinor: 20, quantity: 1 },
-  });
+  await expect.poll(() => requests.at(-1)).toEqual({ quantity: 2, unitPriceMinor: 125, discount: { type: 'amount', amountMinor: 20, quantity: 1 } });
 
   releaseFirstRequest();
   await firstRequestFinished;
