@@ -84,7 +84,7 @@ export function assembleReceiptExtraction(pages: readonly ReceiptPageEvidence[])
   const aiItemsByPage = pages.map((page) => page.ai?.interpretation.items ?? page.deterministic.items);
   const aiItems = mergeReceiptPageItems(aiItemsByPage);
   const warnings = aiInterpretations.flatMap((interpretation) => interpretation.warnings);
-  const newCategories = uniqueNewCategories(aiInterpretations.flatMap((interpretation) => interpretation.newCategories));
+  const newCategories = uniqueNewCategories(aiInterpretations.flatMap((interpretation) => interpretation.newCategories ?? []));
   const unassignedDiscounts = aiInterpretations.flatMap((interpretation) => interpretation.unassignedDiscounts ?? []);
 
   let ai: ReceiptExtractionResult['ai'];
