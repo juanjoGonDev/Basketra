@@ -23,17 +23,17 @@ test('primary navigation replaces Plans with Inventory in the same slot', () => 
   assert.match(html, /<button data-nav="inventory"><span data-icon="prices"><\/span><span>Inventario<\/span><\/button>/u);
   assert.doesNotMatch(html, /data-nav="prices"/u);
   assert.doesNotMatch(html, />Planes<\/span>/u);
-  assert.match(html, /<script type="module" src="\/inventory\.js"><\/script>/u);
+  assert.doesNotMatch(html, /src="\/inventory\.(?:js|css)"/u);
 });
 
-test('inventory module removes the legacy plan view and defines the four approved sections', () => {
-  const javascript = source('src/web/inventory.js');
-  const css = source('src/web/inventory.css');
-  assert.match(javascript, /data-view="inventory"/u);
-  assert.match(javascript, /Productos/u);
-  assert.match(javascript, /Categorías/u);
-  assert.match(javascript, /Tiendas/u);
-  assert.match(javascript, /Estadísticas/u);
-  assert.doesNotMatch(javascript, /Planes de compra/u);
-  assert.match(css, /\.inventory-hub/u);
+test('inventory hub is served by the existing shell and defines the four approved destinations', () => {
+  const html = source('src/web/index.html');
+  assert.match(html, /data-view="inventory"/u);
+  assert.match(html, /data-nav="catalog">Productos/u);
+  assert.match(html, /data-nav="categories">Categorías/u);
+  assert.match(html, /data-nav="stores">Tiendas/u);
+  assert.match(html, /data-nav="inventory-statistics">Estadísticas/u);
+  assert.match(html, /data-view="stores"/u);
+  assert.match(html, /data-view="inventory-statistics"/u);
+  assert.doesNotMatch(html, /Planes de compra/u);
 });
