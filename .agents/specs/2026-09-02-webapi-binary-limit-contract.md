@@ -6,12 +6,11 @@ Stop Basketra from owning AI attachment limits. Use WebAPI as the only functiona
 
 ## Evidence
 
-- `ReceiptResponsesClient` currently serializes each receipt attachment as a Base64 data URL inside the JSON body sent to `POST /v1/responses`.
-- A ~380 KiB image therefore expands materially before JSON framing and can be rejected by an unrelated WebAPI JSON parser ceiling before the configured 20 MiB image limit is evaluated.
-- `OpenAiCompatibleProvider` already uses multipart binary for Chat Completions, but the durable Responses client is a separate transport owner and still uses Base64 JSON.
-- `fetchAiRuntimeCapabilities()` always performs a no-store WebAPI read but does not persist a fallback.
-- The outer operations route `/api/v1/ai/runtime-capabilities` returns an error whenever the live capability read fails, even if a previously validated WebAPI snapshot exists.
-- Migration v1 already contains `ai_provider_configurations.capabilities_json`; no current runtime code owns that table, so a provider-scoped capabilities snapshot can be persisted without adding a conflicting schema migration.
+- `ReceiptResponsesClient` previously serialized each receipt attachment as a Base64 data URL inside the JSON body sent to `POST /v1/responses`.
+- A ~380 KiB image therefore expanded materially before JSON framing and could be rejected by an unrelated WebAPI JSON parser ceiling before the configured 20 MiB image limit was evaluated.
+- `OpenAiCompatibleProvider` already used multipart binary for Chat Completions, while the durable Responses client was a separate transport owner and still used Base64 JSON.
+- `fetchAiRuntimeCapabilities()` performs a no-store WebAPI read and validates the returned capability document.
+- Migration v1 already contains `ai_provider_configurations.capabilities_json`; the cache reuses that provider-scoped persistence without adding a schema migration.
 - This repository is a single-user local application reachable through the owner's trusted LAN/VPN deployment. Public anonymous/multi-tenant threat assumptions are not product requirements.
 
 ## Decision
@@ -20,8 +19,9 @@ Stop Basketra from owning AI attachment limits. Use WebAPI as the only functiona
 - Basketra never substitutes a Basketra-defined functional attachment maximum.
 - On every successful validated WebAPI capability read, Basketra persists the exact validated capability snapshot in SQLite keyed to the configured WebAPI base URL/model.
 - When a later capability read is temporarily unavailable, Basketra may use only the last validated WebAPI snapshot for provider validation and upload UX. The fallback is stale provider data, not Basketra policy.
+- The cache is installed as an explicit process-level fetch decorator from `main.ts`. It intercepts only the exact configured WebAPI capabilities URL, delegates every other request unchanged, never masks `401`/`403`, and restores the original fetch during shutdown. Propagating an additional fetch dependency through `OperationsGateway`, `BasketraServer`, provider and durable-client constructors was reviewed but rejected here as broader final-review churn without a demonstrated functional defect.
 - Durable `POST /v1/responses` requests use multipart/form-data with JSON metadata plus the original binary attachment. No Base64 attachment is emitted on the wire.
-- Multipart transport must not compare binary attachment bytes against `requests.maxJsonBodyBytes`; JSON metadata and attachment limits are independent WebAPI capabilities.
+- Multipart transport does not compare binary attachment bytes against `requests.maxJsonBodyBytes`; JSON metadata and attachment limits are independent WebAPI capabilities.
 - Preserve MIME/signature validation, durable idempotency, OCR evidence, response reconciliation, and local persistence behavior.
 - Root `AGENTS.md` records the LAN/VPN single-user deployment model and the WebAPI SSOT rule so future agents do not reintroduce competing limits based on a hypothetical public deployment.
 
@@ -38,14 +38,16 @@ Stop Basketra from owning AI attachment limits. Use WebAPI as the only functiona
 
 ## Checks
 
-- Focused unit/integration tests for response multipart and capability caching.
-- Database persistence/reopen regression.
-- Existing receipt durable recovery and browser capability tests.
-- `pnpm quality` through canonical CI plus required browser/container/security workflows.
+- Focused unit/integration coverage validates response multipart transport and capability caching.
+- Database persistence/reopen regression is covered.
+- Existing receipt durable recovery and browser capability suites passed on head `1c10f65c1050e38f9557a2946f5c3bc5631d318e` before this documentation-only final-review commit.
+- Pull Request Quality, Browser E2E, container/smoke, Security, CodeQL and visual-evidence workflows were green on that implementation head.
+- Canonical CI must be rechecked on the final documentation head before handoff.
 
 ## Risks
 
 - A cached WebAPI snapshot can be stale after an operator changes limits while WebAPI is unreachable. Live fetch always has priority, and cache is used only after live failure.
+- The process-level fetch decorator is intentionally narrow but remains global process state. Its exact-URL matching, delegation behavior and restoration are covered by integration tests; widening its interception scope would require redesign.
 - Reusing the existing provider-configuration table must remain narrowly scoped to the capability snapshot and must never persist the API token.
 - The coordinated WebAPI multipart contract must land before or with the Basketra consumer change.
 
@@ -59,4 +61,4 @@ Branch `agent/fix-webapi-limit-contract`. Coordinated WebAPI branch `agent/fix-d
 
 ## Status
 
-Repository trust-model instruction committed. Implementation pending.
+Implementation complete. Final exact-head CI and coordinated WebAPI CI/final review remain pending.
