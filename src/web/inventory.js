@@ -17,10 +17,12 @@ const state = {
   storeSort: 'name',
   selectedStore: null,
   searchTimer: null,
-  loadGeneration: 0,
-  loadController: null,
+  storeLoadGeneration: 0,
+  storeLoadController: null,
   statisticsPeriod: '30d',
   statistics: null,
+  statisticsLoadGeneration: 0,
+  statisticsLoadController: null,
 };
 
 function injectStylesheet() {
@@ -122,14 +124,14 @@ function installStatisticsView() {
   hydrateIcons(view);
 }
 
-function activateView(viewName) {
+function activateView(viewName, { dispatch = true } = {}) {
   const target = document.querySelector(`.view[data-view="${CSS.escape(viewName)}"]`);
   if (!target) return;
   document.querySelectorAll('.view').forEach(view => view.classList.toggle('active', view === target));
   document.querySelectorAll('.bottom-nav [data-nav]').forEach(button => button.removeAttribute('aria-current'));
   document.querySelector('.bottom-nav [data-nav="inventory"]')?.setAttribute('aria-current', 'page');
   history.replaceState(null, '', `#${viewName}`);
-  document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: viewName } }));
+  if (dispatch) document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: viewName } }));
   window.scrollTo(0, 0);
   $('#main')?.focus({ preventScroll: true });
 }
@@ -173,8 +175,9 @@ function renderStoreList() {
     container.append(row);
   }
   const total = Number(state.stores.total || 0);
-  const from = total ? state.stores.offset + 1 : 0;
-  const to = Math.min(state.stores.offset + stores.length, total);
+  const offset = Number(state.stores.offset || 0);
+  const from = total ? offset + 1 : 0;
+  const to = Math.min(offset + stores.length, total);
   const pageCount = Math.max(1, Math.ceil(total / STORE_PAGE_SIZE));
   $('#store-range').textContent = `${from}-${to} de ${total}`;
   $('#store-page').textContent = `${state.storePage} / ${pageCount}`;
@@ -183,25 +186,25 @@ function renderStoreList() {
 }
 
 async function loadStores({ resetPage = false } = {}) {
-  const generation = ++state.loadGeneration;
-  state.loadController?.abort();
+  const generation = ++state.storeLoadGeneration;
+  state.storeLoadController?.abort();
   const controller = new AbortController();
-  state.loadController = controller;
+  state.storeLoadController = controller;
   if (resetPage) state.storePage = 1;
   state.storeQuery = $('#store-search')?.value.trim() || '';
   state.storeRetailer = $('#store-retailer-filter')?.value.trim() || '';
   $('#store-state').textContent = 'Cargando tiendas…';
   try {
     const result = await api(`/api/v1/inventory/stores?${storeQueryString()}`, { signal: controller.signal });
-    if (generation !== state.loadGeneration) return;
+    if (generation !== state.storeLoadGeneration) return;
     state.stores = result || { stores: [], total: 0, offset: 0, limit: STORE_PAGE_SIZE, hasMore: false };
     renderStoreList();
-    $('#store-state').textContent = `${state.stores.total || 0} tiendas encontradas.`;
+    $('#store-state').textContent = `${Number(state.stores.total || 0)} tiendas encontradas.`;
   } catch (error) {
-    if (error?.name === 'AbortError') return;
+    if (error?.name === 'AbortError' || generation !== state.storeLoadGeneration) return;
     $('#store-state').textContent = `No se pudieron cargar las tiendas: ${error.message}`;
   } finally {
-    if (generation === state.loadGeneration) state.loadController = null;
+    if (generation === state.storeLoadGeneration) state.storeLoadController = null;
   }
 }
 
@@ -216,9 +219,9 @@ function renderStoreDetail(store, { creating = false } = {}) {
   $('#store-detail-address').textContent = store?.address || '—';
   $('#store-detail-created').textContent = creating ? 'Sin guardar' : formatDate(store.createdAt);
   $('#store-detail-activity').textContent = creating ? 'Sin actividad' : formatDateTime(store.lastActivityAt);
-  $('#store-detail-products').textContent = String(store?.productCount || 0);
-  $('#store-detail-tickets').textContent = String(store?.ticketCount || 0);
-  $('#store-detail-prices').textContent = String(store?.priceObservationCount || 0);
+  $('#store-detail-products').textContent = String(Number(store?.productCount || 0));
+  $('#store-detail-tickets').textContent = String(Number(store?.ticketCount || 0));
+  $('#store-detail-prices').textContent = String(Number(store?.priceObservationCount || 0));
   $('#store-edit').hidden = creating;
   $('#store-delete').hidden = creating;
   populateStoreForm(store, { creating });
@@ -349,7 +352,7 @@ async function openStoreDeleteDialog() {
   dialog.showModal();
   try {
     const { impact } = await api(`/api/v1/inventory/stores/${encodeURIComponent(store.id)}/delete-impact`);
-    $('#store-delete-impact').textContent = `${store.name} tiene ${impact.linkedProducts} productos vinculados, ${impact.priceObservations} observaciones de precio y ${impact.historicalTickets} tickets históricos.`;
+    $('#store-delete-impact').textContent = `${store.name} tiene ${Number(impact.linkedProducts || 0)} productos vinculados, ${Number(impact.priceObservations || 0)} observaciones de precio y ${Number(impact.historicalTickets || 0)} tickets históricos.`;
     $('#store-delete-state').textContent = impact.canDelete ? 'La tienda no tiene dependencias históricas y se puede eliminar.' : 'El borrado está bloqueado para conservar la historia de precios o tickets.';
     confirm.disabled = !impact.canDelete;
   } catch (error) {
@@ -416,13 +419,22 @@ function renderStatistics(statistics) {
 }
 
 async function loadStatistics() {
+  const generation = ++state.statisticsLoadGeneration;
+  state.statisticsLoadController?.abort();
+  const controller = new AbortController();
+  state.statisticsLoadController = controller;
+  const period = state.statisticsPeriod;
   $('#statistics-state').textContent = 'Calculando estadísticas…';
   try {
-    const result = await api(`/api/v1/inventory/statistics?period=${encodeURIComponent(state.statisticsPeriod)}`);
+    const result = await api(`/api/v1/inventory/statistics?period=${encodeURIComponent(period)}`, { signal: controller.signal });
+    if (generation !== state.statisticsLoadGeneration || period !== state.statisticsPeriod) return;
     renderStatistics(result.statistics || {});
     $('#statistics-state').textContent = 'Estadísticas actualizadas con datos persistidos.';
   } catch (error) {
+    if (error?.name === 'AbortError' || generation !== state.statisticsLoadGeneration) return;
     $('#statistics-state').textContent = `No se pudieron cargar las estadísticas: ${error.message}`;
+  } finally {
+    if (generation === state.statisticsLoadGeneration) state.statisticsLoadController = null;
   }
 }
 
@@ -440,13 +452,13 @@ async function openRequestedStore(requested) {
 }
 
 async function activateStores(requested = 'stores') {
-  activateView('stores');
+  activateView('stores', { dispatch: false });
   await loadStores({ resetPage: true });
   await openRequestedStore(requested);
 }
 
 async function activateStatistics() {
-  activateView('inventory-statistics');
+  activateView('inventory-statistics', { dispatch: false });
   await loadStatistics();
 }
 
@@ -481,8 +493,12 @@ function bindInteractions() {
 function handleViewChanged(event) {
   const view = String(event.detail?.view || '');
   if (view === 'stores') void loadStores({ resetPage: true });
+  else state.storeLoadController?.abort();
   if (view === 'inventory-statistics') void loadStatistics();
-  if (view === 'stores' || view === 'inventory-statistics') document.querySelector('.bottom-nav [data-nav="inventory"]')?.setAttribute('aria-current', 'page');
+  else state.statisticsLoadController?.abort();
+  if (view === 'stores' || view === 'inventory-statistics') {
+    document.querySelector('.bottom-nav [data-nav="inventory"]')?.setAttribute('aria-current', 'page');
+  }
 }
 
 export function initializeInventoryFeature({ activateStoreView = false, activateStatisticsView = false } = {}) {
