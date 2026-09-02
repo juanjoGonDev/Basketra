@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { copyFileSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
+import { UNKNOWN_CATEGORY_NAME } from '../domain/categories.ts';
 import type { GeoPointMicrodegrees } from '../domain/location.ts';
 import type { Unit } from '../domain/units.ts';
 import { CatalogRepository } from './catalog-repository.ts';
@@ -58,6 +59,7 @@ export type ReceiptImportInput = Readonly<{
     unitPriceMinor: number;
     lineTotalMinor: number;
     discountMinor?: number;
+    categoryId?: string;
     status: string;
     confidence: number;
   }>[];
@@ -709,6 +711,11 @@ export class BasketraDatabase {
     const timestamp = this.#clock().toISOString();
     this.#database.exec('BEGIN IMMEDIATE');
     try {
+      const fallbackCategory = this.#database.prepare(`
+        SELECT id FROM product_categories WHERE name = ? COLLATE NOCASE LIMIT 1
+      `).get(UNKNOWN_CATEGORY_NAME) as { id: string } | undefined;
+      if (!fallbackCategory) throw new Error('UNKNOWN_CATEGORY_NOT_AVAILABLE');
+
       let retailerId: string | null = null;
       if (input.retailerName) {
         const existingRetailer = this.#database.prepare('SELECT id FROM retailers WHERE name = ? COLLATE NOCASE').get(input.retailerName) as { id: string } | undefined;
@@ -726,7 +733,53 @@ export class BasketraDatabase {
       for (const item of input.items) {
         const itemId = createId('receiptitem');
         itemIds.push(itemId);
-        this.#database.prepare('INSERT INTO receipt_items(id, receipt_id, original_description, quantity, unit_price_minor, line_total_minor, discount_minor, status, confidence, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(itemId, receiptId, item.description, item.quantity, item.unitPriceMinor, item.lineTotalMinor, item.discountMinor ?? 0, item.status, item.confidence, timestamp);
+        const requestedCategory = item.categoryId
+          ? this.#database.prepare('SELECT id FROM product_categories WHERE id = ?').get(item.categoryId) as { id: string } | undefined
+          : undefined;
+        const initialCategoryId = requestedCategory?.id ?? fallbackCategory.id;
+        this.#database.prepare(`
+          INSERT INTO receipt_items(
+            id, receipt_id, original_description, quantity, unit_price_minor, line_total_minor,
+            discount_minor, category_id, status, confidence, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          itemId,
+          receiptId,
+          item.description,
+          item.quantity,
+          item.unitPriceMinor,
+          item.lineTotalMinor,
+          item.discountMinor ?? 0,
+          initialCategoryId,
+          item.status,
+          item.confidence,
+          timestamp,
+        );
+
+        const linkedCategory = this.#database.prepare(`
+          SELECT canonical_products.category_id AS categoryId
+          FROM receipt_items
+          JOIN product_variants ON product_variants.id = receipt_items.product_variant_id
+          JOIN canonical_products ON canonical_products.id = product_variants.canonical_product_id
+          WHERE receipt_items.id = ?
+        `).get(itemId) as { categoryId: string | null } | undefined;
+        if (linkedCategory?.categoryId) {
+          this.#database.prepare('UPDATE receipt_items SET category_id = ? WHERE id = ?').run(linkedCategory.categoryId, itemId);
+        } else {
+          this.#database.prepare(`
+            UPDATE canonical_products
+            SET category_id = ?,
+                category = (SELECT name FROM product_categories WHERE id = ?),
+                updated_at = ?
+            WHERE category_id IS NULL
+              AND id = (
+                SELECT product_variants.canonical_product_id
+                FROM receipt_items
+                JOIN product_variants ON product_variants.id = receipt_items.product_variant_id
+                WHERE receipt_items.id = ?
+              )
+          `).run(initialCategoryId, initialCategoryId, timestamp, itemId);
+        }
       }
       for (const correction of input.corrections ?? []) {
         const itemId = itemIds[correction.itemIndex];
