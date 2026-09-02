@@ -227,8 +227,11 @@ jobs:
           copy_flow_capture restored-total cancel-restored.png 14-discount-cancel.png
           copy_flow_capture partial-unit-discount-editor partial-unit-discount-mobile.png 14-discount-partial-mobile.png
           copy_flow_capture partial-unit-discount-editor partial-unit-discount-desktop.png 14-discount-partial-desktop.png
+          copy_flow_capture invoice-editor-desktop invoice-editor-desktop.png 15-invoice-editor-desktop.png
+          copy_flow_capture invoice-editor-mobile invoice-editor-mobile.png 15-invoice-editor-mobile.png
+          copy_flow_capture invoice-editor-error invoice-editor-calculation-error.png 15-invoice-editor-error.png
 
-          test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 28
+          test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 31
           test "$(find evidence-assets -maxdepth 1 -type f -name '*.gif' | wc -l)" -eq 12
           test "$(find evidence-assets -maxdepth 1 -type f -name '*.webm' | wc -l)" -eq 12
 
@@ -337,6 +340,18 @@ jobs:
           <tr>
           <td><strong>Partial-unit discount · mobile</strong><br><img src="$base/14-discount-partial-mobile.png" width="240" alt="Receipt editor on mobile showing a grouped two-unit line with a percentage discount applied to one affected unit"></td>
           <td><strong>Partial-unit discount · desktop</strong><br><img src="$base/14-discount-partial-desktop.png" width="320" alt="Receipt editor on desktop showing a grouped two-unit line with a percentage discount applied to one affected unit"></td>
+          </tr>
+          </table>
+
+          ### Invoice-style receipt line editor
+
+          <table>
+          <tr>
+          <td><strong>Desktop invoice hierarchy</strong><br><img src="$base/15-invoice-editor-desktop.png" width="420" alt="Basketra receipt line editor on desktop with Product, Purchase detail and Discount sections beside an invoice summary"></td>
+          <td><strong>Mobile invoice sheet</strong><br><img src="$base/15-invoice-editor-mobile.png" width="240" alt="Basketra receipt line editor on mobile reflowed into a single-column invoice sheet without horizontal overflow"></td>
+          </tr>
+          <tr>
+          <td colspan="2"><strong>Calculation failure state</strong><br><img src="$base/15-invoice-editor-error.png" width="420" alt="Basketra invoice-style receipt editor showing a calculation failure while Save line remains blocked"></td>
           </tr>
           </table>
 
