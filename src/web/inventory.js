@@ -76,7 +76,7 @@ function installOverviewView() {
         <label class="field inventory-overview-search"><span>Buscar</span><input id="inventory-overview-search" type="search" maxlength="160" autocomplete="off" placeholder="Producto, categoría o tienda"></label>
         <label class="field"><span>Buscar en</span><select id="inventory-overview-scope"><option value="catalog">Productos</option><option value="categories">Categorías</option><option value="stores">Tiendas</option></select></label>
         <label class="field"><span>Orden</span><select id="inventory-overview-sort"><option value="recent">Recientes</option><option value="name">Nombre A-Z</option></select></label>
-        <div class="inventory-overview-query-actions"><button class="button primary" type="submit"><span data-icon="search"></span>Buscar</button><button id="inventory-overview-open-filters" class="button secondary" type="button">Abrir filtros</button></div>
+        <div class="inventory-overview-query-actions"><button class="button primary" type="submit">Buscar</button><button id="inventory-overview-open-filters" class="button secondary" type="button">Abrir filtros</button></div>
         <div class="inventory-overview-chips" aria-label="Búsqueda rápida por tipo">
           <button class="button secondary" type="button" data-inventory-scope="catalog" aria-pressed="true">Productos</button>
           <button class="button secondary" type="button" data-inventory-scope="categories" aria-pressed="false">Categorías</button>
@@ -221,28 +221,22 @@ function transferOverviewQuery({ focusFilters = false } = {}) {
   const scope = overviewDestination($('#inventory-overview-scope')?.value);
   const query = $('#inventory-overview-search')?.value.trim() || '';
   const requestedSort = $('#inventory-overview-sort')?.value === 'name' ? 'name' : 'recent';
+  const target = overviewTarget(scope);
+  const search = $(target.search);
+  if (search instanceof HTMLInputElement) search.value = query;
+
+  if (target.sort) {
+    const sort = $(target.sort);
+    if (sort instanceof HTMLSelectElement) {
+      sort.value = requestedSort;
+      sort.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }
+
   if (!activateView(scope)) return;
-
   requestAnimationFrame(() => {
-    const target = overviewTarget(scope);
-    const search = $(target.search);
-    if (search instanceof HTMLInputElement) search.value = query;
-
-    if (target.sort) {
-      const sort = $(target.sort);
-      if (sort instanceof HTMLSelectElement) {
-        sort.value = requestedSort;
-        sort.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-    } else if (search instanceof HTMLInputElement) {
-      search.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-
-    if (focusFilters) {
-      requestAnimationFrame(() => $(target.filter)?.focus({ preventScroll: false }));
-    } else {
-      requestAnimationFrame(() => search?.focus({ preventScroll: false }));
-    }
+    if (focusFilters) $(target.filter)?.focus({ preventScroll: false });
+    else search?.focus({ preventScroll: false });
   });
 }
 
