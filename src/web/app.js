@@ -1,6 +1,7 @@
 import { api } from './api.js';
 import { initLists } from './lists.js';
 import { initReceipts } from './receipts.js';
+import { primaryNavigationForView, resolveApplicationRoute } from './routes.js';
 import {
   bindSwipeActions,
   hydrateIcons,
@@ -610,15 +611,17 @@ function resetDocumentScroll() {
   window.scrollTo(0, 0);
 }
 
-function navigate(requestedView) {
-  const view = $(`.view[data-view="${CSS.escape(requestedView)}"]`) ? requestedView : 'home';
+function navigate(requestedRoute) {
+  const availableViews = new Set($$('.view').map(element => element.dataset.view).filter(Boolean));
+  const { view, route } = resolveApplicationRoute(requestedRoute, availableViews);
+  const primaryNavigation = primaryNavigationForView(view);
   $$('.view').forEach(element => element.classList.toggle('active', element.dataset.view === view));
   $$('.bottom-nav [data-nav]').forEach(element => {
-    if (element.dataset.nav === view) element.setAttribute('aria-current', 'page');
+    if (element.dataset.nav === primaryNavigation) element.setAttribute('aria-current', 'page');
     else element.removeAttribute('aria-current');
   });
-  history.replaceState(null, '', `#${view}`);
-  document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view } }));
+  history.replaceState(null, '', `#${route}`);
+  document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view, route } }));
   resetDocumentScroll();
   $('#main').focus({ preventScroll: true });
   requestAnimationFrame(resetDocumentScroll);
