@@ -8,6 +8,15 @@ import {
 } from '../../src/receipts/extraction.ts';
 import { resolveReceiptCategories } from '../../src/receipts/categories.ts';
 
+type ReceiptJsonSchema = Readonly<{
+  required: readonly string[];
+  properties: Readonly<{
+    items: Readonly<{
+      items: Readonly<{ required: readonly string[] }>;
+    }>;
+  }>;
+}>;
+
 function baseInterpretation() {
   return {
     currency: 'EUR' as const,
@@ -32,10 +41,9 @@ function baseInterpretation() {
 }
 
 test('receipt structured schema requires categoryId and newCategories for provider output', () => {
-  const required = RECEIPT_SCHEMA.jsonSchema.required as readonly string[];
-  assert.ok(required.includes('newCategories'));
-  const itemSchema = RECEIPT_SCHEMA.jsonSchema.properties.items.items;
-  assert.ok((itemSchema.required as readonly string[]).includes('categoryId'));
+  const schema = RECEIPT_SCHEMA.jsonSchema as ReceiptJsonSchema;
+  assert.ok(schema.required.includes('newCategories'));
+  assert.ok(schema.properties.items.items.required.includes('categoryId'));
 
   const parsed = RECEIPT_SCHEMA.parse(baseInterpretation());
   assert.equal(parsed.items[0]?.categoryId, 'new:dairy');
