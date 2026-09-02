@@ -119,7 +119,7 @@ test('a legacy amount discount stays visible, editable and becomes the typed can
 
   const editor = await openLineEditor(page);
   await expect(editor.locator('[data-field="discountType"]')).toHaveValue('amount');
-  await expect(editor.locator('[data-field="discountValue"]')).toHaveValue('0,25');
+  await expect(editor.locator('[data-field="discountValue"]')).toHaveValue('0.25');
   await editor.locator('[data-field="discountValue"]').fill('0.10');
   await editor.getByRole('button', { name: 'Cancelar', exact: true }).click();
   await expect(row.locator('[data-field="discountType"]')).toHaveValue('amount');
