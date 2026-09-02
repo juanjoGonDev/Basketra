@@ -1,6 +1,5 @@
 import { api, setBusy } from './api.js';
 import {
-  bindSwipeActions,
   escapeHtml,
   euroInputToMinor,
   formatEuroMinor,
@@ -8,11 +7,13 @@ import {
   icon,
   minorToEuroInput,
 } from './ui.js';
+import { localDateBoundaryIso, parsePercentageBasisPoints } from './ticket-history-values.js';
 
 const PAGE_SIZE = 12;
 const SEARCH_DELAY_MS = 250;
 const LINE_CALCULATION_DELAY_MS = 120;
-const DATE_FORMATTER = new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium' });
+const STORE_METADATA_PAGE_SIZE = 100;
+const STORE_METADATA_MAX_PAGES = 5;
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium', timeStyle: 'short' });
 
 const $ = selector => document.querySelector(selector);
@@ -30,6 +31,7 @@ const state = {
   stores: [],
   categories: [],
   units: [],
+  metadataLoaded: { stores: false, categories: false, units: false },
   ticket: null,
   editorItems: [],
   searchTimer: null,
@@ -53,6 +55,7 @@ function installTicketEntryNavigation() {
   const capture = document.querySelector('.view[data-view="scan"]');
   const header = capture?.querySelector('.page-header');
   if (!capture || !header || capture.querySelector('[data-ticket-destinations]')) return;
+
   const nav = document.createElement('nav');
   nav.className = 'task-tablist ticket-destination-tabs';
   nav.dataset.ticketDestinations = 'true';
@@ -61,9 +64,7 @@ function installTicketEntryNavigation() {
     <button class="task-tab" type="button" data-ticket-destination="capture" aria-current="page">Captura</button>
     <button class="task-tab" type="button" data-ticket-destination="history">Historial</button>`;
   header.insertAdjacentElement('afterend', nav);
-  nav.querySelector('[data-ticket-destination="capture"]').addEventListener('click', () => {
-    document.querySelector('.bottom-nav [data-nav="scan"]')?.click();
-  });
+  nav.querySelector('[data-ticket-destination="capture"]').addEventListener('click', () => navigateToCapture());
   nav.querySelector('[data-ticket-destination="history"]').addEventListener('click', () => void activateTicketHistory({ push: true }));
 }
 
@@ -71,6 +72,7 @@ function installHistoryView() {
   if (document.querySelector('.view[data-view="ticket-history"]')) return;
   const main = $('#main');
   if (!main) return;
+
   const view = document.createElement('section');
   view.className = 'view ticket-history-view';
   view.dataset.view = 'ticket-history';
@@ -137,8 +139,7 @@ function installHistoryView() {
         <p id="ticket-editor-form-state" class="inline-status" role="status"></p>
         <div class="ticket-editor-footer-actions"><button id="ticket-editor-cancel" class="button secondary" type="button">Cancelar cambios</button><button id="ticket-editor-save" class="button primary" type="submit"><span data-icon="check"></span>Guardar cambios</button></div>
       </form>
-    </section>
-  `;
+    </section>`;
   main.append(view);
 
   const lineDialog = document.createElement('dialog');
@@ -164,10 +165,14 @@ function installHistoryView() {
   deleteDialog.setAttribute('aria-labelledby', 'ticket-history-delete-title');
   deleteDialog.innerHTML = `<div class="dialog-content"><span class="dialog-icon" data-icon="alert"></span><h2 id="ticket-history-delete-title">Eliminar ticket</h2><p id="ticket-history-delete-identity"></p><p id="ticket-history-delete-impact">Comprobando evidencia histórica…</p><p id="ticket-history-delete-state" class="inline-status" role="status"></p><div class="dialog-actions"><button id="ticket-history-delete-cancel" class="button secondary" type="button">Cancelar</button><button id="ticket-history-delete-confirm" class="button danger" type="button" disabled>Eliminar ticket</button></div></div>`;
   document.body.append(deleteDialog);
+
   hydrateIcons(view);
   hydrateIcons(lineDialog);
   hydrateIcons(deleteDialog);
-  bindSwipeActions(view);
+}
+
+function navigateToCapture() {
+  document.querySelector('.bottom-nav [data-nav="scan"]')?.click();
 }
 
 function setPrimaryTicketsActive() {
@@ -175,12 +180,12 @@ function setPrimaryTicketsActive() {
   document.querySelector('.bottom-nav [data-nav="scan"]')?.setAttribute('aria-current', 'page');
 }
 
-function activateFeatureView(viewName) {
-  const view = document.querySelector(`.view[data-view="${CSS.escape(viewName)}"]`);
+function activateFeatureView() {
+  const view = document.querySelector('.view[data-view="ticket-history"]');
   if (!view) return false;
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element === view));
   setPrimaryTicketsActive();
-  document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: viewName } }));
+  document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: 'ticket-history' } }));
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
   window.scrollTo(0, 0);
@@ -188,22 +193,23 @@ function activateFeatureView(viewName) {
   return true;
 }
 
-function filterDateStart(value) {
-  return value ? `${value}T00:00:00.000Z` : '';
+function readFilters() {
+  state.query = $('#ticket-history-search').value.trim();
+  state.dateFrom = $('#ticket-history-date-from').value;
+  state.dateTo = $('#ticket-history-date-to').value;
+  state.storeId = $('#ticket-history-store').value;
+  state.categoryId = $('#ticket-history-category').value;
+  state.paymentStatus = $('#ticket-history-status').value;
 }
 
-function filterDateEnd(value) {
-  return value ? `${value}T23:59:59.999Z` : '';
-}
-
-function queryString() {
+function historyQueryString() {
   const params = new URLSearchParams({
     q: state.query,
     limit: String(PAGE_SIZE),
     offset: String((state.page - 1) * PAGE_SIZE),
   });
-  if (state.dateFrom) params.set('dateFrom', filterDateStart(state.dateFrom));
-  if (state.dateTo) params.set('dateTo', filterDateEnd(state.dateTo));
+  if (state.dateFrom) params.set('dateFrom', localDateBoundaryIso(state.dateFrom));
+  if (state.dateTo) params.set('dateTo', localDateBoundaryIso(state.dateTo, { endOfDay: true }));
   if (state.storeId) params.set('storeId', state.storeId);
   if (state.categoryId) params.set('categoryId', state.categoryId);
   if (state.paymentStatus) params.set('paymentStatus', state.paymentStatus);
@@ -211,11 +217,13 @@ function queryString() {
 }
 
 function ticketStatusLabel(status) {
-  return ({ paid: 'Pagado', pending: 'Pendiente', cancelled: 'Cancelado' })[status] || status;
+  return ({ paid: 'Pagado', pending: 'Pendiente', cancelled: 'Cancelado' })[status] || String(status || '—');
 }
 
 function ticketStatusClass(status) {
-  return status === 'paid' ? 'success' : status === 'pending' ? 'warning' : 'danger';
+  if (status === 'paid') return 'success';
+  if (status === 'pending') return 'warning';
+  return 'danger';
 }
 
 function ticketDate(ticket) {
@@ -231,28 +239,29 @@ function swipeRail(ticket) {
 
 function ticketRow(ticket) {
   const id = escapeHtml(ticket.id);
-  const name = escapeHtml(ticket.storeName || ticket.retailerName || 'Sin tienda');
-  const notes = escapeHtml(ticket.notes || '—');
-  const payment = escapeHtml(ticket.paymentMethod || '—');
-  const status = escapeHtml(ticketStatusLabel(ticket.paymentStatus));
-  return `<article class="swipe-shell ticket-history-swipe" data-swipe-row data-swipe-kind="ticket-history" data-swipe-id="${id}" data-swipe-end-action="delete" data-swipe-open="false">${swipeRail(ticket)}<div class="ticket-history-row ticket-history-grid swipe-content" data-swipe-content role="button" tabindex="0" data-ticket-action="open" data-ticket-id="${id}" aria-label="Abrir ticket ${id}"><span data-label="Fecha"><strong>${escapeHtml(ticketDate(ticket))}</strong><small>${id}</small></span><span data-label="Tienda">${name}</span><strong data-label="Importe">${escapeHtml(formatEuroMinor(ticket.declaredTotalMinor))}</strong><span data-label="Artículos">${ticket.itemCount}</span><span data-label="Estado"><span class="status-pill ${ticketStatusClass(ticket.paymentStatus)}">${status}</span></span><span data-label="Pago">${payment}</span><span class="ticket-history-notes" data-label="Notas">${notes}</span><span class="inventory-row-action">Ver</span><button type="button" class="icon-button ticket-history-more" data-swipe-toggle aria-expanded="false" aria-label="Mostrar acciones del ticket ${id}">${icon('more')}</button></div></article>`;
+  const statusLabel = escapeHtml(ticketStatusLabel(ticket.paymentStatus));
+  return `<article class="swipe-shell ticket-history-swipe" data-swipe-row data-swipe-kind="ticket-history" data-swipe-id="${id}" data-swipe-end-action="delete" data-swipe-open="false">${swipeRail(ticket)}<div class="ticket-history-row ticket-history-grid swipe-content" data-swipe-content role="button" tabindex="0" data-ticket-action="open" data-ticket-id="${id}" aria-label="Abrir ticket ${id}"><span data-label="Fecha"><strong>${escapeHtml(ticketDate(ticket))}</strong><small>${id}</small></span><span data-label="Tienda">${escapeHtml(ticket.storeName || ticket.retailerName || 'Sin tienda')}</span><strong data-label="Importe">${escapeHtml(formatEuroMinor(ticket.declaredTotalMinor))}</strong><span data-label="Artículos">${Number(ticket.itemCount || 0)}</span><span data-label="Estado"><span class="status-pill ${ticketStatusClass(ticket.paymentStatus)}">${statusLabel}</span></span><span data-label="Pago">${escapeHtml(ticket.paymentMethod || '—')}</span><span class="ticket-history-notes" data-label="Notas">${escapeHtml(ticket.notes || '—')}</span><span class="inventory-row-action">Ver</span><button type="button" class="icon-button ticket-history-more" data-swipe-toggle aria-expanded="false" aria-label="Mostrar acciones del ticket ${id}">${icon('more')}</button></div></article>`;
 }
 
 function renderSummary() {
   const summary = state.result.summary || {};
-  $('#ticket-summary-count').textContent = String(summary.ticketCount || 0);
+  $('#ticket-summary-count').textContent = String(Number(summary.ticketCount || 0));
   $('#ticket-summary-spent').textContent = formatEuroMinor(Number(summary.totalSpentMinor || 0));
-  $('#ticket-summary-items').textContent = String(summary.itemCount || 0);
+  $('#ticket-summary-items').textContent = String(Number(summary.itemCount || 0));
   $('#ticket-summary-average').textContent = formatEuroMinor(Number(summary.averageTicketMinor || 0));
 }
 
 function renderHistory() {
   const container = $('#ticket-history-list');
   const tickets = Array.isArray(state.result.tickets) ? state.result.tickets : [];
-  container.innerHTML = tickets.length ? tickets.map(ticketRow).join('') : '<div class="catalog-empty"><strong>No hay tickets para estos filtros.</strong><span>Prueba otro periodo, tienda, categoría o estado.</span></div>';
+  container.innerHTML = tickets.length
+    ? tickets.map(ticketRow).join('')
+    : '<div class="catalog-empty"><strong>No hay tickets para estos filtros.</strong><span>Prueba otro periodo, tienda, categoría o estado.</span></div>';
+
   const total = Number(state.result.total || 0);
-  const from = total ? Number(state.result.offset || 0) + 1 : 0;
-  const to = Math.min(Number(state.result.offset || 0) + tickets.length, total);
+  const offset = Number(state.result.offset || 0);
+  const from = total ? offset + 1 : 0;
+  const to = Math.min(offset + tickets.length, total);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   $('#ticket-history-range').textContent = `${from}-${to} de ${total}`;
   $('#ticket-history-page').textContent = `${state.page} / ${pages}`;
@@ -264,20 +273,20 @@ function renderHistory() {
 async function loadStoreOptions() {
   const stores = [];
   let offset = 0;
-  for (let page = 0; page < 5; page += 1) {
-    const result = await api(`/api/v1/inventory/stores?sort=name&limit=100&offset=${offset}`);
+  for (let page = 0; page < STORE_METADATA_MAX_PAGES; page += 1) {
+    const result = await api(`/api/v1/inventory/stores?sort=name&limit=${STORE_METADATA_PAGE_SIZE}&offset=${offset}`);
     const pageStores = Array.isArray(result.stores) ? result.stores : [];
     stores.push(...pageStores);
     if (!result.hasMore || pageStores.length === 0) break;
     offset += pageStores.length;
   }
   state.stores = stores;
+  state.metadataLoaded.stores = true;
 }
 
 function renderMetadataOptions() {
   const historyStore = $('#ticket-history-store');
   const editorStore = $('#ticket-editor-store');
-  const currentHistoryStore = state.storeId;
   const currentEditorStore = state.ticket?.storeId || '';
   historyStore.replaceChildren(new Option('Todas', ''));
   editorStore.replaceChildren(new Option('Sin tienda', ''));
@@ -286,7 +295,7 @@ function renderMetadataOptions() {
     historyStore.append(new Option(label, store.id));
     editorStore.append(new Option(label, store.id));
   }
-  historyStore.value = currentHistoryStore;
+  historyStore.value = state.storeId;
   if (currentEditorStore && ![...editorStore.options].some(option => option.value === currentEditorStore)) {
     editorStore.append(new Option(state.ticket?.storeName || currentEditorStore, currentEditorStore));
   }
@@ -308,17 +317,19 @@ function renderMetadataOptions() {
 }
 
 async function ensureMetadata() {
-  if (state.categories.length && state.units.length && state.stores.length) {
-    renderMetadataOptions();
-    return;
-  }
   const [categories, meta] = await Promise.all([
-    state.categories.length ? Promise.resolve(null) : api('/api/v1/categories'),
-    state.units.length ? Promise.resolve(null) : api('/api/v1/meta'),
-    state.stores.length ? Promise.resolve(null) : loadStoreOptions(),
+    state.metadataLoaded.categories ? null : api('/api/v1/categories'),
+    state.metadataLoaded.units ? null : api('/api/v1/meta'),
+    state.metadataLoaded.stores ? null : loadStoreOptions(),
   ]);
-  if (categories) state.categories = Array.isArray(categories.categories) ? categories.categories : [];
-  if (meta) state.units = Array.isArray(meta.units) ? meta.units : [];
+  if (categories) {
+    state.categories = Array.isArray(categories.categories) ? categories.categories : [];
+    state.metadataLoaded.categories = true;
+  }
+  if (meta) {
+    state.units = Array.isArray(meta.units) ? meta.units : [];
+    state.metadataLoaded.units = true;
+  }
   renderMetadataOptions();
 }
 
@@ -328,22 +339,19 @@ async function loadHistory({ resetPage = false } = {}) {
   const controller = new AbortController();
   state.loadController = controller;
   if (resetPage) state.page = 1;
-  state.query = $('#ticket-history-search').value.trim();
-  state.dateFrom = $('#ticket-history-date-from').value;
-  state.dateTo = $('#ticket-history-date-to').value;
-  state.storeId = $('#ticket-history-store').value;
-  state.categoryId = $('#ticket-history-category').value;
-  state.paymentStatus = $('#ticket-history-status').value;
   $('#ticket-history-state').textContent = 'Cargando historial…';
+
   try {
     await ensureMetadata();
-    const result = await api(`/api/v1/inventory/tickets?${queryString()}`, { signal: controller.signal });
+    if (generation !== state.loadGeneration) return;
+    readFilters();
+    const result = await api(`/api/v1/inventory/tickets?${historyQueryString()}`, { signal: controller.signal });
     if (generation !== state.loadGeneration) return;
     state.result = result;
     renderHistory();
-    $('#ticket-history-state').textContent = `${state.result.total || 0} tickets encontrados.`;
+    $('#ticket-history-state').textContent = `${Number(state.result.total || 0)} tickets encontrados.`;
   } catch (error) {
-    if (error?.name === 'AbortError') return;
+    if (error?.name === 'AbortError' || generation !== state.loadGeneration) return;
     $('#ticket-history-state').textContent = `No se pudo cargar el historial: ${error.message}`;
   } finally {
     if (generation === state.loadGeneration) state.loadController = null;
@@ -376,10 +384,12 @@ function renderEditorLines() {
     container.innerHTML = '<div class="catalog-empty"><strong>Este ticket no tiene líneas activas.</strong><span>Añade un artículo antes de guardar.</span></div>';
     return;
   }
+
   state.editorItems.forEach((item, index) => {
     const row = document.createElement('div');
     row.className = 'ticket-editor-line ticket-line-grid';
-    row.innerHTML = `<span class="ticket-line-product"><strong>${escapeHtml(item.description)}</strong><small>${escapeHtml(item.originalDescription && item.originalDescription !== item.description ? `Original: ${item.originalDescription}` : '')}</small></span><span>${escapeHtml(item.categoryName || 'Sin categoría')}</span><span>${item.quantity}</span><span>${escapeHtml(item.unit)}</span><span>${escapeHtml(formatEuroMinor(item.unitPriceMinor))}</span><span>${escapeHtml(discountLabel(item))}</span><strong>${escapeHtml(formatEuroMinor(item.lineTotalMinor))}</strong><span class="ticket-line-actions"><button class="icon-button" type="button" data-ticket-line-action="edit" data-ticket-line-index="${index}" aria-label="Editar línea ${index + 1}">${icon('edit')}</button><button class="icon-button danger" type="button" data-ticket-line-action="delete" data-ticket-line-index="${index}" aria-label="Eliminar línea ${index + 1}">${icon('trash')}</button></span>`;
+    const original = item.originalDescription && item.originalDescription !== item.description ? `Original: ${item.originalDescription}` : '';
+    row.innerHTML = `<span class="ticket-line-product"><strong>${escapeHtml(item.description)}</strong><small>${escapeHtml(original)}</small></span><span>${escapeHtml(item.categoryName || 'Sin categoría')}</span><span>${Number(item.quantity)}</span><span>${escapeHtml(item.unit)}</span><span>${escapeHtml(formatEuroMinor(item.unitPriceMinor))}</span><span>${escapeHtml(discountLabel(item))}</span><strong>${escapeHtml(formatEuroMinor(item.lineTotalMinor))}</strong><span class="ticket-line-actions"><button class="icon-button" type="button" data-ticket-line-action="edit" data-ticket-line-index="${index}" aria-label="Editar línea ${index + 1}">${icon('edit')}</button><button class="icon-button danger" type="button" data-ticket-line-action="delete" data-ticket-line-index="${index}" aria-label="Eliminar línea ${index + 1}">${icon('trash')}</button></span>`;
     container.append(row);
   });
 }
@@ -406,7 +416,7 @@ function populateTicketEditor(ticket) {
 }
 
 async function openTicket(ticketId, { push = true } = {}) {
-  activateFeatureView('ticket-history');
+  activateFeatureView();
   $('#ticket-history-list-screen').hidden = true;
   $('#ticket-history-detail-screen').hidden = false;
   $('#ticket-editor-status').textContent = 'Cargando…';
@@ -414,26 +424,27 @@ async function openTicket(ticketId, { push = true } = {}) {
     await ensureMetadata();
     const result = await api(`/api/v1/inventory/tickets/${encodeURIComponent(ticketId)}`);
     populateTicketEditor(result.ticket);
-    if (push) history.pushState({ ticketHistory: true }, '', `#ticket-history:${encodeURIComponent(ticketId)}`);
-    else history.replaceState({ ticketHistory: true }, '', `#ticket-history:${encodeURIComponent(ticketId)}`);
+    const url = `#ticket-history:${encodeURIComponent(ticketId)}`;
+    if (push) history.pushState({ ticketHistory: true }, '', url);
+    else history.replaceState({ ticketHistory: true }, '', url);
   } catch (error) {
     $('#ticket-editor-status').textContent = 'Error';
     $('#ticket-editor-form-state').textContent = `No se pudo abrir el ticket: ${error.message}`;
   }
 }
 
-function showHistoryList({ replace = true } = {}) {
-  activateFeatureView('ticket-history');
+function showHistoryList({ updateHistory = true, reload = true } = {}) {
+  activateFeatureView();
   $('#ticket-history-detail-screen').hidden = true;
   $('#ticket-history-list-screen').hidden = false;
   state.ticket = null;
   state.editorItems = [];
-  if (replace) history.replaceState({ ticketHistory: true }, '', '#ticket-history');
-  void loadHistory();
+  if (updateHistory) history.replaceState({ ticketHistory: true }, '', '#ticket-history');
+  if (reload) void loadHistory();
 }
 
 async function activateTicketHistory({ push = false } = {}) {
-  activateFeatureView('ticket-history');
+  activateFeatureView();
   $('#ticket-history-detail-screen').hidden = true;
   $('#ticket-history-list-screen').hidden = false;
   if (push) history.pushState({ ticketHistory: true }, '', '#ticket-history');
@@ -441,25 +452,35 @@ async function activateTicketHistory({ push = false } = {}) {
   await loadHistory({ resetPage: true });
 }
 
-function lineDiscountFromForm() {
+function parseDiscountQuantity(lineQuantity) {
+  if (lineQuantity <= 1) return undefined;
+  const raw = $('#historical-ticket-line-discount-quantity').value;
+  const quantity = Number(raw);
+  if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > lineQuantity) {
+    throw new Error(`Las unidades con descuento deben estar entre 1 y ${lineQuantity}.`);
+  }
+  return quantity === lineQuantity ? undefined : quantity;
+}
+
+function lineDiscountFromForm(lineQuantity) {
   const type = $('#historical-ticket-line-discount-type').value;
   if (type === 'none') return undefined;
   const rawValue = $('#historical-ticket-line-discount-value').value.trim();
   if (!rawValue) throw new Error('Completa el valor del descuento.');
-  const quantity = Number($('#historical-ticket-line-discount-quantity').value);
-  const lineQuantity = Number($('#historical-ticket-line-quantity').value);
-  const quantityField = Number.isSafeInteger(quantity) && quantity > 0 && quantity !== lineQuantity ? { quantity } : {};
+  const quantity = parseDiscountQuantity(lineQuantity);
+  const quantityField = quantity === undefined ? {} : { quantity };
   if (type === 'amount') return { type: 'amount', amountMinor: euroInputToMinor(rawValue), ...quantityField };
-  const percentage = Number(rawValue.replace(',', '.'));
-  if (!Number.isFinite(percentage) || percentage < 0 || percentage > 100) throw new Error('El porcentaje debe estar entre 0 y 100.');
-  return { type: 'percentage', basisPoints: Math.round(percentage * 100), ...quantityField };
+  if (type === 'percentage') return { type: 'percentage', basisPoints: parsePercentageBasisPoints(rawValue), ...quantityField };
+  throw new Error('Selecciona un tipo de descuento válido.');
 }
 
 function lineCalculationPayload() {
   const quantity = Number($('#historical-ticket-line-quantity').value);
-  if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 100000) throw new Error('La cantidad debe ser un entero positivo.');
+  if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 100_000) {
+    throw new Error('La cantidad debe ser un entero positivo.');
+  }
   const unitPriceMinor = euroInputToMinor($('#historical-ticket-line-unit-price').value);
-  const discount = lineDiscountFromForm();
+  const discount = lineDiscountFromForm(quantity);
   return { quantity, unitPriceMinor, ...(discount ? { discount } : {}) };
 }
 
@@ -481,7 +502,11 @@ async function calculateLine(generation) {
   try {
     const payload = lineCalculationPayload();
     $('#historical-ticket-line-calculation-state').textContent = 'Calculando en el servidor…';
-    const result = await api('/api/v1/receipts/calculate-line', { method: 'POST', signal: controller.signal, body: JSON.stringify(payload) });
+    const result = await api('/api/v1/receipts/calculate-line', {
+      method: 'POST',
+      signal: controller.signal,
+      body: JSON.stringify(payload),
+    });
     if (generation !== state.lineCalculationGeneration) return null;
     $('#historical-ticket-line-total').textContent = formatEuroMinor(result.lineTotalMinor);
     $('#historical-ticket-line-calculation-state').textContent = 'Total derivado por el servidor.';
@@ -504,7 +529,10 @@ function scheduleLineCalculation() {
 }
 
 function percentageInput(discount) {
-  return discount?.type === 'percentage' ? String(discount.basisPoints / 100).replace('.', ',') : '';
+  if (discount?.type !== 'percentage') return '';
+  const whole = Math.floor(discount.basisPoints / 100);
+  const fractional = discount.basisPoints % 100;
+  return fractional === 0 ? String(whole) : `${whole},${String(fractional).padStart(2, '0').replace(/0$/u, '')}`;
 }
 
 function openLineEditor(index) {
@@ -517,9 +545,12 @@ function openLineEditor(index) {
   $('#historical-ticket-line-unit').value = item?.unit || state.units[0] || 'unit';
   $('#historical-ticket-line-unit-price').value = minorToEuroInput(item?.unitPriceMinor || 0);
   $('#historical-ticket-line-discount-type').value = item?.discount?.type || 'none';
-  $('#historical-ticket-line-discount-value').value = item?.discount?.type === 'amount' ? minorToEuroInput(item.discount.amountMinor) : percentageInput(item?.discount);
+  $('#historical-ticket-line-discount-value').value = item?.discount?.type === 'amount'
+    ? minorToEuroInput(item.discount.amountMinor)
+    : percentageInput(item?.discount);
   $('#historical-ticket-line-discount-quantity').value = String(item?.discount?.quantity || item?.quantity || 1);
   $('#historical-ticket-line-total').textContent = formatEuroMinor(item?.lineTotalMinor || 0);
+  $('#historical-ticket-line-calculation-state').textContent = 'Calculado por el servidor.';
   $('#historical-ticket-line-state').textContent = '';
   syncLineDiscountFields();
   $('#historical-ticket-line-dialog').showModal();
@@ -534,10 +565,11 @@ async function saveLine(button) {
   }
   setBusy(button, true);
   try {
-    const generation = ++state.lineCalculationGeneration;
     clearTimeout(state.lineCalculationTimer);
+    const generation = ++state.lineCalculationGeneration;
     const calculation = await calculateLine(generation);
     if (!calculation) return;
+
     const current = state.lineIndex >= 0 ? state.editorItems[state.lineIndex] : null;
     const categoryId = $('#historical-ticket-line-category').value || null;
     const category = state.categories.find(candidate => candidate.id === categoryId);
@@ -590,7 +622,10 @@ async function saveTicket(button) {
   setBusy(button, true);
   $('#ticket-editor-status').textContent = 'Guardando…';
   try {
-    const result = await api(`/api/v1/inventory/tickets/${encodeURIComponent(state.ticket.id)}`, { method: 'PATCH', body: JSON.stringify(ticketPayload()) });
+    const result = await api(`/api/v1/inventory/tickets/${encodeURIComponent(state.ticket.id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(ticketPayload()),
+    });
     populateTicketEditor(result.ticket);
     $('#ticket-editor-form-state').textContent = 'Cambios guardados sin reescribir la evidencia original.';
     $('#ticket-editor-status').textContent = 'Guardado';
@@ -604,16 +639,20 @@ async function saveTicket(button) {
 }
 
 async function openDeleteDialog(ticketId) {
-  const ticket = state.ticket?.id === ticketId ? state.ticket : state.result.tickets.find(candidate => candidate.id === ticketId);
+  const ticket = state.ticket?.id === ticketId
+    ? state.ticket
+    : state.result.tickets.find(candidate => candidate.id === ticketId);
   if (!ticket) return;
+
   const dialog = $('#ticket-history-delete-dialog');
   const confirm = $('#ticket-history-delete-confirm');
   confirm.dataset.ticketId = ticketId;
   confirm.disabled = true;
-  $('#ticket-history-delete-identity').textContent = `${ticket.id} · ${ticketDate(ticket)} · ${ticket.storeName || ticket.retailerName || 'Sin tienda'} · ${formatEuroMinor(ticket.declaredTotalMinor)} · ${ticket.itemCount} artículos.`;
+  $('#ticket-history-delete-identity').textContent = `${ticket.id} · ${ticketDate(ticket)} · ${ticket.storeName || ticket.retailerName || 'Sin tienda'} · ${formatEuroMinor(ticket.declaredTotalMinor)} · ${Number(ticket.itemCount || 0)} artículos.`;
   $('#ticket-history-delete-impact').textContent = 'Comprobando capturas, extracciones, correcciones y precios históricos…';
   $('#ticket-history-delete-state').textContent = '';
   dialog.showModal();
+
   try {
     const result = await api(`/api/v1/inventory/tickets/${encodeURIComponent(ticketId)}/delete-impact`);
     const impact = result.impact;
@@ -644,33 +683,64 @@ async function confirmDelete(button) {
   }
 }
 
+function clearFilters() {
+  for (const id of [
+    'ticket-history-search',
+    'ticket-history-date-from',
+    'ticket-history-date-to',
+    'ticket-history-store',
+    'ticket-history-category',
+    'ticket-history-status',
+  ]) {
+    $(`#${id}`).value = '';
+  }
+  state.query = '';
+  state.dateFrom = '';
+  state.dateTo = '';
+  state.storeId = '';
+  state.categoryId = '';
+  state.paymentStatus = '';
+  void loadHistory({ resetPage: true });
+}
+
 function bindInteractions() {
-  $('#ticket-history-capture').addEventListener('click', () => document.querySelector('.bottom-nav [data-nav="scan"]')?.click());
-  document.querySelector('[data-ticket-history-capture]').addEventListener('click', () => document.querySelector('.bottom-nav [data-nav="scan"]')?.click());
+  $('#ticket-history-capture').addEventListener('click', navigateToCapture);
+  document.querySelector('[data-ticket-history-capture]').addEventListener('click', navigateToCapture);
   $('#ticket-history-back').addEventListener('click', () => showHistoryList());
   $('#ticket-editor-cancel').addEventListener('click', () => state.ticket && populateTicketEditor(state.ticket));
   $('#ticket-delete').addEventListener('click', () => state.ticket && void openDeleteDialog(state.ticket.id));
   $('#ticket-add-line').addEventListener('click', () => openLineEditor(-1));
-  $('#ticket-editor-form').addEventListener('submit', event => { event.preventDefault(); void saveTicket($('#ticket-editor-save')); });
-  $('#ticket-history-search').addEventListener('input', () => { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(() => void loadHistory({ resetPage: true }), SEARCH_DELAY_MS); });
+  $('#ticket-editor-form').addEventListener('submit', event => {
+    event.preventDefault();
+    void saveTicket($('#ticket-editor-save'));
+  });
+
+  $('#ticket-history-search').addEventListener('input', () => {
+    clearTimeout(state.searchTimer);
+    state.searchTimer = setTimeout(() => void loadHistory({ resetPage: true }), SEARCH_DELAY_MS);
+  });
   for (const id of ['ticket-history-date-from', 'ticket-history-date-to', 'ticket-history-store', 'ticket-history-category', 'ticket-history-status']) {
     $(`#${id}`).addEventListener('change', () => void loadHistory({ resetPage: true }));
   }
-  $('#ticket-history-clear').addEventListener('click', () => {
-    for (const id of ['ticket-history-search', 'ticket-history-date-from', 'ticket-history-date-to', 'ticket-history-store', 'ticket-history-category', 'ticket-history-status']) $(`#${id}`).value = '';
-    state.query = ''; state.dateFrom = ''; state.dateTo = ''; state.storeId = ''; state.categoryId = ''; state.paymentStatus = '';
-    void loadHistory({ resetPage: true });
+  $('#ticket-history-clear').addEventListener('click', clearFilters);
+  $('#ticket-history-prev').addEventListener('click', () => {
+    if (state.page <= 1) return;
+    state.page -= 1;
+    void loadHistory();
   });
-  $('#ticket-history-prev').addEventListener('click', () => { if (state.page > 1) state.page -= 1; void loadHistory(); });
-  $('#ticket-history-next').addEventListener('click', () => { if (state.result.hasMore) state.page += 1; void loadHistory(); });
+  $('#ticket-history-next').addEventListener('click', () => {
+    if (!state.result.hasMore) return;
+    state.page += 1;
+    void loadHistory();
+  });
+
   $('#ticket-history-list').addEventListener('click', event => {
     const target = event.target.closest('[data-ticket-action]');
     if (!target) return;
     const ticketId = target.dataset.ticketId;
     if (!ticketId) return;
-    const action = target.dataset.ticketAction;
-    if (action === 'open' || action === 'edit') void openTicket(ticketId);
-    if (action === 'delete') void openDeleteDialog(ticketId);
+    if (target.dataset.ticketAction === 'open' || target.dataset.ticketAction === 'edit') void openTicket(ticketId);
+    if (target.dataset.ticketAction === 'delete') void openDeleteDialog(ticketId);
   });
   $('#ticket-history-list').addEventListener('keydown', event => {
     const target = event.target.closest('[data-ticket-action="open"]');
@@ -679,8 +749,10 @@ function bindInteractions() {
     void openTicket(target.dataset.ticketId);
   });
   document.querySelector('.view[data-view="ticket-history"]').addEventListener('basketra:swipe-action', event => {
-    if (event.detail?.kind === 'ticket-history' && event.detail?.action === 'delete') void openDeleteDialog(String(event.detail.id || ''));
+    if (event.detail?.kind !== 'ticket-history' || event.detail?.action !== 'delete') return;
+    void openDeleteDialog(String(event.detail.id || ''));
   });
+
   $('#ticket-editor-lines-list').addEventListener('click', event => {
     const action = event.target.closest('[data-ticket-line-action]');
     if (!action) return;
@@ -693,13 +765,29 @@ function bindInteractions() {
       $('#ticket-editor-status').textContent = 'Sin guardar';
     }
   });
-  $('#historical-ticket-line-form').addEventListener('submit', event => { event.preventDefault(); void saveLine($('#historical-ticket-line-save')); });
+
+  $('#historical-ticket-line-form').addEventListener('submit', event => {
+    event.preventDefault();
+    void saveLine($('#historical-ticket-line-save'));
+  });
   $('#historical-ticket-line-close').addEventListener('click', () => $('#historical-ticket-line-dialog').close());
   $('#historical-ticket-line-cancel').addEventListener('click', () => $('#historical-ticket-line-dialog').close());
-  for (const id of ['historical-ticket-line-quantity', 'historical-ticket-line-unit-price', 'historical-ticket-line-discount-value', 'historical-ticket-line-discount-quantity']) {
-    $(`#${id}`).addEventListener('input', () => { syncLineDiscountFields(); scheduleLineCalculation(); });
+  for (const id of [
+    'historical-ticket-line-quantity',
+    'historical-ticket-line-unit-price',
+    'historical-ticket-line-discount-value',
+    'historical-ticket-line-discount-quantity',
+  ]) {
+    $(`#${id}`).addEventListener('input', () => {
+      syncLineDiscountFields();
+      scheduleLineCalculation();
+    });
   }
-  $('#historical-ticket-line-discount-type').addEventListener('change', () => { syncLineDiscountFields(); scheduleLineCalculation(); });
+  $('#historical-ticket-line-discount-type').addEventListener('change', () => {
+    syncLineDiscountFields();
+    scheduleLineCalculation();
+  });
+
   $('#ticket-history-delete-cancel').addEventListener('click', () => $('#ticket-history-delete-dialog').close());
   $('#ticket-history-delete-confirm').addEventListener('click', event => void confirmDelete(event.currentTarget));
 }
@@ -707,7 +795,10 @@ function bindInteractions() {
 function handleRoute({ initial = false } = {}) {
   const requested = location.hash.slice(1);
   if (requested === 'ticket-history') {
-    void activateTicketHistory();
+    activateFeatureView();
+    $('#ticket-history-detail-screen').hidden = true;
+    $('#ticket-history-list-screen').hidden = false;
+    void loadHistory({ resetPage: initial });
     return true;
   }
   if (requested.startsWith('ticket-history:')) {
@@ -715,11 +806,13 @@ function handleRoute({ initial = false } = {}) {
     try {
       void openTicket(decodeURIComponent(encodedId), { push: false });
     } catch {
-      showHistoryList();
+      showHistoryList({ updateHistory: true });
     }
     return true;
   }
-  if (!initial && requested === 'scan') setPrimaryTicketsActive();
+  if (!initial && requested === 'scan' && document.querySelector('.view[data-view="ticket-history"]')?.classList.contains('active')) {
+    navigateToCapture();
+  }
   return false;
 }
 
@@ -734,5 +827,8 @@ export function initializeTicketHistoryFeature() {
   handleRoute({ initial: true });
 }
 
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initializeTicketHistoryFeature, { once: true });
-else initializeTicketHistoryFeature();
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializeTicketHistoryFeature, { once: true });
+} else {
+  initializeTicketHistoryFeature();
+}
