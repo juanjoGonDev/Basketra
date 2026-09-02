@@ -10,7 +10,8 @@ import {
   UNKNOWN_CATEGORY_NAME,
 } from '../../src/domain/categories.ts';
 import { CategoryRepository } from '../../src/infrastructure/category-repository.ts';
-import { BasketraDatabase, CURRENT_SCHEMA_VERSION } from '../../src/infrastructure/database.ts';
+import { CATEGORY_MIGRATIONS } from '../../src/infrastructure/category-schema.ts';
+import { BasketraDatabase } from '../../src/infrastructure/database.ts';
 
 const FIXED_NOW = new Date('2026-09-02T12:00:00.000Z');
 
@@ -20,7 +21,6 @@ test('category migration and repository preserve an arbitrary-depth hierarchy wi
   const repository = new CategoryRepository(database.path, () => FIXED_NOW);
 
   try {
-    assert.equal(CURRENT_SCHEMA_VERSION, 9);
     const unknown = repository.ensureUnknown();
     assert.equal(unknown.id, UNKNOWN_CATEGORY_ID);
     assert.equal(unknown.name, UNKNOWN_CATEGORY_NAME);
@@ -109,16 +109,20 @@ test('category migration normalizes a legacy desconocido id without breaking ref
       INSERT INTO canonical_products(id, category_id) VALUES ('product_legacy', 'category_legacy_unknown');
       INSERT INTO receipt_items(id, category_id) VALUES ('receipt_item_legacy', 'category_legacy_unknown');
     `);
-  } finally {
-    legacy.close();
-  }
 
-  const database = new BasketraDatabase(databasePath, { clock: () => FIXED_NOW });
-  database.close();
+    const migration = CATEGORY_MIGRATIONS.find(candidate => candidate.version === 9);
+    assert.ok(migration);
+    legacy.exec('BEGIN IMMEDIATE;');
+    try {
+      legacy.exec(migration.sql);
+      legacy.prepare('INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)').run(9, FIXED_NOW.toISOString());
+      legacy.exec('COMMIT;');
+    } catch (error) {
+      legacy.exec('ROLLBACK;');
+      throw error;
+    }
 
-  const migrated = new DatabaseSync(databasePath, { readOnly: true });
-  try {
-    const unknown = migrated.prepare(`
+    const unknown = legacy.prepare(`
       SELECT id, name, parent_id AS parentId, color
       FROM product_categories
       WHERE name = ? COLLATE NOCASE
@@ -128,23 +132,23 @@ test('category migration normalizes a legacy desconocido id without breaking ref
     assert.equal(unknown.parentId, null);
     assert.equal(unknown.color, UNKNOWN_CATEGORY_COLOR);
     assert.equal(
-      (migrated.prepare('SELECT parent_id AS parentId FROM product_categories WHERE id = ?').get('category_child') as { parentId: string }).parentId,
+      (legacy.prepare('SELECT parent_id AS parentId FROM product_categories WHERE id = ?').get('category_child') as { parentId: string }).parentId,
       UNKNOWN_CATEGORY_ID,
     );
     assert.equal(
-      (migrated.prepare('SELECT category_id AS categoryId FROM canonical_products WHERE id = ?').get('product_legacy') as { categoryId: string }).categoryId,
+      (legacy.prepare('SELECT category_id AS categoryId FROM canonical_products WHERE id = ?').get('product_legacy') as { categoryId: string }).categoryId,
       UNKNOWN_CATEGORY_ID,
     );
     assert.equal(
-      (migrated.prepare('SELECT category_id AS categoryId FROM receipt_items WHERE id = ?').get('receipt_item_legacy') as { categoryId: string }).categoryId,
+      (legacy.prepare('SELECT category_id AS categoryId FROM receipt_items WHERE id = ?').get('receipt_item_legacy') as { categoryId: string }).categoryId,
       UNKNOWN_CATEGORY_ID,
     );
     assert.equal(
-      (migrated.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number }).version,
-      CURRENT_SCHEMA_VERSION,
+      (legacy.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number }).version,
+      9,
     );
   } finally {
-    migrated.close();
+    legacy.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
