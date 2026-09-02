@@ -340,7 +340,7 @@ test('invoice summary contains extreme localized values without overlap or overf
   await discountValue.fill('100');
   await affectedUnits.fill('99999');
 
-  await expect(dialog.locator('[data-field="lineTotalEuro"]')).toHaveJSProperty('value', '0');
+  await expect(dialog.locator('[data-field="lineTotalEuro"]')).toHaveJSProperty('value', '0.00');
   await expect(dialog.locator('[data-editor-summary-base]')).toHaveText(expectedAmount);
   await expect(dialog.locator('[data-editor-summary-discount]')).toHaveText(`-${expectedAmount}`);
   await expect(dialog.locator('[data-editor-summary-total]')).toHaveText('0,00 €');
