@@ -213,7 +213,6 @@ function syncPresentationControls(item) {
   setFieldCaption(discountValue, 'Valor');
   setFieldCaption(discountQuantity, 'Unidades con descuento');
   localizeEuroInput(unitPrice);
-  if (discountType?.value === 'amount') localizeEuroInput(discountValue);
 
   const priceShell = ensureControlShell(unitPrice, 'unit-price');
   const priceSuffix = ensureSuffix(priceShell, 'currency');
