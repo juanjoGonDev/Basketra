@@ -1,6 +1,7 @@
 .receipt-invoice-dialog {
   --invoice-summary-border: color-mix(in srgb, var(--color-primary) 22%, var(--color-outline-variant));
   --invoice-divider: color-mix(in srgb, var(--color-on-surface) 9%, transparent);
+  --invoice-summary-bg: color-mix(in srgb, var(--color-primary-container) 10%, var(--color-surface));
   --invoice-control-height: 2.55rem;
   width: min(100%, 42rem);
   max-width: none;
@@ -264,7 +265,7 @@
   padding: .95rem 1rem;
   border: 1px solid var(--invoice-summary-border);
   border-radius: .75rem;
-  background: color-mix(in srgb, var(--color-primary-container) 10%, var(--color-surface));
+  background: var(--invoice-summary-bg);
 }
 
 .receipt-invoice-dialog .receipt-line-editor-summary h3 {
@@ -322,6 +323,7 @@
   color: var(--color-on-surface);
   font-size: .76rem;
   font-weight: 800;
+  white-space: nowrap;
 }
 
 .receipt-editor-summary__total dd {
@@ -428,6 +430,7 @@
 
 @media (max-width: 41.99rem) {
   .receipt-invoice-dialog {
+    --invoice-control-height: 2.45rem;
     width: 100%;
     max-height: 100dvh;
     margin: auto 0 0;
@@ -436,11 +439,11 @@
 
   .receipt-invoice-dialog::before {
     position: absolute;
-    top: .42rem;
+    top: .32rem;
     left: 50%;
     z-index: 6;
     width: 2.35rem;
-    height: .22rem;
+    height: .2rem;
     border-radius: 999px;
     background: var(--color-outline-variant);
     content: "";
@@ -452,50 +455,140 @@
   }
 
   .receipt-invoice-dialog .receipt-invoice-dialog__header {
-    padding-top: 1.45rem;
+    gap: .6rem;
+    padding: 1.05rem .85rem .65rem;
+  }
+
+  .receipt-invoice-dialog .receipt-invoice-dialog__header .eyebrow {
+    margin-bottom: .08rem;
+    font-size: .62rem;
   }
 
   .receipt-invoice-dialog .receipt-invoice-dialog__header h2 {
-    font-size: 1.08rem;
+    font-size: 1.02rem;
+  }
+
+  .receipt-line-dialog__validation {
+    min-height: 1.65rem;
+    padding-inline: .55rem;
+    font-size: .66rem;
   }
 
   .receipt-invoice-dialog .receipt-invoice-dialog__slot {
-    padding-inline: 1rem;
+    padding-inline: .85rem;
+    scrollbar-gutter: auto;
+  }
+
+  .receipt-invoice-dialog .receipt-item--editing {
+    padding-bottom: .35rem;
   }
 
   .receipt-invoice-dialog .receipt-editor-section-heading {
-    padding-block: .65rem .48rem;
+    gap: .52rem;
+    padding-block: .45rem .3rem;
+  }
+
+  .receipt-invoice-dialog .receipt-editor-section-heading__icon {
+    width: 1.8rem;
+    height: 1.8rem;
+  }
+
+  .receipt-invoice-dialog .receipt-editor-section-heading__icon .icon {
+    width: .95rem;
+    height: .95rem;
+  }
+
+  .receipt-invoice-dialog .receipt-editor-section-heading h3 {
+    font-size: .86rem;
   }
 
   .receipt-invoice-dialog .receipt-item--editing > .field {
-    margin-bottom: .65rem;
+    margin-bottom: .42rem;
+  }
+
+  .receipt-invoice-dialog .receipt-item--editing .field {
+    gap: .22rem;
+    font-size: .68rem;
+  }
+
+  .receipt-invoice-dialog .receipt-item--editing .field :is(input, select) {
+    font-size: .78rem;
   }
 
   .receipt-invoice-dialog .receipt-item--editing .quantity-row {
-    gap: .48rem .65rem;
+    gap: .28rem .6rem;
+  }
+
+  .receipt-invoice-dialog .receipt-line-derived-state {
+    padding: .45rem .6rem;
+    font-size: .69rem;
   }
 
   .receipt-invoice-dialog .receipt-line-editor-summary {
-    margin-top: .65rem;
-    padding: .78rem .85rem;
+    gap: .3rem;
+    margin-top: .35rem;
+    padding: .52rem .72rem;
+    border-radius: .65rem;
+  }
+
+  .receipt-invoice-dialog .receipt-line-editor-summary h3 {
+    font-size: .76rem;
   }
 
   .receipt-invoice-dialog .receipt-editor-summary__row {
-    padding-block: .4rem;
+    padding-block: .24rem;
+  }
+
+  .receipt-invoice-dialog .receipt-editor-summary__row dt {
+    font-size: .69rem;
+  }
+
+  .receipt-invoice-dialog .receipt-editor-summary__row dd {
+    font-size: .74rem;
   }
 
   .receipt-invoice-dialog .receipt-editor-summary__total {
-    padding-top: .55rem;
+    padding-top: .34rem;
+  }
+
+  .receipt-invoice-dialog .receipt-editor-summary__total dt {
+    font-size: .71rem;
   }
 
   .receipt-invoice-dialog .receipt-editor-summary__total dd {
-    font-size: 1.48rem;
+    font-size: 1.38rem;
+  }
+
+  .receipt-invoice-dialog .receipt-editor-summary__state {
+    min-height: 1.65rem;
+    gap: .32rem;
+    padding-inline: .58rem;
+    font-size: .65rem;
+  }
+
+  .receipt-invoice-dialog .receipt-editor-summary__state .icon {
+    width: .78rem;
+    height: .78rem;
+  }
+
+  .receipt-invoice-dialog #receipt-line-editor-state:not(:empty) {
+    padding-block: .4rem;
+  }
+
+  .receipt-invoice-dialog .receipt-invoice-dialog__actions {
+    gap: .32rem;
+    padding: .48rem .85rem calc(.55rem + env(safe-area-inset-bottom));
+  }
+
+  .receipt-invoice-dialog .receipt-invoice-dialog__actions .button {
+    min-height: 2.4rem;
+    font-size: .78rem;
   }
 
   .receipt-invoice-dialog .receipt-invoice-dialog__actions,
   .receipt-invoice-dialog #receipt-line-editor-state,
   .receipt-invoice-dialog .receipt-invoice-dialog__header {
-    padding-inline: 1rem;
+    padding-inline: .85rem;
   }
 }
 
@@ -581,21 +674,45 @@
   }
 
   .receipt-invoice-dialog .receipt-editor-summary__stamp {
+    position: relative;
     align-self: end;
     justify-self: center;
     width: 82%;
     min-height: 5.8rem;
     display: grid;
     place-items: center;
-    border-top: 1px solid color-mix(in srgb, var(--color-primary) 10%, transparent);
-    border-bottom: 1px solid color-mix(in srgb, var(--color-primary) 10%, transparent);
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--color-primary) 9%, var(--color-outline-variant));
+    border-radius: .22rem;
     background:
-      radial-gradient(circle at 18% 50%, color-mix(in srgb, var(--color-primary) 10%, transparent) 0 2px, transparent 2.5px),
-      radial-gradient(circle at 82% 50%, color-mix(in srgb, var(--color-primary) 10%, transparent) 0 2px, transparent 2.5px),
-      color-mix(in srgb, var(--color-surface) 88%, transparent);
+      radial-gradient(circle at 22% 34%, color-mix(in srgb, var(--color-primary) 10%, transparent) 0 1.5px, transparent 2px),
+      radial-gradient(circle at 78% 66%, color-mix(in srgb, var(--color-primary) 10%, transparent) 0 1.5px, transparent 2px),
+      var(--color-surface);
+  }
+
+  .receipt-invoice-dialog .receipt-editor-summary__stamp::before,
+  .receipt-invoice-dialog .receipt-editor-summary__stamp::after {
+    position: absolute;
+    top: -.35rem;
+    bottom: -.35rem;
+    z-index: 2;
+    width: .72rem;
+    background: radial-gradient(circle, var(--invoice-summary-bg) 0 .22rem, transparent .24rem) center top / .72rem .72rem repeat-y;
+    content: "";
+    pointer-events: none;
+  }
+
+  .receipt-invoice-dialog .receipt-editor-summary__stamp::before {
+    left: -.36rem;
+  }
+
+  .receipt-invoice-dialog .receipt-editor-summary__stamp::after {
+    right: -.36rem;
   }
 
   .receipt-invoice-dialog .receipt-editor-summary__stamp-mark {
+    position: relative;
+    z-index: 1;
     width: 3.25rem;
     height: 3.25rem;
     display: grid;
@@ -604,6 +721,7 @@
     border-radius: 999px;
     background: color-mix(in srgb, var(--color-primary-container) 45%, var(--color-surface));
     color: var(--color-primary);
+    box-shadow: 0 0 0 .45rem color-mix(in srgb, var(--color-primary-container) 13%, transparent);
   }
 
   .receipt-invoice-dialog .receipt-editor-summary__stamp-mark .icon {
