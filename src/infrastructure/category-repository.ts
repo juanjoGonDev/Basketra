@@ -91,6 +91,10 @@ function normalizeDescription(value?: string | null): string | undefined {
   return normalized || undefined;
 }
 
+function isProtectedUnknown(row: CategoryRow): boolean {
+  return row.id === UNKNOWN_CATEGORY_ID || row.name.toLocaleLowerCase('es-ES') === UNKNOWN_CATEGORY_NAME;
+}
+
 export class CategoryRepository {
   readonly #databasePath: string;
   readonly #clock: () => Date;
@@ -127,16 +131,27 @@ export class CategoryRepository {
     const color = normalizeOptionalCategoryColor(input.color);
     const description = normalizeDescription(input.description);
     return this.withDatabase((database) => {
-      const existing = categoryByName(database, name);
-      if (existing) return mapCategory(existing);
-      assertParentExists(database, parentId);
-      const id = createId('category');
-      const timestamp = this.#clock().toISOString();
-      database.prepare(`
-        INSERT INTO product_categories(id, name, parent_id, color, description, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(id, name, parentId ?? null, color ?? null, description ?? null, timestamp, timestamp);
-      return mapCategory(categoryById(database, id)!);
+      database.exec('BEGIN IMMEDIATE');
+      try {
+        const existing = categoryByName(database, name);
+        if (existing) {
+          database.exec('COMMIT');
+          return mapCategory(existing);
+        }
+        assertParentExists(database, parentId);
+        const id = createId('category');
+        const timestamp = this.#clock().toISOString();
+        database.prepare(`
+          INSERT INTO product_categories(id, name, parent_id, color, description, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(id, name, parentId ?? null, color ?? null, description ?? null, timestamp, timestamp);
+        const stored = mapCategory(categoryById(database, id)!);
+        database.exec('COMMIT');
+        return stored;
+      } catch (error) {
+        database.exec('ROLLBACK');
+        throw error;
+      }
     });
   }
 
@@ -151,18 +166,19 @@ export class CategoryRepository {
     const color = normalizeOptionalCategoryColor(input.color);
     const description = normalizeDescription(input.description);
     return this.withDatabase((database) => {
-      const current = categoryById(database, id);
-      if (!current) return undefined;
-      if (id === UNKNOWN_CATEGORY_ID) {
-        if (name.toLocaleLowerCase('es-ES') !== UNKNOWN_CATEGORY_NAME || parentId) {
-          throw new Error('UNKNOWN_CATEGORY_PROTECTED');
-        }
-      }
-      assertParentExists(database, parentId);
-      assertNoCycle(database, id, parentId);
-      const timestamp = this.#clock().toISOString();
       database.exec('BEGIN IMMEDIATE');
       try {
+        const current = categoryById(database, id);
+        if (!current) {
+          database.exec('COMMIT');
+          return undefined;
+        }
+        if (isProtectedUnknown(current) && (name.toLocaleLowerCase('es-ES') !== UNKNOWN_CATEGORY_NAME || parentId)) {
+          throw new Error('UNKNOWN_CATEGORY_PROTECTED');
+        }
+        assertParentExists(database, parentId);
+        assertNoCycle(database, id, parentId);
+        const timestamp = this.#clock().toISOString();
         database.prepare(`
           UPDATE product_categories
           SET name = ?, parent_id = ?, color = ?, description = ?, updated_at = ?
@@ -171,25 +187,29 @@ export class CategoryRepository {
         database.prepare(`
           UPDATE canonical_products SET category = ?, updated_at = ? WHERE category_id = ?
         `).run(name, timestamp, id);
+        const stored = mapCategory(categoryById(database, id)!);
         database.exec('COMMIT');
+        return stored;
       } catch (error) {
         database.exec('ROLLBACK');
         throw error;
       }
-      return mapCategory(categoryById(database, id)!);
     });
   }
 
   materialize(proposals: readonly AiCategoryProposal[]): MaterializedCategoryProposal {
     if (proposals.length === 0) return { references: new Map(), created: [] };
     return this.withDatabase((database) => {
-      const normalized = proposals.map((proposal) => ({
-        id: proposal.id,
-        name: normalizeCategoryName(proposal.name),
-        ...(proposal.parentId ? { parentId: proposal.parentId.trim() } : {}),
-        color: normalizeCategoryColor(proposal.color),
-        ...(normalizeDescription(proposal.description) ? { description: normalizeDescription(proposal.description)! } : {}),
-      }));
+      const normalized = proposals.map((proposal) => {
+        const description = normalizeDescription(proposal.description);
+        return {
+          id: proposal.id,
+          name: normalizeCategoryName(proposal.name),
+          ...(proposal.parentId ? { parentId: proposal.parentId.trim() } : {}),
+          color: normalizeCategoryColor(proposal.color),
+          ...(description ? { description } : {}),
+        };
+      });
       const ids = new Set<string>();
       for (const proposal of normalized) {
         if (!AI_NEW_CATEGORY_ID_PATTERN.test(proposal.id)) throw new Error('AI_CATEGORY_REFERENCE_INVALID');
@@ -205,6 +225,13 @@ export class CategoryRepository {
           let progressed = false;
           for (let index = pending.length - 1; index >= 0; index -= 1) {
             const proposal = pending[index]!;
+            const existing = categoryByName(database, proposal.name);
+            if (existing) {
+              references.set(proposal.id, existing.id);
+              pending.splice(index, 1);
+              progressed = true;
+              continue;
+            }
             let parentId: string | undefined;
             if (proposal.parentId) {
               if (AI_NEW_CATEGORY_ID_PATTERN.test(proposal.parentId)) {
@@ -214,13 +241,6 @@ export class CategoryRepository {
                 parentId = proposal.parentId;
                 if (!categoryById(database, parentId)) throw new Error('AI_CATEGORY_PARENT_NOT_FOUND');
               }
-            }
-            const existing = categoryByName(database, proposal.name);
-            if (existing) {
-              references.set(proposal.id, existing.id);
-              pending.splice(index, 1);
-              progressed = true;
-              continue;
             }
             const id = createId('category');
             const timestamp = this.#clock().toISOString();
@@ -247,16 +267,31 @@ export class CategoryRepository {
 
   ensureUnknown(): ProductCategoryRecord {
     return this.withDatabase((database) => {
-      const existing = categoryById(database, UNKNOWN_CATEGORY_ID);
-      if (existing) return mapCategory(existing);
-      const timestamp = this.#clock().toISOString();
-      database.prepare(`
-        INSERT OR IGNORE INTO product_categories(id, name, parent_id, color, description, created_at, updated_at)
-        VALUES (?, ?, NULL, ?, NULL, ?, ?)
-      `).run(UNKNOWN_CATEGORY_ID, UNKNOWN_CATEGORY_NAME, UNKNOWN_CATEGORY_COLOR, timestamp, timestamp);
-      const stored = categoryById(database, UNKNOWN_CATEGORY_ID);
-      if (!stored) throw new Error('UNKNOWN_CATEGORY_NOT_AVAILABLE');
-      return mapCategory(stored);
+      database.exec('BEGIN IMMEDIATE');
+      try {
+        const existingByName = categoryByName(database, UNKNOWN_CATEGORY_NAME);
+        if (existingByName) {
+          if (!existingByName.color) {
+            database.prepare('UPDATE product_categories SET color = ?, updated_at = ? WHERE id = ?')
+              .run(UNKNOWN_CATEGORY_COLOR, this.#clock().toISOString(), existingByName.id);
+          }
+          const stored = mapCategory(categoryById(database, existingByName.id)!);
+          database.exec('COMMIT');
+          return stored;
+        }
+        const timestamp = this.#clock().toISOString();
+        database.prepare(`
+          INSERT INTO product_categories(id, name, parent_id, color, description, created_at, updated_at)
+          VALUES (?, ?, NULL, ?, NULL, ?, ?)
+        `).run(UNKNOWN_CATEGORY_ID, UNKNOWN_CATEGORY_NAME, UNKNOWN_CATEGORY_COLOR, timestamp, timestamp);
+        const stored = categoryById(database, UNKNOWN_CATEGORY_ID);
+        if (!stored) throw new Error('UNKNOWN_CATEGORY_NOT_AVAILABLE');
+        database.exec('COMMIT');
+        return mapCategory(stored);
+      } catch (error) {
+        database.exec('ROLLBACK');
+        throw error;
+      }
     });
   }
 
