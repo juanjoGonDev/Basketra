@@ -4,6 +4,8 @@ import { escapeHtml, formatEuroMinor, hydrateIcons } from './ui.js';
 const CATALOG_PAGE_SIZE = 50;
 const CATALOG_SEARCH_DELAY_MS = 250;
 const CATALOG_DATE_FORMATTER = new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium' });
+const UNKNOWN_CATEGORY_NAME = 'desconocido';
+const DEFAULT_CATEGORY_COLOR = '#64748B';
 
 const $ = selector => document.querySelector(selector);
 
@@ -13,6 +15,8 @@ const state = {
   categories: [],
   units: [],
   selectedProductId: '',
+  selectedCategoryId: '',
+  categoryCreateParentId: '',
   searchTimer: null,
   loadController: null,
   loadGeneration: 0,
@@ -121,31 +125,112 @@ function installCatalogView() {
   document.dispatchEvent(new CustomEvent('basketra:hydrate-icons', { detail: { root: view } }));
 }
 
-function installHomeEntry() {
-  const grid = document.querySelector('.view[data-view="home"] .dashboard-grid');
-  if (!grid || grid.querySelector('[data-catalog-entry]')) return;
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'dashboard-card';
-  button.dataset.catalogEntry = 'true';
-  button.innerHTML = '<span data-icon="store"></span><strong>Catálogo de productos</strong><small>Variantes y precios por comercio</small>';
-  button.addEventListener('click', () => void activateCatalog());
-  grid.append(button);
-  document.dispatchEvent(new CustomEvent('basketra:hydrate-icons', { detail: { root: button } }));
+function installCategoryView() {
+  if (document.querySelector('.view[data-view="categories"]')) return;
+  const main = $('#main');
+  if (!main) return;
+  const view = document.createElement('section');
+  view.className = 'view catalog-view category-view';
+  view.dataset.view = 'categories';
+  view.innerHTML = `
+    <div class="page-header catalog-page-header">
+      <div>
+        <p class="eyebrow">Clasificación</p>
+        <h1>Categorías</h1>
+        <p>Organiza un inventario reutilizable con tantos niveles como necesites. La IA recibe este árbol al analizar tickets y reutiliza sus identificadores.</p>
+      </div>
+      <button id="categories-home" class="button secondary" type="button"><span data-icon="home"></span>Inicio</button>
+    </div>
+    <section class="surface category-toolbar" aria-labelledby="category-inventory-title">
+      <div>
+        <h2 id="category-inventory-title">Inventario de categorías</h2>
+        <p class="field-help">La categoría desconocido es el fallback protegido para artículos que no se pueden clasificar con seguridad.</p>
+      </div>
+      <button id="category-new" class="button primary" type="button"><span data-icon="plus"></span>Nueva categoría</button>
+      <p id="category-state" class="inline-status" role="status" aria-live="polite"></p>
+    </section>
+    <div class="category-layout">
+      <section class="surface category-browser" aria-labelledby="category-tree-title">
+        <div class="section-header">
+          <div><p class="eyebrow">Jerarquía</p><h2 id="category-tree-title">Árbol de categorías</h2></div>
+          <span id="category-count" class="count-badge">0</span>
+        </div>
+        <div id="category-tree" class="category-tree" aria-live="polite"></div>
+      </section>
+      <section id="category-detail" class="surface category-detail" aria-labelledby="category-form-title">
+        <div class="section-header">
+          <div><p class="eyebrow">Ficha</p><h2 id="category-form-title">Nueva categoría</h2></div>
+          <span id="category-form-status" class="status-pill">Nueva</span>
+        </div>
+        <form id="category-form" class="category-form">
+          <div id="category-protected-note" class="catalog-shared-note" role="note" hidden>
+            <strong>Categoría de respaldo</strong>
+            <span>desconocido debe conservar su nombre y permanecer en la raíz. Puedes ajustar su color o descripción.</span>
+          </div>
+          <label class="field"><span>Nombre</span><input id="category-name" maxlength="120" autocomplete="off" required></label>
+          <label class="field"><span>Categoría padre</span><select id="category-parent"><option value="">Sin padre · categoría raíz</option></select></label>
+          <label class="field category-color-field">
+            <span>Color</span>
+            <span class="category-color-control"><input id="category-color" type="color" value="${DEFAULT_CATEGORY_COLOR}" aria-label="Color de la categoría"><output id="category-color-value">${DEFAULT_CATEGORY_COLOR}</output></span>
+          </label>
+          <label class="field"><span>Descripción opcional</span><textarea id="category-description" maxlength="500" rows="4" placeholder="Ayuda a distinguir el alcance de esta categoría"></textarea></label>
+          <button id="category-save" class="button primary full" type="submit"><span data-icon="check"></span>Guardar categoría</button>
+          <button id="category-add-child" class="button secondary full" type="button" hidden><span data-icon="plus"></span>Añadir subcategoría</button>
+          <p id="category-form-state" class="inline-status" role="status"></p>
+        </form>
+      </section>
+    </div>`;
+  main.append(view);
+  document.dispatchEvent(new CustomEvent('basketra:hydrate-icons', { detail: { root: view } }));
 }
 
-function activateCatalog() {
-  const view = document.querySelector('.view[data-view="catalog"]');
-  if (!view) return Promise.resolve();
+function installHomeEntries() {
+  const grid = document.querySelector('.view[data-view="home"] .dashboard-grid');
+  if (!grid) return;
+  if (!grid.querySelector('[data-catalog-entry]')) {
+    const catalogButton = document.createElement('button');
+    catalogButton.type = 'button';
+    catalogButton.className = 'dashboard-card';
+    catalogButton.dataset.catalogEntry = 'true';
+    catalogButton.innerHTML = '<span data-icon="store"></span><strong>Catálogo de productos</strong><small>Variantes y precios por comercio</small>';
+    catalogButton.addEventListener('click', () => void activateCatalog());
+    grid.append(catalogButton);
+    document.dispatchEvent(new CustomEvent('basketra:hydrate-icons', { detail: { root: catalogButton } }));
+  }
+  if (!grid.querySelector('[data-categories-entry]')) {
+    const categoryButton = document.createElement('button');
+    categoryButton.type = 'button';
+    categoryButton.className = 'dashboard-card';
+    categoryButton.dataset.categoriesEntry = 'true';
+    categoryButton.innerHTML = '<span data-icon="list"></span><strong>Categorías</strong><small>Árbol, colores y clasificación IA</small>';
+    categoryButton.addEventListener('click', () => void activateCategories());
+    grid.append(categoryButton);
+    document.dispatchEvent(new CustomEvent('basketra:hydrate-icons', { detail: { root: categoryButton } }));
+  }
+}
+
+function activateFeatureView(viewName) {
+  const view = document.querySelector(`.view[data-view="${CSS.escape(viewName)}"]`);
+  if (!view) return false;
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element === view));
   document.querySelectorAll('.bottom-nav [data-nav]').forEach(element => element.removeAttribute('aria-current'));
-  history.replaceState(null, '', '#catalog');
-  document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: 'catalog' } }));
+  history.replaceState(null, '', `#${viewName}`);
+  document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: viewName } }));
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
   window.scrollTo(0, 0);
   $('#main')?.focus({ preventScroll: true });
+  return true;
+}
+
+function activateCatalog() {
+  if (!activateFeatureView('catalog')) return Promise.resolve();
   return loadCatalog({ reset: true });
+}
+
+function activateCategories() {
+  if (!activateFeatureView('categories')) return Promise.resolve();
+  return loadCategories({ force: true });
 }
 
 function setCatalogStatus(message, stateName = '') {
@@ -156,17 +241,105 @@ function setCatalogStatus(message, stateName = '') {
   else delete element.dataset.state;
 }
 
+function setCategoryStatus(message, stateName = '') {
+  const element = $('#category-state');
+  if (!element) return;
+  element.textContent = message;
+  if (stateName) element.dataset.state = stateName;
+  else delete element.dataset.state;
+}
+
 function selectedProduct() {
   return state.catalog.products.find(product => product.id === state.selectedProductId);
+}
+
+function selectedCategory() {
+  return state.categories.find(category => category.id === state.selectedCategoryId);
+}
+
+function normalizedCategoryColor(value) {
+  const normalized = String(value || '').trim().toUpperCase();
+  return /^#[0-9A-F]{6}$/u.test(normalized) ? normalized : DEFAULT_CATEGORY_COLOR;
+}
+
+function sortedCategories(categories) {
+  return [...categories].sort((left, right) => left.name.localeCompare(right.name, 'es', { sensitivity: 'base' }) || left.id.localeCompare(right.id));
+}
+
+function categoryTreeEntries(categories = state.categories) {
+  const byId = new Map(categories.map(category => [category.id, category]));
+  const children = new Map();
+  const roots = [];
+  for (const category of categories) {
+    if (category.parentId && byId.has(category.parentId)) {
+      const siblings = children.get(category.parentId) || [];
+      siblings.push(category);
+      children.set(category.parentId, siblings);
+    } else {
+      roots.push(category);
+    }
+  }
+  const entries = [];
+  const visited = new Set();
+  const visit = (category, depth) => {
+    if (visited.has(category.id)) return;
+    visited.add(category.id);
+    entries.push({ category, depth });
+    for (const child of sortedCategories(children.get(category.id) || [])) visit(child, depth + 1);
+  };
+  for (const root of sortedCategories(roots)) visit(root, 0);
+  for (const category of sortedCategories(categories)) {
+    if (!visited.has(category.id)) visit(category, 0);
+  }
+  return entries;
+}
+
+function categoryLabel(category, depth) {
+  const indent = depth > 0 ? `${'  '.repeat(depth)}↳ ` : '';
+  return `${indent}${category.name}`;
+}
+
+function descendantCategoryIds(categoryId) {
+  const children = new Map();
+  for (const category of state.categories) {
+    if (!category.parentId) continue;
+    const ids = children.get(category.parentId) || [];
+    ids.push(category.id);
+    children.set(category.parentId, ids);
+  }
+  const descendants = new Set();
+  const pending = [...(children.get(categoryId) || [])];
+  while (pending.length > 0) {
+    const id = pending.pop();
+    if (!id || descendants.has(id)) continue;
+    descendants.add(id);
+    pending.push(...(children.get(id) || []));
+  }
+  return descendants;
 }
 
 function renderCategoryOptions() {
   const select = $('#catalog-category');
   if (!select) return;
   const current = select.value;
-  select.innerHTML = '<option value="">Sin categoría</option>' + state.categories
-    .map(category => `<option value="${escapeHtml(category.id)}">${escapeHtml(category.name)}</option>`)
-    .join('');
+  select.replaceChildren(new Option('Sin categoría', ''));
+  for (const { category, depth } of categoryTreeEntries()) {
+    select.append(new Option(categoryLabel(category, depth), category.id));
+  }
+  select.value = current;
+}
+
+function renderCategoryParentOptions(category = selectedCategory(), presetParentId = state.categoryCreateParentId) {
+  const select = $('#category-parent');
+  if (!select) return;
+  const current = category ? (category.parentId || '') : presetParentId;
+  const excluded = category ? descendantCategoryIds(category.id) : new Set();
+  if (category) excluded.add(category.id);
+  select.replaceChildren(new Option('Sin padre · categoría raíz', ''));
+  for (const { category: candidate, depth } of categoryTreeEntries()) {
+    if (excluded.has(candidate.id)) continue;
+    select.append(new Option(categoryLabel(candidate, depth), candidate.id));
+  }
   select.value = current;
 }
 
@@ -236,6 +409,45 @@ function renderCatalogProducts({ append = false } = {}) {
   $('#catalog-product-count').textContent = String(products.length);
   const loadMore = $('#catalog-load-more');
   if (loadMore) loadMore.hidden = !state.catalog.hasMore;
+}
+
+function renderCategoryTree() {
+  const container = $('#category-tree');
+  if (!container) return;
+  container.replaceChildren();
+  if (state.categories.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'catalog-empty';
+    empty.innerHTML = '<strong>No hay categorías disponibles.</strong><span>Crea una categoría para empezar el inventario.</span>';
+    container.append(empty);
+  } else {
+    for (const { category, depth } of categoryTreeEntries()) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'category-row';
+      row.dataset.categoryId = category.id;
+      row.style.setProperty('--category-depth', String(depth));
+      row.setAttribute('aria-pressed', String(category.id === state.selectedCategoryId));
+      const swatch = document.createElement('span');
+      swatch.className = 'category-swatch';
+      swatch.style.backgroundColor = normalizedCategoryColor(category.color);
+      swatch.setAttribute('aria-hidden', 'true');
+      const copy = document.createElement('span');
+      copy.className = 'category-row__copy';
+      const name = document.createElement('strong');
+      name.textContent = category.name;
+      const meta = document.createElement('small');
+      meta.textContent = category.parentId ? 'Subcategoría' : 'Categoría raíz';
+      copy.append(name, meta);
+      const action = document.createElement('span');
+      action.className = 'catalog-product-row__action';
+      action.textContent = 'Editar';
+      row.append(swatch, copy, action);
+      row.addEventListener('click', () => selectCategory(category.id));
+      container.append(row);
+    }
+  }
+  $('#category-count').textContent = String(state.categories.length);
 }
 
 function renderRetailerNames(product) {
@@ -311,6 +523,23 @@ function populateProductForm(product) {
   renderLatestPrices(product);
 }
 
+function populateCategoryForm(category) {
+  const creating = !category;
+  const protectedFallback = category?.name.toLocaleLowerCase('es-ES') === UNKNOWN_CATEGORY_NAME;
+  $('#category-form-title').textContent = creating ? 'Nueva categoría' : category.name;
+  $('#category-form-status').textContent = creating ? 'Nueva' : 'Guardada';
+  $('#category-name').value = category?.name || '';
+  $('#category-name').disabled = protectedFallback;
+  $('#category-color').value = normalizedCategoryColor(category?.color);
+  $('#category-color-value').textContent = normalizedCategoryColor(category?.color);
+  $('#category-description').value = category?.description || '';
+  $('#category-parent').disabled = protectedFallback;
+  $('#category-protected-note').hidden = !protectedFallback;
+  $('#category-add-child').hidden = creating;
+  $('#category-form-state').textContent = '';
+  renderCategoryParentOptions(category);
+}
+
 function selectCatalogProduct(productId) {
   state.selectedProductId = productId;
   document.querySelectorAll('[data-catalog-product-id]').forEach(element => {
@@ -320,14 +549,51 @@ function selectCatalogProduct(productId) {
   if (matchMedia('(max-width: 51.99rem)').matches) $('#catalog-detail')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
+function selectCategory(categoryId) {
+  state.selectedCategoryId = categoryId;
+  state.categoryCreateParentId = '';
+  document.querySelectorAll('[data-category-id]').forEach(element => {
+    element.setAttribute('aria-pressed', String(element.dataset.categoryId === categoryId));
+  });
+  populateCategoryForm(selectedCategory());
+  if (matchMedia('(max-width: 51.99rem)').matches) $('#category-detail')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+function startCreateCategory(parentId = '') {
+  state.selectedCategoryId = '';
+  state.categoryCreateParentId = parentId;
+  document.querySelectorAll('[data-category-id]').forEach(element => element.setAttribute('aria-pressed', 'false'));
+  populateCategoryForm(undefined);
+  $('#category-name')?.focus();
+}
+
+async function loadCategories({ force = false } = {}) {
+  if (!force && state.categories.length > 0) return state.categories;
+  setCategoryStatus('Cargando categorías…');
+  try {
+    const result = await api('/api/v1/categories');
+    state.categories = Array.isArray(result.categories) ? result.categories : [];
+    renderCategoryTree();
+    renderCategoryOptions();
+    if (state.selectedCategoryId && !selectedCategory()) startCreateCategory();
+    else populateCategoryForm(selectedCategory());
+    setCategoryStatus(`${state.categories.length} categorías disponibles.`, 'success');
+    return state.categories;
+  } catch (error) {
+    setCategoryStatus(`No se pudieron cargar las categorías: ${error.message}`, 'error');
+    throw error;
+  }
+}
+
 async function ensureCatalogMetadata() {
   if (state.categories.length > 0 && state.units.length > 0) return;
   const [categoriesResult, metadata] = await Promise.all([
-    api('/api/v1/categories'),
-    api('/api/v1/meta'),
+    state.categories.length > 0 ? { categories: state.categories } : api('/api/v1/categories'),
+    state.units.length > 0 ? { units: state.units } : api('/api/v1/meta'),
   ]);
   state.categories = categoriesResult.categories || [];
   state.units = metadata.units || [];
+  renderCategoryTree();
   renderCategoryOptions();
   renderUnitOptions();
 }
@@ -405,6 +671,38 @@ async function saveSelectedProduct(button) {
   }
 }
 
+async function saveCategory(button) {
+  const current = selectedCategory();
+  const name = $('#category-name').value.trim();
+  const parentId = $('#category-parent').value || null;
+  const color = normalizedCategoryColor($('#category-color').value);
+  const description = optionalText($('#category-description').value);
+  if (!name) {
+    $('#category-form-state').textContent = 'El nombre de la categoría es obligatorio.';
+    $('#category-name').focus();
+    return;
+  }
+  setBusy(button, true);
+  $('#category-form-status').textContent = 'Guardando…';
+  $('#category-form-state').textContent = '';
+  try {
+    const result = await api(current ? `/api/v1/categories/${encodeURIComponent(current.id)}` : '/api/v1/categories', {
+      method: current ? 'PATCH' : 'POST',
+      body: JSON.stringify({ name, parentId, color, description }),
+    });
+    const savedId = result.category?.id;
+    await loadCategories({ force: true });
+    if (savedId) selectCategory(savedId);
+    $('#category-form-status').textContent = 'Guardada';
+    $('#category-form-state').textContent = current ? 'Categoría actualizada.' : 'Categoría creada.';
+  } catch (error) {
+    $('#category-form-status').textContent = 'Revisar';
+    $('#category-form-state').textContent = error.message;
+  } finally {
+    setBusy(button, false);
+  }
+}
+
 async function linkSelectedParent(button) {
   const product = selectedProduct();
   const canonicalProductId = $('#catalog-parent-select').value;
@@ -476,11 +774,28 @@ async function saveRetailerName(button) {
   }
 }
 
+function goHome() {
+  document.querySelector('.bottom-nav [data-nav="home"]')?.click();
+}
+
 function installCatalogInteractions() {
-  $('#catalog-home')?.addEventListener('click', () => document.querySelector('.bottom-nav [data-nav="home"]')?.click());
+  $('#catalog-home')?.addEventListener('click', goHome);
+  $('#categories-home')?.addEventListener('click', goHome);
   $('#catalog-product-form')?.addEventListener('submit', event => {
     event.preventDefault();
     void saveSelectedProduct($('#catalog-save-product'));
+  });
+  $('#category-form')?.addEventListener('submit', event => {
+    event.preventDefault();
+    void saveCategory($('#category-save'));
+  });
+  $('#category-new')?.addEventListener('click', () => startCreateCategory());
+  $('#category-add-child')?.addEventListener('click', () => {
+    const current = selectedCategory();
+    if (current) startCreateCategory(current.id);
+  });
+  $('#category-color')?.addEventListener('input', event => {
+    $('#category-color-value').textContent = normalizedCategoryColor(event.currentTarget.value);
   });
   $('#catalog-link-parent')?.addEventListener('click', event => void linkSelectedParent(event.currentTarget));
   $('#catalog-create-parent')?.addEventListener('click', event => void createParentForSelected(event.currentTarget));
@@ -495,16 +810,34 @@ function installCatalogInteractions() {
   });
 }
 
-export function initializeCatalogFeature({ activate = false } = {}) {
+export function initializeCatalogFeature({ activate = false, activateCategories = false } = {}) {
   if (state.initialized) {
-    if (activate) void activateCatalog();
+    if (activateCategories) void activateCategories();
+    else if (activate) void activateCatalog();
     return;
   }
   state.initialized = true;
   injectStylesheet();
   installCatalogView();
-  installHomeEntry();
+  installCategoryView();
+  installHomeEntries();
   installCatalogInteractions();
   hydrateIcons(document.querySelector('.view[data-view="catalog"]') || document);
-  if (activate) void activateCatalog();
+  hydrateIcons(document.querySelector('.view[data-view="categories"]') || document);
+  if (activateCategories) void activateCategories();
+  else if (activate) void activateCatalog();
+}
+
+function autoInitializeCatalogFeature() {
+  const requested = location.hash.slice(1);
+  initializeCatalogFeature({
+    activate: requested === 'catalog',
+    activateCategories: requested === 'categories',
+  });
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', autoInitializeCatalogFeature, { once: true });
+} else {
+  autoInitializeCatalogFeature();
 }
