@@ -227,13 +227,13 @@ test('invoice-editor-mobile', async ({ page }, testInfo) => {
       elementBox(dialog),
       elementBox(actions),
     ]);
-    return Boolean(
-      dialogBox
-      && actionsBox
-      && dialogBox.y >= -1
+    if (!dialogBox || !actionsBox) return false;
+    const dialogBottom = dialogBox.y + dialogBox.height;
+    const actionsBottom = actionsBox.y + actionsBox.height;
+    return dialogBox.y >= -1
       && actionsBox.y >= dialogBox.y
-      && actionsBox.y + actionsBox.height <= dialogBox.y + dialogBox.height + 1,
-    );
+      && actionsBottom <= dialogBottom + 1
+      && Math.abs(dialogBottom - actionsBottom) <= 4;
   }).toBe(true);
   await expectNoHorizontalOverflow(page, dialog);
   await summary.scrollIntoViewIfNeeded();
@@ -286,6 +286,8 @@ test('invoice-editor-error', async ({ page }, testInfo) => {
   const dialog = await openEditor(page);
   const affectedUnits = dialog.getByLabel('Unidades con descuento');
   const summary = dialog.locator('.receipt-line-editor-summary');
+  const headerValidation = dialog.locator('[data-editor-validation]');
+  const summaryValidation = dialog.locator('[data-editor-summary-validation]');
   const save = dialog.getByRole('button', { name: 'Guardar línea', exact: true });
 
   await affectedUnits.fill('2');
@@ -293,6 +295,8 @@ test('invoice-editor-error', async ({ page }, testInfo) => {
   await expect(save).toBeDisabled();
   await expect(summary).toHaveAttribute('data-summary-state', 'error');
   await expect(summary).not.toHaveAttribute('data-summary-state', 'pending');
+  await expect(headerValidation).toBeHidden();
+  await expect(summaryValidation).toBeHidden();
   await dialog.screenshot({ path: testInfo.outputPath('invoice-editor-calculation-error.png') });
 
   await affectedUnits.fill('1');
@@ -300,4 +304,8 @@ test('invoice-editor-error', async ({ page }, testInfo) => {
   await expect(save).toBeEnabled();
   await expect(summary).toHaveAttribute('data-summary-state', 'ready');
   await expect(dialog.locator('[data-editor-summary-total]')).toHaveText('2,62 €');
+  await expect(headerValidation).toBeVisible();
+  await expect(headerValidation).toHaveText('Validada');
+  await expect(summaryValidation).toBeVisible();
+  await expect(summaryValidation).toContainText('Total validado');
 });
