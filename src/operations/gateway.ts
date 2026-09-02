@@ -9,6 +9,7 @@ import { mapError } from '../api/errors.ts';
 import { BasketraServer } from '../api/server.ts';
 import type { AppConfig } from '../infrastructure/config.ts';
 import { DEFAULT_DATABASE_STORAGE_LIMITS } from '../infrastructure/database.ts';
+import type { RuntimeSettings } from '../infrastructure/runtime-settings.ts';
 import { AiProviderProbeStore, type AiProviderProbeTrigger } from './ai-provider-probe-store.ts';
 import { ApplicationLogStore, sanitizeClientLog, type LogSource } from './log-store.ts';
 import { importBackupStream, listImportedBackups, RESTORE_CONFIRMATION, stagePendingRestore } from './restore.ts';
@@ -72,7 +73,7 @@ function headerValue(value: string | string[] | undefined): string {
 }
 
 function isContainerRuntime(): boolean {
-  return process.env['BASKETRA_CONTAINER'] === 'true' || existsSync('/.dockerenv');
+  return existsSync('/.dockerenv');
 }
 
 function safeResponseHeaders(headers: Record<string, string | string[] | undefined>): Record<string, string> {
@@ -124,6 +125,10 @@ export class OperationsGateway {
     this.#probeStore = new AiProviderProbeStore(config.dataDir, this.#clock);
     this.#publicDir = resolve(dirname(fileURLToPath(import.meta.url)), '../web');
     this.#server = createServer((request, response) => void this.handle(request, response));
+  }
+
+  runtimeSettings(): RuntimeSettings {
+    return this.#inner.runtimeSettings();
   }
 
   async listen(): Promise<void> {
@@ -261,7 +266,8 @@ export class OperationsGateway {
   }
 
   private async aiRuntimeCapabilities(response: ServerResponse, requestId: string): Promise<void> {
-    if (!this.config.aiBaseUrl || !this.config.aiModel) {
+    const settings = this.runtimeSettings();
+    if (!settings.aiBaseUrl || !settings.aiModel) {
       this.json(response, 503, {
         error: {
           code: 'AI_NOT_CONFIGURED',
@@ -274,8 +280,8 @@ export class OperationsGateway {
 
     try {
       const capabilities = await fetchAiRuntimeCapabilities({
-        baseUrl: new URL(this.config.aiBaseUrl),
-        ...(this.config.aiApiKey ? { apiKey: this.config.aiApiKey } : {}),
+        baseUrl: new URL(settings.aiBaseUrl),
+        ...(settings.aiApiKey ? { apiKey: settings.aiApiKey } : {}),
         correlationId: requestId,
       });
       if (capabilities === undefined) {
@@ -309,26 +315,29 @@ export class OperationsGateway {
   }
 
   private aiSettings(): Readonly<Record<string, unknown>> {
+    const publicSettings = this.#inner.publicRuntimeSettings();
+    const settings = this.runtimeSettings();
     const missing: string[] = [];
-    if (!this.config.aiBaseUrl) missing.push('BASKETRA_AI_BASE_URL');
-    if (!this.config.aiModel) missing.push('BASKETRA_AI_MODEL');
+    if (!settings.aiBaseUrl) missing.push('URL de WebAPI');
+    if (!settings.aiModel) missing.push('Modelo');
     const configured = missing.length === 0;
-    let loopbackWarning = false;
-    if (configured && this.config.aiBaseUrl) {
-      loopbackWarning = isContainerRuntime() && LOOPBACK_HOSTS.has(new URL(this.config.aiBaseUrl).hostname);
-    }
+    const loopbackWarning = Boolean(
+      configured
+      && settings.aiBaseUrl
+      && isContainerRuntime()
+      && LOOPBACK_HOSTS.has(new URL(settings.aiBaseUrl).hostname),
+    );
     return {
       configured,
       status: configured ? (loopbackWarning ? 'warning' : 'configured') : 'missing',
       missing,
-      ...(this.config.aiBaseUrl ? { baseUrl: this.config.aiBaseUrl } : {}),
-      ...(this.config.aiModel ? { model: this.config.aiModel } : {}),
-      ...(this.config.aiApiKey ? { apiKeyMask: `***${this.config.aiApiKey.slice(-4)}` } : {}),
-      image: this.config.aiImageCapability,
-      pdf: this.config.aiPdfCapability,
+      ...(publicSettings.ai.baseUrl ? { baseUrl: publicSettings.ai.baseUrl } : {}),
+      ...(publicSettings.ai.model ? { model: publicSettings.ai.model } : {}),
+      ...(publicSettings.ai.apiKeyMask ? { apiKeyMask: publicSettings.ai.apiKeyMask } : {}),
+      maxRetries: publicSettings.ai.maxRetries,
       loopbackWarning,
       lastCheck: this.#probeStore.latest() ?? null,
-      requiresContainerRecreate: true,
+      requiresContainerRecreate: false,
       recommendedHostUrl: 'http://host.docker.internal:3001/v1/',
     };
   }
@@ -365,11 +374,12 @@ export class OperationsGateway {
     requestId: string,
   ): Promise<ProviderProbeOutcome> {
     const started = Date.now();
-    const settings = this.aiSettings();
-    if (settings['configured'] !== true) {
-      const missing = Array.isArray(settings['missing'])
-        ? settings['missing'].filter((value): value is string => typeof value === 'string')
-        : [];
+    const settings = this.runtimeSettings();
+    const missing = [
+      ...(settings.aiBaseUrl ? [] : ['URL de WebAPI']),
+      ...(settings.aiModel ? [] : ['Modelo']),
+    ];
+    if (missing.length > 0) {
       this.#probeStore.recordFailure(trigger, Date.now() - started, 'AI_NOT_CONFIGURED');
       return {
         ok: false,
@@ -379,24 +389,24 @@ export class OperationsGateway {
         missing,
       };
     }
-    if (settings['loopbackWarning'] === true) {
+    if (isContainerRuntime() && LOOPBACK_HOSTS.has(new URL(settings.aiBaseUrl!).hostname)) {
       this.#probeStore.recordFailure(trigger, Date.now() - started, 'AI_LOOPBACK_CONTAINER');
       this.#logStore.append({ source: 'server', level: 'warn', event: 'ai.loopback_rejected', requestId, code: 'AI_LOOPBACK_CONTAINER' });
       return {
         ok: false,
         status: 502,
         code: 'AI_LOOPBACK_CONTAINER',
-        message: '127.0.0.1 points to the Basketra container; use host.docker.internal and recreate the container.',
+        message: '127.0.0.1 points to the Basketra container; use host.docker.internal or another reachable WebAPI URL.',
       };
     }
 
     const provider = new OpenAiCompatibleProvider({
-      baseUrl: new URL(this.config.aiBaseUrl!),
-      ...(this.config.aiApiKey ? { apiKey: this.config.aiApiKey } : {}),
-      model: this.config.aiModel!,
+      baseUrl: new URL(settings.aiBaseUrl!),
+      ...(settings.aiApiKey ? { apiKey: settings.aiApiKey } : {}),
+      model: settings.aiModel!,
       capabilities: {
-        image: this.config.aiImageCapability,
-        pdf: this.config.aiPdfCapability,
+        image: true,
+        pdf: true,
       },
     });
 
