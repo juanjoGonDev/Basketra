@@ -6,6 +6,8 @@ export const STATIC_ASSETS = new Set([
   'catalog.css',
   'inventory.js',
   'inventory.css',
+  'ticket-history.js',
+  'ticket-history.css',
   'operations.js',
   'operations.css',
   'state.js',
