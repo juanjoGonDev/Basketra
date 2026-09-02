@@ -5,8 +5,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { BasketraDatabase, CURRENT_SCHEMA_VERSION } from '../../src/infrastructure/database.ts';
+import { COLLABORATION_MIGRATIONS } from '../../src/infrastructure/collaboration-schema.ts';
 
 const RECEIPT_CATALOG_MIGRATION_VERSION = 7;
+const RECEIPT_CATALOG_MIGRATION = COLLABORATION_MIGRATIONS.find((migration) => migration.version === RECEIPT_CATALOG_MIGRATION_VERSION);
+if (!RECEIPT_CATALOG_MIGRATION) throw new Error('Receipt catalog migration is missing');
 
 function receiptInput(importKey: string, description: string, unitPriceMinor: number, retailerName?: string) {
   return {
@@ -157,13 +160,12 @@ test('migration reconciles historical confirmed receipt rows without overwriting
   const migrationBackupDir = join(root, 'migration-backups');
   const initial = new BasketraDatabase(databasePath, { migrationBackupDir });
   initial.close();
-  assert.equal(CURRENT_SCHEMA_VERSION, RECEIPT_CATALOG_MIGRATION_VERSION);
+  assert.ok(CURRENT_SCHEMA_VERSION > RECEIPT_CATALOG_MIGRATION_VERSION);
 
   const legacy = new DatabaseSync(databasePath);
   try {
     legacy.exec('PRAGMA foreign_keys = ON;');
     legacy.exec('DROP TRIGGER IF EXISTS receipt_items_project_catalog;');
-    legacy.prepare('DELETE FROM schema_migrations WHERE version = ?').run(RECEIPT_CATALOG_MIGRATION_VERSION);
     legacy.prepare('INSERT INTO retailers(id, name, created_at) VALUES (?, ?, ?)').run('retailer_legacy', 'Mercadona', '2026-08-01T10:00:00.000Z');
     insertLegacyReceipt(legacy, {
       receiptId: 'receipt_legacy',
@@ -174,6 +176,7 @@ test('migration reconciles historical confirmed receipt rows without overwriting
       importKey: 'receipt-legacy-0001',
       createdAt: '2026-08-01T10:00:00.000Z',
     });
+    legacy.exec(RECEIPT_CATALOG_MIGRATION.sql);
   } finally {
     legacy.close();
   }
@@ -211,7 +214,6 @@ test('migration reuses one catalog variant for matching historical receipts from
   try {
     legacy.exec('PRAGMA foreign_keys = ON;');
     legacy.exec('DROP TRIGGER IF EXISTS receipt_items_project_catalog;');
-    legacy.prepare('DELETE FROM schema_migrations WHERE version = ?').run(RECEIPT_CATALOG_MIGRATION_VERSION);
     legacy.prepare('INSERT INTO retailers(id, name, created_at) VALUES (?, ?, ?)').run('retailer_history', 'Alcampo', '2026-08-01T10:00:00.000Z');
     insertLegacyReceipt(legacy, {
       receiptId: 'receipt_history_1',
@@ -231,6 +233,7 @@ test('migration reuses one catalog variant for matching historical receipts from
       importKey: 'receipt-history-0002',
       createdAt: '2026-08-02T10:00:00.000Z',
     });
+    legacy.exec(RECEIPT_CATALOG_MIGRATION.sql);
   } finally {
     legacy.close();
   }
