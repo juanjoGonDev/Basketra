@@ -50,6 +50,8 @@ const STATIC_ASSETS = new Set([
   'receipt-processing.js',
   'receipt-review.js',
   'receipt-review.css',
+  'receipt-editor-invoice.js',
+  'receipt-editor-invoice.css',
   'receipt-ai-recovery.js',
   'ui.js',
   'styles.css',
@@ -215,7 +217,7 @@ export class BasketraServer {
         databasePath: this.#database.path,
         readJson: async () => await this.readJson(request),
         send: (status, body) => this.json(response, status, body),
-        publish: (entityId) => this.publishRealtime({ entityType: 'product', mutation: 'updated', entityId }),
+        publish: (entityId) => this.publishRealtime({ entityType: 'product', mutation: 'updated', entityId, updatedAt: undefined }),
       })) return;
       if (await handleReceiptCalculationRequest({
         method: request.method,
