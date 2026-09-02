@@ -9,6 +9,7 @@ Stop Basketra from owning AI attachment limits. Use WebAPI as the only functiona
 - `ReceiptResponsesClient` previously serialized each receipt attachment as a Base64 data URL inside the JSON body sent to `POST /v1/responses`.
 - A ~380 KiB image therefore expanded materially before JSON framing and could be rejected by an unrelated WebAPI JSON parser ceiling before the configured 20 MiB image limit was evaluated.
 - `OpenAiCompatibleProvider` already used multipart binary for Chat Completions, while the durable Responses client was a separate transport owner and still used Base64 JSON.
+- Final review found that `OpenAiCompatibleProvider` still estimated multipart binary bytes against `requests.maxJsonBodyBytes`; that violated the same JSON/binary budget separation even though the wire transport was multipart.
 - `fetchAiRuntimeCapabilities()` performs a no-store WebAPI read and validates the returned capability document.
 - Migration v1 already contains `ai_provider_configurations.capabilities_json`; the cache reuses that provider-scoped persistence without adding a schema migration.
 - This repository is a single-user local application reachable through the owner's trusted LAN/VPN deployment. Public anonymous/multi-tenant threat assumptions are not product requirements.
@@ -21,7 +22,7 @@ Stop Basketra from owning AI attachment limits. Use WebAPI as the only functiona
 - When a later capability read is temporarily unavailable, Basketra may use only the last validated WebAPI snapshot for provider validation and upload UX. The fallback is stale provider data, not Basketra policy.
 - The cache is installed as an explicit process-level fetch decorator from `main.ts`. It intercepts only the exact configured WebAPI capabilities URL, delegates every other request unchanged, never masks `401`/`403`, and restores the original fetch during shutdown. Propagating an additional fetch dependency through `OperationsGateway`, `BasketraServer`, provider and durable-client constructors was reviewed but rejected here as broader final-review churn without a demonstrated functional defect.
 - Durable `POST /v1/responses` requests use multipart/form-data with JSON metadata plus the original binary attachment. No Base64 attachment is emitted on the wire.
-- Multipart transport does not compare binary attachment bytes against `requests.maxJsonBodyBytes`; JSON metadata and attachment limits are independent WebAPI capabilities.
+- Multipart transport does not compare binary attachment bytes against `requests.maxJsonBodyBytes`; JSON metadata and attachment limits are independent WebAPI capabilities. This applies both to the durable Responses client and the multipart Chat Completions provider path.
 - Preserve MIME/signature validation, durable idempotency, OCR evidence, response reconciliation, and local persistence behavior.
 - Root `AGENTS.md` records the LAN/VPN single-user deployment model and the WebAPI SSOT rule so future agents do not reintroduce competing limits based on a hypothetical public deployment.
 
@@ -34,16 +35,17 @@ Stop Basketra from owning AI attachment limits. Use WebAPI as the only functiona
 - If no validated snapshot exists and WebAPI capabilities are unavailable, the failure remains explicit.
 - Browser capability UX can receive the cached WebAPI snapshot during a temporary endpoint failure.
 - Cache identity does not leak API keys or secrets.
-- Regression tests cover binary wire transport, live-to-cached fallback, invalid capability payload rejection, and SQLite persistence/reopen.
+- Multipart Chat Completions applies `maxJsonBodyBytes` only to JSON metadata; binary attachment bytes remain governed by their attachment-class limit.
+- Regression tests cover binary wire transport, JSON/binary budget separation, live-to-cached fallback, invalid capability payload rejection, and SQLite persistence/reopen.
 
 ## Checks
 
 - Focused unit/integration coverage validates response multipart transport and capability caching.
 - Database persistence/reopen regression is covered.
-- Exact-head `1c65a5042ff4402bd21725ce6b000fefc7570305` passed Pull Request Quality run `33639873242`: Quality, Browser E2E, linux/amd64, linux/arm64, container smoke and Security all succeeded.
-- Exact-head CodeQL run `33639873182` succeeded.
-- Exact-head visual evidence publication run `33639873185` succeeded.
-- Browser evidence artifacts were produced on the same head. The compact invoice evidence covered desktop, mobile and calculation-error states; final visual inspection found no horizontal overflow, inaccessible actions, functional misalignment or hidden error feedback.
+- Provider runtime-capability coverage includes an attachment larger than the JSON budget but smaller than the live image limit and requires the multipart request to succeed.
+- Canonical Pull Request Quality covers quality, Browser E2E, linux/amd64, linux/arm64, container smoke and Security.
+- CodeQL and visual-evidence publication are required exact-head delivery gates.
+- Browser evidence covers desktop, mobile and calculation-error states; the latest inspected evidence showed no horizontal overflow, inaccessible actions, functional misalignment or hidden error feedback.
 
 ## Risks
 
@@ -54,7 +56,7 @@ Stop Basketra from owning AI attachment limits. Use WebAPI as the only functiona
 
 ## Rollback
 
-Revert the multipart Responses client and cached capability resolver together. The existing SQLite table remains compatible and no destructive migration is introduced.
+Revert the multipart Responses client, provider JSON-budget correction and cached capability resolver together. The existing SQLite table remains compatible and no destructive migration is introduced.
 
 ## Delivery
 
@@ -62,4 +64,4 @@ Branch `agent/fix-webapi-limit-contract`. Coordinated WebAPI branch `agent/fix-d
 
 ## Status
 
-Implementation and final review complete for Basketra. Exact-head CI is green. Coordinated WebAPI PR #108 remains the delivery dependency.
+Implementation and final review are complete. Delivery requires green exact-head CI in Basketra plus a green coordinated WebAPI PR #108; no further code or documentation change is expected unless a gate exposes a new defect.
