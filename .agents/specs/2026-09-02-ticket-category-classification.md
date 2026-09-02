@@ -17,6 +17,7 @@ The receipt analysis JSON must expose the selected category for each item plus a
 - Existing receipt catalog projection preserves original receipt evidence and must continue doing so.
 - The current product/category specification says categories are flat and that AI never persists category changes. This request supersedes those two category-specific restrictions while retaining the rule for products, prices, stores and other AI proposals.
 - Final review found that migration v8 preserved a pre-existing legacy `desconocido` row with a non-canonical id, violating the stable `category_unknown` acceptance contract even though fresh databases were correct.
+- Final review also found that category resolution caught every repository exception and downgraded it to `desconocido`; that would hide SQLite/storage failures even though fallback is specified only for invalid category semantics.
 
 ## Decision
 
@@ -33,7 +34,7 @@ The receipt analysis JSON must expose the selected category for each item plus a
 - AI receipt JSON adds required `newCategories`. Each proposal contains a temporary `id`, `name`, nullable `parentId`, canonical `color`, and optional description. `parentId` may reference either an existing category or another temporary id in the same response.
 - The model is instructed to reuse an existing semantically suitable category, avoid cosmetic duplicates, create only genuinely missing categories, and select `category_unknown` for insufficient evidence.
 - AI does not receive direct database capability. After strict structured-output validation, the server resolves the proposals at the trusted persistence boundary. Existing names are reused case-insensitively; missing categories are created topologically and idempotently; temporary references are replaced with persisted ids before the completed job result is exposed.
-- If semantic category resolution is invalid (unknown parent/reference or a cycle), receipt extraction itself remains usable: affected references fall back to `category_unknown`, no partial invalid hierarchy is committed, and a bounded warning is added.
+- If semantic category resolution is invalid (unknown parent/reference, malformed semantic values, duplicate temporary references or a cycle), receipt extraction itself remains usable: affected references fall back to `category_unknown`, no partial invalid hierarchy is committed, and a bounded warning is added. Operational repository/storage failures are not semantic fallback and must propagate.
 - Persist `category_id` on confirmed `receipt_items`. Confirmation defaults a missing category to `category_unknown` for deterministic/manual extraction compatibility.
 - When receipt catalog projection creates a new canonical product, apply the confirmed receipt category to that product without changing `original_description`, extraction evidence, corrections or price observations. Existing catalog matches are not silently recategorized by a later receipt.
 - Keep `newCategories` in the completed analysis as the set of categories actually materialized by that analysis, with persisted ids and persisted parent ids.
@@ -53,7 +54,7 @@ The receipt analysis JSON must expose the selected category for each item plus a
 11. The strict receipt JSON schema requires `items[].categoryId` and root `newCategories` for AI verification.
 12. AI can reference newly proposed categories through temporary `new:*` ids, including a new child whose parent is another new category from the same response.
 13. Valid proposals are materialized atomically/idempotently at the server boundary and temporary ids are replaced by persisted ids in the completed result.
-14. Invalid semantic category proposals never create a partial hierarchy; affected receipt lines fall back to `category_unknown` with a bounded warning instead of losing the receipt extraction.
+14. Invalid semantic category proposals never create a partial hierarchy; affected receipt lines fall back to `category_unknown` with a bounded warning instead of losing the receipt extraction. Operational repository/storage failures propagate and are never downgraded to semantic fallback.
 15. Receipt confirmation persists `category_id`; non-AI/manual confirmation falls back to `category_unknown` when no category is supplied.
 16. Newly projected catalog products inherit the confirmed receipt category, while already matched existing products are not silently recategorized.
 17. Receipt original descriptions, OCR/AI evidence, correction history and price observations remain immutable except for their existing append-only behavior.
@@ -93,6 +94,7 @@ Excluded:
 - Reparenting changes hierarchy for every product using that category. Manual category editing therefore remains an explicit user action; AI proposals only create missing categories and never reparent existing ones.
 - Existing in-flight jobs created before this feature have no category snapshot. They use only the stable fallback category rather than reading a mutable live inventory mid-recovery.
 - Migration v9 changes only the primary key identity of a legacy fallback row after retargeting every known foreign-key owner in the same migration transaction; the regression fixture explicitly covers category children, canonical products and receipt items.
+- Semantic fallback must remain narrowly scoped. Swallowing SQLite, filesystem or other operational failures would create apparently successful receipt classifications after a failed persistence boundary, so unexpected repository errors are propagated.
 
 ## Tests
 
@@ -104,6 +106,7 @@ Excluded:
 - direct AI-provider request tests proving compact category inventory context is sent
 - durable Responses API tests proving the stored snapshot is sent and preserved through reconciliation/retry
 - category materialization tests for existing reuse, parent-before-child creation, duplicate proposals, concurrent/idempotent reuse and invalid-cycle fallback
+- resolver regression proving semantic proposal failures fall back while an operational persistence error is rethrown unchanged
 - receipt confirmation/import tests for category persistence and new catalog product inheritance
 - browser tests for category inventory management at mobile/desktop representative viewports and keyboard interaction
 - existing receipt extraction, durable recovery, catalog projection and product catalog regressions
@@ -120,4 +123,4 @@ Use atomic Conventional Commits on `agent/feat-ticket-category-classification`, 
 
 ## Status
 
-Implementation and stable documentation are synchronized in PR #49 on `agent/feat-ticket-category-classification`. Migration v8 adds hierarchy/color/category references and migration v9 normalizes any legacy `desconocido` identity to the stable `category_unknown` id while preserving references. `CategoryRepository`, hierarchical/color API behavior, durable receipt category snapshots, strict `categoryId`/`newCategories` output, server-side proposal materialization, confirmation/catalog projection and the `Categorías` browser workflow are covered by focused unit/integration/browser tests. Final review found and corrected the legacy fallback-id defect before handoff. The first v9 CI attempt reached the new integration regression and failed only because `node:sqlite` row objects have a null prototype; the assertion was changed to validate canonical fields independently without changing migration behavior. The earlier changed-code coverage blocker is covered without weakening the gate, and a prior same-feature Browser E2E run completed its Chromium test step and evidence uploads successfully after the locator fixes. Final same-head Quality/Browser/arm64/container/CodeQL validation, published visual evidence, stable `spec.md` migration-note synchronization, PR body synchronization and final review remain pending. No merge, release or deploy has been performed.
+Implementation and stable documentation are synchronized in PR #49 on `agent/feat-ticket-category-classification`. Migration v8 adds hierarchy/color/category references and migration v9 normalizes any legacy `desconocido` identity to the stable `category_unknown` id while preserving references. `CategoryRepository`, hierarchical/color API behavior, durable receipt category snapshots, strict `categoryId`/`newCategories` output, server-side proposal materialization, confirmation/catalog projection and the `Categorías` browser workflow are covered by focused unit/integration/browser tests. Final review found and corrected the legacy fallback-id defect before handoff. The first v9 CI attempt reached the new integration regression and failed only because `node:sqlite` row objects have a null prototype; the assertion was changed to validate canonical fields independently without changing migration behavior. Browser E2E then passed 86/86 on head `5745089` after a one-off pre-existing shopping-list swipe failure was isolated by a job-only rerun. A subsequent final-review pass found that `resolveReceiptCategories` was also swallowing operational repository failures; regression commit `f454744` demonstrates the defect and fix commit `e121c64` restricts fallback to semantic category errors while rethrowing persistence failures. The stable `spec.md` migration notes are synchronized. Final same-head Quality/Browser/container/CodeQL validation, published visual evidence, PR body synchronization and final review remain pending. No merge, release or deploy has been performed.
