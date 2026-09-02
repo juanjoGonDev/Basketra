@@ -52,12 +52,14 @@ test('category search ignores a stale response that finishes after the latest qu
   await firstRequestStarted;
   await page.locator('#category-search').fill('nueva');
   await expect.poll(() => inventoryQueries).toContain('nueva');
-  await expect(page.getByRole('button', { name: /Nueva/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Antigua/ })).toHaveCount(0);
+  const newCategoryRow = page.locator('[data-category-id="category_new"]');
+  const oldCategoryRow = page.locator('[data-category-id="category_old"]');
+  await expect(newCategoryRow).toBeVisible();
+  await expect(oldCategoryRow).toHaveCount(0);
 
   releaseFirstRequest();
   await firstRequestFinished;
-  await expect(page.getByRole('button', { name: /Nueva/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Antigua/ })).toHaveCount(0);
+  await expect(newCategoryRow).toBeVisible();
+  await expect(oldCategoryRow).toHaveCount(0);
   await expect(page.locator('#category-state')).toHaveText('1 categorías encontradas.');
 });
