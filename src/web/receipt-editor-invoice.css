@@ -685,6 +685,49 @@
   }
 
   .receipt-invoice-dialog .receipt-editor-summary__stamp {
+    position: sticky;
+    top: .8rem;
+    grid-column: 2;
+    grid-row: 1 / span 3;
+    min-height: 28.5rem;
+    margin-top: .8rem;
+    padding: 1rem 1.05rem;
+    grid-template-rows: auto auto auto minmax(5.7rem, 1fr);
+  }
+
+  .receipt-invoice-dialog .receipt-item--editing .quantity-row {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: .65rem .75rem;
+  }
+
+  .receipt-invoice-dialog .quantity-row > .receipt-editor-section-heading {
+    grid-column: 1 / -1;
+  }
+
+  .receipt-invoice-dialog .quantity-row > .field:has([data-field="quantity"]),
+  .receipt-invoice-dialog .quantity-row > .field:has([data-field="unitPriceEuro"]) {
+    grid-column: span 3;
+  }
+
+  .receipt-invoice-dialog .receipt-discount-type-field,
+  .receipt-invoice-dialog .receipt-discount-value-field,
+  .receipt-invoice-dialog .receipt-discount-quantity-field {
+    grid-column: span 2;
+  }
+
+  .receipt-invoice-dialog .receipt-line-derived-state {
+    grid-column: 1 / -1 !important;
+  }
+
+  .receipt-invoice-dialog .receipt-editor-summary__total {
+    padding-top: 1rem;
+  }
+
+  .receipt-invoice-dialog .receipt-editor-summary__total dd {
+    font-size: 1.85rem;
+  }
+
+  .receipt-invoice-dialog .receipt-editor-summary__stamp {
     position: relative;
     align-self: end;
     justify-self: center;
