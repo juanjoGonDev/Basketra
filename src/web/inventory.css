@@ -379,3 +379,601 @@
     transition: none;
   }
 }
+
+/* Professional Inventory shell: mirrors the approved desktop/mobile references while keeping Basketra's real routes. */
+@media (min-width: 70.001rem) {
+  body:has(.view:is([data-view="inventory"],[data-view="catalog"],[data-view="categories"],[data-view="stores"],[data-view="inventory-statistics"],[data-view="ticket-history"]).active) {
+    --inventory-shell-rail: 11.75rem;
+    --inventory-shell-topbar: 4.25rem;
+    --inventory-shell-footer: 3.25rem;
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at 72% 12%, color-mix(in srgb, var(--primary) 8%, transparent), transparent 36rem),
+      #f8fbf9;
+  }
+
+  body:has(.view:is([data-view="inventory"],[data-view="catalog"],[data-view="categories"],[data-view="stores"],[data-view="inventory-statistics"],[data-view="ticket-history"]).active) .app-header {
+    position: fixed;
+    z-index: 80;
+    top: 0;
+    right: 0;
+    left: var(--inventory-shell-rail);
+    height: var(--inventory-shell-topbar);
+    padding: 0 1.5rem;
+    border-bottom: 1px solid #e3ebe6;
+    background: color-mix(in srgb, #fff 96%, var(--primary) 4%);
+    box-shadow: none;
+  }
+
+  body:has(.view:is([data-view="inventory"],[data-view="catalog"],[data-view="categories"],[data-view="stores"],[data-view="inventory-statistics"],[data-view="ticket-history"]).active) .app-header .brand {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: var(--inventory-shell-rail);
+    height: var(--inventory-shell-topbar);
+    padding: 0 1.35rem;
+    border-right: 1px solid #e3ebe6;
+    background: #fff;
+  }
+
+  body:has(.view:is([data-view="inventory"],[data-view="catalog"],[data-view="categories"],[data-view="stores"],[data-view="inventory-statistics"],[data-view="ticket-history"]).active) .brand__copy small {
+    display: none;
+  }
+
+  body:has(.view:is([data-view="inventory"],[data-view="catalog"],[data-view="categories"],[data-view="stores"],[data-view="inventory-statistics"],[data-view="ticket-history"]).active) #connection-state {
+    margin-left: auto;
+    border: 0;
+    background: transparent;
+    color: #42524a;
+    font-size: .78rem;
+  }
+
+  body:has(.view:is([data-view="inventory"],[data-view="catalog"],[data-view="categories"],[data-view="stores"],[data-view="inventory-statistics"],[data-view="ticket-history"]).active) .bottom-nav {
+    position: fixed;
+    z-index: 70;
+    top: var(--inventory-shell-topbar);
+    bottom: var(--inventory-shell-footer);
+    left: 0;
+    width: var(--inventory-shell-rail);
+    height: auto;
+    padding: 1.25rem .9rem;
+    border: 0;
+    border-right: 1px solid #e3ebe6;
+    background: #fff;
+    box-shadow: none;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: .4rem;
+  }
+
+  body:has(.view:is([data-view="inventory"],[data-view="catalog"],[data-view="categories"],[data-view="stores"],[data-view="inventory-statistics"],[data-view="ticket-history"]).active) .bottom-nav button {
+    width: 100%;
+    min-height: 2.9rem;
+    padding: .65rem .8rem;
+    display: grid;
+    grid-template-columns: 1.35rem minmax(0, 1fr);
+    gap: .7rem;
+    align-items: center;
+    justify-items: start;
+    border-radius: .65rem;
+    color: #26362f;
+    font-size: .9rem;
+    text-align: left;
+  }
+
+  body:has(.view:is([data-view="inventory"],[data-view="catalog"],[data-view="categories"],[data-view="stores"],[data-view="inventory-statistics"],[data-view="ticket-history"]).active) .bottom-nav button span:last-child {
+    display: block;
+  }
+
+  body:has(.view:is([data-view="inventory"],[data-view="catalog"],[data-view="categories"],[data-view="stores"],[data-view="inventory-statistics"],[data-view="ticket-history"]).active) .bottom-nav button[aria-current="page"] {
+    background: #e6f5ed;
+    color: #08765b;
+    box-shadow: inset 0 0 0 1px #d8eee3;
+  }
+
+  body:has(.view:is([data-view="inventory"],[data-view="catalog"],[data-view="categories"],[data-view="stores"],[data-view="inventory-statistics"],[data-view="ticket-history"]).active) main {
+    width: auto;
+    max-width: none;
+    min-height: 100vh;
+    margin: 0 0 0 var(--inventory-shell-rail);
+    padding: calc(var(--inventory-shell-topbar) + 1.65rem) 2rem calc(var(--inventory-shell-footer) + 1.6rem);
+    background: transparent;
+  }
+
+  body:has(.view:is([data-view="inventory"],[data-view="catalog"],[data-view="categories"],[data-view="stores"],[data-view="inventory-statistics"],[data-view="ticket-history"]).active)::after {
+    content: 'Basketra   ·   Gestión inteligente de tiendas y compras';
+    position: fixed;
+    z-index: 90;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: var(--inventory-shell-footer);
+    padding: 0 2rem;
+    display: flex;
+    align-items: center;
+    color: #fff;
+    background: #007b5e;
+    font-size: .78rem;
+    font-weight: 700;
+    letter-spacing: .01em;
+  }
+
+  body:has(.view:is([data-view="inventory"],[data-view="catalog"],[data-view="categories"],[data-view="stores"],[data-view="inventory-statistics"],[data-view="ticket-history"]).active) .view.active {
+    width: min(100%, 86rem);
+    max-width: none;
+    margin: 0 auto;
+  }
+
+  .inventory-overview-shell,
+  .inventory-list-screen {
+    gap: 1.2rem;
+  }
+
+  .inventory-overview-header,
+  .inventory-entity-header {
+    padding-top: .4rem;
+  }
+
+  .inventory-overview-header h1,
+  .inventory-entity-header h1 {
+    margin-top: .2rem;
+    font-size: clamp(1.8rem, 2.4vw, 2.35rem);
+    letter-spacing: -.035em;
+  }
+
+  .inventory-overview-tabs,
+  .view[data-view="catalog"] .task-tablist,
+  .view[data-view="categories"] .task-tablist {
+    border-bottom: 1px solid #dfe8e2;
+    border-radius: 0;
+    background: transparent;
+    padding-inline: 0;
+  }
+
+  .inventory-overview-tabs .task-tab,
+  .view[data-view="catalog"] .task-tab,
+  .view[data-view="categories"] .task-tab {
+    min-height: 2.7rem;
+    border-radius: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+  }
+
+  .inventory-overview-tabs .task-tab:first-child,
+  .view[data-view="catalog"] .task-tab[aria-selected="true"],
+  .view[data-view="categories"] .task-tab[aria-selected="true"] {
+    color: #057459;
+    border-bottom-color: #057459;
+  }
+
+  .inventory-overview-kpis {
+    gap: 1rem;
+  }
+
+  .inventory-overview-kpis .inventory-kpi {
+    min-height: 7.4rem;
+    padding: 1rem 1.1rem 1rem 4.3rem;
+    position: relative;
+    align-content: center;
+    border: 1px solid #dfe8e2;
+    border-radius: .9rem;
+    background: rgba(255,255,255,.88);
+    box-shadow: 0 .25rem 1rem rgba(24, 72, 53, .035);
+  }
+
+  .inventory-overview-kpis .inventory-kpi::before {
+    content: '';
+    position: absolute;
+    top: 1.2rem;
+    left: 1.1rem;
+    width: 2.55rem;
+    height: 2.55rem;
+    border-radius: 999px;
+    background: #e2f5e9;
+    box-shadow: inset 0 0 0 .65rem rgba(17, 153, 90, .07);
+  }
+
+  .inventory-overview-kpis .inventory-kpi:nth-child(2)::before {
+    background: #f0e8fb;
+    box-shadow: inset 0 0 0 .65rem rgba(132, 76, 210, .06);
+  }
+
+  .inventory-overview-kpis .inventory-kpi:nth-child(3)::before {
+    background: #e6effd;
+    box-shadow: inset 0 0 0 .65rem rgba(54, 112, 210, .06);
+  }
+
+  .inventory-overview-kpis .inventory-kpi:nth-child(4)::before {
+    background: #fff0dd;
+    box-shadow: inset 0 0 0 .65rem rgba(234, 139, 44, .06);
+  }
+
+  .inventory-overview-kpis .inventory-kpi > span {
+    color: #25362e;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .inventory-overview-kpis .inventory-kpi strong {
+    font-size: 1.7rem;
+    color: #14231c;
+  }
+
+  .inventory-overview-query {
+    grid-template-columns: minmax(20rem, 2.2fr) minmax(8.5rem, .7fr) minmax(10rem, .85fr) auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .inventory-overview-query .field > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .inventory-overview-query input,
+  .inventory-overview-query select,
+  .inventory-toolbar input,
+  .inventory-toolbar select {
+    min-height: 3rem;
+    border-color: #dce6e0;
+    background: rgba(255,255,255,.92);
+  }
+
+  .inventory-overview-query-actions {
+    flex-wrap: nowrap;
+  }
+
+  .inventory-overview-chips {
+    margin-top: -.25rem;
+  }
+
+  .inventory-overview-chips .button {
+    min-height: 2.2rem;
+    padding: .35rem .75rem;
+    border-radius: 999px;
+    font-size: .78rem;
+  }
+
+  .inventory-overview-sections {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .inventory-overview-sections > .section-header {
+    display: none;
+  }
+
+  .inventory-overview-cards {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1rem;
+  }
+
+  .inventory-overview-cards .dashboard-card {
+    min-height: 14rem;
+    padding: 1.25rem;
+    align-content: start;
+    border: 1px solid #dfe8e2;
+    border-radius: .9rem;
+    background: rgba(255,255,255,.9);
+    box-shadow: none;
+  }
+
+  .inventory-overview-cards .dashboard-card > [data-icon] {
+    width: 2.65rem;
+    height: 2.65rem;
+    padding: .65rem;
+    border-radius: 999px;
+    background: #e2f5e9;
+    color: #07815f;
+  }
+
+  .inventory-overview-cards .dashboard-card:nth-child(2) > [data-icon] {
+    background: #f0e8fb;
+    color: #8757c7;
+  }
+
+  .inventory-overview-cards .dashboard-card:nth-child(3) > [data-icon] {
+    background: #e6effd;
+    color: #2b64bd;
+  }
+
+  .inventory-overview-cards .dashboard-card:nth-child(4) > [data-icon] {
+    background: #fff0dd;
+    color: #d77919;
+  }
+
+  .inventory-overview-cards .dashboard-card strong {
+    margin-top: .6rem;
+    font-size: 1.1rem;
+  }
+
+  .inventory-overview-guidance {
+    min-height: 4.8rem;
+    align-items: center;
+    border-color: #cbdcf6;
+    background: #f6f9ff;
+  }
+
+  .inventory-list-surface {
+    border: 1px solid #e0e8e3;
+    border-radius: .75rem;
+    background: rgba(255,255,255,.92);
+  }
+
+  .inventory-list-heading {
+    background: #fbfdfc;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .inventory-product-row,
+  .category-row,
+  .inventory-store-row {
+    min-height: 3.95rem;
+    padding-block: .7rem;
+  }
+
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 20rem;
+    gap: 0;
+    width: min(100%, 92rem);
+    max-width: none;
+  }
+
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-list-screen[hidden] {
+    display: grid !important;
+    padding-right: 1.25rem;
+  }
+
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-detail {
+    position: sticky;
+    top: calc(var(--inventory-shell-topbar) + .4rem);
+    max-height: calc(100vh - var(--inventory-shell-topbar) - var(--inventory-shell-footer) - .8rem);
+    overflow: auto;
+    gap: 1rem;
+    margin: calc(-1 * (var(--inventory-shell-topbar) + 1.65rem)) -2rem calc(-1 * (var(--inventory-shell-footer) + 1.6rem)) 0;
+    padding: calc(var(--inventory-shell-topbar) + 1.5rem) 1rem calc(var(--inventory-shell-footer) + 1rem);
+    border-left: 1px solid #e0e8e3;
+    background: rgba(255,255,255,.98);
+    box-shadow: -.6rem 0 1.8rem rgba(24,72,53,.045);
+  }
+
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-detail > .inventory-detail-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: .7rem;
+  }
+
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-detail > .inventory-detail-header > #catalog-back-list {
+    display: none;
+  }
+
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-detail .inventory-header-actions {
+    justify-content: stretch;
+  }
+
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-detail .inventory-header-actions .button {
+    flex: 1 1 auto;
+  }
+
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-detail .inventory-detail-grid,
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-detail .inventory-detail-aside {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: .75rem;
+  }
+
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-detail .inventory-detail-primary,
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-detail .inventory-detail-aside > .surface {
+    padding: .85rem;
+  }
+
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-detail .inventory-definition-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: .55rem;
+  }
+
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-editor:not([hidden]) {
+    position: fixed;
+    z-index: 110;
+    top: var(--inventory-shell-topbar);
+    right: 0;
+    bottom: var(--inventory-shell-footer);
+    width: min(31rem, 42vw);
+    overflow: auto;
+    border-radius: 0;
+    border: 0;
+    border-left: 1px solid #dce5df;
+    background: #fff;
+    box-shadow: -1rem 0 2.4rem rgba(15,50,36,.12);
+  }
+}
+
+@media (max-width: 52rem) {
+  body:has(.view:is([data-view="inventory"],[data-view="catalog"],[data-view="categories"],[data-view="stores"],[data-view="inventory-statistics"],[data-view="ticket-history"]).active) {
+    background: #fbfdfc;
+  }
+
+  .inventory-overview-shell,
+  .inventory-list-screen {
+    gap: .9rem;
+  }
+
+  .inventory-overview-header,
+  .inventory-entity-header {
+    padding-inline: .1rem;
+  }
+
+  .inventory-overview-header h1,
+  .inventory-entity-header h1 {
+    font-size: 1.55rem;
+    letter-spacing: -.03em;
+  }
+
+  .inventory-overview-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    padding-inline: 0;
+    background: transparent;
+  }
+
+  .inventory-overview-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .inventory-overview-tabs .task-tab {
+    min-width: max-content;
+    border-radius: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+  }
+
+  .inventory-overview-tabs .task-tab:first-child {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+  }
+
+  .inventory-overview-kpis {
+    gap: .55rem;
+  }
+
+  .inventory-overview-kpis .inventory-kpi {
+    min-height: 4.7rem;
+    padding: .75rem;
+    border-radius: .65rem;
+    gap: .2rem;
+  }
+
+  .inventory-overview-kpis .inventory-kpi > span {
+    font-size: .68rem;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .inventory-overview-kpis .inventory-kpi strong {
+    font-size: 1.2rem;
+  }
+
+  .inventory-overview-kpis .inventory-kpi small {
+    display: none;
+  }
+
+  .inventory-overview-query {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .inventory-overview-query .field > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .inventory-overview-query .field:nth-of-type(2),
+  .inventory-overview-query .field:nth-of-type(3) {
+    display: none;
+  }
+
+  .inventory-overview-query-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .inventory-overview-query-actions .button.primary {
+    display: none;
+  }
+
+  .inventory-overview-query-actions .button.secondary {
+    width: var(--touch);
+    min-width: var(--touch);
+    padding-inline: 0;
+    overflow: hidden;
+    text-indent: -9999px;
+  }
+
+  .inventory-overview-chips {
+    gap: .45rem;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+  }
+
+  .inventory-overview-chips .button {
+    min-width: max-content;
+    min-height: 2.1rem;
+    padding: .3rem .7rem;
+    border-radius: 999px;
+    font-size: .72rem;
+  }
+
+  .inventory-overview-sections {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .inventory-overview-sections > .section-header {
+    display: none;
+  }
+
+  .inventory-overview-cards {
+    grid-template-columns: minmax(0, 1fr);
+    gap: .6rem;
+  }
+
+  .inventory-overview-cards .dashboard-card {
+    min-height: 5.3rem;
+    grid-template-columns: 2.35rem minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    column-gap: .75rem;
+    align-items: center;
+    padding: .85rem;
+    border-radius: .7rem;
+    text-align: left;
+  }
+
+  .inventory-overview-cards .dashboard-card > [data-icon] {
+    grid-row: 1 / 3;
+    width: 2.35rem;
+    height: 2.35rem;
+    padding: .55rem;
+    border-radius: 999px;
+    background: #e2f5e9;
+    color: #087a5c;
+  }
+
+  .inventory-overview-cards .dashboard-card strong {
+    margin: 0;
+    font-size: .95rem;
+  }
+
+  .inventory-overview-cards .dashboard-card small {
+    align-self: start;
+    line-height: 1.35;
+  }
+
+  .inventory-overview-guidance {
+    padding: .8rem;
+    border-color: #d0dff4;
+    background: #f7f9fe;
+  }
+}
