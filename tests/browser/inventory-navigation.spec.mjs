@@ -77,6 +77,7 @@ test('Inventory replaces Plans with canonical overview metrics, search handoff a
   await expect(inventory.locator('#inventory-overview-value')).toContainText('43,21');
   await expect(inventory.locator('.inventory-overview-kpis .inventory-kpi')).toHaveCount(4);
   await expect(inventory.locator('#inventory-overview-search')).toBeVisible();
+  await expect(inventory.locator('#inventory-overview-sort')).toBeHidden();
   await expect(inventory.getByRole('button', { name: 'Abrir filtros' })).toBeVisible();
   for (const section of ['Productos', 'Categorías', 'Tiendas', 'Estadísticas']) {
     await expect(inventory.getByRole('button', { name: section, exact: true }).first()).toBeVisible();
@@ -94,11 +95,10 @@ test('Inventory replaces Plans with canonical overview metrics, search handoff a
   await expect(page).toHaveURL(/#inventory$/);
 
   await inventory.locator('#inventory-overview-search').fill('leche');
-  await inventory.locator('#inventory-overview-sort').selectOption('recent');
   await inventory.getByRole('button', { name: 'Buscar', exact: true }).click();
   await expect(page).toHaveURL(/#catalog$/);
   await expect(page.locator('#catalog-search')).toHaveValue('leche');
-  await expect(page.locator('#catalog-sort')).toHaveValue('recent');
+  await expect(page.locator('#catalog-sort')).toHaveValue('name');
   await expect(page.locator('.bottom-nav [data-nav="inventory"]')).toHaveAttribute('aria-current', 'page');
 
   await page.locator('.bottom-nav [data-nav="inventory"]').click();
@@ -112,7 +112,6 @@ test('Inventory replaces Plans with canonical overview metrics, search handoff a
   await page.locator('.bottom-nav [data-nav="inventory"]').click();
   await inventory.locator('[data-inventory-scope="stores"]').click();
   await inventory.locator('#inventory-overview-search').fill('centro');
-  await inventory.locator('#inventory-overview-sort').selectOption('name');
   await inventory.getByRole('button', { name: 'Buscar', exact: true }).click();
   await expect(page).toHaveURL(/#stores$/);
   await expect(page.locator('#store-search')).toHaveValue('centro');
