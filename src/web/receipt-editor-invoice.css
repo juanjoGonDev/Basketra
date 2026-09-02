@@ -302,11 +302,24 @@
 }
 
 .receipt-editor-summary__row dd {
+  min-width: 0;
+  max-width: 100%;
   color: var(--color-on-surface);
   font-size: .8rem;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
+  text-align: right;
   white-space: nowrap;
+}
+
+.receipt-invoice-dialog .receipt-editor-summary__row dd[data-amount-density="compact"] {
+  font-size: .72rem;
+  letter-spacing: -.02em;
+}
+
+.receipt-invoice-dialog .receipt-editor-summary__row dd[data-amount-density="dense"] {
+  font-size: .66rem;
+  letter-spacing: -.025em;
 }
 
 .receipt-editor-summary__discount dd {
@@ -332,8 +345,27 @@
   letter-spacing: -.04em;
 }
 
-.receipt-editor-summary__state {
+.receipt-invoice-dialog .receipt-editor-summary__total dd[data-amount-density="compact"] {
+  font-size: 1.12rem;
+  letter-spacing: -.035em;
+}
+
+.receipt-invoice-dialog .receipt-editor-summary__total dd[data-amount-density="dense"] {
+  font-size: .92rem;
+  letter-spacing: -.03em;
+}
+
+.receipt-editor-summary__status-slot {
+  min-height: 1.95rem;
+  display: grid;
+  align-items: start;
+}
+
+.receipt-editor-summary__state,
+.receipt-editor-summary__progress {
+  grid-area: 1 / 1;
   width: fit-content;
+  min-width: 7.9rem;
   min-height: 1.95rem;
   display: inline-flex;
   align-items: center;
@@ -341,6 +373,7 @@
   padding-inline: .72rem;
   font-size: .72rem;
   font-weight: 750;
+  white-space: nowrap;
 }
 
 .receipt-editor-summary__state [data-icon] {
@@ -353,40 +386,37 @@
   height: .9rem;
 }
 
+.receipt-editor-summary__progress[data-progress-kind="error"] {
+  border-color: color-mix(in srgb, var(--color-error) 35%, var(--color-outline-variant));
+  background: color-mix(in srgb, var(--color-error) 8%, var(--color-surface));
+  color: var(--color-error);
+}
+
+.receipt-editor-summary__spinner {
+  width: .86rem;
+  height: .86rem;
+  flex: 0 0 auto;
+  border: 2px solid color-mix(in srgb, var(--color-primary) 22%, transparent);
+  border-top-color: var(--color-primary);
+  border-radius: 999px;
+  animation: receipt-summary-spin 720ms linear infinite;
+}
+
+@keyframes receipt-summary-spin {
+  to { transform: rotate(360deg); }
+}
+
 .receipt-editor-summary__stamp {
   display: none;
 }
 
 .receipt-invoice-dialog:has(.receipt-line-editor-summary[data-summary-state="pending"]) .receipt-line-dialog__validation,
-.receipt-invoice-dialog:has(.receipt-line-editor-summary[data-summary-state="error"]) .receipt-line-dialog__validation,
-.receipt-line-editor-summary[data-summary-state="pending"] .receipt-editor-summary__state,
-.receipt-line-editor-summary[data-summary-state="error"] .receipt-editor-summary__state {
-  display: none;
-}
-
-.receipt-line-editor-summary[data-summary-state="pending"] {
-  opacity: .72;
-}
-
-.receipt-line-editor-summary[data-summary-state="pending"]::after,
-.receipt-line-editor-summary[data-summary-state="error"]::after {
-  font-size: .68rem;
-  text-align: left;
-}
-
-.receipt-line-editor-summary[data-summary-state="pending"]::after {
-  color: var(--color-on-surface-variant);
-  content: "Actualizando total…";
+.receipt-invoice-dialog:has(.receipt-line-editor-summary[data-summary-state="error"]) .receipt-line-dialog__validation {
+  visibility: hidden;
 }
 
 .receipt-line-editor-summary[data-summary-state="error"] {
   border-color: color-mix(in srgb, var(--color-error) 38%, var(--color-outline-variant));
-}
-
-.receipt-line-editor-summary[data-summary-state="error"]::after {
-  color: var(--color-error);
-  content: "Revisa el cálculo";
-  font-weight: 750;
 }
 
 .receipt-invoice-dialog #receipt-line-editor-state {
@@ -578,7 +608,13 @@
     font-size: 1.38rem;
   }
 
-  .receipt-invoice-dialog .receipt-editor-summary__state {
+  .receipt-invoice-dialog .receipt-editor-summary__status-slot {
+    min-height: 1.65rem;
+  }
+
+  .receipt-invoice-dialog .receipt-editor-summary__state,
+  .receipt-invoice-dialog .receipt-editor-summary__progress {
+    min-width: 7.35rem;
     min-height: 1.65rem;
     gap: .32rem;
     padding-inline: .58rem;
@@ -588,6 +624,11 @@
   .receipt-invoice-dialog .receipt-editor-summary__state .icon {
     width: .78rem;
     height: .78rem;
+  }
+
+  .receipt-invoice-dialog .receipt-editor-summary__spinner {
+    width: .74rem;
+    height: .74rem;
   }
 
   .receipt-invoice-dialog #receipt-line-editor-state:not(:empty) {
@@ -686,7 +727,20 @@
     grid-column: 1 / -1 !important;
   }
 
+  .receipt-invoice-dialog .receipt-editor-summary__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    justify-items: stretch;
+    gap: .16rem;
+  }
+
+  .receipt-invoice-dialog .receipt-editor-summary__row dd {
+    justify-self: end;
+  }
+
   .receipt-invoice-dialog .receipt-editor-summary__total {
+    align-items: start;
     padding-top: 1rem;
   }
 
@@ -772,12 +826,18 @@
   .receipt-invoice-dialog *::after {
     transition: none !important;
   }
+
+  .receipt-invoice-dialog .receipt-editor-summary__spinner {
+    animation: none !important;
+  }
 }
 
 @media (forced-colors: active) {
   .receipt-editor-section-heading__icon,
   .receipt-line-editor-summary,
   .receipt-editor-summary__state,
+  .receipt-editor-summary__progress,
+  .receipt-editor-summary__spinner,
   .receipt-editor-summary__stamp,
   .receipt-editor-summary__stamp-mark {
     border: 1px solid CanvasText;
