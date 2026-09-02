@@ -1,7 +1,6 @@
 import { escapeHtml, icon } from './ui.js';
 
 const ENHANCED_ATTR = 'inventorySwipeEnhanced';
-const STYLE_ID = 'inventory-swipe-styles';
 const ACTION_WAIT_MS = 5_000;
 const DRAG_THRESHOLD_PX = 8;
 
@@ -57,79 +56,6 @@ export function inventorySwipeRail(kind, id, label, { deleteDisabled = false } =
 export function inventorySwipeToggle(label) {
   const safeLabel = escapeHtml(String(label));
   return `<button type="button" class="icon-button inventory-row-more" data-swipe-toggle aria-expanded="false" aria-label="Mostrar acciones de ${safeLabel}">${icon('more')}</button>`;
-}
-
-function injectStyles() {
-  if (document.getElementById(STYLE_ID)) return;
-  const style = document.createElement('style');
-  style.id = STYLE_ID;
-  style.textContent = `
-    .inventory-entity-swipe {
-      border-radius: 0;
-    }
-
-    .inventory-entity-swipe__content {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      align-items: stretch;
-      background: var(--surface);
-    }
-
-    .inventory-entity-swipe .inventory-row-more,
-    .inventory-swipe-touch-surface {
-      display: none;
-    }
-
-    .inventory-entity-swipe .inventory-row-more {
-      align-self: center;
-      margin-inline-end: var(--space-2);
-    }
-
-    .inventory-entity-swipe .inventory-product-row,
-    .inventory-entity-swipe .category-row,
-    .inventory-entity-swipe .inventory-store-row {
-      width: 100%;
-      margin: 0;
-    }
-
-    @media (max-width: 70rem) {
-      .inventory-entity-swipe {
-        width: calc(100% - 1.3rem);
-        margin: .4rem .65rem;
-        border-radius: var(--radius-md, .75rem);
-      }
-
-      .inventory-entity-swipe__content {
-        border: 1px solid var(--border);
-        border-radius: var(--radius-md, .75rem);
-        overflow: hidden;
-      }
-
-      .inventory-entity-swipe .inventory-product-row,
-      .inventory-entity-swipe .category-row,
-      .inventory-entity-swipe .inventory-store-row {
-        width: 100%;
-        margin: 0;
-        border: 0;
-        border-radius: 0;
-      }
-
-      .inventory-entity-swipe .inventory-row-more {
-        display: grid;
-      }
-    }
-
-    @media (max-width: 52rem) {
-      .inventory-swipe-touch-surface {
-        position: absolute;
-        inset: 0 calc(var(--touch, 3rem) + var(--space-2, .5rem)) 0 0;
-        z-index: 3;
-        display: block;
-        cursor: pointer;
-      }
-    }
-  `;
-  document.head.append(style);
 }
 
 function fragment(markup) {
@@ -303,7 +229,6 @@ function bindActions() {
 function initializeInventorySwipeEnhancement() {
   if (document.documentElement.dataset.inventorySwipeInitialized === 'true') return;
   document.documentElement.dataset.inventorySwipeInitialized = 'true';
-  injectStyles();
   bindActions();
   enhanceAllRows();
 
