@@ -136,11 +136,11 @@ test('durable receipt responses expose cancellation and never include an origina
     requests.push({ method: request.method ?? '', url: request.url ?? '' });
     response.setHeader('content-type', 'application/json');
     if (request.method === 'GET') {
-      response.end(JSON.stringify({ id: 'resp_1234567', status: 'in_progress', output: [], error: null }));
+      response.end(JSON.stringify({ id: 'resp_1234567', object: 'response', status: 'in_progress', output: [], error: null }));
       return;
     }
     if (request.method === 'POST' && request.url === '/v1/responses/resp_1234567/cancel') {
-      response.end(JSON.stringify({ id: 'resp_1234567', status: 'cancelled', output: [], error: null }));
+      response.end(JSON.stringify({ id: 'resp_1234567', object: 'response', status: 'cancelled', output: [], error: null }));
       return;
     }
     response.writeHead(404);
