@@ -2,6 +2,7 @@ export const STATIC_ASSETS = new Set([
   'index.html',
   'app.js',
   'api.js',
+  'routes.js',
   'catalog.js',
   'catalog.css',
   'inventory.js',
