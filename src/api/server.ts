@@ -14,6 +14,7 @@ import { parseReceiptLineDiscount, validateReceiptLine, validateReceiptTotal, ty
 import { ApiError, mapError } from './errors.ts';
 import { handleCatalogManagementRequest } from './catalog-management.ts';
 import { handleReceiptCalculationRequest } from './receipt-calculation.ts';
+import { STATIC_ASSETS } from './static-assets.ts';
 import { OpenAiCompatibleProvider } from '../ai/provider.ts';
 import { StructuredAiExecutor, type RuntimeSchema } from '../ai/structured-executor.ts';
 import { ReceiptDurableJobStore } from '../receipts/durable-job-store.ts';
@@ -33,33 +34,6 @@ import { OverpassClient } from '../stores/overpass.ts';
 const STOCK_VALUES = ['in-stock', 'out-of-stock', 'unknown'] as const;
 const OSM_TYPES = ['node', 'way', 'relation'] as const;
 const PRICE_EVIDENCE_TYPES = ['manual', 'product-photo'] as const;
-const STATIC_ASSETS = new Set([
-  'index.html',
-  'app.js',
-  'api.js',
-  'catalog.js',
-  'catalog.css',
-  'operations.js',
-  'operations.css',
-  'state.js',
-  'lists.js',
-  'receipts.js',
-  'receipt-state.js',
-  'receipt-capture.js',
-  'receipt-lifecycle.js',
-  'receipt-processing.js',
-  'receipt-review.js',
-  'receipt-review.css',
-  'receipt-editor-invoice.js',
-  'receipt-editor-invoice.css',
-  'receipt-ai-recovery.js',
-  'ui.js',
-  'styles.css',
-  'modern.css',
-  'manifest.webmanifest',
-  'sw.js',
-  'icon.svg',
-]);
 const RECEIPT_EXTRACTION_JOB_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 export type AppDiagnostics = Readonly<{
