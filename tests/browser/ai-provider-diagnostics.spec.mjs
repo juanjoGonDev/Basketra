@@ -16,10 +16,9 @@ function settings(overrides = {}) {
     missing: [],
     baseUrl: 'http://192.168.1.20:3001/v1',
     model: 'gpt-5',
-    image: true,
-    pdf: false,
+    maxRetries: 1,
     loopbackWarning: false,
-    requiresContainerRecreate: true,
+    requiresContainerRecreate: false,
     recommendedHostUrl: 'http://host.docker.internal:3001/v1/',
     ...overrides,
   };
@@ -37,13 +36,13 @@ test('settings render remote, invalid, host, loopback and missing provider state
   await openAiSettings(page);
   await expect(page.locator('#ai-provider-request')).toHaveText('POST http://192.168.1.20:3001/v1/chat/completions');
   await expect(page.locator('#ai-provider-authorization')).toHaveText('Sin cabecera Authorization');
-  await expect(page.locator('#ai-configuration-status')).toHaveText('Configuración cargada');
+  await expect(page.locator('#ai-configuration-status')).toHaveText('Configuración activa');
 
-  current = settings({ baseUrl: 'not a valid absolute URL', apiKeyMask: '***safe' });
+  current = settings({ baseUrl: 'not a valid absolute URL', apiKeyMask: '••••safe' });
   await page.reload();
   await openAiSettings(page);
   await expect(page.locator('#ai-provider-request')).toHaveText('POST not a valid absolute URL/chat/completions');
-  await expect(page.locator('#ai-provider-authorization')).toHaveText('Bearer con token gestionado');
+  await expect(page.locator('#ai-provider-authorization')).toHaveText('Token guardado ••••safe');
 
   current = settings({ baseUrl: 'http://host.docker.internal:3001/v1/' });
   await page.reload();
@@ -53,24 +52,26 @@ test('settings render remote, invalid, host, loopback and missing provider state
   current = settings({ baseUrl: 'http://127.0.0.1:3001/v1/', loopbackWarning: true });
   await page.reload();
   await openAiSettings(page);
-  await expect(page.locator('#ai-configuration-status')).toHaveText('Configurado con dirección incorrecta para Docker');
+  await expect(page.locator('#ai-configuration-status')).toHaveText('Dirección incorrecta para Docker');
   await expect(page.locator('#ai-configuration-status')).toHaveAttribute('data-state', 'warning');
   await expect(page.locator('#ai-configuration-detail')).not.toContainText('token');
 
   current = settings({
     baseUrl: 'http://127.0.0.1:3001/v1/',
-    apiKeyMask: '***safe',
+    apiKeyMask: '••••safe',
     loopbackWarning: true,
   });
   await page.reload();
   await openAiSettings(page);
-  await expect(page.locator('#ai-configuration-detail')).toContainText('token ***safe');
+  await expect(page.locator('#ai-configuration-detail')).toContainText('token ••••safe');
 
-  current = settings({ configured: false, status: 'missing', missing: ['BASKETRA_AI_BASE_URL', 'BASKETRA_AI_MODEL'], baseUrl: undefined, model: undefined });
+  current = settings({ configured: false, status: 'missing', missing: ['URL de WebAPI', 'Modelo'], baseUrl: undefined, model: undefined });
   await page.reload();
   await openAiSettings(page);
-  await expect(page.locator('#ai-configuration-status')).toHaveText('Configuración no cargada');
-  await expect(page.locator('#ai-configuration-detail')).toContainText('BASKETRA_AI_BASE_URL, BASKETRA_AI_MODEL');
+  await expect(page.locator('#ai-configuration-status')).toHaveText('Falta configuración');
+  await expect(page.locator('#ai-configuration-detail')).toContainText('URL de WebAPI y Modelo');
+  await expect(page.locator('#ai-configuration-detail')).not.toContainText('BASKETRA_AI_');
+  await expect(page.locator('#ai-configuration-detail')).not.toContainText('recrea');
   await expect(page.getByRole('button', { name: 'Verificar imagen y JSON estricto', exact: true })).toBeDisabled();
 });
 
@@ -102,9 +103,9 @@ test('provider diagnostic renders every stable recovery message and 200-level ne
   const button = page.getByRole('button', { name: 'Verificar imagen y JSON estricto', exact: true });
   const state = page.locator('#ai-test-state');
   const cases = [
-    ['AI_LOOPBACK_CONTAINER', 'La prueba sale desde el contenedor Basketra'],
+    ['AI_LOOPBACK_CONTAINER', 'Una dirección loopback apunta al propio contenedor Basketra'],
     ['AI_UNREACHABLE', 'No se pudo abrir una conexión'],
-    ['AI_AUTHENTICATION_FAILED', 'token gestionado'],
+    ['AI_AUTHENTICATION_FAILED', 'token gestionado nuevo'],
     ['AI_TIMEOUT', 'Basketra no impone un límite de tiempo'],
     ['AI_ATTACHMENT_TOO_LARGE', 'imagen sintética mínima por tamaño'],
     ['AI_ATTACHMENT_UPLOAD_FAILED', 'preparar la imagen sintética en el compositor'],
