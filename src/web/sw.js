@@ -1,11 +1,18 @@
-const CACHE = 'basketra-shell-v25';
+const CACHE = 'basketra-shell-v26';
 const SHELL = [
   '/',
   '/index.html',
   '/app.js',
   '/api.js',
+  '/routes.js',
   '/catalog.js',
   '/catalog.css',
+  '/inventory.js',
+  '/inventory.css',
+  '/inventory-swipe.js',
+  '/ticket-history.js',
+  '/ticket-history.css',
+  '/ticket-history-values.js',
   '/operations.js',
   '/operations.css',
   '/state.js',
