@@ -65,79 +65,66 @@ failures.push(...validateGhcrWorkflows(ci, ghcrPublication));
 function validateCompose(path, requiredControls) {
   const compose = readFileSync(path, 'utf8');
   requireText(compose, requiredControls, path);
-  forbidText(compose, ['BASKETRA_AUTH_TOKEN'], path);
+  forbidText(compose, ['BASKETRA_', '${'], path);
 }
 
 validateCompose('compose.yml', [
+  'command: ["node", "--max-old-space-size=128", "dist/main.js"]',
   'read_only: true',
   'no-new-privileges:true',
   'cap_drop:',
-  'pids_limit:',
-  'mem_limit:',
-  'memswap_limit:',
-  '127.0.0.1:',
-  'NODE_OPTIONS: --max-old-space-size=${BASKETRA_NODE_HEAP_MB:-128}',
-  'BASKETRA_AI_IMAGE_CAPABILITY:',
-  'BASKETRA_AI_PDF_CAPABILITY:',
+  'pids_limit: 128',
+  'mem_limit: 192m',
+  'memswap_limit: 192m',
+  'cpus: 0.75',
+  '127.0.0.1:3000:3000',
+  'host.docker.internal:host-gateway',
+  'basketra-data:/data',
   '/readiness',
 ]);
 
 validateCompose('compose.raspberry.yml', [
   'ghcr.io/juanjogondev/basketra:stable',
-  'BASKETRA_BIND_ADDRESS:-127.0.0.1',
+  'command: ["node", "--max-old-space-size=128", "dist/main.js"]',
+  '127.0.0.1:3000:3000',
   'host.docker.internal:host-gateway',
   'basketra-data:/data',
   'com.centurylinklabs.watchtower.enable: "true"',
   'com.centurylinklabs.watchtower.scope: basketra',
   'WATCHTOWER_SCOPE: basketra',
   'WATCHTOWER_LABEL_ENABLE: "true"',
-  'WATCHTOWER_POLL_INTERVAL:',
+  'WATCHTOWER_POLL_INTERVAL: "300"',
   'WATCHTOWER_CLEANUP: "true"',
   'WATCHTOWER_REMOVE_VOLUMES: "false"',
-  'NODE_OPTIONS: --max-old-space-size=${BASKETRA_NODE_HEAP_MB:-128}',
-  'BASKETRA_AI_IMAGE_CAPABILITY:',
-  'BASKETRA_AI_PDF_CAPABILITY:',
   'read_only: true',
   'no-new-privileges:true',
   'cap_drop:',
-  'pids_limit:',
-  'mem_limit:',
-  'memswap_limit:',
+  'pids_limit: 128',
+  'mem_limit: 192m',
+  'memswap_limit: 192m',
+  'cpus: 0.75',
   '/readiness',
 ]);
 
 const raspberryCompose = readFileSync('compose.raspberry.yml', 'utf8');
 if (raspberryCompose.includes('WATCHTOWER_SCHEDULE')) failures.push('Raspberry Compose must not combine Watchtower schedule and poll interval');
-if (!/WATCHTOWER_POLL_INTERVAL:\s*\$\{WATCHTOWER_POLL_INTERVAL:-300\}/.test(raspberryCompose)) failures.push('Watchtower must default to a five-minute poll interval');
-
-const environmentExample = readFileSync('.env.example', 'utf8');
-requireText(environmentExample, [
-  'BASKETRA_BIND_ADDRESS=127.0.0.1',
-  'BASKETRA_AI_BASE_URL=http://host.docker.internal:3001/v1/',
-  'BASKETRA_AI_IMAGE_CAPABILITY=true',
-  'BASKETRA_AI_PDF_CAPABILITY=false',
-  'BASKETRA_NODE_HEAP_MB=128',
-  'BASKETRA_MEMORY_LIMIT=192m',
-  'BASKETRA_DOCKER_CONFIG_DIR=',
-  'WATCHTOWER_POLL_INTERVAL=300',
-  '--force-recreate basketra',
-], '.env.example');
-forbidText(environmentExample, ['BASKETRA_AUTH_TOKEN', 'BASKETRA_BIND_IP=', 'BASKETRA_MEM_LIMIT=', 'BASKETRA_CPUS='], '.env.example');
-for (const match of environmentExample.matchAll(/^(BASKETRA_AI_API_KEY)=(.+)$/gm)) {
-  if (match[2]?.trim()) failures.push(`.env.example must not contain a value for ${match[1]}`);
-}
+if (!/WATCHTOWER_POLL_INTERVAL:\s*"300"/.test(raspberryCompose)) failures.push('Watchtower must use the fixed five-minute poll interval');
 
 const config = readFileSync('src/infrastructure/config.ts', 'utf8');
-forbidText(config, ['authToken', 'BASKETRA_AUTH_TOKEN'], 'application configuration');
+requireText(config, ["existsSync('/.dockerenv')", "host: '0.0.0.0'", "host: '127.0.0.1'"], 'application bootstrap configuration');
+forbidText(config, ['authToken', 'BASKETRA_AUTH_TOKEN', 'process.env', 'BASKETRA_'], 'application bootstrap configuration');
 const server = readFileSync('src/api/server.ts', 'utf8');
 forbidText(server, ['timingSafeEqual', 'A valid local access token is required'], 'HTTP server');
 requireText(server, [
   "url.pathname === '/api/v1/meta'",
+  "url.pathname === '/api/v1/settings/runtime'",
   'private, no-store, max-age=0',
   'INVALID_STORAGE_KEY',
   'itemOrderMatch',
 ], 'HTTP private workflow contract');
 
+const runtimeSettings = readFileSync('src/infrastructure/runtime-settings.ts', 'utf8');
+requireText(runtimeSettings, ['RuntimeSettingsStore', 'aiBaseUrl', 'aiApiKey', 'aiModel', 'aiMaxRetries', 'overpassBaseUrl', 'maxBodyBytes', 'idleHibernateAfterMs'], 'SQLite runtime settings contract');
 const gateway = readFileSync('src/operations/gateway.ts', 'utf8');
 requireText(gateway, [
   "url.pathname === '/api/v1/runtime'",
@@ -148,6 +135,7 @@ requireText(gateway, [
   'MAX_CLIENT_LOGS_PER_MINUTE',
   'AI_LOOPBACK_CONTAINER',
   'host.docker.internal',
+  'requiresContainerRecreate: false',
 ], 'operations gateway contract');
 forbidText(gateway, ['process.env.BASKETRA_AI_API_KEY', 'receipt.raw_text'], 'operations gateway');
 const logStore = readFileSync('src/operations/log-store.ts', 'utf8');
@@ -185,7 +173,8 @@ const webApi = readFileSync('src/web/api.js', 'utf8');
 forbidText(webApi, ['Bearer', 'authorization', 'authToken'], 'browser HTTP client');
 requireText(webApi, ['basketra:api-log', "import('./operations.js')"], 'browser observability contract');
 const operationsUi = readFileSync('src/web/operations.js', 'utf8');
-requireText(operationsUi, ['client.connection_restored', 'setInterval(updateUptime, 1000)', 'RESTAURAR', '/api/v1/logs/client'], 'browser operations contract');
+requireText(operationsUi, ['client.connection_restored', 'setInterval(updateUptime, 1000)', 'RESTAURAR', '/api/v1/logs/client', '/api/v1/settings/runtime', 'runtimeSettingsPayload'], 'browser operations contract');
+forbidText(operationsUi, ['BASKETRA_AI_BASE_URL', 'BASKETRA_AI_API_KEY', 'BASKETRA_AI_MODEL', 'recrea el contenedor', 'recrear el contenedor'], 'browser runtime settings UX');
 const serviceWorker = readFileSync('src/web/sw.js', 'utf8');
 requireText(serviceWorker, ["url.pathname.startsWith('/api/')", "'/lists.js'", "'/receipts.js'", "'/operations.js'", "'/operations.css'"], 'PWA cache contract');
 
@@ -218,6 +207,7 @@ for (const requiredTest of [
   'tests/unit/ghcr-manifest-policy.test.ts',
   'tests/unit/ghcr-workflow-policy.test.ts',
   'tests/unit/runtime-operations.test.ts',
+  'tests/unit/local-runtime-contract.test.ts',
   'tests/unit/release-version-policy.test.ts',
 ]) {
   if (!textFiles.includes(requiredTest)) failures.push(`Missing bounded-resource, workflow or publication regression test: ${requiredTest}`);
@@ -242,4 +232,4 @@ if (failures.length) {
   console.error(failures.join('\n'));
   process.exit(1);
 }
-console.log('Security, workflow, release, observability, backup, bounded-resource, private-network and secret scans passed.');
+console.log('Security, workflow, release, observability, backup, bounded-resource, zero-env private-network and secret scans passed.');
