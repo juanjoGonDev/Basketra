@@ -38,11 +38,10 @@ test('receipt category service validates storage and supplies the stable fallbac
 
     service.configureCategoryDatabase(database.path);
     const fallback = service.categoryInventoryFor(request);
-    assert.deepEqual(fallback, [{
-      id: UNKNOWN_CATEGORY_ID,
-      name: UNKNOWN_CATEGORY_NAME,
-      color: UNKNOWN_CATEGORY_COLOR,
-    }]);
+    assert.equal(fallback.length, 1);
+    assert.equal(fallback[0]?.id, UNKNOWN_CATEGORY_ID);
+    assert.equal(fallback[0]?.name, UNKNOWN_CATEGORY_NAME);
+    assert.equal(fallback[0]?.color, UNKNOWN_CATEGORY_COLOR);
 
     const explicitInventory = [{
       id: 'category_food',
