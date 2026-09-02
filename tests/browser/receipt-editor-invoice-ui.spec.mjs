@@ -62,6 +62,14 @@ async function elementBox(locator) {
   };
 }
 
+function sameRow(first, second, tolerance = 4) {
+  return first && second && Math.abs(first.y - second.y) <= tolerance;
+}
+
+function sameWidth(first, second, tolerance = 4) {
+  return first && second && Math.abs(first.width - second.width) <= tolerance;
+}
+
 test('invoice-editor-desktop', async ({ page }, testInfo) => {
   await setup(page, 1280, 900);
   const dialog = await openEditor(page);
@@ -70,20 +78,60 @@ test('invoice-editor-desktop', async ({ page }, testInfo) => {
   await expect(dialog.getByRole('heading', { name: '2. Detalle de compra', exact: true })).toBeVisible();
   await expect(dialog.getByRole('heading', { name: '3. Descuento', exact: true })).toBeVisible();
   await expect(dialog.getByRole('heading', { name: 'Resumen', exact: true })).toBeVisible();
+  await expect(dialog.locator('[data-editor-section="producto"] [data-icon="package"]')).toBeVisible();
+  await expect(dialog.locator('[data-editor-section="descuento"] [data-icon="tag"]')).toBeVisible();
   await expect(dialog.locator('[data-editor-validation]')).toHaveText('Validada');
+  await expect(dialog.locator('[data-editor-summary-validation]')).toContainText('Total validado');
+
+  await expect(dialog.getByText('Precio unitario', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Tipo', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Valor', { exact: true })).toBeVisible();
+  await expect(dialog.locator('[data-editor-affix="unit-price"]')).toContainText('€');
+  await expect(dialog.locator('[data-editor-affix="discount-value"]')).toContainText('%');
+  await expect(dialog.locator('[data-editor-affix="discount-quantity"]')).toContainText('de 2');
 
   await expect(dialog.locator('[data-editor-summary-base]')).toHaveText('3,50 €');
   await expect(dialog.locator('[data-editor-summary-discount]')).toHaveText('-0,88 €');
   await expect(dialog.locator('[data-field="lineTotalEuro"]')).toHaveJSProperty('value', '2.62');
   await expect(dialog.locator('[data-editor-summary-total]')).toHaveText('2,62 €');
+  await expect(dialog.locator('.receipt-editor-summary__stamp')).toBeVisible();
 
   const layout = dialog.locator('.receipt-line-editor-layout');
   const purchaseDetail = dialog.locator('.quantity-row');
   const summary = dialog.locator('.receipt-line-editor-summary');
+  const deleteButton = dialog.getByRole('button', { name: 'Eliminar', exact: true });
+  const cancelButton = dialog.getByRole('button', { name: 'Cancelar', exact: true });
+  const saveButton = dialog.getByRole('button', { name: 'Guardar línea', exact: true });
   await expect(layout).toHaveCSS('display', 'grid');
   await expect.poll(async () => {
+    const box = await elementBox(dialog);
+    return Boolean(box && box.width >= 800 && box.width <= 850 && box.height >= 610 && box.height <= 700);
+  }).toBe(true);
+  await expect.poll(async () => {
     const [purchaseBox, summaryBox] = await Promise.all([elementBox(purchaseDetail), elementBox(summary)]);
-    return Boolean(purchaseBox && summaryBox && summaryBox.x > purchaseBox.x + purchaseBox.width);
+    return Boolean(
+      purchaseBox
+      && summaryBox
+      && summaryBox.x > purchaseBox.x + purchaseBox.width
+      && summaryBox.width >= 220
+      && summaryBox.width <= 270,
+    );
+  }).toBe(true);
+  await expect.poll(async () => {
+    const [deleteBox, cancelBox, saveBox] = await Promise.all([
+      elementBox(deleteButton),
+      elementBox(cancelButton),
+      elementBox(saveButton),
+    ]);
+    return Boolean(
+      sameRow(deleteBox, cancelBox)
+      && sameRow(cancelBox, saveBox)
+      && saveBox
+      && deleteBox
+      && cancelBox
+      && saveBox.width > deleteBox.width
+      && saveBox.width > cancelBox.width,
+    );
   }).toBe(true);
   await expectNoHorizontalOverflow(page, dialog);
 
@@ -100,8 +148,18 @@ test('invoice-editor-mobile', async ({ page }, testInfo) => {
     await expect(dialog.locator('[data-editor-summary-total]')).toHaveText('2,62 €');
   }
 
+  await page.setViewportSize({ width: 390, height: 844 });
   const purchaseDetail = dialog.locator('.quantity-row');
   const summary = dialog.locator('.receipt-line-editor-summary');
+  const quantityField = dialog.locator('[data-field="quantity"]').locator('..');
+  const unitPriceField = dialog.locator('[data-field="unitPriceEuro"]').locator('..').locator('..');
+  const discountTypeField = dialog.locator('.receipt-discount-type-field');
+  const discountValueField = dialog.locator('.receipt-discount-value-field');
+  const discountQuantityField = dialog.locator('.receipt-discount-quantity-field');
+  const deleteButton = dialog.getByRole('button', { name: 'Eliminar', exact: true });
+  const cancelButton = dialog.getByRole('button', { name: 'Cancelar', exact: true });
+  const saveButton = dialog.getByRole('button', { name: 'Guardar línea', exact: true });
+
   await expect.poll(async () => {
     const [purchaseBox, summaryBox] = await Promise.all([elementBox(purchaseDetail), elementBox(summary)]);
     if (!purchaseBox || !summaryBox) return false;
@@ -109,12 +167,47 @@ test('invoice-editor-mobile', async ({ page }, testInfo) => {
       && Math.abs(summaryBox.width - purchaseBox.width) <= 1;
     return sameColumn && summaryBox.y >= purchaseBox.y + purchaseBox.height;
   }).toBe(true);
+  await expect.poll(async () => {
+    const [quantityBox, unitPriceBox, typeBox, valueBox, affectedBox] = await Promise.all([
+      elementBox(quantityField),
+      elementBox(unitPriceField),
+      elementBox(discountTypeField),
+      elementBox(discountValueField),
+      elementBox(discountQuantityField),
+    ]);
+    return Boolean(
+      sameRow(quantityBox, unitPriceBox)
+      && sameWidth(quantityBox, unitPriceBox)
+      && sameRow(valueBox, affectedBox)
+      && sameWidth(valueBox, affectedBox)
+      && typeBox
+      && valueBox
+      && typeBox.y + typeBox.height <= valueBox.y,
+    );
+  }).toBe(true);
+  await expect(dialog.locator('.receipt-editor-summary__stamp')).toBeHidden();
+  await expect(dialog.locator('[data-editor-affix="discount-quantity"]')).toContainText('de 2');
+  await expect.poll(async () => {
+    const [deleteBox, cancelBox, saveBox] = await Promise.all([
+      elementBox(deleteButton),
+      elementBox(cancelButton),
+      elementBox(saveButton),
+    ]);
+    return Boolean(
+      deleteBox
+      && cancelBox
+      && saveBox
+      && deleteBox.y < cancelBox.y
+      && cancelBox.y < saveBox.y
+      && sameWidth(deleteBox, cancelBox)
+      && sameWidth(cancelBox, saveBox),
+    );
+  }).toBe(true);
   await expect(dialog.getByLabel('Unidades con descuento')).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Guardar línea', exact: true })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Cancelar', exact: true })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Eliminar', exact: true })).toBeVisible();
+  await expect(saveButton).toBeVisible();
+  await expect(cancelButton).toBeVisible();
+  await expect(deleteButton).toBeVisible();
 
-  await page.setViewportSize({ width: 390, height: 844 });
   await dialog.screenshot({ path: testInfo.outputPath('invoice-editor-mobile.png') });
 });
 
@@ -133,6 +226,7 @@ test('invoice summary follows the backend-derived total without treating descrip
   await expect(dialog.locator('[data-editor-summary-base]')).toHaveText('3,50 €');
   await expect(dialog.locator('[data-editor-summary-discount]')).toHaveText('-1,75 €');
   await expect(dialog.locator('[data-editor-summary-total]')).toHaveText('1,75 €');
+  await expect(dialog.locator('[data-editor-affix="discount-quantity"]')).toContainText('de 2');
 
   await affectedUnits.fill('1');
   await expect(dialog.locator('[data-field="lineTotalEuro"]')).toHaveJSProperty('value', '2.62');
