@@ -30,42 +30,36 @@
     {
       "id": "inventory-overview",
       "image": ".agents/specs/assets/2026-09-02-professional-inventory/01-inventory-overview.png",
-      "sha256": "ca776d59461b5c52b14b4c2eadf33690f9a0491e7dc6bd1745d469f8a1373d0e",
       "width": 1672,
       "height": 941
     },
     {
       "id": "product-list",
       "image": ".agents/specs/assets/2026-09-02-professional-inventory/02-product-list.png",
-      "sha256": "4eae8157c6609b6351e3b4bd21e4ed087d1dc2dd25261261037671735b8ad0d4",
       "width": 1672,
       "height": 941
     },
     {
       "id": "product-detail",
       "image": ".agents/specs/assets/2026-09-02-professional-inventory/03-product-detail-editor-delete.png",
-      "sha256": "4b25313c86932c4550d7760133cd00294dd0ab7e1608940185ae55bfaad029ed",
       "width": 1672,
       "height": 941
     },
     {
       "id": "category-management",
       "image": ".agents/specs/assets/2026-09-02-professional-inventory/04-category-management.png",
-      "sha256": "11403c2b783941f780bb92daeb4415e43055319ee47c9d77d0dcf43c74e5dbd8",
       "width": 1672,
       "height": 941
     },
     {
       "id": "stores-statistics",
       "image": ".agents/specs/assets/2026-09-02-professional-inventory/05-stores-statistics.png",
-      "sha256": "e5fbf801b7170e9fec51cb78d75031efa91d07fe754231693a10b2809d1932fb",
       "width": 1672,
       "height": 941
     },
     {
       "id": "ticket-history-editor",
       "image": ".agents/specs/assets/2026-09-02-professional-inventory/06-ticket-history-editor.png",
-      "sha256": "14ad6cb305330aa3a81bdb094af63ae971e4f1cc461333898a4f8ed0a97e4b99",
       "width": 1672,
       "height": 941
     }
@@ -74,10 +68,27 @@
     "inventory-overview": {
       "purpose": "Replace Plans with a professional Inventory hub.",
       "desktop": {
-        "shell": ["Basketra header", "left navigation rail", "global search", "help", "notifications", "profile"],
-        "header": ["INVENTARIO eyebrow", "Inventario title", "description", "+ Nuevo producto primary action"],
+        "shell": [
+          "Basketra header",
+          "left navigation rail",
+          "global search",
+          "help",
+          "notifications",
+          "profile"
+        ],
+        "header": [
+          "INVENTARIO eyebrow",
+          "Inventario title",
+          "description",
+          "+ Nuevo producto primary action"
+        ],
         "tabs": ["Productos", "Categorías", "Tiendas", "Estadísticas"],
-        "metrics": ["product count", "category count", "store count", "inventory total value"],
+        "metrics": [
+          "product count",
+          "category count",
+          "store count",
+          "inventory total value"
+        ],
         "queryControls": ["inventory search", "filters", "recent sort"],
         "cards": ["Productos", "Categorías", "Tiendas", "Estadísticas"],
         "support": "bottom informational guidance card"
@@ -101,31 +112,109 @@
       "desktop": {
         "headerActions": ["Export", "create product"],
         "tabs": ["Lista", "Variantes", "Importados"],
-        "queryControls": ["search by name/SKU/barcode", "filters", "sort", "stock chips", "clear filters"],
-        "columns": ["select", "product", "category", "hierarchy", "stores", "recent price", "stock", "updated", "actions"],
-        "pagination": ["result range", "numbered pages", "previous/next", "page-size selector"],
-        "previewPanel": ["image/name/status", "SKU/barcode", "recent price", "store/stock/status metrics", "category/hierarchy", "unit", "brand", "provider", "tags", "description", "full-detail CTA", "edit CTA"]
+        "queryControls": [
+          "search by name/SKU/barcode",
+          "filters",
+          "sort",
+          "stock chips",
+          "clear filters"
+        ],
+        "columns": [
+          "select",
+          "product",
+          "category",
+          "hierarchy",
+          "stores",
+          "recent price",
+          "stock",
+          "updated",
+          "actions"
+        ],
+        "pagination": [
+          "result range",
+          "numbered pages",
+          "previous/next",
+          "page-size selector"
+        ],
+        "previewPanel": [
+          "image/name/status",
+          "SKU/barcode",
+          "recent price",
+          "store/stock/status metrics",
+          "category/hierarchy",
+          "unit",
+          "brand",
+          "provider",
+          "tags",
+          "description",
+          "full-detail CTA",
+          "edit CTA"
+        ]
       },
       "mobile": {
-        "cards": ["thumbnail", "name", "category hierarchy", "store count", "recent price", "stock status", "detail chevron"],
+        "cards": [
+          "thumbnail",
+          "name",
+          "category hierarchy",
+          "store count",
+          "recent price",
+          "stock status",
+          "detail chevron"
+        ],
         "gesture": "left swipe reveals green Edit and red Delete",
         "equivalence": "same actions must exist for pointer, keyboard and assistive technology"
       },
-      "requiredBehavior": ["pagination", "search", "filters", "sorting", "dedicated product detail route"]
+      "requiredBehavior": [
+        "pagination",
+        "search",
+        "filters",
+        "sorting",
+        "dedicated product detail route"
+      ]
     },
     "product-detail": {
       "purpose": "Dedicated product information, editing and dependency-aware deletion.",
       "detail": {
-        "identity": ["breadcrumb", "product image", "name", "category badge", "SKU", "barcode copy", "last updated"],
+        "identity": [
+          "breadcrumb",
+          "product image",
+          "name",
+          "category badge",
+          "SKU",
+          "barcode copy",
+          "last updated"
+        ],
         "actions": ["Edit", "Delete"],
-        "cards": ["parent category with link", "linked stores", "recent store prices", "recent ticket history", "notes"]
+        "cards": [
+          "parent category with link",
+          "linked stores",
+          "recent store prices",
+          "recent ticket history",
+          "notes"
+        ]
       },
       "editor": {
         "presentation": "desktop side panel / mobile sheet-compatible workflow",
-        "fields": ["name", "SKU", "barcode", "category", "parent-category link", "unit", "description", "provider", "minimum stock", "maximum stock", "active"]
+        "fields": [
+          "name",
+          "SKU",
+          "barcode",
+          "category",
+          "parent-category link",
+          "unit",
+          "description",
+          "provider",
+          "minimum stock",
+          "maximum stock",
+          "active"
+        ]
       },
       "delete": {
-        "impactCounters": ["tickets using product", "linked stores/inventory", "price-history records"],
+        "impactCounters": [
+          "tickets using product",
+          "linked stores/inventory",
+          "price-history records"
+        ],
         "warning": "destructive effect is explicit before commit",
         "actions": ["Cancel", "Delete product"]
       },
@@ -137,12 +226,30 @@
         "actions": ["Export", "+ Nueva categoría"],
         "tabs": ["Todas", "Activas", "Sin productos", "Con subcategorías"],
         "queryControls": ["search", "filters", "Name A-Z sort", "view control"],
-        "columns": ["name", "products", "subcategories", "parent", "status", "actions"],
-        "hierarchy": ["expand/collapse", "indentation", "color dots", "selected-row highlight"],
+        "columns": [
+          "name",
+          "products",
+          "subcategories",
+          "parent",
+          "status",
+          "actions"
+        ],
+        "hierarchy": [
+          "expand/collapse",
+          "indentation",
+          "color dots",
+          "selected-row highlight"
+        ],
         "pagination": true
       },
       "listMobile": {
-        "tree": ["expand/collapse", "color", "product count", "subcategory count", "overflow actions"],
+        "tree": [
+          "expand/collapse",
+          "color",
+          "product count",
+          "subcategory count",
+          "overflow actions"
+        ],
         "gesture": "swipe left reveals Edit then Delete"
       },
       "newCategory": {
@@ -151,38 +258,107 @@
       },
       "detail": {
         "identity": ["breadcrumb", "color", "name", "active badge"],
-        "cards": ["general information", "hierarchy location", "product count", "subcategory count", "technical details"],
+        "cards": [
+          "general information",
+          "hierarchy location",
+          "product count",
+          "subcategory count",
+          "technical details"
+        ],
         "actions": ["Edit category", "Delete category"]
       },
       "delete": {
-        "impact": ["direct product count", "subcategory count", "descendants with products"],
+        "impact": [
+          "direct product count",
+          "subcategory count",
+          "descendants with products"
+        ],
         "protected": "category_unknown cannot be deleted"
       }
     },
     "stores-statistics": {
       "purpose": "First-class store management plus inventory analytics.",
       "stores": {
-        "mobile": ["new-store CTA", "search", "filters", "sort", "store cards", "pagination"],
-        "desktopColumns": ["store", "status", "location", "products", "recent tickets", "created", "actions"],
+        "mobile": [
+          "new-store CTA",
+          "search",
+          "filters",
+          "sort",
+          "store cards",
+          "pagination"
+        ],
+        "desktopColumns": [
+          "store",
+          "status",
+          "location",
+          "products",
+          "recent tickets",
+          "created",
+          "actions"
+        ],
         "detailTabs": ["Resumen", "Productos", "Actividad"],
-        "detailContent": ["general information", "activity metrics", "recent activity"],
-        "deleteImpact": ["linked product count", "historical ticket count", "blocking dependency warning"]
+        "detailContent": [
+          "general information",
+          "activity metrics",
+          "recent activity"
+        ],
+        "deleteImpact": [
+          "linked product count",
+          "historical ticket count",
+          "blocking dependency warning"
+        ]
       },
       "statistics": {
         "tabs": ["Resumen", "Categorías", "Tiendas"],
         "controls": ["period selector", "Export"],
-        "kpis": ["inventory value", "active products", "tickets processed", "value of entries"],
-        "visuals": ["products-by-category donut", "store-activity bars", "ticket-evolution lines"],
-        "secondaryCards": ["most active categories", "uncategorized products", "low-stock products", "average inventory value"],
+        "kpis": [
+          "inventory value",
+          "active products",
+          "tickets processed",
+          "value of entries"
+        ],
+        "visuals": [
+          "products-by-category donut",
+          "store-activity bars",
+          "ticket-evolution lines"
+        ],
+        "secondaryCards": [
+          "most active categories",
+          "uncategorized products",
+          "low-stock products",
+          "average inventory value"
+        ],
         "accessibility": "charts require text/table equivalents"
       }
     },
     "ticket-history-editor": {
       "purpose": "Paginated historical ticket management and invoice-style ticket editing.",
       "historyDesktop": {
-        "queryControls": ["search by store/note/amount", "filter count", "date range", "store", "category", "Export"],
-        "summary": ["period", "total tickets", "total spent", "total items", "average ticket"],
-        "columns": ["date", "store", "amount", "items", "status", "payment", "notes", "actions"],
+        "queryControls": [
+          "search by store/note/amount",
+          "filter count",
+          "date range",
+          "store",
+          "category",
+          "Export"
+        ],
+        "summary": [
+          "period",
+          "total tickets",
+          "total spent",
+          "total items",
+          "average ticket"
+        ],
+        "columns": [
+          "date",
+          "store",
+          "amount",
+          "items",
+          "status",
+          "payment",
+          "notes",
+          "actions"
+        ],
         "statusSemantics": ["Paid green", "Pending amber", "Cancelled red"],
         "pagination": true
       },
@@ -194,13 +370,41 @@
         "header": ["ticket id", "saved state"],
         "metadata": ["date", "time", "store", "payment", "status"],
         "totals": ["subtotal", "taxes", "discounts", "backend-derived total"],
-        "lineColumns": ["product", "category", "quantity", "unit", "unit price", "discount", "total", "actions"],
+        "lineColumns": [
+          "product",
+          "category",
+          "quantity",
+          "unit",
+          "unit price",
+          "discount",
+          "total",
+          "actions"
+        ],
         "lineActions": ["add item", "scan code", "import items"],
         "notes": true,
         "footerActions": ["Cancel", "Duplicate ticket", "Save changes"]
       },
-      "itemEditor": ["product", "category", "quantity", "unit", "unit price", "amount/percent discount modes", "derived total", "Cancel", "Save changes"],
-      "deleteTicket": ["explicit confirmation", "ticket id", "date", "store", "total", "item count", "Cancel", "Delete ticket"]
+      "itemEditor": [
+        "product",
+        "category",
+        "quantity",
+        "unit",
+        "unit price",
+        "amount/percent discount modes",
+        "derived total",
+        "Cancel",
+        "Save changes"
+      ],
+      "deleteTicket": [
+        "explicit confirmation",
+        "ticket id",
+        "date",
+        "store",
+        "total",
+        "item count",
+        "Cancel",
+        "Delete ticket"
+      ]
     }
   }
 }
