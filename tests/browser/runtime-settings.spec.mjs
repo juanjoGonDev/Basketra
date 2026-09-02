@@ -150,7 +150,8 @@ test('runtime settings persist without restart and preserve, replace, then clear
   await expect(page.locator('#runtime-ai-token-help')).toContainText('••••alue');
 
   const clearToken = page.locator('#runtime-ai-clear-token');
-  await clearToken.locator('xpath=..').click();
+  const clearTokenRow = page.locator('label.switch-row', { has: clearToken });
+  await clearTokenRow.click();
   await expect(clearToken).toBeChecked();
   await expect(page.locator('#runtime-ai-api-key')).toBeDisabled();
   await page.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
