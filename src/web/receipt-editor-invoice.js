@@ -2,6 +2,8 @@ import { euroInputToMinor, formatEuroMinor, hydrateIcons } from './ui.js';
 
 const DIALOG_ID = 'receipt-line-dialog';
 const EDITOR_CALCULATION_FIELD_SELECTOR = '[data-field="quantity"], [data-field="unitPriceEuro"], [data-field="discountType"], [data-field="discountValue"], [data-field="discountQuantity"]';
+const SUMMARY_AMOUNT_COMPACT_LENGTH = 16;
+const SUMMARY_AMOUNT_DENSE_LENGTH = 22;
 const LOCAL_SECTION_ICONS = {
   package: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z"/><path d="m4.2 7.5 7.8 4.4 7.8-4.4M12 12v9"/></svg>',
   tag: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13 13 20l-9-9V4h7Z"/><circle cx="8.5" cy="8.5" r="1"/></svg>',
@@ -67,6 +69,33 @@ function createSummaryStamp() {
   return stamp;
 }
 
+function createSummaryStatus() {
+  const slot = document.createElement('div');
+  slot.className = 'receipt-editor-summary__status-slot';
+
+  const validation = document.createElement('div');
+  validation.className = 'receipt-editor-summary__state status-pill';
+  validation.dataset.editorSummaryValidation = 'true';
+  validation.setAttribute('role', 'status');
+
+  const progress = document.createElement('div');
+  progress.className = 'receipt-editor-summary__progress status-pill';
+  progress.dataset.editorSummaryProgress = 'true';
+  progress.setAttribute('role', 'status');
+  progress.setAttribute('aria-live', 'polite');
+  progress.hidden = true;
+
+  const spinner = document.createElement('span');
+  spinner.className = 'receipt-editor-summary__spinner';
+  spinner.dataset.editorSummarySpinner = 'true';
+  spinner.setAttribute('aria-hidden', 'true');
+  const text = document.createElement('span');
+  text.dataset.editorSummaryProgressText = 'true';
+  progress.append(spinner, text);
+  slot.append(validation, progress);
+  return slot;
+}
+
 function createSummary() {
   const summary = document.createElement('aside');
   summary.className = 'receipt-line-editor-summary';
@@ -84,11 +113,7 @@ function createSummary() {
     summaryRow('Total calculado', 'editorSummaryTotal', 'receipt-editor-summary__total'),
   );
 
-  const state = document.createElement('div');
-  state.className = 'receipt-editor-summary__state status-pill';
-  state.dataset.editorSummaryValidation = 'true';
-  state.setAttribute('role', 'status');
-  summary.append(heading, values, state, createSummaryStamp());
+  summary.append(heading, values, createSummaryStatus(), createSummaryStamp());
   return summary;
 }
 
@@ -115,6 +140,9 @@ function validationState(item) {
 function copyValidationState(item, target, summary = false) {
   if (!target) return;
   const confirmed = validationState(item);
+  const stateKey = confirmed ? 'confirmed' : 'review';
+  if (target.dataset.editorValidationState === stateKey) return;
+  target.dataset.editorValidationState = stateKey;
   target.classList.toggle('success', confirmed);
   target.classList.toggle('warning', !confirmed);
   if (!summary) {
@@ -257,6 +285,37 @@ function safeSummaryValues(item) {
   }
 }
 
+function summaryAmountDensity(text) {
+  const length = [...text].length;
+  if (length >= SUMMARY_AMOUNT_DENSE_LENGTH) return 'dense';
+  if (length >= SUMMARY_AMOUNT_COMPACT_LENGTH) return 'compact';
+  return 'normal';
+}
+
+function setSummaryAmount(target, text) {
+  if (!target) return;
+  target.textContent = text;
+  target.dataset.amountDensity = summaryAmountDensity(text);
+}
+
+function setSummaryState(summary, state) {
+  summary.dataset.summaryState = state;
+  summary.setAttribute('aria-busy', state === 'pending' ? 'true' : 'false');
+  const validation = summary.querySelector('[data-editor-summary-validation]');
+  const progress = summary.querySelector('[data-editor-summary-progress]');
+  const progressText = progress?.querySelector('[data-editor-summary-progress-text]');
+  const spinner = progress?.querySelector('[data-editor-summary-spinner]');
+  const showProgress = state === 'pending' || state === 'error';
+  if (validation) validation.hidden = showProgress;
+  if (!progress) return;
+  progress.hidden = !showProgress;
+  if (!showProgress) return;
+  const isError = state === 'error';
+  progress.dataset.progressKind = isError ? 'error' : 'pending';
+  if (progressText) progressText.textContent = isError ? 'Revisa el cálculo' : 'Calculando total…';
+  if (spinner) spinner.hidden = isError;
+}
+
 function syncSummary(item) {
   const summary = item.querySelector('.receipt-line-editor-summary');
   if (!summary) return;
@@ -271,25 +330,25 @@ function syncSummary(item) {
   syncPresentationControls(item);
 
   if (!values) {
-    if (base) base.textContent = '—';
-    if (discount) discount.textContent = '—';
-    if (total) total.textContent = '—';
-    summary.dataset.summaryState = 'invalid';
+    setSummaryAmount(base, '—');
+    setSummaryAmount(discount, '—');
+    setSummaryAmount(total, '—');
+    setSummaryState(summary, 'invalid');
     return;
   }
 
-  if (base) base.textContent = formatEuroMinor(values.subtotalMinor);
-  if (discount) discount.textContent = values.discountMinor > 0
+  setSummaryAmount(base, formatEuroMinor(values.subtotalMinor));
+  setSummaryAmount(discount, values.discountMinor > 0
     ? `-${formatEuroMinor(values.discountMinor)}`
-    : formatEuroMinor(0);
-  if (total) total.textContent = formatEuroMinor(values.totalMinor);
-  summary.dataset.summaryState = 'ready';
+    : formatEuroMinor(0));
+  setSummaryAmount(total, formatEuroMinor(values.totalMinor));
+  setSummaryState(summary, 'ready');
 }
 
 function markSummaryPending(item) {
   const summary = item.querySelector('.receipt-line-editor-summary');
   if (!summary) return;
-  summary.dataset.summaryState = 'pending';
+  setSummaryState(summary, 'pending');
 }
 
 function syncCalculationSummaryState(dialog, item) {
@@ -298,13 +357,13 @@ function syncCalculationSummaryState(dialog, item) {
   syncPresentationControls(item);
   const total = item.querySelector('[data-field="lineTotalEuro"]');
   if (total?.getAttribute('aria-busy') === 'true') {
-    summary.dataset.summaryState = 'pending';
+    setSummaryState(summary, 'pending');
     return;
   }
 
   const save = dialog.querySelector('#save-receipt-line-editor');
   if (save?.dataset.receiptCalculationDisabled === 'true') {
-    summary.dataset.summaryState = 'error';
+    setSummaryState(summary, 'error');
     return;
   }
   syncSummary(item);
