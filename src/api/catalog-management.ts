@@ -498,11 +498,11 @@ async function handleCategoryRequest(context: CatalogApiContext): Promise<boolea
     try {
       const category = repository.getOrCreate({
         name: asString(body['name'], '$.name', { min: 1, max: 120 }),
-        parentId: parseNullableString(body['parentId'], '$.parentId', 128),
+        parentId: parseNullableString(body['parentId'], '$.parentId', 128) ?? null,
         color: body['color'] === undefined
           ? UNKNOWN_CATEGORY_COLOR
           : asString(body['color'], '$.color', { min: 7, max: 7 }),
-        description: parseNullableString(body['description'], '$.description', 500),
+        description: parseNullableString(body['description'], '$.description', 500) ?? null,
       });
       context.publish(category.id, 'category');
       context.send(201, { category });
@@ -525,14 +525,14 @@ async function handleCategoryRequest(context: CatalogApiContext): Promise<boolea
           ? current.name
           : asString(body['name'], '$.name', { min: 1, max: 120 }),
         parentId: body['parentId'] === undefined
-          ? current.parentId
-          : parseNullableString(body['parentId'], '$.parentId', 128),
+          ? current.parentId ?? null
+          : parseNullableString(body['parentId'], '$.parentId', 128) ?? null,
         color: body['color'] === undefined
-          ? current.color
-          : parseNullableString(body['color'], '$.color', 7),
+          ? current.color ?? null
+          : parseNullableString(body['color'], '$.color', 7) ?? null,
         description: body['description'] === undefined
-          ? current.description
-          : parseNullableString(body['description'], '$.description', 500),
+          ? current.description ?? null
+          : parseNullableString(body['description'], '$.description', 500) ?? null,
       });
       if (!category) throw new ApiError(404, 'CATEGORY_NOT_FOUND', 'Category was not found');
       context.publish(category.id, 'category');
