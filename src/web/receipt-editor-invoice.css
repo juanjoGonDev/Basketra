@@ -461,6 +461,14 @@
   .receipt-invoice-dialog .receipt-invoice-dialog__content {
     height: auto;
     max-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .receipt-invoice-dialog .receipt-invoice-dialog__header,
+  .receipt-invoice-dialog #receipt-line-editor-state,
+  .receipt-invoice-dialog .receipt-invoice-dialog__actions {
+    flex: 0 0 auto;
   }
 
   .receipt-invoice-dialog .receipt-invoice-dialog__header {
@@ -484,6 +492,8 @@
   }
 
   .receipt-invoice-dialog .receipt-invoice-dialog__slot {
+    min-height: 0;
+    flex: 0 1 auto;
     padding-inline: .85rem;
     scrollbar-gutter: auto;
   }
