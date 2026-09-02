@@ -26,10 +26,12 @@ test('hierarchical categories use separate list, detail and editor flows on mobi
   let createPayload;
   let updatePayload;
 
-  await page.route('**/api/v1/catalog?*', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ catalog: { products: [], parents: [], offset: 0, limit: 100, hasMore: false } }) }));
-  await page.route('**/api/v1/categories', async route => {
-    if (route.request().method() === 'POST') {
-      createPayload = route.request().postDataJSON();
+  await page.route('**/api/v1/catalog?*', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ catalog: { products: [], parents: [], total: 0, offset: 0, limit: 100, hasMore: false } }) }));
+  await page.route('**/api/v1/categories**', async route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() === 'POST') {
+      createPayload = request.postDataJSON();
       const created = {
         id: 'category_dairy',
         name: createPayload.name,
@@ -41,6 +43,20 @@ test('hierarchical categories use separate list, detail and editor flows on mobi
       };
       categories.push(created);
       await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ category: created }) });
+      return;
+    }
+    if (url.searchParams.get('mode') === 'inventory') {
+      const inventoryCategories = categories.map(category => ({
+        ...category,
+        parentName: category.parentId ? categories.find(candidate => candidate.id === category.parentId)?.name : undefined,
+        productCount: 0,
+        childCount: categories.filter(candidate => candidate.parentId === category.id).length,
+      }));
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ inventory: { categories: inventoryCategories, total: inventoryCategories.length, offset: 0, limit: 12, hasMore: false } }),
+      });
       return;
     }
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ categories }) });
