@@ -3,6 +3,8 @@ import { icon } from './ui.js';
 const MAX_BACKUP_IMPORT_BYTES = 512 * 1024 * 1024;
 const LOG_COPY_LIMIT = 500;
 const LOG_RENDER_LIMIT = 120;
+const MEBIBYTE = 1024 * 1024;
+const MINUTE_MS = 60 * 1000;
 
 const state = {
   heartbeatTimer: null,
@@ -19,6 +21,9 @@ const state = {
   aiSettings: null,
   aiTestGeneration: 0,
   aiTestController: null,
+  runtimeSettings: null,
+  runtimeSettingsDirty: false,
+  runtimeSettingsSaving: false,
 };
 
 const $ = selector => document.querySelector(selector);
@@ -198,12 +203,12 @@ function providerHost(settings) {
 function providerNetworkGuidance(settings) {
   const host = providerHost(settings);
   if (host === 'host.docker.internal') {
-    return 'host.docker.internal apunta al host Docker de Basketra, es decir, a la Raspberry. Si webApi se ejecuta en otro equipo, usa la IP privada de ese equipo en BASKETRA_AI_BASE_URL y configura webApi con HOST=0.0.0.0, restringiendo el puerto a tu LAN o VPN.';
+    return 'host.docker.internal apunta al host Docker de Basketra, es decir, a la Raspberry. Si webApi se ejecuta en otro equipo, guarda aquí la URL con la IP privada de ese equipo y asegúrate de que webApi escucha en esa interfaz, limitada a tu LAN o VPN.';
   }
   if (host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]') {
-    return 'Una dirección loopback apunta al propio contenedor Basketra. Usa host.docker.internal sólo si webApi está en la Raspberry; si está en otro equipo, usa su IP privada.';
+    return 'Una dirección loopback apunta al propio contenedor Basketra. Usa host.docker.internal si webApi está en la Raspberry; si está en otro equipo, guarda aquí su IP privada.';
   }
-  return 'La prueba sale desde el contenedor Basketra. El equipo que ejecuta webApi debe escuchar en esa dirección y puerto; para clientes remotos webApi necesita HOST=0.0.0.0 y el puerto debe quedar limitado a la LAN o VPN.';
+  return 'La prueba sale desde el contenedor Basketra. El equipo que ejecuta webApi debe escuchar en la dirección y puerto guardados, restringidos a tu LAN o VPN.';
 }
 
 function aiTestIsRunning() {
@@ -213,10 +218,11 @@ function aiTestIsRunning() {
 function renderAiTestStatus(lifecycle, message) {
   const status = $('#ai-test-state');
   const button = $('#test-ai-provider');
+  if (!status || !button) return;
   status.dataset.state = lifecycle;
   status.textContent = message;
   const running = aiTestIsRunning();
-  button.disabled = running || !state.aiSettings?.configured;
+  button.disabled = running || !state.aiSettings?.configured || state.runtimeSettingsSaving;
   button.toggleAttribute('aria-busy', running);
 }
 
@@ -228,26 +234,104 @@ function renderAiSettings(settings) {
   const request = $('#ai-provider-request');
   const authorization = $('#ai-provider-authorization');
   const note = $('#ai-provider-network-note');
+  if (!status || !detail || !testButton || !request || !authorization || !note) return;
   request.textContent = settings.configured ? `POST ${providerProbeUrl(settings)}` : 'Pendiente de configuración';
-  authorization.textContent = settings.apiKeyMask ? 'Bearer con token gestionado' : 'Sin cabecera Authorization';
-  note.textContent = settings.configured ? providerNetworkGuidance(settings) : '';
+  authorization.textContent = settings.apiKeyMask ? `Token guardado ${settings.apiKeyMask}` : 'Sin cabecera Authorization';
+  note.textContent = settings.configured ? providerNetworkGuidance(settings) : 'Configura WebAPI en este formulario. Los cambios se guardan en Basketra y se aplican sin recrear el contenedor.';
   if (!settings.configured) {
-    status.textContent = 'Configuración no cargada';
+    status.textContent = 'Falta configuración';
     status.dataset.state = 'error';
-    detail.textContent = `Faltan: ${(settings.missing || []).join(', ')}. Guarda cada variable en una línea y recrea el contenedor.`;
+    detail.textContent = `Completa ${(settings.missing || []).join(' y ')} y pulsa Guardar cambios. No hace falta reiniciar Basketra.`;
     testButton.disabled = true;
     return;
   }
-  testButton.disabled = aiTestIsRunning();
+  testButton.disabled = aiTestIsRunning() || state.runtimeSettingsSaving;
   if (settings.loopbackWarning) {
-    status.textContent = 'Configurado con dirección incorrecta para Docker';
+    status.textContent = 'Dirección incorrecta para Docker';
     status.dataset.state = 'warning';
     detail.textContent = `${settings.model} · ${settings.baseUrl}${settings.apiKeyMask ? ` · token ${settings.apiKeyMask}` : ''}`;
     return;
   }
-  status.textContent = 'Configuración cargada';
+  status.textContent = 'Configuración activa';
   status.dataset.state = 'ok';
-  detail.textContent = `${settings.model} · ${settings.baseUrl}${settings.apiKeyMask ? ` · token ${settings.apiKeyMask}` : ''}`;
+  detail.textContent = `${settings.model} · ${settings.baseUrl}${settings.apiKeyMask ? ` · token ${settings.apiKeyMask}` : ''} · ${settings.maxRetries ?? 1} reintentos máx.`;
+}
+
+function renderRuntimeSettings(settings, force = false) {
+  state.runtimeSettings = settings;
+  if (state.runtimeSettingsDirty && !force) return;
+  const ai = settings.ai || {};
+  $('#runtime-ai-base-url').value = ai.baseUrl || '';
+  $('#runtime-ai-model').value = ai.model || '';
+  $('#runtime-ai-max-retries').value = String(ai.maxRetries ?? 1);
+  $('#runtime-ai-api-key').value = '';
+  $('#runtime-ai-clear-token').checked = false;
+  $('#runtime-ai-clear-token').disabled = !ai.apiKeyConfigured;
+  $('#runtime-ai-api-key').disabled = false;
+  $('#runtime-ai-token-help').textContent = ai.apiKeyConfigured
+    ? `Token guardado ${ai.apiKeyMask || ''}. Deja el campo vacío para conservarlo o marca “Eliminar token guardado”.`
+    : 'No hay token guardado. Déjalo vacío si tu WebAPI no requiere Authorization.';
+  $('#runtime-overpass-base-url').value = settings.overpassBaseUrl || '';
+  $('#runtime-max-body-mib').value = String(settings.maxBodyBytes / MEBIBYTE);
+  $('#runtime-idle-minutes').value = String(settings.idleHibernateAfterMs / MINUTE_MS);
+  state.runtimeSettingsDirty = false;
+}
+
+function runtimeSettingsPayload() {
+  const apiKey = $('#runtime-ai-api-key').value.trim();
+  const clearApiKey = $('#runtime-ai-clear-token').checked;
+  return {
+    aiBaseUrl: $('#runtime-ai-base-url').value.trim() || null,
+    aiModel: $('#runtime-ai-model').value.trim() || null,
+    aiMaxRetries: Number($('#runtime-ai-max-retries').value),
+    ...(clearApiKey ? { aiApiKey: null } : apiKey ? { aiApiKey: apiKey } : {}),
+    overpassBaseUrl: $('#runtime-overpass-base-url').value.trim(),
+    maxBodyBytes: Math.round(Number($('#runtime-max-body-mib').value) * MEBIBYTE),
+    idleHibernateAfterMs: Math.round(Number($('#runtime-idle-minutes').value) * MINUTE_MS),
+  };
+}
+
+function setRuntimeSettingsSaving(saving) {
+  state.runtimeSettingsSaving = saving;
+  const button = $('#save-runtime-settings');
+  const form = $('#runtime-settings-form');
+  button.disabled = saving;
+  button.toggleAttribute('aria-busy', saving);
+  for (const control of form.elements) {
+    if (control.id === 'runtime-ai-clear-token' && !state.runtimeSettings?.ai?.apiKeyConfigured) continue;
+    control.disabled = saving;
+  }
+  if (!saving) {
+    $('#runtime-ai-clear-token').disabled = !state.runtimeSettings?.ai?.apiKeyConfigured;
+    $('#runtime-ai-api-key').disabled = $('#runtime-ai-clear-token').checked;
+  }
+  renderAiTestStatus($('#ai-test-state').dataset.state || 'idle', $('#ai-test-state').textContent || '');
+}
+
+async function saveRuntimeSettings(event) {
+  event.preventDefault();
+  const form = $('#runtime-settings-form');
+  const status = $('#runtime-settings-save-state');
+  if (!form.reportValidity() || state.runtimeSettingsSaving) return;
+  setRuntimeSettingsSaving(true);
+  status.dataset.state = 'saving';
+  status.textContent = 'Guardando y aplicando la configuración…';
+  try {
+    const result = await requestJson('/api/v1/settings/runtime', {
+      method: 'PUT',
+      body: JSON.stringify(runtimeSettingsPayload()),
+    });
+    state.runtimeSettingsDirty = false;
+    renderRuntimeSettings(result.settings, true);
+    await Promise.all([loadAiSettings(), loadRuntime()]);
+    status.dataset.state = 'success';
+    status.textContent = 'Configuración guardada en SQLite. La siguiente operación usa estos valores; no hace falta reiniciar ni recrear el contenedor.';
+  } catch (error) {
+    status.dataset.state = 'error';
+    status.textContent = error.message;
+  } finally {
+    setRuntimeSettingsSaving(false);
+  }
 }
 
 async function loadRuntime() {
@@ -255,6 +339,16 @@ async function loadRuntime() {
     renderRuntime(await requestJson('/api/v1/diagnostics'));
   } catch (error) {
     $('#runtime-state').textContent = error.message;
+  }
+}
+
+async function loadRuntimeSettings(force = false) {
+  try {
+    const result = await requestJson('/api/v1/settings/runtime');
+    renderRuntimeSettings(result.settings, force);
+  } catch (error) {
+    $('#runtime-settings-save-state').dataset.state = 'error';
+    $('#runtime-settings-save-state').textContent = error.message;
   }
 }
 
@@ -512,7 +606,7 @@ async function testAiProvider() {
     const messages = {
       AI_LOOPBACK_CONTAINER: providerNetworkGuidance(settings),
       AI_UNREACHABLE: `No se pudo abrir una conexión con ${probe}. ${providerNetworkGuidance(settings)}`,
-      AI_AUTHENTICATION_FAILED: 'webApi respondió, pero rechazó el token. Crea un token gestionado en /admin y copia su valor completo en BASKETRA_AI_API_KEY.',
+      AI_AUTHENTICATION_FAILED: 'webApi respondió, pero rechazó el token. Guarda un token gestionado nuevo en el campo Token de WebAPI y vuelve a probar.',
       AI_TIMEOUT: `webApi o el proveedor agotó su propio tiempo de espera al procesar ${probe}. Basketra no impone un límite de tiempo a esta prueba.`,
       AI_ATTACHMENT_TOO_LARGE: 'El proveedor rechazó incluso la imagen sintética mínima por tamaño. Revisa los límites del proveedor.',
       AI_ATTACHMENT_UPLOAD_FAILED: 'El proveedor no pudo preparar la imagen sintética en el compositor. Revisa el estado del navegador de webApi.',
@@ -563,18 +657,44 @@ function installOperationsUi() {
       <p class="operations-secondary">Revisión: <span id="runtime-revision">Cargando…</span></p>
       <p id="runtime-state" class="inline-status" role="status"></p>
     </section>
-    <section class="surface operations-card" aria-labelledby="ai-config-title">
-      <div class="panel-heading"><div><p class="eyebrow">Proveedor opcional</p><h2 id="ai-config-title">Diagnóstico de IA</h2></div></div>
-      <strong id="ai-configuration-status">Cargando…</strong>
-      <p id="ai-configuration-detail"></p>
-      <dl class="provider-check">
-        <div><dt>Comprobación real</dt><dd id="ai-provider-request">Cargando…</dd></div>
-        <div><dt>Autorización</dt><dd id="ai-provider-authorization">Cargando…</dd></div>
-      </dl>
-      <p>La prueba envía una imagen sintética sin datos personales y exige una respuesta JSON conforme a un esquema estricto. Sólo se ejecuta al pulsar el botón.</p>
-      <p id="ai-provider-network-note" class="operations-help"></p>
-      <button id="test-ai-provider" class="button secondary full" type="button">${icon('sparkles')}<span>Verificar imagen y JSON estricto</span></button>
-      <p id="ai-test-state" class="inline-status" role="status"></p>
+    <section class="surface operations-card" aria-labelledby="runtime-settings-title">
+      <div class="panel-heading"><div><p class="eyebrow">Configuración persistente</p><h2 id="runtime-settings-title">Conexiones y límites locales</h2></div></div>
+      <p class="operations-help">Estos valores se guardan en SQLite y se aplican a la siguiente operación. No necesitas un archivo <code>.env</code>, reiniciar Basketra ni recrear el contenedor.</p>
+      <form id="runtime-settings-form" class="runtime-settings-form">
+        <fieldset class="runtime-settings-group">
+          <legend>WebAPI</legend>
+          <div class="runtime-settings-grid">
+            <label class="field runtime-settings-wide"><span>URL de WebAPI</span><input id="runtime-ai-base-url" type="url" maxlength="2048" autocomplete="url" placeholder="http://host.docker.internal:3001/v1/"><small>Déjala vacía para desactivar IA.</small></label>
+            <label class="field"><span>Modelo</span><input id="runtime-ai-model" maxlength="240" autocomplete="off" placeholder="default"></label>
+            <label class="field"><span>Reintentos máximos</span><input id="runtime-ai-max-retries" type="number" min="0" max="10" step="1" inputmode="numeric" required></label>
+            <label class="field runtime-settings-wide"><span>Token de WebAPI</span><input id="runtime-ai-api-key" type="password" maxlength="8192" autocomplete="new-password" placeholder="Vacío = conservar el actual"><small id="runtime-ai-token-help"></small></label>
+            <label class="switch-row runtime-settings-wide"><span><strong>Eliminar token guardado</strong><small>Marca esta opción sólo si quieres borrar explícitamente la credencial persistida.</small></span><input id="runtime-ai-clear-token" type="checkbox" aria-label="Eliminar token de WebAPI guardado"><span class="switch"></span></label>
+          </div>
+        </fieldset>
+        <details class="progressive-options runtime-settings-advanced">
+          <summary>Red y recursos locales</summary>
+          <div class="details-body runtime-settings-grid">
+            <label class="field runtime-settings-wide"><span>URL de Overpass</span><input id="runtime-overpass-base-url" type="url" maxlength="2048" autocomplete="url" required></label>
+            <label class="field"><span>Límite local por solicitud (MiB)</span><input id="runtime-max-body-mib" type="number" min="0.0009765625" max="512" step="0.25" inputmode="decimal" required><small>No sustituye los límites de adjuntos de WebAPI.</small></label>
+            <label class="field"><span>Hibernar tras inactividad (min)</span><input id="runtime-idle-minutes" type="number" min="0" max="1440" step="0.5" inputmode="decimal" required><small>0 desactiva la hibernación interna.</small></label>
+          </div>
+        </details>
+        <button id="save-runtime-settings" class="button primary full" type="submit">${icon('checkCircle')}<span>Guardar cambios</span></button>
+        <p id="runtime-settings-save-state" class="inline-status runtime-settings-state" role="status" aria-live="polite"></p>
+      </form>
+      <div class="runtime-settings-diagnostic" aria-labelledby="ai-config-title">
+        <div><p class="eyebrow">Estado WebAPI</p><h3 id="ai-config-title">Diagnóstico de IA</h3></div>
+        <strong id="ai-configuration-status">Cargando…</strong>
+        <p id="ai-configuration-detail"></p>
+        <dl class="provider-check">
+          <div><dt>Comprobación real</dt><dd id="ai-provider-request">Cargando…</dd></div>
+          <div><dt>Autorización</dt><dd id="ai-provider-authorization">Cargando…</dd></div>
+        </dl>
+        <p>La prueba envía una imagen sintética sin datos personales y exige una respuesta JSON conforme a un esquema estricto. Sólo se ejecuta al pulsar el botón.</p>
+        <p id="ai-provider-network-note" class="operations-help"></p>
+        <button id="test-ai-provider" class="button secondary full" type="button">${icon('sparkles')}<span>Verificar imagen y JSON estricto</span></button>
+        <p id="ai-test-state" class="inline-status" role="status"></p>
+      </div>
     </section>
     <section class="surface operations-card" aria-labelledby="logs-title">
       <div class="panel-heading"><div><p class="eyebrow">Observabilidad</p><h2 id="logs-title">Logs de aplicación</h2></div></div>
@@ -601,6 +721,19 @@ function installOperationsUi() {
       <p id="restore-state" class="inline-status" role="status"></p>
     </section>`;
   settings.append(section);
+  $('#runtime-settings-form').addEventListener('submit', event => void saveRuntimeSettings(event));
+  $('#runtime-settings-form').addEventListener('input', event => {
+    if (event.target?.id === 'runtime-ai-api-key' && event.target.value) {
+      $('#runtime-ai-clear-token').checked = false;
+      $('#runtime-ai-api-key').disabled = false;
+    }
+    state.runtimeSettingsDirty = true;
+  });
+  $('#runtime-ai-clear-token').addEventListener('change', event => {
+    $('#runtime-ai-api-key').disabled = event.target.checked;
+    if (event.target.checked) $('#runtime-ai-api-key').value = '';
+    state.runtimeSettingsDirty = true;
+  });
   $('#test-ai-provider').addEventListener('click', () => void testAiProvider());
   $('#refresh-logs').addEventListener('click', () => void loadLogs());
   $('#copy-logs').addEventListener('click', () => void copyLogs());
@@ -610,7 +743,7 @@ function installOperationsUi() {
 }
 
 async function refreshOperationalState() {
-  await Promise.allSettled([loadRuntime(), loadAiSettings(), loadLogs(), loadImportedBackups()]);
+  await Promise.allSettled([loadRuntime(), loadRuntimeSettings(), loadAiSettings(), loadLogs(), loadImportedBackups()]);
 }
 
 function installClientLogging() {
