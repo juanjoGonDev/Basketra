@@ -27,10 +27,14 @@ function sectionHeading(step, title, iconName) {
 
   const icon = document.createElement('span');
   icon.className = 'receipt-editor-section-heading__icon';
-  icon.dataset.icon = iconName;
   icon.setAttribute('aria-hidden', 'true');
   const localIcon = LOCAL_SECTION_ICONS[iconName];
-  if (localIcon) icon.innerHTML = localIcon;
+  if (localIcon) {
+    icon.dataset.localIcon = iconName;
+    icon.innerHTML = localIcon;
+  } else {
+    icon.dataset.icon = iconName;
+  }
 
   const titleElement = document.createElement('h3');
   titleElement.textContent = `${step}. ${title}`;
@@ -190,6 +194,12 @@ function lineQuantity(item) {
   return Number.isSafeInteger(quantity) && quantity > 0 ? quantity : 1;
 }
 
+function localizeEuroInput(input) {
+  if (!(input instanceof HTMLInputElement) || document.activeElement === input) return;
+  const match = /^(\d+)\.(\d{1,2})$/u.exec(input.value.trim());
+  if (match) input.value = `${match[1]},${match[2]}`;
+}
+
 function syncPresentationControls(item) {
   const unitPrice = item.querySelector('[data-field="unitPriceEuro"]');
   const discountType = item.querySelector('[data-field="discountType"]');
@@ -202,6 +212,8 @@ function syncPresentationControls(item) {
   setFieldCaption(discountType, 'Tipo');
   setFieldCaption(discountValue, 'Valor');
   setFieldCaption(discountQuantity, 'Unidades con descuento');
+  localizeEuroInput(unitPrice);
+  if (discountType?.value === 'amount') localizeEuroInput(discountValue);
 
   const priceShell = ensureControlShell(unitPrice, 'unit-price');
   const priceSuffix = ensureSuffix(priceShell, 'currency');
