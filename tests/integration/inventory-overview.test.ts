@@ -5,6 +5,7 @@ import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { BasketraServer } from '../../src/api/server.ts';
+import { BasketraDatabase } from '../../src/infrastructure/database.ts';
 import type { AppConfig } from '../../src/infrastructure/config.ts';
 
 type JsonObject = Record<string, unknown>;
@@ -75,7 +76,8 @@ async function request(baseUrl: string, path: string, init: JsonRequestInit = {}
 
 test('inventory overview exposes canonical counts and latest catalog value in one bounded read model', async () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-inventory-overview-'));
-  const server = new BasketraServer(config(root));
+  const appConfig = config(root);
+  const server = new BasketraServer(appConfig);
   await server.listen();
   const address = server.address();
   const baseUrl = `http://${address.host}:${address.port}`;
@@ -111,17 +113,27 @@ test('inventory overview exposes canonical counts and latest catalog value in on
     assert.equal(storeResponse.status, 201);
     const store = record(storeResponse.body?.['store']);
 
-    for (const [priceMinor, observedAt] of [[180, '2026-09-01T10:00:00.000Z'], [195, '2026-09-02T10:00:00.000Z']] as const) {
-      const observation = await request(baseUrl, `/api/v1/products/${encodeURIComponent(string(product['id']))}/prices`, {
-        method: 'POST',
-        body: {
+    const database = new BasketraDatabase(join(appConfig.dataDir, 'basketra.db'));
+    try {
+      for (const [priceMinor, observedAt, sourceReference] of [
+        [180, '2026-09-01T10:00:00.000Z', 'overview-price-1'],
+        [195, '2026-09-02T10:00:00.000Z', 'overview-price-2'],
+      ] as const) {
+        database.confirmPriceObservation({
+          productVariantId: string(product['id']),
           retailerName: 'Mercadona',
-          storeId: store['id'],
+          storeId: string(store['id']),
           priceMinor,
+          packageNumerator: 1,
+          packageDenominator: 1,
+          packageUnit: 'unit',
           observedAt,
-        },
-      });
-      assert.equal(observation.status, 201);
+          confidence: 1,
+          evidence: { sourceType: 'manual', sourceReference },
+        });
+      }
+    } finally {
+      database.close();
     }
 
     const response = await request(baseUrl, '/api/v1/inventory/overview');
