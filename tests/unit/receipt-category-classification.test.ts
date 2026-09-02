@@ -124,3 +124,35 @@ test('category resolver materializes only referenced proposals and falls back on
   assert.equal(fallback.items[0]?.categoryId, UNKNOWN_CATEGORY_ID);
   assert.match(fallback.warnings.join(' '), /desconocido/);
 });
+
+test('category resolver falls back only for semantic proposal failures', () => {
+  const categories = [
+    { id: 'category_unknown', name: 'desconocido', color: '#64748B', createdAt: '', updatedAt: '' },
+    { id: 'category_food', name: 'Alimentación', color: '#118844', createdAt: '', updatedAt: '' },
+  ];
+  const interpretation = baseInterpretation();
+  const semanticFailureStore = {
+    ensureUnknown: () => categories[0]!,
+    list: () => categories,
+    materialize: () => {
+      throw new Error('AI_CATEGORY_CYCLE');
+    },
+  };
+
+  const fallback = resolveReceiptCategories(interpretation, semanticFailureStore);
+  assert.equal(fallback.items[0]?.categoryId, UNKNOWN_CATEGORY_ID);
+  assert.match(fallback.warnings.join(' '), /desconocido/);
+
+  const persistenceFailure = new Error('SQLITE_IOERR: disk I/O error');
+  const persistenceFailureStore = {
+    ensureUnknown: () => categories[0]!,
+    list: () => categories,
+    materialize: () => {
+      throw persistenceFailure;
+    },
+  };
+  assert.throws(
+    () => resolveReceiptCategories(interpretation, persistenceFailureStore),
+    (error) => error === persistenceFailure,
+  );
+});
