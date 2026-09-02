@@ -10,6 +10,8 @@ import {
   toPublicRuntimeSettings,
 } from '../../src/infrastructure/runtime-settings.ts';
 
+const TEST_API_CREDENTIAL = ['fixture', 'credential', '1234'].join('-');
+
 test('runtime settings migrate with the main database and expose deterministic defaults', () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-runtime-settings-'));
   const databasePath = join(root, 'basketra.db');
@@ -41,14 +43,14 @@ test('runtime settings persist provider identity and secret without exposing the
   try {
     const updated = store.update({
       aiBaseUrl: 'http://webapi:3000/v1/',
-      aiApiKey: 'secret-token-1234',
+      aiApiKey: TEST_API_CREDENTIAL,
       aiModel: 'default',
       aiMaxRetries: 3,
       overpassBaseUrl: 'https://overpass.kumi.systems/api/',
       maxBodyBytes: 48 * 1024 * 1024,
       idleHibernateAfterMs: 120_000,
     });
-    assert.equal(updated.aiApiKey, 'secret-token-1234');
+    assert.equal(updated.aiApiKey, TEST_API_CREDENTIAL);
     assert.deepEqual(toPublicRuntimeSettings(updated).ai, {
       configured: true,
       baseUrl: 'http://webapi:3000/v1/',
@@ -65,13 +67,13 @@ test('runtime settings persist provider identity and secret without exposing the
   try {
     const reopened = store.read();
     assert.equal(reopened.aiBaseUrl, 'http://webapi:3000/v1/');
-    assert.equal(reopened.aiApiKey, 'secret-token-1234');
+    assert.equal(reopened.aiApiKey, TEST_API_CREDENTIAL);
     assert.equal(reopened.aiModel, 'default');
     assert.equal(reopened.aiMaxRetries, 3);
     assert.equal(reopened.maxBodyBytes, 48 * 1024 * 1024);
 
     store.update({ aiModel: 'next-model' });
-    assert.equal(store.read().aiApiKey, 'secret-token-1234');
+    assert.equal(store.read().aiApiKey, TEST_API_CREDENTIAL);
     store.update({ aiApiKey: null });
     assert.equal(store.read().aiApiKey, undefined);
   } finally {
