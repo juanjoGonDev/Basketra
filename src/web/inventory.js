@@ -48,17 +48,17 @@ function renderInventoryHub() {
       <section class="inventory-metrics" aria-label="Resumen del inventario">
         <article class="inventory-metric"><span class="inventory-metric__icon" data-icon="store"></span><div><small>Productos</small><strong data-inventory-metric="products">—</strong><span>Catálogo activo</span></div></article>
         <article class="inventory-metric"><span class="inventory-metric__icon" data-icon="list"></span><div><small>Categorías</small><strong data-inventory-metric="categories">—</strong><span>Jerarquía reutilizable</span></div></article>
-        <article class="inventory-metric"><span class="inventory-metric__icon" data-icon="location"></span><div><small>Tiendas</small><strong data-inventory-metric="stores">—</strong><span>Ubicaciones guardadas</span></div></article>
+        <article class="inventory-metric"><span class="inventory-metric__icon" data-icon="store"></span><div><small>Tiendas</small><strong data-inventory-metric="stores">—</strong><span>Ubicaciones guardadas</span></div></article>
         <article class="inventory-metric"><span class="inventory-metric__icon" data-icon="prices"></span><div><small>Valor observado</small><strong data-inventory-metric="value">—</strong><span>Basado en evidencia</span></div></article>
       </section>
 
       <section class="inventory-query" aria-label="Buscar en inventario">
         <label class="inventory-search">
           <span class="sr-only">Buscar en inventario</span>
-          <span data-icon="search" aria-hidden="true"></span>
+          <span data-icon="scan" aria-hidden="true"></span>
           <input type="search" maxlength="160" placeholder="Buscar productos, categorías o tiendas…" data-inventory-search>
         </label>
-        <button class="button secondary" type="button" data-inventory-action="filters"><span data-icon="filter"></span>Filtros</button>
+        <button class="button secondary" type="button" data-inventory-action="filters"><span data-icon="settings"></span>Filtros</button>
         <button class="button secondary" type="button" data-inventory-action="sort">Ordenar por: Recientes</button>
       </section>
 
@@ -66,22 +66,22 @@ function renderInventoryHub() {
         <button class="inventory-section-card" type="button" data-open-inventory="products">
           <span class="inventory-section-card__icon" data-icon="store"></span>
           <span class="inventory-section-card__copy"><strong>Productos</strong><span>Administra tu catálogo de productos, precios, stock y variantes.</span><small>Buscar, filtrar y revisar fichas</small></span>
-          <span class="inventory-section-card__cta">Ir a productos <span data-icon="chevronRight"></span></span>
+          <span class="inventory-section-card__cta">Ir a productos <span aria-hidden="true">→</span></span>
         </button>
         <button class="inventory-section-card" type="button" data-open-inventory="categories">
           <span class="inventory-section-card__icon inventory-section-card__icon--category" data-icon="list"></span>
           <span class="inventory-section-card__copy"><strong>Categorías</strong><span>Organiza el inventario con categorías jerárquicas y colores.</span><small>Árbol, detalle y clasificación</small></span>
-          <span class="inventory-section-card__cta">Ir a categorías <span data-icon="chevronRight"></span></span>
+          <span class="inventory-section-card__cta">Ir a categorías <span aria-hidden="true">→</span></span>
         </button>
         <button class="inventory-section-card" type="button" data-open-inventory="stores">
-          <span class="inventory-section-card__icon inventory-section-card__icon--store" data-icon="location"></span>
+          <span class="inventory-section-card__icon inventory-section-card__icon--store" data-icon="store"></span>
           <span class="inventory-section-card__copy"><strong>Tiendas</strong><span>Gestiona tus tiendas y el inventario disponible en cada ubicación.</span><small>Listado, detalle y actividad</small></span>
-          <span class="inventory-section-card__cta">Ir a tiendas <span data-icon="chevronRight"></span></span>
+          <span class="inventory-section-card__cta">Ir a tiendas <span aria-hidden="true">→</span></span>
         </button>
         <button class="inventory-section-card" type="button" data-open-inventory="statistics">
           <span class="inventory-section-card__icon inventory-section-card__icon--stats" data-icon="prices"></span>
           <span class="inventory-section-card__copy"><strong>Estadísticas</strong><span>Analiza el rendimiento, movimientos y rotación del inventario.</span><small>KPIs y tendencias verificables</small></span>
-          <span class="inventory-section-card__cta">Ver estadísticas <span data-icon="chevronRight"></span></span>
+          <span class="inventory-section-card__cta">Ver estadísticas <span aria-hidden="true">→</span></span>
         </button>
       </section>
 
@@ -134,7 +134,6 @@ function initializeInventory() {
   bindInventoryActions();
   setInventoryCurrent(location.hash.slice(1) || 'home');
   document.addEventListener('basketra:view-changed', event => setInventoryCurrent(String(event.detail?.view || '')));
-  if (location.hash === '#prices') history.replaceState(null, '', '#inventory');
 }
 
 initializeInventory();
