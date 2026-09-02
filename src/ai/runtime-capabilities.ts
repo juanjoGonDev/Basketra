@@ -2,6 +2,18 @@ import { AiProviderError } from './provider.ts';
 
 const MAX_RUNTIME_CAPABILITIES_BYTES = 32 * 1024;
 
+export type WebApiRuntimeCapabilities = Readonly<{
+  attachments: Readonly<{
+    maxCount: number;
+    maxFileBytes: number;
+    maxImageBytes: number;
+    maxSpreadsheetBytes: number;
+    maxUploadsPerThreeHours: number;
+  }>;
+  execution: Readonly<{ replyInactivityTimeoutMs: number }>;
+  requests: Readonly<{ maxJsonBodyBytes: number }>;
+}>;
+
 export async function fetchAiRuntimeCapabilities(
   input: Readonly<{
     baseUrl: URL;
@@ -10,7 +22,7 @@ export async function fetchAiRuntimeCapabilities(
     signal?: AbortSignal;
     fetchImplementation?: typeof fetch;
   }>,
-): Promise<unknown | undefined> {
+): Promise<WebApiRuntimeCapabilities | undefined> {
   const fetchImplementation = input.fetchImplementation ?? fetch;
   let response: Response;
   try {
@@ -48,10 +60,49 @@ export async function fetchAiRuntimeCapabilities(
 
   const text = await readBoundedText(response);
   try {
-    return JSON.parse(text) as unknown;
+    return parseAiRuntimeCapabilities(JSON.parse(text) as unknown);
   } catch {
     return undefined;
   }
+}
+
+export function parseAiRuntimeCapabilities(value: unknown): WebApiRuntimeCapabilities | undefined {
+  if (!isRecord(value)) return undefined;
+  const attachments = value['attachments'];
+  const execution = value['execution'];
+  const requests = value['requests'];
+  if (!isRecord(attachments) || !isRecord(execution) || !isRecord(requests)) return undefined;
+
+  const maxCount = readPositiveInteger(attachments['maxCount']);
+  const maxFileBytes = readPositiveInteger(attachments['maxFileBytes']);
+  const maxImageBytes = readPositiveInteger(attachments['maxImageBytes']);
+  const maxSpreadsheetBytes = readPositiveInteger(attachments['maxSpreadsheetBytes']);
+  const maxUploadsPerThreeHours = readPositiveInteger(attachments['maxUploadsPerThreeHours']);
+  const replyInactivityTimeoutMs = readPositiveInteger(execution['replyInactivityTimeoutMs']);
+  const maxJsonBodyBytes = readPositiveInteger(requests['maxJsonBodyBytes']);
+  if (
+    maxCount === undefined ||
+    maxFileBytes === undefined ||
+    maxImageBytes === undefined ||
+    maxSpreadsheetBytes === undefined ||
+    maxUploadsPerThreeHours === undefined ||
+    replyInactivityTimeoutMs === undefined ||
+    maxJsonBodyBytes === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    attachments: {
+      maxCount,
+      maxFileBytes,
+      maxImageBytes,
+      maxSpreadsheetBytes,
+      maxUploadsPerThreeHours,
+    },
+    execution: { replyInactivityTimeoutMs },
+    requests: { maxJsonBodyBytes },
+  };
 }
 
 async function readBoundedText(response: Response): Promise<string> {
@@ -82,6 +133,14 @@ async function readBoundedText(response: Response): Promise<string> {
     reader.releaseLock();
   }
   return Buffer.concat(chunks).toString('utf8');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readPositiveInteger(value: unknown): number | undefined {
+  return Number.isSafeInteger(value) && Number(value) > 0 ? Number(value) : undefined;
 }
 
 function ensureTrailingSlash(url: URL): URL {
