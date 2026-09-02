@@ -1,4 +1,5 @@
 import { AiProviderError } from '../ai/provider.ts';
+import type { CategoryDescriptor } from '../domain/categories.ts';
 import type { ReceiptExtractionJobRecord } from '../infrastructure/database.ts';
 import type { FileStore } from '../infrastructure/files.ts';
 import { RECEIPT_SCHEMA, type AiReceiptInterpretation } from './extraction.ts';
@@ -67,6 +68,7 @@ export class ReceiptDurableExtractionRunner {
     if (!request.verifyWithAi) return await this.#extractionService.extract(request, signal);
 
     const captures = uniqueReceiptCaptures(request.captures);
+    const categoryInventory = this.#extractionService.categoryInventoryFor(request);
     const existing = this.#durableStore.get(job.id);
     const state = existing ?? this.#durableStore.initialize(job.id, {
       deadlineAt: new Date(Date.parse(job.createdAt) + RECEIPT_AI_VERIFICATION_BUDGET_MS).toISOString(),
@@ -101,6 +103,7 @@ export class ReceiptDurableExtractionRunner {
           page,
           position,
           captures.length,
+          categoryInventory,
           deadlineAt,
           operationSignal,
         );
@@ -198,11 +201,14 @@ export class ReceiptDurableExtractionRunner {
     ocrPage: ReceiptPageEvidence,
     position: number,
     pageCount: number,
+    categoryInventory: readonly CategoryDescriptor[],
     deadlineAt: string,
     signal: AbortSignal,
   ): Promise<AiReceiptInterpretation> {
     let page = requirePage(requireState(this.#durableStore.get(jobId)), position);
-    if (page.remoteResult !== undefined) return RECEIPT_SCHEMA.parse(page.remoteResult);
+    if (page.remoteResult !== undefined) {
+      return this.#extractionService.resolveAiCategories(RECEIPT_SCHEMA.parse(page.remoteResult));
+    }
 
     const idempotencyKey = this.#durableStore.ensureIdempotencyKey(jobId, position);
     page = requirePage(requireState(this.#durableStore.get(jobId)), position);
@@ -223,6 +229,7 @@ export class ReceiptDurableExtractionRunner {
         },
         pageCount,
         pagePosition: position,
+        categoryInventory,
         signal,
       };
       remote = await this.createWithReconciliation(createInput, deadlineAt, signal);
@@ -245,7 +252,7 @@ export class ReceiptDurableExtractionRunner {
         interpretation: remote.interpretation,
       });
       this.#onProgress(jobId);
-      return remote.interpretation;
+      return this.#extractionService.resolveAiCategories(remote.interpretation);
     }
     if (remote.status === 'queued' || remote.status === 'in_progress') {
       throw new AiProviderError('AI_PROVIDER_FAILED');
