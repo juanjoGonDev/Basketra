@@ -69,24 +69,11 @@ function nextRuntime(current, patch) {
   };
 }
 
-test('runtime settings persist without restart and preserve, replace, then clear the write-only token', async ({ page }) => {
-  let runtime = publicRuntime();
-  const writes = [];
-
-  await page.route('**/api/v1/settings/runtime', async route => {
-    if (route.request().method() === 'GET') {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ settings: runtime }) });
-      return;
-    }
-    const patch = route.request().postDataJSON();
-    writes.push(patch);
-    runtime = nextRuntime(runtime, patch);
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ settings: runtime }) });
-  });
+async function installAuxiliaryRoutes(page, runtimeProvider) {
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
-    body: JSON.stringify(aiStatus(runtime)),
+    body: JSON.stringify(runtimeProvider()),
   }));
   await page.route('**/api/v1/diagnostics', route => route.fulfill({
     status: 200,
@@ -107,6 +94,23 @@ test('runtime settings persist without restart and preserve, replace, then clear
     contentType: 'application/json',
     body: JSON.stringify({ backups: [] }),
   }));
+}
+
+test('runtime settings persist without restart and preserve, replace, then clear the write-only token', async ({ page }) => {
+  let runtime = publicRuntime();
+  const writes = [];
+
+  await page.route('**/api/v1/settings/runtime', async route => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ settings: runtime }) });
+      return;
+    }
+    const patch = route.request().postDataJSON();
+    writes.push(patch);
+    runtime = nextRuntime(runtime, patch);
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ settings: runtime }) });
+  });
+  await installAuxiliaryRoutes(page, () => aiStatus(runtime));
 
   await page.goto('/');
   await openRuntimeSettings(page);
@@ -163,6 +167,127 @@ test('runtime settings persist without restart and preserve, replace, then clear
   await expect(page.locator('#runtime-settings-save-state')).toContainText('no hace falta reiniciar');
 });
 
+test('runtime editor keeps defensive defaults and does not overwrite dirty fields during heartbeat refresh', async ({ page }) => {
+  let runtime = {
+    overpassBaseUrl: '',
+    maxBodyBytes: 32 * MEBIBYTE,
+    idleHibernateAfterMs: 5 * MINUTE_MS,
+    updatedAt: '2026-09-02T19:00:00.000Z',
+  };
+  let runtimeReads = 0;
+  const writes = [];
+  await page.route('**/api/v1/settings/runtime', async route => {
+    if (route.request().method() === 'GET') {
+      runtimeReads += 1;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ settings: runtime }) });
+      return;
+    }
+    const patch = route.request().postDataJSON();
+    writes.push(patch);
+    runtime = {
+      ai: {
+        configured: false,
+        baseUrl: null,
+        model: null,
+        maxRetries: patch.aiMaxRetries,
+        apiKeyConfigured: true,
+        apiKeyMask: null,
+      },
+      overpassBaseUrl: patch.overpassBaseUrl,
+      maxBodyBytes: patch.maxBodyBytes,
+      idleHibernateAfterMs: patch.idleHibernateAfterMs,
+      updatedAt: '2026-09-02T19:01:00.000Z',
+    };
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ settings: runtime }) });
+  });
+  await installAuxiliaryRoutes(page, () => ({
+    configured: false,
+    status: 'missing',
+    missing: ['URL de WebAPI', 'Modelo'],
+    maxRetries: 1,
+    loopbackWarning: false,
+    requiresContainerRecreate: false,
+    recommendedHostUrl: 'http://host.docker.internal:3001/v1/',
+  }));
+
+  await page.goto('/');
+  await openRuntimeSettings(page);
+  await expect(page.locator('#runtime-ai-base-url')).toHaveValue('');
+  await expect(page.locator('#runtime-ai-model')).toHaveValue('');
+  await expect(page.locator('#runtime-ai-max-retries')).toHaveValue('1');
+  await expect(page.locator('#runtime-ai-token-help')).toContainText('No hay token guardado');
+
+  await page.getByText('Red y recursos locales', { exact: true }).click();
+  await expect(page.locator('#runtime-overpass-base-url')).toHaveValue('');
+  await page.locator('#runtime-overpass-base-url').fill('https://overpass.kumi.systems/api/');
+  await page.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0].aiBaseUrl).toBeNull();
+  expect(writes[0].aiModel).toBeNull();
+  await expect(page.locator('#runtime-ai-token-help')).toContainText('Token guardado');
+
+  await page.locator('#runtime-ai-base-url').fill('http://draft.local:3001/v1/');
+  const readsBeforeRefresh = runtimeReads;
+  runtime = publicRuntime({ ai: { ...publicRuntime().ai, baseUrl: 'http://server-change.local:3001/v1/' } });
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event('offline'));
+    window.dispatchEvent(new Event('online'));
+  });
+  await expect.poll(() => runtimeReads).toBeGreaterThan(readsBeforeRefresh);
+  await expect(page.locator('#runtime-ai-base-url')).toHaveValue('http://draft.local:3001/v1/');
+});
+
+test('runtime save guards duplicate submissions, survives missing diagnostics controls and surfaces backend errors', async ({ page }) => {
+  let runtime = publicRuntime();
+  let writes = 0;
+  let failSave = false;
+  let releaseFirstSave;
+  const firstSaveGate = new Promise(resolve => { releaseFirstSave = resolve; });
+
+  await page.route('**/api/v1/settings/runtime', async route => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ settings: runtime }) });
+      return;
+    }
+    writes += 1;
+    if (writes === 1) await firstSaveGate;
+    if (failSave) {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: { code: 'SAVE_FAILED', message: 'No se pudo guardar la configuración' } }),
+      });
+      return;
+    }
+    const patch = route.request().postDataJSON();
+    runtime = nextRuntime(runtime, patch);
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ settings: runtime }) });
+  });
+  await installAuxiliaryRoutes(page, () => aiStatus(runtime));
+
+  await page.goto('/');
+  await openRuntimeSettings(page);
+  await page.locator('#test-ai-provider').evaluate(element => element.remove());
+
+  await page.locator('#runtime-settings-form').evaluate(form => {
+    form.requestSubmit();
+    form.requestSubmit();
+  });
+  await expect.poll(() => writes).toBe(1);
+  await expect(page.getByRole('button', { name: 'Guardar cambios', exact: true })).toBeDisabled();
+  releaseFirstSave();
+  await expect(page.locator('#runtime-settings-save-state')).toContainText('Configuración guardada en SQLite');
+  await expect(page.getByRole('button', { name: 'Guardar cambios', exact: true })).toBeEnabled();
+
+  failSave = true;
+  await page.locator('#runtime-ai-model').fill('failure-model');
+  await page.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+  await expect.poll(() => writes).toBe(2);
+  await expect(page.locator('#runtime-settings-save-state')).toContainText('No se pudo guardar la configuración');
+  await expect(page.locator('#runtime-settings-save-state')).toHaveAttribute('data-state', 'error');
+  await expect(page.getByRole('button', { name: 'Guardar cambios', exact: true })).toBeEnabled();
+});
+
 test('runtime editor remains usable without horizontal overflow on compact mobile', async ({ page }) => {
   const runtime = publicRuntime({
     ai: {
@@ -179,18 +304,7 @@ test('runtime editor remains usable without horizontal overflow on compact mobil
     contentType: 'application/json',
     body: JSON.stringify({ settings: runtime }),
   }));
-  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify(aiStatus(runtime)),
-  }));
-  await page.route('**/api/v1/diagnostics', route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({ startedAt: '2026-09-02T18:00:00.000Z', memory: { rss: 64 * MEBIBYTE }, runtime: { version: '1.0.0', startedAt: '2026-09-02T18:00:00.000Z' } }),
-  }));
-  await page.route('**/api/v1/logs?limit=500', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ events: [] }) }));
-  await page.route('**/api/v1/restore/imports', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ backups: [] }) }));
+  await installAuxiliaryRoutes(page, () => aiStatus(runtime));
 
   await page.setViewportSize({ width: 320, height: 780 });
   await page.goto('/');
