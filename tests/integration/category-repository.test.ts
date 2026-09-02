@@ -123,12 +123,10 @@ test('category migration normalizes a legacy desconocido id without breaking ref
       FROM product_categories
       WHERE name = ? COLLATE NOCASE
     `).get(UNKNOWN_CATEGORY_NAME) as { id: string; name: string; parentId: string | null; color: string | null };
-    assert.deepEqual(unknown, {
-      id: UNKNOWN_CATEGORY_ID,
-      name: UNKNOWN_CATEGORY_NAME,
-      parentId: null,
-      color: UNKNOWN_CATEGORY_COLOR,
-    });
+    assert.equal(unknown.id, UNKNOWN_CATEGORY_ID);
+    assert.equal(unknown.name, UNKNOWN_CATEGORY_NAME);
+    assert.equal(unknown.parentId, null);
+    assert.equal(unknown.color, UNKNOWN_CATEGORY_COLOR);
     assert.equal(
       (migrated.prepare('SELECT parent_id AS parentId FROM product_categories WHERE id = ?').get('category_child') as { parentId: string }).parentId,
       UNKNOWN_CATEGORY_ID,
