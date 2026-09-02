@@ -16,12 +16,14 @@ The receipt analysis JSON must expose the selected category for each item plus a
 - `receipt_items` currently has no category reference. Without a persisted classification the AI result would be lost after receipt confirmation and the catalog projection would continue creating uncategorized products.
 - Existing receipt catalog projection preserves original receipt evidence and must continue doing so.
 - The current product/category specification says categories are flat and that AI never persists category changes. This request supersedes those two category-specific restrictions while retaining the rule for products, prices, stores and other AI proposals.
+- Final review found that migration v8 preserved a pre-existing legacy `desconocido` row with a non-canonical id, violating the stable `category_unknown` acceptance contract even though fresh databases were correct.
 
 ## Decision
 
 - Extend `product_categories` additively with nullable `parent_id` and `color`; do not replace the table or rewrite applied migrations.
 - Keep category names globally case-insensitive unique in this iteration. Hierarchy does not require duplicate names, and global uniqueness makes AI references deterministic.
 - Add the stable root fallback category `category_unknown` / `desconocido`. It cannot be renamed or nested under another category. Its display color is a neutral valid hex color.
+- Keep migration v8 immutable and add migration v9 to normalize a legacy `desconocido` id to `category_unknown` while atomically retargeting category-parent, canonical-product and receipt-item foreign-key references. The migration is additive/non-destructive and uses deferred foreign-key checking inside the existing migration transaction.
 - Category colors use canonical `#RRGGBB` values. The server validates and normalizes them; the browser does not own color syntax rules.
 - Prevent self-parenting and ancestor cycles. Parent references must identify an existing category or, while resolving an AI proposal, another category proposed in the same response.
 - Add a first-class `Categorías` application view using the existing no-dependency frontend, design tokens and navigation patterns. Mobile remains a single-column tree/list plus editor flow; wider layouts may place hierarchy and editor side by side.
@@ -90,10 +92,12 @@ Excluded:
 - Concurrent analyses can propose the same new category. Case-insensitive uniqueness plus idempotent resolution must converge on one persisted category rather than duplicate or fail the receipt.
 - Reparenting changes hierarchy for every product using that category. Manual category editing therefore remains an explicit user action; AI proposals only create missing categories and never reparent existing ones.
 - Existing in-flight jobs created before this feature have no category snapshot. They use only the stable fallback category rather than reading a mutable live inventory mid-recovery.
+- Migration v9 changes only the primary key identity of a legacy fallback row after retargeting every known foreign-key owner in the same migration transaction; the regression fixture explicitly covers category children, canonical products and receipt items.
 
 ## Tests
 
-- migration upgrade and fresh-database tests for schema v8 and `category_unknown`
+- fresh-database migration tests for hierarchy/color schema and `category_unknown`
+- v8-to-v9 upgrade regression proving a legacy `desconocido` id is normalized without breaking category-parent, canonical-product or receipt-item references
 - category repository tests for nested create/update, color normalization, protected fallback and cycle rejection
 - category API integration tests for hierarchy/color validation and response shape
 - receipt structured-schema unit tests for required category ids and new-category proposals
@@ -108,7 +112,7 @@ Excluded:
 
 ## Rollback
 
-Application behavior can be rolled back by reverting the feature commits. Schema v8 is additive and must not be manually removed from an upgraded production database; older application versions ignore the added category columns and `receipt_items.category_id`. The seeded fallback row is ordinary non-secret catalog data. No receipt evidence or price history is rewritten.
+Application behavior can be rolled back by reverting the feature commits. Schema migrations v8 and v9 are additive/non-destructive and must not be manually removed or rewritten on an upgraded production database; older application versions ignore the added category columns and `receipt_items.category_id`. The v9 identity normalization preserves references but should likewise remain recorded as applied. The seeded fallback row is ordinary non-secret catalog data. No receipt evidence or price history is rewritten.
 
 ## Delivery
 
@@ -116,4 +120,4 @@ Use atomic Conventional Commits on `agent/feat-ticket-category-classification`, 
 
 ## Status
 
-Implementation and stable documentation are synchronized in PR #49 on `agent/feat-ticket-category-classification`. Migration v8, `CategoryRepository`, hierarchical/color API behavior, durable receipt category snapshots, strict `categoryId`/`newCategories` output, server-side proposal materialization, confirmation/catalog projection and the `Categorías` browser workflow are covered by focused unit/integration/browser tests. The earlier changed-code coverage blocker is covered without weakening the gate, and the Browser E2E locator regressions were corrected in test-only atomic commits. `spec.md` now reflects hierarchical categories, `CategoryRepository` ownership and the controlled server-side AI materialization exception. Final same-head Quality/Browser/arm64/container/CodeQL validation, published visual evidence, PR body synchronization and final review remain pending. No merge, release or deploy has been performed.
+Implementation and stable documentation are synchronized in PR #49 on `agent/feat-ticket-category-classification`. Migration v8 adds hierarchy/color/category references and migration v9 normalizes any legacy `desconocido` identity to the stable `category_unknown` id while preserving references. `CategoryRepository`, hierarchical/color API behavior, durable receipt category snapshots, strict `categoryId`/`newCategories` output, server-side proposal materialization, confirmation/catalog projection and the `Categorías` browser workflow are covered by focused unit/integration/browser tests. Final review found and corrected the legacy fallback-id defect before handoff. The first v9 CI attempt reached the new integration regression and failed only because `node:sqlite` row objects have a null prototype; the assertion was changed to validate canonical fields independently without changing migration behavior. The earlier changed-code coverage blocker is covered without weakening the gate, and a prior same-feature Browser E2E run completed its Chromium test step and evidence uploads successfully after the locator fixes. Final same-head Quality/Browser/arm64/container/CodeQL validation, published visual evidence, stable `spec.md` migration-note synchronization, PR body synchronization and final review remain pending. No merge, release or deploy has been performed.
