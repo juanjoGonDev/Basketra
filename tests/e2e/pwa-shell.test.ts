@@ -29,6 +29,11 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.doesNotMatch(html, /user-scalable=no|maximum-scale=1/i);
   assert.match(html, /href="\/modern\.css"/);
   assert.match(html, /data-nav="lists"/);
+  assert.match(html, /data-nav="inventory"/);
+  assert.match(html, /src="\/inventory\.js"/);
+  assert.match(html, /src="\/inventory-swipe\.js"/);
+  assert.match(html, /src="\/ticket-history\.js"/);
+  assert.doesNotMatch(html, /run-demo-comparison|data-view="prices"|>Planes</i);
   assert.match(html, /id="new-list-form"/);
   assert.match(html, /id="rename-list-form"/);
   assert.match(html, /id="delete-list-dialog"/);
@@ -41,7 +46,6 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.match(html, /id="receipt-files"[^>]*application\/pdf/);
   assert.match(html, /id="capture-preview-dialog"/);
   assert.match(html, /Basketra no requiere token de aplicación/);
-  assert.match(html, /id="run-demo-comparison"/);
 
   assert.equal(manifest.name, 'Basketra');
   assert.equal(manifest.short_name, 'Basketra');
@@ -50,6 +54,15 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
 
   for (const asset of [
     '/api.js',
+    '/routes.js',
+    '/catalog.js',
+    '/catalog.css',
+    '/inventory.js',
+    '/inventory.css',
+    '/inventory-swipe.js',
+    '/ticket-history.js',
+    '/ticket-history.css',
+    '/ticket-history-values.js',
     '/state.js',
     '/lists.js',
     '/receipts.js',
@@ -71,6 +84,7 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.match(app, /initLists/);
   assert.match(app, /initReceipts/);
   assert.match(app, /hydrateIcons\(\)/);
+  assert.doesNotMatch(app, /runDemoComparison|optimizationPlan|renderPlanTabs/);
   assert.doesNotMatch(app, /basketra\.authToken|authorization/i);
   assert.doesNotMatch(api, /localStorage|Bearer|authorization/i);
 
