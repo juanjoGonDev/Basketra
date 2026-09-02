@@ -202,6 +202,7 @@ test('receipt line total is read-only, backend-derived and ignores stale calcula
   const discountType = editor.locator('[data-field="discountType"]');
   const discountValue = editor.locator('[data-field="discountValue"]');
   const total = editor.locator('[data-field="lineTotalEuro"]');
+  const summary = editor.locator('.receipt-line-editor-summary');
   const summaryTotal = editor.locator('[data-editor-summary-total]');
   await expect(total).toHaveJSProperty('tagName', 'OUTPUT');
   await expect(total).toHaveAttribute('data-derived-total', 'true');
@@ -217,7 +218,8 @@ test('receipt line total is read-only, backend-derived and ignores stale calcula
   await quantity.fill('2');
   await expect.poll(() => requests.length).toBeGreaterThanOrEqual(2);
   await expect(total).toHaveText('7.77');
-  await expect(summaryTotal).toHaveText('7,77 €');
+  await expect(summary).toHaveAttribute('data-summary-state', 'invalid');
+  await expect(summaryTotal).toHaveText('—');
   await expect.poll(() => requests.at(-1)).toEqual({
     quantity: 2,
     unitPriceMinor: 125,
@@ -228,5 +230,6 @@ test('receipt line total is read-only, backend-derived and ignores stale calcula
   await firstRequestFinished;
   await expect(total).toHaveText('7.77');
   await expect(total).toHaveAttribute('data-derived-total', 'true');
-  await expect(summaryTotal).toHaveText('7,77 €');
+  await expect(summary).toHaveAttribute('data-summary-state', 'invalid');
+  await expect(summaryTotal).toHaveText('—');
 });
