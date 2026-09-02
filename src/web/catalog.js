@@ -31,6 +31,8 @@ const state = {
   categorySearchTimer: null,
   loadController: null,
   loadGeneration: 0,
+  categoryLoadController: null,
+  categoryLoadGeneration: 0,
 };
 
 function injectStylesheet() {
@@ -140,14 +142,14 @@ function installCategoryView() {
   hydrateIcons(view);
 }
 
-function activateFeatureView(viewName) {
+function activateFeatureView(viewName, { dispatch = true } = {}) {
   const view = document.querySelector(`.view[data-view="${CSS.escape(viewName)}"]`);
   if (!view) return false;
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element === view));
   document.querySelectorAll('.bottom-nav [data-nav]').forEach(element => element.removeAttribute('aria-current'));
   document.querySelector('.bottom-nav [data-nav="inventory"]')?.setAttribute('aria-current', 'page');
   history.replaceState(null, '', `#${viewName}`);
-  document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: viewName } }));
+  if (dispatch) document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: viewName } }));
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
   window.scrollTo(0, 0);
@@ -618,7 +620,7 @@ async function loadProducts({ resetPage = false } = {}) {
     renderProductList();
     $('#catalog-state').textContent = `${state.catalog.total || 0} productos encontrados.`;
   } catch (error) {
-    if (error?.name === 'AbortError') return;
+    if (error?.name === 'AbortError' || generation !== state.loadGeneration) return;
     $('#catalog-state').textContent = `No se pudieron cargar los productos: ${error.message}`;
   } finally {
     if (generation === state.loadGeneration) state.loadController = null;
@@ -636,18 +638,26 @@ function categoryQueryString() {
 }
 
 async function loadCategoryInventory({ resetPage = false } = {}) {
+  const generation = ++state.categoryLoadGeneration;
+  state.categoryLoadController?.abort();
+  const controller = new AbortController();
+  state.categoryLoadController = controller;
   if (resetPage) state.categoryPage = 1;
   const searchInput = $('#category-search');
   if (searchInput) state.categoryQuery = searchInput.value.trim();
   $('#category-state').textContent = 'Cargando categorías…';
   try {
     await loadCategoryMetadata();
-    const result = await api(`/api/v1/categories?${categoryQueryString()}`);
+    const result = await api(`/api/v1/categories?${categoryQueryString()}`, { signal: controller.signal });
+    if (generation !== state.categoryLoadGeneration) return;
     state.categoryInventory = result.inventory || { categories: [], total: 0, offset: 0, limit: CATEGORY_PAGE_SIZE, hasMore: false };
     renderCategoryList();
     $('#category-state').textContent = `${state.categoryInventory.total || 0} categorías encontradas.`;
   } catch (error) {
+    if (error?.name === 'AbortError' || generation !== state.categoryLoadGeneration) return;
     $('#category-state').textContent = `No se pudieron cargar las categorías: ${error.message}`;
+  } finally {
+    if (generation === state.categoryLoadGeneration) state.categoryLoadController = null;
   }
 }
 
@@ -953,13 +963,13 @@ async function openRequestedCategory(requested) {
 }
 
 async function activateCatalog(requested = 'catalog') {
-  if (!activateFeatureView('catalog')) return;
+  if (!activateFeatureView('catalog', { dispatch: false })) return;
   await loadProducts({ resetPage: true });
   await openRequestedProduct(requested);
 }
 
 async function activateCategories(requested = 'categories') {
-  if (!activateFeatureView('categories')) return;
+  if (!activateFeatureView('categories', { dispatch: false })) return;
   await loadCategoryInventory({ resetPage: true });
   await openRequestedCategory(requested);
 }
@@ -967,7 +977,9 @@ async function activateCategories(requested = 'categories') {
 function handleViewChanged(event) {
   const view = String(event.detail?.view || '');
   if (view === 'catalog') void loadProducts({ resetPage: true });
+  else state.loadController?.abort();
   if (view === 'categories') void loadCategoryInventory({ resetPage: true });
+  else state.categoryLoadController?.abort();
   if (view === 'catalog' || view === 'categories') document.querySelector('.bottom-nav [data-nav="inventory"]')?.setAttribute('aria-current', 'page');
 }
 
