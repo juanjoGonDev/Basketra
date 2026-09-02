@@ -33,6 +33,13 @@ type ReceiptExtractionServiceOptions = Readonly<{
   aiVerificationBudgetMs?: number;
 }>;
 
+type ReceiptAiRuntime = Readonly<{
+  provider: AiProvider;
+  maxRetries: number;
+}>;
+
+type ReceiptAiRuntimeResolver = () => ReceiptAiRuntime;
+
 export class ReceiptAiVerificationTimeoutError extends Error {
   readonly code = 'AI_RECEIPT_TIMEOUT' as const;
 
@@ -215,12 +222,13 @@ export class ReceiptExtractionService {
   async extract(request: ReceiptExtractionRequest, signal?: AbortSignal): Promise<ReceiptExtractionResult> {
     signal?.throwIfAborted();
     const captures = uniqueCaptures(request.captures);
+    const resolveAiRuntime = this.aiRuntimeResolver();
     const pages = request.verifyWithAi
       ? await this.runWithinAiVerificationBudget(async (verificationSignal) => {
-          const ocrPages = this.queueOcrPages(captures, verificationSignal);
-          return await this.verifyOcrPagesInOrder(captures, ocrPages, verificationSignal);
+          const ocrPages = this.queueOcrPages(captures, resolveAiRuntime, verificationSignal);
+          return await this.verifyOcrPagesInOrder(captures, ocrPages, resolveAiRuntime, verificationSignal);
         }, signal)
-      : await Promise.all(this.queueOcrPages(captures, signal));
+      : await Promise.all(this.queueOcrPages(captures, resolveAiRuntime, signal));
     return assembleReceiptExtraction(pages);
   }
 
@@ -229,13 +237,7 @@ export class ReceiptExtractionService {
     position: number,
     signal?: AbortSignal,
   ): Promise<ReceiptOcrPageEvidence> {
-    if (!Number.isSafeInteger(position) || position < 0 || position >= MAX_RECEIPT_CONVERSATION_PAGES) {
-      throw new RangeError('Receipt OCR page position is invalid');
-    }
-    return await this.#pageQueue.run(
-      () => this.readOcrPage(capture, position, signal),
-      signal,
-    );
+    return await this.queueOcrPage(capture, position, this.aiRuntimeResolver(), signal);
   }
 
   dispose(): void {
@@ -247,9 +249,25 @@ export class ReceiptExtractionService {
 
   private queueOcrPages(
     captures: readonly ReceiptCaptureRequest[],
+    resolveAiRuntime: ReceiptAiRuntimeResolver,
     signal?: AbortSignal,
   ): Promise<ReceiptOcrPageEvidence>[] {
-    return captures.map((capture, position) => this.extractOcrPage(capture, position, signal));
+    return captures.map((capture, position) => this.queueOcrPage(capture, position, resolveAiRuntime, signal));
+  }
+
+  private queueOcrPage(
+    capture: ReceiptCaptureRequest,
+    position: number,
+    resolveAiRuntime: ReceiptAiRuntimeResolver,
+    signal?: AbortSignal,
+  ): Promise<ReceiptOcrPageEvidence> {
+    if (!Number.isSafeInteger(position) || position < 0 || position >= MAX_RECEIPT_CONVERSATION_PAGES) {
+      throw new RangeError('Receipt OCR page position is invalid');
+    }
+    return this.#pageQueue.run(
+      () => this.readOcrPage(capture, position, resolveAiRuntime, signal),
+      signal,
+    );
   }
 
   private async runWithinAiVerificationBudget<T>(
@@ -279,11 +297,12 @@ export class ReceiptExtractionService {
   private async readOcrPage(
     capture: ReceiptCaptureRequest,
     position: number,
+    resolveAiRuntime: ReceiptAiRuntimeResolver,
     signal?: AbortSignal,
   ): Promise<ReceiptOcrPageEvidence> {
     signal?.throwIfAborted();
     const stored = this.#fileStore.read(capture.storageKey);
-    const result = await this.recognizeCapture(capture, stored, signal);
+    const result = await this.recognizeCapture(capture, stored, resolveAiRuntime, signal);
     const deterministicItems = parseDeterministicReceiptText(result.text);
     const metadata = extractReceiptMetadata(result.text);
 
@@ -302,6 +321,7 @@ export class ReceiptExtractionService {
   private async recognizeCapture(
     capture: ReceiptCaptureRequest,
     stored: StoredFile,
+    resolveAiRuntime: ReceiptAiRuntimeResolver,
     signal?: AbortSignal,
   ): Promise<OcrResult> {
     if (capture.embeddedText) {
@@ -323,15 +343,16 @@ export class ReceiptExtractionService {
       return this.#localOcrProvider.recognize(input, signal);
     }
 
-    return this.#aiQueue.run(
-      () => this.multimodalOcrProvider().recognize(input, signal),
-      signal,
-    );
+    return this.#aiQueue.run(() => {
+      const { provider, maxRetries } = resolveAiRuntime();
+      return this.multimodalOcrProvider(provider, maxRetries).recognize(input, signal);
+    }, signal);
   }
 
-  private multimodalOcrProvider(): MultimodalAiOcrProvider {
-    const aiProvider = this.#getAiProvider();
-    const maxRetries = this.maxRetries();
+  private multimodalOcrProvider(
+    aiProvider: AiProvider,
+    maxRetries: number,
+  ): MultimodalAiOcrProvider {
     if (
       this.#multimodalOcrProvider
       && this.#multimodalOcrAiProvider === aiProvider
@@ -357,13 +378,15 @@ export class ReceiptExtractionService {
   private async verifyPageWithAi(
     capture: ReceiptCaptureRequest,
     page: ReceiptOcrPageEvidence,
+    resolveAiRuntime: ReceiptAiRuntimeResolver,
     signal?: AbortSignal,
     session?: ReceiptAiSession,
   ): Promise<ReceiptPageEvidence> {
     const stored = this.#fileStore.read(capture.storageKey);
+    const { provider, maxRetries } = resolveAiRuntime();
     const ai = await verifyReceiptWithAi(
-      this.#getAiProvider(),
-      this.maxRetries(),
+      provider,
+      maxRetries,
       page.text,
       {
         mimeType: stored.mimeType,
@@ -386,6 +409,7 @@ export class ReceiptExtractionService {
   private async verifyOcrPagesInOrder(
     captures: readonly ReceiptCaptureRequest[],
     ocrPages: readonly Promise<ReceiptOcrPageEvidence>[],
+    resolveAiRuntime: ReceiptAiRuntimeResolver,
     signal?: AbortSignal,
   ): Promise<ReceiptPageEvidence[]> {
     const affinity = `basketra-receipt-${randomUUID()}`;
@@ -396,7 +420,7 @@ export class ReceiptExtractionService {
       const page = await ocrPage;
       const capture = captures[position]!;
       verified.push(await this.#aiQueue.run(
-        () => this.verifyPageWithAi(capture, page, signal, {
+        () => this.verifyPageWithAi(capture, page, resolveAiRuntime, signal, {
           affinity,
           final: position === ocrPages.length - 1,
           pageCount: ocrPages.length,
@@ -407,6 +431,18 @@ export class ReceiptExtractionService {
     }
 
     return verified;
+  }
+
+  private aiRuntimeResolver(): ReceiptAiRuntimeResolver {
+    let runtime: ReceiptAiRuntime | undefined;
+    return () => {
+      if (runtime) return runtime;
+      runtime = {
+        provider: this.#getAiProvider(),
+        maxRetries: this.maxRetries(),
+      };
+      return runtime;
+    };
   }
 
   private maxRetries(): number {
