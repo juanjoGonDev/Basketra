@@ -43,9 +43,10 @@ Stop Basketra from owning AI attachment limits. Use WebAPI as the only functiona
 - Focused unit/integration coverage validates response multipart transport and capability caching.
 - Database persistence/reopen regression is covered.
 - Provider runtime-capability coverage includes an attachment larger than the JSON budget but smaller than the live image limit and requires the multipart request to succeed.
-- Canonical Pull Request Quality covers quality, Browser E2E, linux/amd64, linux/arm64, container smoke and Security.
+- Canonical Pull Request Quality covers quality, changed-code coverage, resource/growth budgets, Browser E2E, linux/amd64, linux/arm64, container smoke and Security.
 - CodeQL and visual-evidence publication are required exact-head delivery gates.
-- Final browser evidence must cover desktop, mobile and calculation-error states with no horizontal overflow, inaccessible actions, functional misalignment or hidden error feedback.
+- Browser E2E publishes a compact PNG-only screenshot artifact so final visual review does not depend on downloading the complete Playwright report/traces archive.
+- Final browser evidence must cover Settings mobile/tablet widths and the relevant receipt/error states with no horizontal overflow, inaccessible actions, functional misalignment or hidden error feedback.
 
 ## Risks
 
@@ -64,4 +65,4 @@ Branch `agent/fix-webapi-limit-contract`. Coordinated WebAPI branch `agent/fix-d
 
 ## Status
 
-Implementation is prepared. Delivery remains contingent on green exact-head Basketra CI, clean exact-head visual/runtime review, and the already-coordinated WebAPI PR #108 remaining green. Any gate defect reopens implementation and must be fixed before final delivery.
+Implementation is prepared. Delivery is complete only when the current Basketra PR head has green exact-head Quality, Browser E2E, container, Security, CodeQL and visual-evidence gates, the compact screenshot evidence has been inspected, and companion WebAPI PR #108 remains exact-head green. Any gate or visual defect reopens implementation.
