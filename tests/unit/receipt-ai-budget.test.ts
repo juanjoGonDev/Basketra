@@ -109,6 +109,25 @@ test('receipt AI verification budget rejects invalid local policy values', () =>
   }
 });
 
+test('receipt AI retries reject invalid runtime bounds', () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-receipt-ai-retry-bounds-'));
+  const store = new FileStore(join(root, 'files'), join(root, 'tmp'), 4096);
+  const aiProvider = provider(async () => interpretedPage());
+  try {
+    for (const maxRetries of [-1, 1.5, 11]) {
+      assert.throws(
+        () => serviceWithBudget(store, aiProvider, maxRetries, SHORT_TEST_BUDGET_MS),
+        {
+          name: 'RangeError',
+          message: 'AI max retries must be an integer between 0 and 10',
+        },
+      );
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('structured executor treats abort as terminal even when retries remain', async () => {
   let attempts = 0;
   const aiProvider = provider(async () => {

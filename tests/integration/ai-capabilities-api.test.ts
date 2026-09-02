@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { rmSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import test from 'node:test';
 
@@ -155,6 +156,49 @@ test('AI capability preflight reports an unconfigured provider without an upstre
       message: 'El proveedor de IA no está configurado',
     });
   } finally {
+    await gateway.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('container runtime rejects a loopback WebAPI configuration before provider traffic', async () => {
+  const directory = `.test-tmp/ai-capabilities-container-loopback-${randomUUID()}`;
+  const gateway = new OperationsGateway(config(directory));
+  const mutableFs = createRequire(import.meta.url)('node:fs') as {
+    existsSync: typeof import('node:fs').existsSync;
+  };
+  const originalExistsSync = mutableFs.existsSync;
+  mutableFs.existsSync = (path) => path === '/.dockerenv' ? true : originalExistsSync(path);
+  syncBuiltinESMExports();
+
+  try {
+    await gateway.listen();
+    const baseUrl = `http://127.0.0.1:${gateway.address().port}`;
+    await updateRuntimeAi(baseUrl, 'http://127.0.0.1:9/v1/');
+
+    const settingsResponse = await fetch(`${baseUrl}/api/v1/settings/ai-provider`);
+    assert.equal(settingsResponse.status, 200);
+    const settings = await settingsResponse.json() as {
+      configured: boolean;
+      status: string;
+      loopbackWarning: boolean;
+    };
+    assert.equal(settings.configured, true);
+    assert.equal(settings.status, 'warning');
+    assert.equal(settings.loopbackWarning, true);
+
+    const probeResponse = await fetch(`${baseUrl}/api/v1/settings/ai-provider/test`, { method: 'POST' });
+    assert.equal(probeResponse.status, 502);
+    const probe = await probeResponse.json() as {
+      connection: { ok: boolean; code: string; status: number; message: string };
+    };
+    assert.equal(probe.connection.ok, false);
+    assert.equal(probe.connection.code, 'AI_LOOPBACK_CONTAINER');
+    assert.equal(probe.connection.status, 502);
+    assert.match(probe.connection.message, /host\.docker\.internal/u);
+  } finally {
+    mutableFs.existsSync = originalExistsSync;
+    syncBuiltinESMExports();
     await gateway.close();
     rmSync(directory, { recursive: true, force: true });
   }
