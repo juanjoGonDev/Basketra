@@ -145,6 +145,9 @@ export class ReceiptExtractionService {
   readonly #pageQueue: ReceiptPageTaskQueue;
   readonly #aiQueue: ReceiptPageTaskQueue;
   readonly #aiVerificationBudgetMs: number;
+  #multimodalOcrProvider: MultimodalAiOcrProvider | undefined;
+  #multimodalOcrAiProvider: AiProvider | undefined;
+  #multimodalOcrMaxRetries: number | undefined;
 
   constructor(
     fileStore: FileStore,
@@ -239,6 +242,7 @@ export class ReceiptExtractionService {
     this.#pageQueue.dispose();
     this.#aiQueue.dispose();
     this.#localOcrProvider.dispose();
+    this.disposeMultimodalOcrProvider();
   }
 
   private queueOcrPages(
@@ -319,14 +323,35 @@ export class ReceiptExtractionService {
       return this.#localOcrProvider.recognize(input, signal);
     }
 
-    return this.#aiQueue.run(async () => {
-      const provider = new MultimodalAiOcrProvider(this.#getAiProvider(), this.maxRetries());
-      try {
-        return await provider.recognize(input, signal);
-      } finally {
-        provider.dispose();
-      }
-    }, signal);
+    return this.#aiQueue.run(
+      () => this.multimodalOcrProvider().recognize(input, signal),
+      signal,
+    );
+  }
+
+  private multimodalOcrProvider(): MultimodalAiOcrProvider {
+    const aiProvider = this.#getAiProvider();
+    const maxRetries = this.maxRetries();
+    if (
+      this.#multimodalOcrProvider
+      && this.#multimodalOcrAiProvider === aiProvider
+      && this.#multimodalOcrMaxRetries === maxRetries
+    ) {
+      return this.#multimodalOcrProvider;
+    }
+
+    this.disposeMultimodalOcrProvider();
+    this.#multimodalOcrProvider = new MultimodalAiOcrProvider(aiProvider, maxRetries);
+    this.#multimodalOcrAiProvider = aiProvider;
+    this.#multimodalOcrMaxRetries = maxRetries;
+    return this.#multimodalOcrProvider;
+  }
+
+  private disposeMultimodalOcrProvider(): void {
+    this.#multimodalOcrProvider?.dispose();
+    this.#multimodalOcrProvider = undefined;
+    this.#multimodalOcrAiProvider = undefined;
+    this.#multimodalOcrMaxRetries = undefined;
   }
 
   private async verifyPageWithAi(
