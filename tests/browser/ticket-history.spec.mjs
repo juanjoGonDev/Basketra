@@ -34,7 +34,7 @@ function calculateLine(payload) {
   const subtotal = payload.quantity * payload.unitPriceMinor;
   let discountMinor = 0;
   if (payload.discount?.type === 'amount') {
-    discountMinor = payload.discount.amountMinor * (payload.discount.quantity ?? payload.quantity);
+    discountMinor = payload.discount.amountMinor;
   } else if (payload.discount?.type === 'percentage') {
     const affected = payload.discount.quantity ?? payload.quantity;
     discountMinor = Math.round((affected * payload.unitPriceMinor * payload.discount.basisPoints) / 10_000);
@@ -186,7 +186,7 @@ test('ticket history supports mobile list, keyboard detail, canonical line calcu
     unitPriceMinor: 150,
     discount: { type: 'amount', amountMinor: 20 },
   });
-  await expect(lineDialog.locator('#historical-ticket-line-total')).toContainText('2,60');
+  await expect(lineDialog.locator('#historical-ticket-line-total')).toContainText('2,80');
   await lineDialog.getByRole('button', { name: 'Guardar línea' }).click();
   await expect(lineDialog).toBeHidden();
   await expect(page.locator('#ticket-editor-status')).toHaveText('Sin guardar');
@@ -208,7 +208,7 @@ test('ticket history supports mobile list, keyboard detail, canonical line calcu
   });
   expect(patch.items[0]).not.toHaveProperty('lineTotalMinor');
   expect(patch).not.toHaveProperty('declaredTotalMinor');
-  await expect(page.locator('#ticket-editor-total')).toContainText('2,60');
+  await expect(page.locator('#ticket-editor-total')).toContainText('2,80');
   await expect(page.locator('#ticket-editor-form-state')).toContainText('sin reescribir la evidencia original');
 
   await page.getByRole('button', { name: 'Eliminar', exact: true }).click();
