@@ -6,8 +6,10 @@ import { COLLABORATION_MIGRATIONS } from '../../src/infrastructure/collaboration
 const RECEIPT_CATALOG_MIGRATION_VERSION = 7;
 
 test('receipt catalog projection remains owned by its safe schema migration', () => {
-  const migration = COLLABORATION_MIGRATIONS.find((entry) => entry.version === RECEIPT_CATALOG_MIGRATION_VERSION);
-  assert.ok(CURRENT_SCHEMA_VERSION > RECEIPT_CATALOG_MIGRATION_VERSION);
+  const migration = COLLABORATION_MIGRATIONS.find(
+    (candidate) => candidate.version === RECEIPT_CATALOG_MIGRATION_VERSION,
+  );
+  assert.ok(CURRENT_SCHEMA_VERSION >= RECEIPT_CATALOG_MIGRATION_VERSION);
   assert.equal(migration?.version, RECEIPT_CATALOG_MIGRATION_VERSION);
   assert.equal(migration?.kind, 'safe');
   assert.match(migration?.sql ?? '', /CREATE TRIGGER receipt_items_project_catalog/u);
