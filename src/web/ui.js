@@ -376,14 +376,13 @@ function receiptLine(item, index, validation = {}, categoryName = '') {
   const editAttributes = `data-receipt-action="edit" data-receipt-index="${index}" aria-label="Editar línea ${index + 1}"`;
   const deleteAttributes = `data-receipt-action="delete" data-receipt-index="${index}" aria-label="Eliminar línea ${index + 1}"`;
   const category = categoryName
-    ? `<p class="receipt-line-category" data-receipt-category>${icon('tag')}<span>Categoría</span><strong data-receipt-category-label>${escapeHtml(categoryName)}</strong></p>`
+    ? `<small class="receipt-line-category" data-receipt-category>${icon('tag')}<span>Categoría</span><strong data-receipt-category-label>${escapeHtml(categoryName)}</strong></small>`
     : '';
   return `<div class="swipe-shell" data-swipe-row data-swipe-kind="receipt-line" data-swipe-id="${index}" data-swipe-end-action="delete" data-swipe-open="false">
     ${swipeActionRail('Editar', 'Eliminar', editAttributes, deleteAttributes)}
     <fieldset class="receipt-item swipe-content" data-swipe-content data-item-index="${index}">
       <legend><span>Línea ${index + 1}</span><span class="receipt-item__legend-actions"><span class="status-pill ${confirmed ? 'success' : 'warning'}">${escapeHtml(validation.status || 'needs-review')}</span><button type="button" class="icon-button" data-swipe-toggle aria-expanded="false" aria-label="Mostrar acciones de la línea ${index + 1}">${icon('more')}</button></span></legend>
-      <label class="field"><span>Producto</span><input data-field="description" maxlength="240" value="${escapeHtml(item.description)}" autocomplete="off"></label>
-      ${category}
+      <label class="field"><span>Producto</span><input data-field="description" maxlength="240" value="${escapeHtml(item.description)}" autocomplete="off">${category}</label>
       <div class="quantity-row"><label class="field"><span>Cantidad</span><input data-field="quantity" type="number" min="0" step="1" inputmode="numeric" value="${item.quantity}"></label><label class="field"><span>Precio unitario (€)</span><input data-field="unitPriceEuro" inputmode="decimal" value="${minorToEuroInput(item.unitPriceMinor)}"></label><label class="field"><span>Total (€)</span><input data-field="lineTotalEuro" inputmode="decimal" value="${minorToEuroInput(item.lineTotalMinor)}"></label></div>
     </fieldset>
   </div>`;
