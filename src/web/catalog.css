@@ -704,3 +704,41 @@
     background: #fff;
   }
 }
+
+@media (min-width: 70.001rem) {
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-list-screen {
+    min-width: 0;
+  }
+
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-list-screen .inventory-entity-header {
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-list-screen .inventory-entity-header > :first-child,
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-list-screen .inventory-header-actions {
+    min-width: 0;
+  }
+
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-list-screen .inventory-toolbar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-list-screen .inventory-search-field,
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-list-screen #catalog-clear-filters {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-list-screen #catalog-clear-filters {
+    justify-self: start;
+  }
+
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-list-screen .inventory-product-grid {
+    grid-template-columns: minmax(10rem, 2fr) minmax(6.5rem, 1fr) minmax(4.5rem, .65fr) minmax(6rem, .8fr) minmax(4rem, .5fr);
+  }
+
+  .view[data-view="catalog"]:has(#catalog-detail:not([hidden])) #catalog-list-screen .inventory-product-grid > :nth-child(5) {
+    display: none;
+  }
+}
