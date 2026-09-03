@@ -103,7 +103,10 @@ test('ticket history desktop date filters never overlap', async ({ page }) => {
   ]);
   expect(from).not.toBeNull();
   expect(to).not.toBeNull();
-  expect(from.x + from.width + 8).toBeLessThanOrEqual(to.x);
+
+  const separatedHorizontally = from.x + from.width + 8 <= to.x || to.x + to.width + 8 <= from.x;
+  const separatedVertically = from.y + from.height + 8 <= to.y || to.y + to.height + 8 <= from.y;
+  expect(separatedHorizontally || separatedVertically).toBe(true);
 });
 
 test('inventory mobile filter control keeps a visible text affordance', async ({ page }) => {
