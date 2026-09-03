@@ -101,7 +101,7 @@ test('category migration normalizes a legacy desconocido id without breaking ref
         id TEXT PRIMARY KEY,
         category_id TEXT REFERENCES product_categories(id)
       );
-      INSERT INTO schema_migrations(version, applied_at) VALUES (8, '2026-09-02T00:00:00.000Z');
+      INSERT INTO schema_migrations(version, applied_at) VALUES (9, '2026-09-02T00:00:00.000Z');
       INSERT INTO product_categories(id, name, parent_id, color, description, created_at, updated_at)
       VALUES ('category_legacy_unknown', 'desconocido', NULL, '#64748B', NULL, '2026-09-02T00:00:00.000Z', '2026-09-02T00:00:00.000Z');
       INSERT INTO product_categories(id, name, parent_id, color, description, created_at, updated_at)
@@ -110,12 +110,12 @@ test('category migration normalizes a legacy desconocido id without breaking ref
       INSERT INTO receipt_items(id, category_id) VALUES ('receipt_item_legacy', 'category_legacy_unknown');
     `);
 
-    const migration = CATEGORY_MIGRATIONS.find(candidate => candidate.version === 9);
+    const migration = CATEGORY_MIGRATIONS.find(candidate => candidate.version === 10);
     assert.ok(migration);
     legacy.exec('BEGIN IMMEDIATE;');
     try {
       legacy.exec(migration.sql);
-      legacy.prepare('INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)').run(9, FIXED_NOW.toISOString());
+      legacy.prepare('INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)').run(10, FIXED_NOW.toISOString());
       legacy.exec('COMMIT;');
     } catch (error) {
       legacy.exec('ROLLBACK;');
@@ -145,7 +145,7 @@ test('category migration normalizes a legacy desconocido id without breaking ref
     );
     assert.equal(
       (legacy.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number }).version,
-      9,
+      10,
     );
   } finally {
     legacy.close();
