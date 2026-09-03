@@ -164,6 +164,7 @@ function syncReceiptCompactSummary(item) {
       <span class="receipt-line-compact__copy">
         <strong data-receipt-summary-description></strong>
         <small data-receipt-summary-meta></small>
+        <small class="receipt-line-compact__category" data-receipt-summary-category hidden></small>
       </span>
       <strong class="receipt-line-compact__total" data-receipt-summary-total></strong>`;
     item.querySelector('legend')?.insertAdjacentElement('afterend', summary);
@@ -178,11 +179,17 @@ function syncReceiptCompactSummary(item) {
   const quantityValue = quantity?.value || '0';
   const unitPriceValue = unitPrice?.value || '0.00';
   const totalValue = lineTotal?.value || '0.00';
-  const accessibleLabel = `Editar línea ${index + 1}: ${descriptionValue}`;
+  const categoryName = item.querySelector('[data-receipt-category-label]')?.textContent?.trim() || '';
+  const accessibleLabel = `Editar línea ${index + 1}: ${descriptionValue}${categoryName ? `. Categoría: ${categoryName}` : ''}`;
 
   if (summary.getAttribute('aria-label') !== accessibleLabel) summary.setAttribute('aria-label', accessibleLabel);
   setTextIfChanged(summary.querySelector('[data-receipt-summary-description]'), descriptionValue);
   setTextIfChanged(summary.querySelector('[data-receipt-summary-meta]'), `${quantityValue} × ${unitPriceValue} €`);
+  const category = summary.querySelector('[data-receipt-summary-category]');
+  if (category) {
+    setTextIfChanged(category, categoryName ? `Categoría · ${categoryName}` : '');
+    category.hidden = !categoryName;
+  }
   setTextIfChanged(summary.querySelector('[data-receipt-summary-total]'), `${totalValue} €`);
 }
 
