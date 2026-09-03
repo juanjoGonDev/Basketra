@@ -2,7 +2,7 @@ import type { MigrationDefinition } from './database.ts';
 
 export const CATEGORY_MIGRATIONS: readonly MigrationDefinition[] = [
   {
-    version: 8,
+    version: 9,
     kind: 'safe',
     sql: `
       ALTER TABLE product_categories
@@ -48,7 +48,7 @@ export const CATEGORY_MIGRATIONS: readonly MigrationDefinition[] = [
     `,
   },
   {
-    version: 9,
+    version: 10,
     kind: 'safe',
     sql: `
       PRAGMA defer_foreign_keys = ON;
