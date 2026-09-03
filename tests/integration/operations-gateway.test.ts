@@ -18,13 +18,6 @@ function config(dataDir:string,overrides:Partial<AppConfig>={}):AppConfig{
     port:0,
     dataDir,
     tempDir:`${dataDir}/tmp`,
-    maxBodyBytes:8*1024*1024,
-    aiMaxRetries:0,
-    aiImageCapability:true,
-    aiPdfCapability:false,
-    overpassBaseUrl:'http://127.0.0.1:9/api/',
-    idleHibernateAfterMs:0,
-    idleExitAfterMs:0,
     ...overrides,
   };
 }
@@ -33,25 +26,31 @@ async function json(response:Response):Promise<Record<string,unknown>>{
   return await response.json() as Record<string,unknown>;
 }
 
-test('operations gateway distinguishes missing and loopback AI configuration',async()=>{
+async function updateRuntimeSettings(base:string,settings:Record<string,unknown>):Promise<Record<string,unknown>>{
+  const response=await fetch(`${base}/api/v1/settings/runtime`,{
+    method:'PUT',
+    headers:{'content-type':'application/json'},
+    body:JSON.stringify(settings),
+  });
+  assert.equal(response.status,200);
+  return await json(response);
+}
+
+test('operations gateway exposes missing state then uses persisted AI configuration without restart',async()=>{
   const directory=`.test-tmp/gateway-ai-${randomUUID()}`;
-  const previousContainer=process.env['BASKETRA_CONTAINER'];
   const credentialFixture=['test','credential'].join('-');
-  process.env['BASKETRA_CONTAINER']='true';
   try{
-    const missing=new OperationsGateway(config(directory));
-    await missing.listen();
-    let base=`http://127.0.0.1:${missing.address().port}`;
+    const gateway=new OperationsGateway(config(directory));
+    await gateway.listen();
+    const base=`http://127.0.0.1:${gateway.address().port}`;
     const missingResponse=await fetch(`${base}/api/v1/settings/ai-provider`);
     assert.equal(missingResponse.status,200);
     const missingSettings=await json(missingResponse);
     assert.equal(missingSettings['configured'],false);
     assert.equal(missingSettings['status'],'missing');
-    assert.deepEqual(missingSettings['missing'],['BASKETRA_AI_BASE_URL','BASKETRA_AI_MODEL']);
-    assert.equal(missingSettings['image'],true);
-    assert.equal(missingSettings['pdf'],false);
+    assert.deepEqual(missingSettings['missing'],['URL de WebAPI','Modelo']);
     assert.equal(missingSettings['loopbackWarning'],false);
-    assert.equal(missingSettings['requiresContainerRecreate'],true);
+    assert.equal(missingSettings['requiresContainerRecreate'],false);
     assert.equal(missingSettings['recommendedHostUrl'],'http://host.docker.internal:3001/v1/');
     const lastCheck=missingSettings['lastCheck'];
     assert.equal(typeof lastCheck,'object');
@@ -73,47 +72,45 @@ test('operations gateway distinguishes missing and loopback AI configuration',as
       code:'AI_NOT_CONFIGURED',
       status:503,
       message:'AI provider is not configured',
-      missing:['BASKETRA_AI_BASE_URL','BASKETRA_AI_MODEL'],
+      missing:['URL de WebAPI','Modelo'],
     });
-    await missing.close();
 
-    const loopback=new OperationsGateway(config(directory,{
-      aiBaseUrl:'http://127.0.0.1:3001/v1/',
+    const updated=await updateRuntimeSettings(base,{
+      aiBaseUrl:'http://127.0.0.1:9/v1/',
       aiModel:'default',
       aiApiKey:credentialFixture,
-    }));
-    await loopback.listen();
-    base=`http://127.0.0.1:${loopback.address().port}`;
+    });
+    const publicSettings=(updated['settings'] as Record<string,unknown>)['ai'] as Record<string,unknown>;
+    assert.equal(publicSettings['configured'],true);
+    assert.equal(publicSettings['apiKeyMask'],'••••tial');
+    assert.equal(JSON.stringify(updated).includes(credentialFixture),false);
+
     const settings=await json(await fetch(`${base}/api/v1/settings/ai-provider`));
     assert.equal(settings['configured'],true);
-    assert.equal(settings['loopbackWarning'],true);
-    assert.equal(settings['apiKeyMask'],'***tial');
+    assert.equal(settings['apiKeyMask'],'••••tial');
+    assert.equal(settings['requiresContainerRecreate'],false);
     assert.equal(JSON.stringify(settings).includes(credentialFixture),false);
-    const testResponse=await fetch(`${base}/api/v1/settings/ai-provider/test`,{method:'POST'});
-    assert.equal(testResponse.status,502);
-    const connection=(await json(testResponse))['connection'] as Record<string,unknown>;
-    assert.equal(connection['code'],'AI_LOOPBACK_CONTAINER');
-    await loopback.close();
+    await gateway.close();
   }finally{
-    if(previousContainer===undefined)delete process.env['BASKETRA_CONTAINER'];
-    else process.env['BASKETRA_CONTAINER']=previousContainer;
     rmSync(directory,{recursive:true,force:true});
   }
 });
 
-test('operations gateway records unexpected startup probe setup failures without stopping the server',async()=>{
-  const directory=`.test-tmp/gateway-ai-startup-${randomUUID()}`;
-  const gateway=new OperationsGateway(config(directory,{
-    aiBaseUrl:'not-an-absolute-url',
-    aiModel:'default',
-  }));
+test('runtime settings reject invalid provider URLs without stopping the gateway',async()=>{
+  const directory=`.test-tmp/gateway-ai-settings-${randomUUID()}`;
+  const gateway=new OperationsGateway(config(directory));
   try{
     await gateway.listen();
     const base=`http://127.0.0.1:${gateway.address().port}`;
-    const response=await fetch(`${base}/api/v1/logs?limit=50`);
-    assert.equal(response.status,200);
-    const events=(await json(response))['events'] as Array<Record<string,unknown>>;
-    assert.equal(events.some(event=>event['event']==='ai.startup_probe_unexpected_failure'),true);
+    const rejected=await fetch(`${base}/api/v1/settings/runtime`,{
+      method:'PUT',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({aiBaseUrl:'not-an-absolute-url'}),
+    });
+    assert.equal(rejected.status,400);
+    assert.equal((await fetch(`${base}/health`)).status,200);
+    const settings=await json(await fetch(`${base}/api/v1/settings/ai-provider`));
+    assert.equal(settings['configured'],false);
   }finally{
     await gateway.close();
     rmSync(directory,{recursive:true,force:true});
@@ -177,14 +174,15 @@ test('operations gateway verifies image OCR structured output through the canoni
   });
   const providerPort=(providerServer.address() as AddressInfo).port;
   const managedToken=['managed','webapi','token'].join('-');
-  const gateway=new OperationsGateway(config(directory,{
-    aiBaseUrl:`http://127.0.0.1:${providerPort}/v1/`,
-    aiModel:'gpt-5',
-    aiApiKey:managedToken,
-  }));
+  const gateway=new OperationsGateway(config(directory));
   try{
     await gateway.listen();
     const base=`http://127.0.0.1:${gateway.address().port}`;
+    await updateRuntimeSettings(base,{
+      aiBaseUrl:`http://127.0.0.1:${providerPort}/v1/`,
+      aiModel:'gpt-5',
+      aiApiKey:managedToken,
+    });
     const response=await fetch(`${base}/api/v1/settings/ai-provider/test`,{method:'POST'});
     assert.equal(response.status,200);
     assert.ifError(providerError);
@@ -193,7 +191,7 @@ test('operations gateway verifies image OCR structured output through the canoni
       model:'gpt-5',
       imageStructuredOutput:true,
     });
-    assert.equal(requests.length,2);
+    assert.equal(requests.length,1);
     const providerRequest=requests.at(-1);
     assert.ok(providerRequest);
     assert.equal(providerRequest.method,'POST');

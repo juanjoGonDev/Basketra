@@ -1,7 +1,6 @@
 import type { MigrationDefinition } from './database.ts';
-import { CATEGORY_MIGRATIONS } from './category-schema.ts';
 
-const COLLABORATION_BASE_MIGRATIONS: readonly MigrationDefinition[] = [
+export const COLLABORATION_MIGRATIONS: readonly MigrationDefinition[] = [
   {
     version: 4,
     kind: 'safe',
@@ -592,9 +591,32 @@ const COLLABORATION_BASE_MIGRATIONS: readonly MigrationDefinition[] = [
       END;
     `,
   },
-] as const;
+  {
+    version: 8,
+    kind: 'safe',
+    sql: `
+      CREATE TABLE runtime_settings(
+        id TEXT PRIMARY KEY CHECK(id = 'instance'),
+        ai_base_url TEXT,
+        ai_api_key TEXT,
+        ai_model TEXT,
+        ai_max_retries INTEGER NOT NULL CHECK(ai_max_retries BETWEEN 0 AND 10),
+        overpass_base_url TEXT NOT NULL,
+        max_body_bytes INTEGER NOT NULL CHECK(max_body_bytes BETWEEN 1024 AND 536870912),
+        idle_hibernate_after_ms INTEGER NOT NULL CHECK(idle_hibernate_after_ms BETWEEN 0 AND 86400000),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
 
-export const COLLABORATION_MIGRATIONS: readonly MigrationDefinition[] = [
-  ...COLLABORATION_BASE_MIGRATIONS,
-  ...CATEGORY_MIGRATIONS,
-];
+      INSERT INTO runtime_settings(
+        id, ai_base_url, ai_api_key, ai_model, ai_max_retries,
+        overpass_base_url, max_body_bytes, idle_hibernate_after_ms,
+        created_at, updated_at
+      ) VALUES (
+        'instance', NULL, NULL, NULL, 1,
+        'https://overpass-api.de/api/', 33554432, 300000,
+        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      );
+    `,
+  },
+] as const;

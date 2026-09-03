@@ -2,7 +2,7 @@ import type { MigrationDefinition } from './database.ts';
 
 export const INVENTORY_MIGRATIONS: readonly MigrationDefinition[] = [
   {
-    version: 10,
+    version: 11,
     kind: 'safe',
     sql: `
       ALTER TABLE receipts ADD COLUMN store_id TEXT REFERENCES stores(id);

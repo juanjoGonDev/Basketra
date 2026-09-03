@@ -55,7 +55,7 @@ test('inventory schema upgrade preserves legacy receipt rows and initializes edi
   try {
     const schema = database.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number };
     assert.equal(Number(schema.version), CURRENT_SCHEMA_VERSION);
-    assert.equal(CURRENT_SCHEMA_VERSION, 10);
+    assert.equal(CURRENT_SCHEMA_VERSION, 11);
 
     const receipt = database.prepare(`
       SELECT id, declared_total_minor AS declaredTotalMinor, purchased_at AS purchasedAt,

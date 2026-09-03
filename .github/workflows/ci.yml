@@ -105,6 +105,14 @@ jobs:
           path: test-results/**/invoice-editor-*.png
           if-no-files-found: warn
           retention-days: 7
+      - name: Upload compact screenshot evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: basketra-visual-screenshot-evidence
+          path: test-results/**/*.png
+          if-no-files-found: warn
+          retention-days: 7
       - name: Upload compact category evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

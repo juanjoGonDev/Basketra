@@ -23,11 +23,10 @@ function configuredAiSettings() {
     missing: [],
     baseUrl: 'http://host.docker.internal:3001/v1/',
     model: 'gpt-5',
-    apiKeyMask: '***test',
-    image: true,
-    pdf: false,
+    apiKeyMask: '••••test',
+    maxRetries: 1,
     loopbackWarning: false,
-    requiresContainerRecreate: true,
+    requiresContainerRecreate: false,
     recommendedHostUrl: 'http://host.docker.internal:3001/v1/',
   };
 }
@@ -69,8 +68,9 @@ test('settings show live runtime, redacted copyable logs and downloadable import
     .not.toBe(firstUptime);
 
   await selectSettingsTab(page, 'IA');
-  await expect(page.locator('#ai-configuration-status')).toHaveText('Configuración no cargada');
-  await expect(page.locator('#ai-configuration-detail')).toContainText('BASKETRA_AI_BASE_URL');
+  await expect(page.locator('#ai-configuration-status')).toHaveText('Falta configuración');
+  await expect(page.locator('#ai-configuration-detail')).toContainText('URL de WebAPI');
+  await expect(page.locator('#ai-configuration-detail')).toContainText('Modelo');
   await expect(page.locator('#ai-provider-request')).toHaveText('Pendiente de configuración');
   await expect(page.locator('#test-ai-provider')).toBeDisabled();
 
@@ -156,7 +156,7 @@ test('settings verify the managed-token image and strict JSON capability', async
   await navigate(page, 'Ajustes');
   await selectSettingsTab(page, 'IA');
   await expect(page.locator('#ai-provider-request')).toHaveText('POST http://host.docker.internal:3001/v1/chat/completions');
-  await expect(page.locator('#ai-provider-authorization')).toHaveText('Bearer con token gestionado');
+  await expect(page.locator('#ai-provider-authorization')).toHaveText('Token guardado ••••test');
   await page.getByText('Detalles técnicos de la conexión', { exact: true }).click();
   await expect(page.getByText('imagen sintética sin datos personales')).toBeVisible();
 
@@ -192,9 +192,9 @@ test('desktop settings explain the webApi probe and keep the adaptive rail besid
   await selectSettingsTab(page, 'IA');
   await page.getByText('Detalles técnicos de la conexión', { exact: true }).click();
   await expect(page.locator('#ai-provider-request')).toHaveText('POST http://host.docker.internal:3001/v1/chat/completions');
-  await expect(page.locator('#ai-provider-authorization')).toHaveText('Bearer con token gestionado');
+  await expect(page.locator('#ai-provider-authorization')).toHaveText('Token guardado ••••test');
   await expect(page.locator('#ai-provider-network-note')).toContainText('apunta al host Docker de Basketra');
-  await expect(page.locator('#ai-provider-network-note')).toContainText('HOST=0.0.0.0');
+  await expect(page.locator('#ai-provider-network-note')).toContainText('LAN o VPN');
 
   await page.getByRole('button', { name: 'Verificar imagen y JSON estricto', exact: true }).click();
   await expect(page.locator('#ai-test-state')).toContainText('No se pudo abrir una conexión');
