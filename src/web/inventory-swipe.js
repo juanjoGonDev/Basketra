@@ -40,6 +40,14 @@ const ENTITY_CONFIG = {
 
 let gesture;
 
+function injectStylesheet() {
+  if (document.querySelector('link[href="/inventory-swipe.css"]')) return;
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = '/inventory-swipe.css';
+  document.head.append(link);
+}
+
 function rowLabel(row) {
   return row.querySelector('strong')?.textContent?.trim() || 'elemento';
 }
@@ -306,6 +314,7 @@ function bindActions() {
 function initializeInventorySwipeEnhancement() {
   if (document.documentElement.dataset.inventorySwipeInitialized === 'true') return;
   document.documentElement.dataset.inventorySwipeInitialized = 'true';
+  injectStylesheet();
   bindActions();
   enhanceAllRows();
 
