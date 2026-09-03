@@ -198,6 +198,18 @@ jobs:
             cp "$directory/$source" "evidence-assets/$target"
           }
 
+          copy_unique_capture() {
+            source=$1
+            target=$2
+            mapfile -t matches < <(find downloaded/test-results -type f -name "$source" -print)
+            if [ "${#matches[@]}" -ne 1 ]; then
+              echo "Expected exactly one Playwright capture named '$source', found ${#matches[@]}:" >&2
+              printf '  %s\n' "${matches[@]}" >&2
+              exit 1
+            fi
+            cp "${matches[0]}" "evidence-assets/$target"
+          }
+
           prepare_flow mobile-PWA-loads 01-mobile-navigation
           prepare_flow shopping-lists-su 02-shopping-list-lifecycle swipe-reveal.png
           prepare_flow local-suggestions 03-stale-suggestions
@@ -217,7 +229,7 @@ jobs:
           copy_flow_capture mobile-settings-receipts-s settings-light-390.png 11-settings-light-390.png
           copy_flow_capture mobile-settings-receipts-s settings-light-768.png 11-settings-light-768.png
           copy_flow_capture receipt-auto-review-flow-r test-finished-1.png 12-auto-ocr-review.png
-          copy_flow_capture catalog-management-invento catalog-mobile.png 13-catalog-management.png
+          copy_unique_capture catalog-mobile.png 13-catalog-management.png
           copy_flow_capture semantic-output percentage-editor.png 14-discount-percentage.png
           copy_flow_capture latest-result-is-valid calculation-error.png 14-discount-error.png
           copy_flow_capture visible-for-manual-review ambiguous-discount.png 14-discount-ambiguous.png
@@ -230,18 +242,18 @@ jobs:
           copy_flow_capture invoice-editor-mobile invoice-editor-mobile.png 15-invoice-editor-mobile.png
           copy_flow_capture invoice-editor-error invoice-editor-calculation-error.png 15-invoice-editor-error.png
 
-          copy_flow_capture Inventory-replaces-Plans inventory-mobile.png 20-inventory-overview-mobile.png
-          copy_flow_capture Inventory-overview-preserves inventory-desktop.png 20-inventory-overview-desktop.png
-          copy_flow_capture product-list-preserves catalog-desktop-preview.png 21-product-list-desktop.png
-          copy_flow_capture inventory-entity-rows-share inventory-product-editor-mobile.png 22-product-editor-mobile.png
-          copy_flow_capture inventory-entity-rows-share inventory-product-delete-mobile.png 22-product-delete-mobile.png
-          copy_flow_capture hierarchical-categories-use categories-mobile.png 23-categories-mobile.png
-          copy_flow_capture hierarchical-categories-use categories-desktop.png 23-categories-desktop.png
-          copy_flow_capture stores-provide-mobile stores-mobile.png 24-stores-mobile.png
-          copy_flow_capture statistics-discard-an inventory-statistics-desktop.png 24-statistics-desktop.png
-          copy_flow_capture ticket-history-supports ticket-history-mobile.png 25-ticket-history-mobile.png
-          copy_flow_capture ticket-history-desktop-preserves ticket-history-desktop.png 25-ticket-history-desktop.png
-          copy_flow_capture ticket-history-desktop-preserves ticket-editor-desktop.png 25-ticket-editor-desktop.png
+          copy_unique_capture inventory-mobile.png 20-inventory-overview-mobile.png
+          copy_unique_capture inventory-desktop.png 20-inventory-overview-desktop.png
+          copy_unique_capture catalog-desktop-preview.png 21-product-list-desktop.png
+          copy_unique_capture inventory-product-editor-mobile.png 22-product-editor-mobile.png
+          copy_unique_capture inventory-product-delete-mobile.png 22-product-delete-mobile.png
+          copy_unique_capture categories-mobile.png 23-categories-mobile.png
+          copy_unique_capture categories-desktop.png 23-categories-desktop.png
+          copy_unique_capture stores-mobile.png 24-stores-mobile.png
+          copy_unique_capture inventory-statistics-desktop.png 24-statistics-desktop.png
+          copy_unique_capture ticket-history-mobile.png 25-ticket-history-mobile.png
+          copy_unique_capture ticket-history-desktop.png 25-ticket-history-desktop.png
+          copy_unique_capture ticket-editor-desktop.png 25-ticket-editor-desktop.png
 
           test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 42
           test "$(find evidence-assets -maxdepth 1 -type f -name '*.gif' | wc -l)" -eq 11
