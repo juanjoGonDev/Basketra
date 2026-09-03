@@ -616,6 +616,9 @@ function resetDocumentScroll() {
 function setNavigationReady(ready) {
   applicationReady = ready;
   $('#main').setAttribute('aria-busy', String(!ready));
+  $$('.bottom-nav [data-nav]').forEach(element => {
+    if (element instanceof HTMLButtonElement) element.disabled = !ready;
+  });
 }
 
 function navigate(requestedRoute, { allowBeforeReady = false } = {}) {
