@@ -172,7 +172,7 @@ function installHistoryView() {
 }
 
 function navigateToCapture() {
-  document.querySelector('.bottom-nav [data-nav="scan"]')?.click();
+  document.dispatchEvent(new CustomEvent('basketra:navigate', { detail: { route: 'scan' } }));
 }
 
 function setPrimaryTicketsActive() {
