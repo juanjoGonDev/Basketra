@@ -22,6 +22,7 @@ async function setup(page, width, height) {
       lineTotalMinor: 262,
       discount: { type: 'percentage', basisPoints: 5_000, quantity: 1 },
       confidence: 0.99,
+      categoryId: 'category_drinks',
       sourceLines: [1, 2, 3],
     };
     applyExtraction({
@@ -30,6 +31,11 @@ async function setup(page, width, height) {
         items: [item],
         declaredTotalMinor: 262,
         warnings: [],
+        categories: [{
+          id: 'category_drinks',
+          name: 'Bebidas',
+          color: '#118844',
+        }],
         review: {
           lines: [{ ...item, status: 'confirmed', expectedMinor: 262, differenceMinor: 0 }],
           total: { expectedMinor: 262, differenceMinor: 0, valid: true },
@@ -111,9 +117,14 @@ function containedBy(inner, outer, tolerance = 1) {
 
 test('invoice-editor-desktop', async ({ page }, testInfo) => {
   await setup(page, 1280, 900);
+  const compact = page.locator('.receipt-line-compact');
+  await expect(compact.locator('[data-receipt-summary-category]')).toHaveText('Categoría · Bebidas');
+  await expect(compact).toHaveAttribute('aria-label', /Categoría: Bebidas/u);
   const dialog = await openEditor(page);
 
   await expect(dialog.getByRole('heading', { name: '1. Producto', exact: true })).toBeVisible();
+  await expect(dialog.locator('[data-receipt-category-label]')).toHaveText('Bebidas');
+  await expect(dialog.locator('[data-receipt-category]')).toContainText('Categoría');
   await expect(dialog.getByRole('heading', { name: '2. Detalle de compra', exact: true })).toBeVisible();
   await expect(dialog.getByRole('heading', { name: '3. Descuento', exact: true })).toBeVisible();
   await expect(dialog.getByRole('heading', { name: 'Resumen', exact: true })).toBeVisible();
@@ -183,7 +194,9 @@ test('invoice-editor-desktop', async ({ page }, testInfo) => {
 
 test('invoice-editor-mobile', async ({ page }, testInfo) => {
   await setup(page, 360, 800);
+  await expect(page.locator('.receipt-line-compact [data-receipt-summary-category]')).toHaveText('Categoría · Bebidas');
   const dialog = await openEditor(page);
+  await expect(dialog.locator('[data-receipt-category-label]')).toHaveText('Bebidas');
 
   for (const width of [320, 360, 390, 430]) {
     await page.setViewportSize({ width, height: 800 });
