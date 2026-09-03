@@ -486,7 +486,7 @@ function enhanceReceiptLines(lines) {
 export function renderReview(lines = [], total) {
   const review = $('#receipt-review');
   review.hidden = false;
-  review.innerHTML = receiptReview(state.items, lines, total);
+  review.innerHTML = receiptReview(state.items, lines, total, state.extraction?.final?.categories ?? []);
   enhanceReceiptLines(lines);
   $('#confirm-receipt').hidden = state.items.length === 0;
   const panel = $('#receipt-review-panel');
