@@ -727,6 +727,7 @@ async function saveProduct(button) {
 
 async function saveCategory(button) {
   const current = selectedCategory();
+  const saveRoute = location.hash;
   const name = $('#category-name').value.trim();
   const parentId = $('#category-parent').value || null;
   const color = normalizedCategoryColor($('#category-color').value);
@@ -746,6 +747,7 @@ async function saveCategory(button) {
     const savedId = result.category?.id;
     await loadCategoryMetadata({ force: true });
     await loadCategoryInventory();
+    if (location.hash !== saveRoute) return;
     if (savedId) await openCategoryDetail(savedId);
     $('#category-form-status').textContent = 'Guardada';
     $('#category-form-state').textContent = current ? 'Categoría actualizada.' : 'Categoría creada.';
