@@ -107,7 +107,7 @@ async function openAccessibleActions(wrapper) {
   await expect(wrapper.locator('[data-swipe-actions]')).toHaveAttribute('aria-hidden', 'false');
 }
 
-test('inventory entity rows share accessible swipe actions and preserve canonical delete preflights', async ({ page }) => {
+test('inventory entity rows share accessible swipe actions and preserve canonical delete preflights', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await installRoutes(page);
   const runtimeErrors = [];
@@ -123,6 +123,7 @@ test('inventory entity rows share accessible swipe actions and preserve canonica
   await productWrapper.locator('[data-inventory-row-action="edit"]').click();
   await expect(page).toHaveURL(/#catalog:variant_milk$/);
   await expect(page.locator('#catalog-editor')).toBeVisible();
+  await page.locator('.view[data-view="catalog"]').screenshot({ path: testInfo.outputPath('inventory-product-editor-mobile.png') });
   await page.locator('#catalog-back-list').click();
 
   await openAccessibleActions(productWrapper);
@@ -132,6 +133,7 @@ test('inventory entity rows share accessible swipe actions and preserve canonica
   await expect(productDelete.locator('#catalog-delete-impact')).toContainText('1 líneas de ticket');
   await expect(productDelete.locator('#catalog-delete-impact')).toContainText('2 precios históricos');
   await expect(productDelete.getByRole('button', { name: 'Eliminar producto' })).toBeDisabled();
+  await page.locator('.view[data-view="catalog"]').screenshot({ path: testInfo.outputPath('inventory-product-delete-mobile.png') });
   await productDelete.getByRole('button', { name: 'Cancelar' }).click();
   await page.locator('#catalog-back-list').click();
 
