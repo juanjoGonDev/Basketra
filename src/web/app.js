@@ -660,8 +660,8 @@ async function initialize() {
   try {
     const metadata = await api('/api/v1/meta');
     const aiConfigured = await loadAiConfiguration();
-    await initLists({ metadata, toast, aiConfigured });
     initReceipts({ metadata, toast, aiConfigured });
+    await initLists({ metadata, toast, aiConfigured });
   } catch (error) {
     $('#list-state').textContent = error.message;
     $('#upload-state').textContent = error.message;
