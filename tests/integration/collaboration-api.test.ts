@@ -50,13 +50,6 @@ function createConfig(root: string): AppConfig {
     port: 0,
     dataDir: join(root, 'data'),
     tempDir: join(root, 'tmp'),
-    maxBodyBytes: 1024 * 1024,
-    aiMaxRetries: 0,
-    aiImageCapability: true,
-    aiPdfCapability: false,
-    overpassBaseUrl: 'http://127.0.0.1:9/api/',
-    idleHibernateAfterMs: 0,
-    idleExitAfterMs: 0,
   };
 }
 
@@ -254,6 +247,12 @@ test('catalog, confirmed price evidence and location contracts remain determinis
   const address = server.address();
   const baseUrl = `http://${address.host}:${address.port}`;
   try {
+    const runtimeUpdate = await jsonRequest(baseUrl, '/api/v1/settings/runtime', {
+      method: 'PUT',
+      body: JSON.stringify({ overpassBaseUrl: 'http://127.0.0.1:9/api/' }),
+    });
+    assert.equal(runtimeUpdate.response.status, 200);
+
     const categoryResponse = await jsonRequest(baseUrl, '/api/v1/categories', {
       method: 'POST',
       body: JSON.stringify({ name: 'Lácteos' }),

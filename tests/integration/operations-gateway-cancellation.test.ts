@@ -8,20 +8,12 @@ import test from 'node:test';
 import type { AppConfig } from '../../src/infrastructure/config.ts';
 import { OperationsGateway } from '../../src/operations/gateway.ts';
 
-function config(dataDir: string, overrides: Partial<AppConfig> = {}): AppConfig {
+function config(dataDir: string): AppConfig {
   return {
     host: '127.0.0.1',
     port: 0,
     dataDir,
     tempDir: `${dataDir}/tmp`,
-    maxBodyBytes: 8 * 1024 * 1024,
-    aiMaxRetries: 0,
-    aiImageCapability: true,
-    aiPdfCapability: false,
-    overpassBaseUrl: 'http://127.0.0.1:9/api/',
-    idleHibernateAfterMs: 0,
-    idleExitAfterMs: 0,
-    ...overrides,
   };
 }
 
@@ -108,6 +100,20 @@ async function openRealtime(gateway: OperationsGateway): Promise<Readonly<{ stre
   });
 }
 
+async function configureProvider(gateway: OperationsGateway, providerPort: number): Promise<void> {
+  const response = await fetch(`http://127.0.0.1:${gateway.address().port}/api/v1/settings/runtime`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      aiBaseUrl: `http://127.0.0.2:${providerPort}/v1/`,
+      aiModel: 'gpt-5',
+      aiApiKey: null,
+      aiMaxRetries: 0,
+    }),
+  });
+  assert.equal(response.status, 200);
+}
+
 test('operations gateway cancels the provider probe when its inbound request is aborted', async () => {
   const directory = `.test-tmp/gateway-ai-abort-${randomUUID()}`;
   let markProviderStarted: (() => void) | undefined;
@@ -131,11 +137,9 @@ test('operations gateway cancels the provider probe when its inbound request is 
   let gateway: OperationsGateway | undefined;
   try {
     const providerPort = (providerServer.address() as AddressInfo).port;
-    gateway = new OperationsGateway(config(directory, {
-      aiBaseUrl: `http://127.0.0.2:${providerPort}/v1/`,
-      aiModel: 'gpt-5',
-    }));
+    gateway = new OperationsGateway(config(directory));
     await gateway.listen();
+    await configureProvider(gateway, providerPort);
     const clientRequest = request({
       host: '127.0.0.1',
       port: gateway.address().port,

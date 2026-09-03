@@ -98,22 +98,27 @@ async function createRemoteFixture(): Promise<RemoteFixture> {
   };
 }
 
-function appConfig(root: string, aiBaseUrl: string): AppConfig {
+function appConfig(root: string): AppConfig {
   return {
     host: '127.0.0.1',
     port: 0,
     dataDir: join(root, 'data'),
     tempDir: join(root, 'tmp'),
-    maxBodyBytes: 1024 * 1024,
-    aiBaseUrl,
-    aiModel: 'default',
-    aiMaxRetries: 0,
-    aiImageCapability: true,
-    aiPdfCapability: false,
-    overpassBaseUrl: 'http://127.0.0.1:9/api/',
-    idleHibernateAfterMs: 0,
-    idleExitAfterMs: 0,
   };
+}
+
+async function configureProvider(baseUrl: string, aiBaseUrl: string): Promise<void> {
+  const response = await fetch(`${baseUrl}/api/v1/settings/runtime`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      aiBaseUrl,
+      aiModel: 'default',
+      aiApiKey: null,
+      aiMaxRetries: 0,
+    }),
+  });
+  assert.equal(response.status, 200);
 }
 
 async function uploadReceipt(baseUrl: string): Promise<string> {
@@ -163,7 +168,7 @@ async function waitForTerminalJob(baseUrl: string, jobId: string): Promise<Reado
 test('server restart preserves the durable response and resumes with GET only', async () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-server-restart-'));
   const remote = await createRemoteFixture();
-  const config = appConfig(root, remote.baseUrl);
+  const config = appConfig(root);
   let firstServer: BasketraServer | undefined;
   let secondServer: BasketraServer | undefined;
 
@@ -171,6 +176,7 @@ test('server restart preserves the durable response and resumes with GET only', 
     firstServer = new BasketraServer(config);
     await firstServer.listen();
     const firstBaseUrl = `http://127.0.0.1:${firstServer.address().port}`;
+    await configureProvider(firstBaseUrl, remote.baseUrl);
     const storageKey = await uploadReceipt(firstBaseUrl);
     const jobId = await createExtractionJob(firstBaseUrl, storageKey);
 
@@ -185,6 +191,12 @@ test('server restart preserves the durable response and resumes with GET only', 
     secondServer = new BasketraServer(config);
     await secondServer.listen();
     const secondBaseUrl = `http://127.0.0.1:${secondServer.address().port}`;
+    const persistedSettings = await fetch(`${secondBaseUrl}/api/v1/settings/runtime`);
+    assert.equal(persistedSettings.status, 200);
+    const settingsBody = await persistedSettings.json() as { settings: { ai: { baseUrl?: string; model?: string } } };
+    assert.equal(settingsBody.settings.ai.baseUrl, remote.baseUrl);
+    assert.equal(settingsBody.settings.ai.model, 'default');
+
     const job = await waitForTerminalJob(secondBaseUrl, jobId);
 
     assert.equal(job['status'], 'completed');
