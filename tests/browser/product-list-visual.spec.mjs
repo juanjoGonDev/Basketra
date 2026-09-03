@@ -90,16 +90,30 @@ test('product list preserves the approved desktop table and contextual preview h
   await expect(page.locator('#catalog-latest-prices')).toContainText('Mercadona Centro');
 
   const geometry = await page.locator('.view[data-view="catalog"]').evaluate(element => {
-    const list = element.querySelector('#catalog-list-screen').getBoundingClientRect();
-    const detail = element.querySelector('#catalog-detail').getBoundingClientRect();
+    const listScreen = element.querySelector('#catalog-list-screen');
+    const detail = element.querySelector('#catalog-detail');
+    const toolbar = listScreen.querySelector('.inventory-toolbar');
+    const listSurface = listScreen.querySelector('.inventory-list-surface');
+    const header = listScreen.querySelector('.inventory-entity-header');
+    const list = listScreen.getBoundingClientRect();
+    const detailBox = detail.getBoundingClientRect();
+    const headerBox = header.getBoundingClientRect();
     return {
       listRight: list.right,
-      detailLeft: detail.left,
-      detailWidth: detail.width,
+      detailLeft: detailBox.left,
+      detailWidth: detailBox.width,
+      headerRight: headerBox.right,
+      toolbarClientWidth: toolbar.clientWidth,
+      toolbarScrollWidth: toolbar.scrollWidth,
+      listSurfaceClientWidth: listSurface.clientWidth,
+      listSurfaceScrollWidth: listSurface.scrollWidth,
     };
   });
   expect(geometry.detailLeft).toBeGreaterThanOrEqual(geometry.listRight - 2);
   expect(geometry.detailWidth).toBeGreaterThan(240);
+  expect(geometry.headerRight).toBeLessThanOrEqual(geometry.listRight + 1);
+  expect(geometry.toolbarScrollWidth).toBeLessThanOrEqual(geometry.toolbarClientWidth);
+  expect(geometry.listSurfaceScrollWidth).toBeLessThanOrEqual(geometry.listSurfaceClientWidth);
   await expectNoHorizontalOverflow(page);
 
   await page.locator('.view[data-view="catalog"]').screenshot({ path: testInfo.outputPath('catalog-desktop-preview.png') });
