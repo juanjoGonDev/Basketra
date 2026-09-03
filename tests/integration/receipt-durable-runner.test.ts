@@ -4,6 +4,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { AiProviderError, type AiProvider } from '../../src/ai/provider.ts';
+import {
+  UNKNOWN_CATEGORY_COLOR,
+  UNKNOWN_CATEGORY_ID,
+  UNKNOWN_CATEGORY_NAME,
+} from '../../src/domain/categories.ts';
 import { BasketraDatabase } from '../../src/infrastructure/database.ts';
 import { FileStore } from '../../src/infrastructure/files.ts';
 import type { OcrInput, OcrProvider, OcrResult } from '../../src/ocr/provider.ts';
@@ -251,6 +256,72 @@ test('explicit cancellation cancels only persisted active remote responses', asy
     assert.equal(page?.remoteErrorCode, 'RESPONSE_CANCELLED');
     assert.equal(durableStore.get(job.id)?.phase, 'cancelled');
   } finally {
+    durableStore.close();
+    database.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test('durable extraction exposes the canonical category snapshot used by its lines', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-durable-category-result-'));
+  const dataDir = join(root, 'data');
+  const fileStore = new FileStore(join(dataDir, 'files'), join(root, 'tmp'), 1024 * 1024);
+  const stored = fileStore.storeBase64({
+    base64: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00]).toString('base64'),
+    mimeType: 'image/png',
+    originalName: 'ticket.png',
+  });
+  const database = new BasketraDatabase(join(dataDir, 'basketra.db'));
+  const job = database.createReceiptExtractionJob({
+    captures: [{ storageKey: stored.storageKey, originalName: 'ticket.png' }],
+    verifyWithAi: true,
+  });
+  const durableStore = new ReceiptDurableJobStore(database.path);
+  const extraction = new ReceiptExtractionService(fileStore, unusedAiProvider, 0, new CountingOcrProvider());
+  extraction.configureCategoryDatabase(database.path);
+  const categorizedInterpretation = {
+    ...interpretation,
+    correctedText: 'LECHE 1,20',
+    items: [{
+      description: 'LECHE',
+      quantity: 1,
+      unitPriceMinor: 120,
+      lineTotalMinor: 120,
+      confidence: 0.95,
+      categoryId: UNKNOWN_CATEGORY_ID,
+      sourceLines: [1],
+    }],
+    newCategories: [],
+    warnings: [],
+  };
+  const runner = new ReceiptDurableExtractionRunner({
+    durableStore,
+    extractionService: extraction,
+    fileStore,
+    responses: {
+      async create(): Promise<ReceiptRemoteResponse> {
+        return { id: 'resp_category1', status: 'completed', interpretation: categorizedInterpretation };
+      },
+      async get(): Promise<ReceiptRemoteResponse> {
+        throw new Error('GET_MUST_NOT_RUN');
+      },
+      async cancel(): Promise<ReceiptRemoteResponse> {
+        throw new Error('CANCEL_MUST_NOT_RUN');
+      },
+    },
+    retryDelay: async () => {},
+  });
+
+  try {
+    const result = await runner.run(job);
+    assert.deepEqual(result.final.categories, [{
+      id: UNKNOWN_CATEGORY_ID,
+      name: UNKNOWN_CATEGORY_NAME,
+      color: UNKNOWN_CATEGORY_COLOR,
+    }]);
+  } finally {
+    extraction.dispose();
     durableStore.close();
     database.close();
     rmSync(root, { recursive: true, force: true });
