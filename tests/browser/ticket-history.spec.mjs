@@ -184,7 +184,7 @@ test('ticket history supports mobile list, keyboard detail, canonical line calcu
   await expect.poll(() => observed.getCalculations().at(-1)).toEqual({
     quantity: 2,
     unitPriceMinor: 150,
-    discount: { type: 'amount', amountMinor: 20 },
+    discount: { type: 'amount', amountMinor: 20, quantity: 1 },
   });
   await expect(lineDialog.locator('#historical-ticket-line-total')).toContainText('2,80');
   await lineDialog.getByRole('button', { name: 'Guardar línea' }).click();
@@ -204,7 +204,7 @@ test('ticket history supports mobile list, keyboard detail, canonical line calcu
     quantity: 2,
     unit: 'unit',
     unitPriceMinor: 150,
-    discount: { type: 'amount', amountMinor: 20 },
+    discount: { type: 'amount', amountMinor: 20, quantity: 1 },
   });
   expect(patch.items[0]).not.toHaveProperty('lineTotalMinor');
   expect(patch).not.toHaveProperty('declaredTotalMinor');
