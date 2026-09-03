@@ -918,7 +918,7 @@
 
   .inventory-overview-chips .button {
     min-width: max-content;
-    min-height: 2.1rem;
+    min-height: var(--touch, 2.75rem);
     padding: .3rem .7rem;
     border-radius: 999px;
     font-size: .72rem;
