@@ -16,15 +16,18 @@ The receipt analysis JSON must expose the selected category for each item plus a
 - `receipt_items` currently has no category reference. Without a persisted classification the AI result would be lost after receipt confirmation and the catalog projection would continue creating uncategorized products.
 - Existing receipt catalog projection preserves original receipt evidence and must continue doing so.
 - The current product/category specification says categories are flat and that AI never persists category changes. This request supersedes those two category-specific restrictions while retaining the rule for products, prices, stores and other AI proposals.
-- Final review found that migration v8 preserved a pre-existing legacy `desconocido` row with a non-canonical id, violating the stable `category_unknown` acceptance contract even though fresh databases were correct.
+- Final review found that the category schema extension preserved a pre-existing legacy `desconocido` row with a non-canonical id, violating the stable `category_unknown` acceptance contract even though fresh databases were correct.
 - Final review also found that category resolution caught every repository exception and downgraded it to `desconocido`; that would hide SQLite/storage failures even though fallback is specified only for invalid category semantics.
+- After PR #50 merged into `main`, migration v8 is already the immutable owner of persisted runtime settings. The category branch therefore cannot retain its former v8/v9 numbering without colliding with an applied migration owned by another feature.
+- The merge integration commit `9c5c26c07b4948dcdfd1c4f8eaf0281340ce753a` preserves main's runtime-settings migration as v8 and moves category schema changes to v9/v10. The combined schema head is consequently v10.
+- Pull Request Quality on that merge head proved format, lint, typecheck, dead-code, dependency policy, 250/250 unit tests and 72/73 integration tests. The only failure was the runtime-settings regression asserting that the global schema head must remain v8; the runtime settings behavior itself passed. Commit `5392593b87748f1400fce4e4fdcf8724c2e614cc` removes that invalid coupling while retaining the behavioral migration/defaults test.
 
 ## Decision
 
 - Extend `product_categories` additively with nullable `parent_id` and `color`; do not replace the table or rewrite applied migrations.
 - Keep category names globally case-insensitive unique in this iteration. Hierarchy does not require duplicate names, and global uniqueness makes AI references deterministic.
 - Add the stable root fallback category `category_unknown` / `desconocido`. It cannot be renamed or nested under another category. Its display color is a neutral valid hex color.
-- Keep migration v8 immutable and add migration v9 to normalize a legacy `desconocido` id to `category_unknown` while atomically retargeting category-parent, canonical-product and receipt-item foreign-key references. The migration is additive/non-destructive and uses deferred foreign-key checking inside the existing migration transaction.
+- Preserve migration v8 exactly as owned by runtime settings from `main`. Apply the category hierarchy/color and `receipt_items.category_id` extension as migration v9, then use migration v10 to normalize a legacy `desconocido` id to `category_unknown` while atomically retargeting category-parent, canonical-product and receipt-item foreign-key references. Both category migrations remain additive/non-destructive and run inside the existing migration transaction.
 - Category colors use canonical `#RRGGBB` values. The server validates and normalizes them; the browser does not own color syntax rules.
 - Prevent self-parenting and ancestor cycles. Parent references must identify an existing category or, while resolving an AI proposal, another category proposed in the same response.
 - Add a first-class `Categorías` application view using the existing no-dependency frontend, design tokens and navigation patterns. Mobile remains a single-column tree/list plus editor flow; wider layouts may place hierarchy and editor side by side.
@@ -93,13 +96,14 @@ Excluded:
 - Concurrent analyses can propose the same new category. Case-insensitive uniqueness plus idempotent resolution must converge on one persisted category rather than duplicate or fail the receipt.
 - Reparenting changes hierarchy for every product using that category. Manual category editing therefore remains an explicit user action; AI proposals only create missing categories and never reparent existing ones.
 - Existing in-flight jobs created before this feature have no category snapshot. They use only the stable fallback category rather than reading a mutable live inventory mid-recovery.
-- Migration v9 changes only the primary key identity of a legacy fallback row after retargeting every known foreign-key owner in the same migration transaction; the regression fixture explicitly covers category children, canonical products and receipt items.
+- Migration v10 changes only the primary key identity of a legacy fallback row after retargeting every known foreign-key owner in the same migration transaction; the regression fixture explicitly covers category children, canonical products and receipt items.
 - Semantic fallback must remain narrowly scoped. Swallowing SQLite, filesystem or other operational failures would create apparently successful receipt classifications after a failed persistence boundary, so unexpected repository errors are propagated.
+- The migration sequence is now shared with the runtime-settings feature. Reusing v8 for categories would be a production migration collision, so migration numbers are treated as immutable global database identities rather than feature-local counters.
 
 ## Tests
 
 - fresh-database migration tests for hierarchy/color schema and `category_unknown`
-- v8-to-v9 upgrade regression proving a legacy `desconocido` id is normalized without breaking category-parent, canonical-product or receipt-item references
+- v9-to-v10 upgrade regression proving a legacy `desconocido` id is normalized without breaking category-parent, canonical-product or receipt-item references after runtime-settings v8
 - category repository tests for nested create/update, color normalization, protected fallback and cycle rejection
 - category API integration tests for hierarchy/color validation and response shape
 - receipt structured-schema unit tests for required category ids and new-category proposals
@@ -108,6 +112,7 @@ Excluded:
 - category materialization tests for existing reuse, parent-before-child creation, duplicate proposals, concurrent/idempotent reuse and invalid-cycle fallback
 - resolver regression proving semantic proposal failures fall back while an operational persistence error is rethrown unchanged
 - receipt confirmation/import tests for category persistence and new catalog product inheritance
+- runtime-settings integration regression proving its persisted defaults remain usable without coupling the test to the global latest schema version
 - browser tests for category inventory management at mobile/desktop representative viewports and keyboard interaction
 - existing receipt extraction, durable recovery, catalog projection and product catalog regressions
 - `pnpm quality`
@@ -115,7 +120,7 @@ Excluded:
 
 ## Rollback
 
-Application behavior can be rolled back by reverting the feature commits. Schema migrations v8 and v9 are additive/non-destructive and must not be manually removed or rewritten on an upgraded production database; older application versions ignore the added category columns and `receipt_items.category_id`. The v9 identity normalization preserves references but should likewise remain recorded as applied. The seeded fallback row is ordinary non-secret catalog data. No receipt evidence or price history is rewritten.
+Application behavior can be rolled back by reverting the feature commits. Category migrations v9 and v10 are additive/non-destructive and must not be manually removed or rewritten on an upgraded production database; older application versions ignore the added category columns and `receipt_items.category_id`. The v10 identity normalization preserves references but should likewise remain recorded as applied. Migration v8 belongs to the already-integrated runtime-settings feature and is not owned or rolled back by this category change. The seeded fallback row is ordinary non-secret catalog data. No receipt evidence or price history is rewritten.
 
 ## Delivery
 
@@ -123,6 +128,6 @@ Use atomic Conventional Commits on `agent/feat-ticket-category-classification`, 
 
 ## Status
 
-Implementation, stable documentation and final-review fixes are synchronized in PR #49 on `agent/feat-ticket-category-classification`. Migration v8 adds hierarchy/color/category references and migration v9 normalizes any legacy `desconocido` identity to the stable `category_unknown` id while preserving references. `CategoryRepository`, hierarchical/color API behavior, durable receipt category snapshots, strict `categoryId`/`newCategories` output, server-side proposal materialization, confirmation/catalog projection and the `Categorías` browser workflow are covered by focused unit/integration/browser tests. Final review found and corrected both the legacy fallback-id defect and an overly broad category-resolution catch that could hide operational SQLite/storage failures; semantic category errors still degrade to `category_unknown`, while operational repository failures propagate unchanged.
+PR #49 remains open, non-draft and mergeable on `agent/feat-ticket-category-classification`. The conflict with current `main` was resolved by merge commit `9c5c26c07b4948dcdfd1c4f8eaf0281340ce753a`, whose second parent is `main` commit `d3e7b09d7c615256b871bd9ddccad5f04ae68e1a`. The combined migration sequence is now v8 runtime settings, v9 category hierarchy/color plus receipt category references, and v10 canonical `category_unknown` normalization. The durable Responses path preserves #50's binary multipart transport while carrying #49's category snapshot, and receipt processing keeps one consistent operation snapshot for provider settings and category inventory.
 
-On validated head `e58746f1662743499911e625962933c7c5e3fe12`, Pull Request Quality run `33644211127` passed Quality, Security, Browser E2E, linux/amd64, linux/arm64 and container smoke. Browser E2E passed 86/86 tests, including hierarchical category creation, reparenting and responsive review. CodeQL Advanced run `33644210957` passed both Actions and JavaScript/TypeScript analysis. Publish PR visual evidence run `33644211060` completed successfully against the same head. Because the full Browser artifact exceeds the connector download limit, CI now also uploads the required compact `basketra-category-visual-evidence` artifact; artifact `9852308779` contains the two category screenshots with digest `sha256:d8919022d3cce7174e0feb9ad3dd3fdd4d8b51e381a5f5e3703aac93a18fb875`. The 390×844 mobile and 1280×900 desktop captures were inspected directly and showed no clipping, horizontal overflow, overlap or hierarchy/layout regression. No PR reviews or unresolved review threads were present at this validation point. The PR body still requires synchronization after this status-only documentation commit, and the exact final documentation head must pass the canonical CI/evidence gates before handoff. No merge, release or deploy has been performed.
+On merge head `9c5c26c07b4948dcdfd1c4f8eaf0281340ce753a`, CodeQL Advanced passed. Pull Request Quality passed format, lint, typecheck, dead-code, dependency policy, all 250 unit tests, Security and 72 of 73 integration tests; its sole failure was the obsolete assertion that `CURRENT_SCHEMA_VERSION` must equal 8. Commit `5392593b87748f1400fce4e4fdcf8724c2e614cc` removes that global-version assertion while continuing to instantiate `BasketraDatabase` and read runtime settings defaults from the migrated database. Exact-head CI for the subsequent documentation head must still complete successfully before handoff. The PR body and stable `spec.md` must be synchronized to v8/v9/v10 before final review. No merge, release or deploy has been performed.
