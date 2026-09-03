@@ -116,7 +116,7 @@ export class ReceiptDurableExtractionRunner {
         });
       }
       this.#durableStore.markPhase(job.id, 'completed');
-      return assembleReceiptExtraction(verified);
+      return assembleReceiptExtraction(verified, categoryInventory);
     } catch (error) {
       if (!isAbortFromCaller(error, signal)) this.#durableStore.markPhase(job.id, 'failed');
       throw error;
