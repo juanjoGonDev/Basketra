@@ -90,7 +90,7 @@ test('inventory products use a separate paginated list and editable detail on mo
   await expect(page).toHaveURL(/#catalog$/);
   await expect(page.getByRole('heading', { name: 'Productos', exact: true })).toBeVisible();
   await expect(page.locator('#catalog-range')).toHaveText('1-1 de 1');
-  const catalogRow = page.getByRole('button', { name: /Leche entera 1 L/ });
+  const catalogRow = page.locator('[data-catalog-product-id="variant_milk"]');
   await expect(catalogRow).toContainText('1,19');
   await catalogRow.click();
 
