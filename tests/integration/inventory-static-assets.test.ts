@@ -63,6 +63,11 @@ test('inventory and ticket-history feature assets are served through the canonic
     assert.match(inventorySwipe.contentType, /^text\/javascript\b/u);
     assert.match(inventorySwipe.body, /initializeInventorySwipeEnhancement/u);
 
+    const inventorySwipeStylesheet = await get(baseUrl, '/inventory-swipe.css');
+    assert.equal(inventorySwipeStylesheet.status, 200);
+    assert.match(inventorySwipeStylesheet.contentType, /^text\/css\b/u);
+    assert.match(inventorySwipeStylesheet.body, /inventory-entity-swipe/u);
+
     const index = await get(baseUrl, '/');
     assert.equal(index.status, 200);
     assert.match(index.body, /src="\/inventory-swipe\.js"/u);
