@@ -576,6 +576,7 @@ function closeCategoryDetail() {
   $('#category-edit').hidden = false;
   $('#category-delete').hidden = false;
   history.replaceState(null, '', '#categories');
+  document.dispatchEvent(new CustomEvent('basketra:navigate', { detail: { route: 'categories' } }));
   window.scrollTo(0, 0);
   void loadCategoryInventory();
 }
