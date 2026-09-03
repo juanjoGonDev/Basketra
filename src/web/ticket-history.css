@@ -267,6 +267,16 @@
   color: var(--muted);
 }
 
+@media (max-width: 82rem) {
+  .ticket-history-toolbar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .ticket-history-search {
+    grid-column: span 2;
+  }
+}
+
 @media (max-width: 76rem) {
   .ticket-history-toolbar {
     grid-template-columns: repeat(3, minmax(0, 1fr));
