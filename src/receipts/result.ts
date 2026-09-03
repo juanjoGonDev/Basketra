@@ -1,3 +1,4 @@
+import type { CategoryDescriptor } from '../domain/categories.ts';
 import type { OcrResult } from '../ocr/provider.ts';
 import {
   buildReceiptReview,
@@ -50,12 +51,16 @@ export type ReceiptExtractionResult = Readonly<{
     declaredTotalMinor?: number;
     articleCount?: number;
     warnings: readonly string[];
+    categories: readonly CategoryDescriptor[];
     unassignedDiscounts?: readonly AiUnassignedReceiptDiscount[];
     review: ReturnType<typeof buildReceiptReview>;
   }>;
 }>;
 
-export function assembleReceiptExtraction(pages: readonly ReceiptPageEvidence[]): ReceiptExtractionResult {
+export function assembleReceiptExtraction(
+  pages: readonly ReceiptPageEvidence[],
+  categoryInventory: readonly CategoryDescriptor[] = [],
+): ReceiptExtractionResult {
   const originalText = pages.map((page) => page.text).join('\n').trim();
   const deterministicItems = mergeReceiptPageItems(
     pages.map((page) => page.deterministic.items),
@@ -120,6 +125,7 @@ export function assembleReceiptExtraction(pages: readonly ReceiptPageEvidence[])
     unassignedDiscounts,
     ...(finalTotal === undefined ? {} : { declaredTotalMinor: finalTotal }),
   });
+  const categories = referencedCategories(normalized.items, categoryInventory, newCategories);
 
   return {
     pages,
@@ -132,10 +138,32 @@ export function assembleReceiptExtraction(pages: readonly ReceiptPageEvidence[])
       ...(finalTotal === undefined ? {} : { declaredTotalMinor: finalTotal }),
       ...(finalArticleCount === undefined ? {} : { articleCount: finalArticleCount }),
       warnings: normalized.warnings,
+      categories,
       ...(normalized.unassignedDiscounts.length === 0 ? {} : { unassignedDiscounts: normalized.unassignedDiscounts }),
       review: buildReceiptReview(normalized.items, finalTotal),
     },
   };
+}
+
+function referencedCategories(
+  items: readonly ReceiptExtractionItem[],
+  inventory: readonly CategoryDescriptor[],
+  materialized: readonly CategoryDescriptor[],
+): readonly CategoryDescriptor[] {
+  const available = new Map<string, CategoryDescriptor>();
+  for (const category of inventory) available.set(category.id, category);
+  for (const category of materialized) available.set(category.id, category);
+
+  const seen = new Set<string>();
+  const referenced: CategoryDescriptor[] = [];
+  for (const item of items) {
+    const id = item.categoryId;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const category = available.get(id);
+    if (category) referenced.push(category);
+  }
+  return referenced;
 }
 
 function uniqueNewCategories(categories: AiReceiptInterpretation['newCategories']): AiReceiptInterpretation['newCategories'] {
