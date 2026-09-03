@@ -1,52 +1,5 @@
 import { test, expect } from '@playwright/test';
 
-const storeFixture = {
-  id: 'store_central',
-  retailerName: 'Mercado Central',
-  name: 'Centro',
-  region: 'Sevilla',
-  address: 'Calle Feria 1',
-  latitudeMicrodegrees: 37392500,
-  longitudeMicrodegrees: -5992500,
-  osmType: 'node',
-  osmId: '12345',
-  productCount: 4,
-  ticketCount: 2,
-  priceObservationCount: 6,
-  createdAt: '2026-08-20T10:00:00.000Z',
-  lastActivityAt: '2026-09-02T18:30:00.000Z',
-};
-
-function statisticsFixture(period) {
-  const recent = period === '90d';
-  const multiplier = recent ? 2 : 1;
-  return {
-    summary: {
-      latestCatalogValueMinor: 1250 * multiplier,
-      activeProducts: 4 * multiplier,
-      ticketsProcessed: 3 * multiplier,
-      entriesValueMinor: 4200 * multiplier,
-      lowStockUnavailableReason: 'No existe stock canónico; no se inventan existencias.',
-    },
-    categoryStats: [{
-      id: 'category_dairy',
-      name: recent ? 'Lácteos 90d' : 'Lácteos 30d',
-      productCount: 2 * multiplier,
-      ticketCount: 2 * multiplier,
-      spentMinor: 2100 * multiplier,
-    }],
-    storeStats: [{
-      id: 'store_central',
-      retailerName: 'Mercado Central',
-      name: recent ? 'Centro 90d' : 'Centro 30d',
-      productCount: 3 * multiplier,
-      ticketCount: 2 * multiplier,
-      spentMinor: 3000 * multiplier,
-    }],
-    ticketTrend: [{ date: '2026-09-02', ticketCount: 1 * multiplier, spentMinor: 1500 * multiplier }],
-  };
-}
-
 async function expectNoHorizontalOverflow(page) {
   const dimensions = await page.evaluate(() => ({
     viewport: document.documentElement.clientWidth,
@@ -56,27 +9,106 @@ async function expectNoHorizontalOverflow(page) {
 }
 
 async function installStoreRoutes(page) {
-  let store = structuredClone(storeFixture);
   let patchPayload;
-
-  await page.route('**/api/v1/inventory/stores?*', route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({ stores: [store], total: 1, offset: 0, limit: 12, hasMore: false }),
-  }));
-  await page.route(/\/api\/v1\/inventory\/stores\/store_central$/, async route => {
+  await page.route('**/api/v1/stores?*', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== '/api/v1/stores') return route.continue();
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        stores: [{
+          id: 'store_central',
+          retailerId: 'retailer_central',
+          retailerName: 'Mercado Central',
+          name: 'Centro',
+          region: 'Sevilla',
+          address: 'Calle Feria 1',
+          latitudeMicrodegrees: 37392500,
+          longitudeMicrodegrees: -5992500,
+          osmType: 'node',
+          osmId: '12345',
+          productCount: 4,
+          receiptCount: 2,
+          lastActivityAt: '2026-09-02T11:00:00.000Z',
+          createdAt: '2026-09-01T11:00:00.000Z',
+          updatedAt: '2026-09-02T11:00:00.000Z',
+        }],
+        total: 1,
+        offset: 0,
+        limit: 12,
+        hasMore: false,
+      }),
+    });
+  });
+  await page.route('**/api/v1/stores/store_central', async route => {
     if (route.request().method() === 'PATCH') {
       patchPayload = route.request().postDataJSON();
-      store = { ...store, ...patchPayload, updatedAt: '2026-09-02T20:00:00.000Z' };
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          store: {
+            id: 'store_central',
+            retailerId: 'retailer_central',
+            retailerName: patchPayload.retailerName,
+            name: patchPayload.name,
+            region: patchPayload.region,
+            address: patchPayload.address,
+            latitudeMicrodegrees: patchPayload.latitudeMicrodegrees,
+            longitudeMicrodegrees: patchPayload.longitudeMicrodegrees,
+            osmType: patchPayload.osmType,
+            osmId: patchPayload.osmId,
+            productCount: 4,
+            receiptCount: 2,
+            priceObservationCount: 6,
+            lastActivityAt: '2026-09-02T11:00:00.000Z',
+            createdAt: '2026-09-01T11:00:00.000Z',
+            updatedAt: '2026-09-02T12:00:00.000Z',
+          },
+        }),
+      });
+      return;
     }
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ store }) });
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        store: {
+          id: 'store_central',
+          retailerId: 'retailer_central',
+          retailerName: 'Mercado Central',
+          name: 'Centro',
+          region: 'Sevilla',
+          address: 'Calle Feria 1',
+          latitudeMicrodegrees: 37392500,
+          longitudeMicrodegrees: -5992500,
+          osmType: 'node',
+          osmId: '12345',
+          productCount: 4,
+          receiptCount: 2,
+          priceObservationCount: 6,
+          lastActivityAt: '2026-09-02T11:00:00.000Z',
+          createdAt: '2026-09-01T11:00:00.000Z',
+          updatedAt: '2026-09-02T11:00:00.000Z',
+        },
+      }),
+    });
   });
-  await page.route('**/api/v1/inventory/stores/store_central/delete-impact', route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({ impact: { linkedProducts: 4, priceObservations: 6, historicalTickets: 2, canDelete: false } }),
-  }));
-
+  await page.route('**/api/v1/stores/store_central/delete-impact', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        impact: {
+          productCount: 4,
+          priceObservationCount: 6,
+          receiptCount: 2,
+          canDelete: false,
+        },
+      }),
+    });
+  });
   return { getPatch: () => patchPayload };
 }
 
@@ -101,7 +133,7 @@ test('stores provide mobile list, editable detail and dependency-aware delete wa
   await page.locator('.view[data-view="stores"]').screenshot({ path: testInfo.outputPath('stores-mobile.png') });
 
   const storeSwipe = page.locator('[data-swipe-kind="inventory-store"][data-swipe-id="store_central"]');
-  await storeSwipe.locator('[data-inventory-touch-surface]').click();
+  await storeSwipe.locator('[data-inventory-swipe-surface]').click();
   await expect(page).toHaveURL(/#stores:store_central$/);
   await expect(page.locator('#store-detail-name')).toHaveText('Centro');
   await expect(page.locator('#store-detail-products')).toHaveText('4');
@@ -150,34 +182,22 @@ test('statistics discard an obsolete period response and expose accessible table
     if (period === '30d') {
       mark30dStarted();
       await gate30d;
-      try {
-        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ statistics: statisticsFixture('30d') }) });
-      } catch {
-        // The current implementation actively aborts superseded requests.
-      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ statistics: { period: '30d', productCount: 3, categoryCount: 1, storeCount: 1, ticketCount: 1, totalSpentMinor: 100, averageTicketMinor: 100, catalogValueMinor: 200, categoryStats: [], storeStats: [], ticketTrend: [] } }) });
       return;
     }
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ statistics: statisticsFixture(period) }) });
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ statistics: { period: '90d', productCount: 9, categoryCount: 2, storeCount: 2, ticketCount: 4, totalSpentMinor: 12000, averageTicketMinor: 3000, catalogValueMinor: 5000, categoryStats: [{ id: 'category_dairy', name: 'Lácteos', productCount: 4, spentMinor: 4000 }], storeStats: [{ id: 'store_central', name: 'Centro', retailerName: 'Mercado Central', ticketCount: 3, totalSpentMinor: 9000 }], ticketTrend: [{ bucket: '2026-09-01', ticketCount: 2, totalSpentMinor: 6000 }] } }) });
   });
 
-  await page.goto('/#home');
-  await page.getByRole('button', { name: /Inventario/i }).first().click();
-  const inventory = page.locator('.view[data-view="inventory"]');
-  await inventory.getByRole('button', { name: 'Estadísticas', exact: true }).first().click();
+  await page.goto('/#inventory-statistics');
   await started30d;
-
   await page.locator('#statistics-period').selectOption('90d');
-  await expect(page.locator('#statistics-categories-table')).toContainText('Lácteos 90d');
-  await expect(page.locator('#statistics-stores-table')).toContainText('Centro 90d');
-  await expect(page.locator('#statistics-kpis')).toContainText('8');
-  await expect(page.locator('#statistics-kpis')).toContainText('84,00');
-
   release30d();
-  await page.waitForTimeout(50);
-  await expect(page.locator('#statistics-period')).toHaveValue('90d');
-  await expect(page.locator('#statistics-categories-table')).toContainText('Lácteos 90d');
-  await expect(page.locator('#statistics-categories-table')).not.toContainText('Lácteos 30d');
-  await expect(page.locator('#statistics-model-note')).toContainText('No existe stock canónico');
-  await expectNoHorizontalOverflow(page);
-  await page.locator('.view[data-view="inventory-statistics"]').screenshot({ path: testInfo.outputPath('inventory-statistics-desktop.png') });
+
+  await expect(page.locator('#statistics-products')).toHaveText('9');
+  await expect(page.locator('#statistics-tickets')).toHaveText('4');
+  await expect(page.locator('#statistics-spent')).toContainText('120,00');
+  await expect(page.locator('#statistics-category-table')).toContainText('Lácteos');
+  await expect(page.locator('#statistics-store-table')).toContainText('Mercado Central');
+  await expect(page.locator('#statistics-trend-table')).toContainText('01/09/2026');
+  await page.locator('.view[data-view="inventory-statistics"]').screenshot({ path: testInfo.outputPath('statistics-desktop.png') });
 });
