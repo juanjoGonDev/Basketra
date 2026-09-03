@@ -86,7 +86,7 @@ test('all primary destinations share touch-safe controls, reflow and the same vi
     ['Inicio', 'home'],
     ['Listas', 'lists'],
     ['Tickets', 'tickets'],
-    ['Planes', 'plans'],
+    ['Inventario', 'inventory'],
     ['Ajustes', 'settings'],
   ];
 
