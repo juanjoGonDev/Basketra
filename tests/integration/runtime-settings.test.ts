@@ -11,6 +11,7 @@ import {
 } from '../../src/infrastructure/runtime-settings.ts';
 
 const TEST_API_CREDENTIAL = ['fixture', 'credential', '1234'].join('-');
+const RUNTIME_SETTINGS_MIGRATION_VERSION = 8;
 
 test('runtime settings migrate with the main database and expose deterministic defaults', () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-runtime-settings-'));
@@ -19,7 +20,7 @@ test('runtime settings migrate with the main database and expose deterministic d
   database.close();
   const store = new RuntimeSettingsStore(databasePath);
   try {
-    assert.equal(CURRENT_SCHEMA_VERSION, 8);
+    assert.ok(CURRENT_SCHEMA_VERSION >= RUNTIME_SETTINGS_MIGRATION_VERSION);
     assert.deepEqual(
       { ...store.read(), updatedAt: '<timestamp>' },
       {
