@@ -643,6 +643,11 @@ function navigate(requestedRoute, { allowBeforeReady = false } = {}) {
 
 setNavigationReady(false);
 
+document.addEventListener('basketra:navigate', event => {
+  const requestedRoute = String(event.detail?.route || '');
+  if (requestedRoute) navigate(requestedRoute);
+});
+
 $$('[data-nav]').forEach(element => element.addEventListener('click', event => {
   event.preventDefault();
   navigate(element.dataset.nav);
