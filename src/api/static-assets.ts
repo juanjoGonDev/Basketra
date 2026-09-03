@@ -8,6 +8,7 @@ export const STATIC_ASSETS = new Set([
   'inventory.js',
   'inventory.css',
   'inventory-swipe.js',
+  'inventory-swipe.css',
   'ticket-history.js',
   'ticket-history.css',
   'ticket-history-values.js',
