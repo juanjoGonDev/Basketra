@@ -32,6 +32,17 @@ test('category UI separates list, detail and editor while preserving hierarchy a
   assert.match(css, /\.inventory-detail-screen/u);
 });
 
+test('category rendering preserves strict CSP without inline styles', () => {
+  const javascript = source('src/web/catalog.js');
+  const css = source('src/web/catalog.css');
+
+  assert.doesNotMatch(javascript, /\.style(?:\.|\[)/u);
+  assert.doesNotMatch(javascript, /\sstyle="/u);
+  assert.match(javascript, /category-indent-step/u);
+  assert.match(javascript, /setAttribute\('fill'/u);
+  assert.match(css, /\.category-indent-step/u);
+});
+
 test('direct category hashes support list, detail and new-category states', () => {
   const javascript = source('src/web/catalog.js');
   assert.match(javascript, /requested === 'categories:new'/u);

@@ -134,7 +134,7 @@ function installCategoryView() {
     </section>
     <section id="category-detail" class="inventory-detail-screen" aria-labelledby="category-form-title" hidden>
       <header class="inventory-detail-header"><button id="categories-back-list" class="button secondary" type="button"><span data-icon="chevronUp" class="icon-rotate-left"></span>Categorías</button><div class="inventory-detail-header__copy"><p class="eyebrow">Categoría</p><h1 id="category-form-title">Nueva categoría</h1><p id="category-detail-hierarchy">Categoría raíz</p></div><div class="inventory-header-actions"><button id="category-edit" class="button secondary" type="button"><span data-icon="edit"></span>Editar</button><button id="category-delete" class="button danger" type="button"><span data-icon="trash"></span>Eliminar</button></div></header>
-      <div class="inventory-detail-grid"><section class="surface inventory-detail-primary"><div class="inventory-category-identity"><span id="category-detail-swatch" class="category-swatch" aria-hidden="true"></span><div><p class="eyebrow">Información general</p><h2 id="category-detail-name">Nueva categoría</h2><p id="category-detail-description">Sin descripción.</p></div></div><dl class="inventory-definition-grid"><div><dt>Productos directos</dt><dd id="category-detail-products">0</dd></div><div><dt>Subcategorías</dt><dd id="category-detail-children">0</dd></div><div><dt>Padre</dt><dd id="category-detail-parent">Raíz</dd></div><div><dt>Estado</dt><dd id="category-detail-status">Activa</dd></div></dl><div id="category-protected-note" class="catalog-shared-note" role="note" hidden><strong>Categoría protegida</strong><span>desconocido es el fallback canónico y no puede eliminarse ni moverse.</span></div></section></div>
+      <div class="inventory-detail-grid"><section class="surface inventory-detail-primary"><div class="inventory-category-identity"><svg id="category-detail-swatch" class="category-swatch" viewBox="0 0 1 1" aria-hidden="true" focusable="false"><rect width="1" height="1" rx=".22" fill="${DEFAULT_CATEGORY_COLOR}"></rect></svg><div><p class="eyebrow">Información general</p><h2 id="category-detail-name">Nueva categoría</h2><p id="category-detail-description">Sin descripción.</p></div></div><dl class="inventory-definition-grid"><div><dt>Productos directos</dt><dd id="category-detail-products">0</dd></div><div><dt>Subcategorías</dt><dd id="category-detail-children">0</dd></div><div><dt>Padre</dt><dd id="category-detail-parent">Raíz</dd></div><div><dt>Estado</dt><dd id="category-detail-status">Activa</dd></div></dl><div id="category-protected-note" class="catalog-shared-note" role="note" hidden><strong>Categoría protegida</strong><span>desconocido es el fallback canónico y no puede eliminarse ni moverse.</span></div></section></div>
       <section id="category-editor" class="surface inventory-editor" aria-labelledby="category-editor-title" hidden><div class="section-header"><div><p class="eyebrow">Edición</p><h2 id="category-editor-title">Editar categoría</h2></div><span id="category-form-status" class="status-pill">Guardada</span></div><form id="category-form" class="category-form"><label class="field"><span>Nombre</span><input id="category-name" maxlength="120" autocomplete="off" required></label><label class="field"><span>Categoría padre</span><select id="category-parent"><option value="">Sin padre · categoría raíz</option></select></label><label class="field category-color-field"><span>Color</span><span class="category-color-control"><input id="category-color" type="color" value="${DEFAULT_CATEGORY_COLOR}" aria-label="Color de la categoría"><output id="category-color-value">${DEFAULT_CATEGORY_COLOR}</output></span></label><label class="field"><span>Descripción opcional</span><textarea id="category-description" maxlength="500" rows="4"></textarea></label><div class="dialog-actions"><button id="category-cancel-edit" class="button secondary" type="button">Cancelar</button><button id="category-save" class="button primary" type="submit"><span data-icon="check"></span>Guardar categoría</button></div><button id="category-add-child" class="button secondary full" type="button" hidden><span data-icon="plus"></span>Añadir subcategoría</button><p id="category-form-state" class="inline-status" role="status"></p></form></section>
       <dialog id="category-delete-dialog" class="confirm-dialog" aria-labelledby="category-delete-title"><div class="dialog-content"><span class="dialog-icon" data-icon="alert"></span><h2 id="category-delete-title">Eliminar categoría</h2><p id="category-delete-impact">Comprobando productos y subcategorías…</p><p id="category-delete-state" class="inline-status" role="status"></p><div class="dialog-actions"><button id="category-delete-cancel" class="button secondary" type="button">Cancelar</button><button id="category-delete-confirm" class="button danger" type="button" disabled>Eliminar categoría</button></div></div></dialog>
     </section>`;
@@ -169,6 +169,15 @@ function selectedCategory() {
 function normalizedCategoryColor(value) {
   const normalized = String(value || '').trim().toUpperCase();
   return /^#[0-9A-F]{6}$/u.test(normalized) ? normalized : DEFAULT_CATEGORY_COLOR;
+}
+
+function categorySwatchMarkup(color) {
+  const fill = escapeHtml(normalizedCategoryColor(color));
+  return `<svg class="category-swatch" viewBox="0 0 1 1" aria-hidden="true" focusable="false"><rect width="1" height="1" rx=".22" fill="${fill}"></rect></svg>`;
+}
+
+function categoryIndentMarkup(depth) {
+  return '<span class="category-indent-step" aria-hidden="true"></span>'.repeat(Math.max(0, depth));
 }
 
 function sortedCategories(categories = state.categories) {
@@ -323,8 +332,8 @@ function renderCategoryList() {
     row.type = 'button';
     row.className = 'category-row category-list-grid';
     row.dataset.categoryId = category.id;
-    row.style.setProperty('--category-indent', `${categoryDepth(category.id) * 1.1}rem`);
-    row.innerHTML = `<span class="category-name-cell"><span class="category-swatch" style="background:${escapeHtml(normalizedCategoryColor(category.color))}" aria-hidden="true"></span><span><strong>${escapeHtml(category.name)}</strong><small>${escapeHtml(category.description || (category.parentId ? 'Subcategoría' : 'Categoría raíz'))}</small></span></span><strong>${category.productCount}</strong><strong>${category.childCount}</strong><span>${escapeHtml(category.parentName || 'Raíz')}</span><span class="inventory-row-action">Ver detalle</span>`;
+    const depth = categoryDepth(category.id);
+    row.innerHTML = `<span class="category-name-cell">${categoryIndentMarkup(depth)}${categorySwatchMarkup(category.color)}<span><strong>${escapeHtml(category.name)}</strong><small>${escapeHtml(category.description || (category.parentId ? 'Subcategoría' : 'Categoría raíz'))}</small></span></span><strong>${category.productCount}</strong><strong>${category.childCount}</strong><span>${escapeHtml(category.parentName || 'Raíz')}</span><span class="inventory-row-action">Ver detalle</span>`;
     row.addEventListener('click', () => openCategoryDetail(category.id));
     container.append(row);
   }
@@ -509,7 +518,7 @@ function renderCategoryDetail(category) {
   $('#category-form-title').textContent = category?.name || 'Nueva categoría';
   $('#category-detail-name').textContent = category?.name || 'Nueva categoría';
   $('#category-detail-description').textContent = category?.description || 'Sin descripción.';
-  $('#category-detail-swatch').style.backgroundColor = normalizedCategoryColor(category?.color);
+  $('#category-detail-swatch rect')?.setAttribute('fill', normalizedCategoryColor(category?.color));
   $('#category-detail-products').textContent = '…';
   $('#category-detail-children').textContent = '…';
   $('#category-detail-parent').textContent = category?.parentId ? (byId.get(category.parentId)?.name || 'Categoría no disponible') : 'Raíz';

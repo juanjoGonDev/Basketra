@@ -324,8 +324,9 @@
   align-items: center;
 }
 
-.category-name-cell {
-  padding-inline-start: var(--category-indent, 0rem);
+.category-indent-step {
+  width: 1.1rem;
+  flex: 0 0 1.1rem;
 }
 
 .category-swatch {
@@ -333,6 +334,7 @@
   width: .8rem;
   height: .8rem;
   flex: 0 0 auto;
+  overflow: hidden;
   border-radius: 999px;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--border) 75%, transparent);
 }
