@@ -664,7 +664,6 @@ async function loadAiConfiguration() {
 async function initialize() {
   const initialRoute = location.hash.slice(1) || 'home';
   if (initialRoute === 'home') navigate('home', { allowBeforeReady: true });
-  else pendingRoute = initialRoute;
   try {
     const metadata = await api('/api/v1/meta');
     const aiConfigured = await loadAiConfiguration();
@@ -676,7 +675,7 @@ async function initialize() {
     toast(error.message);
   } finally {
     setNavigationReady(true);
-    const readyRoute = pendingRoute || initialRoute;
+    const readyRoute = pendingRoute || location.hash.slice(1) || initialRoute;
     pendingRoute = '';
     navigate(readyRoute, { allowBeforeReady: true });
   }
