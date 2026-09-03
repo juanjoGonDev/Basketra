@@ -536,6 +536,8 @@ async function openCategoryDetail(categoryId, { edit = false } = {}) {
   if (!category) return;
   $('#category-list-screen').hidden = true;
   $('#category-detail').hidden = false;
+  $('#category-edit').hidden = false;
+  $('#category-delete').hidden = false;
   renderCategoryDetail(category);
   showCategoryEditor(edit);
   history.replaceState(null, '', `#categories:${encodeURIComponent(categoryId)}`);
