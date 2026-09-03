@@ -3,6 +3,9 @@ import { escapeHtml, icon } from './ui.js';
 const ENHANCED_ATTR = 'inventorySwipeEnhanced';
 const ACTION_WAIT_MS = 5_000;
 const DRAG_THRESHOLD_PX = 8;
+const REVEAL_RATIO = 0.18;
+const DELETE_RATIO = 0.55;
+const COMMIT_DELAY_MS = 150;
 
 const ENTITY_CONFIG = {
   'inventory-product': {
@@ -35,7 +38,7 @@ const ENTITY_CONFIG = {
   },
 };
 
-let touchGesture;
+let gesture;
 
 function rowLabel(row) {
   return row.querySelector('strong')?.textContent?.trim() || 'elemento';
@@ -64,6 +67,38 @@ function fragment(markup) {
   return template.content.firstElementChild;
 }
 
+function setActionsAccessible(wrapper, accessible) {
+  const actions = wrapper.querySelector('[data-swipe-actions]');
+  actions?.setAttribute('aria-hidden', String(!accessible));
+  actions?.querySelectorAll('button').forEach(button => {
+    button.tabIndex = accessible ? 0 : -1;
+  });
+  wrapper.querySelector('[data-swipe-toggle]')?.setAttribute('aria-expanded', String(accessible));
+}
+
+function closeRow(wrapper) {
+  if (!(wrapper instanceof HTMLElement)) return;
+  wrapper.dataset.swipeOpen = 'false';
+  wrapper.dataset.swipeDeleteArmed = 'false';
+  wrapper.dataset.inventorySwipePosition = 'closed';
+  setActionsAccessible(wrapper, false);
+}
+
+function closeRows(except) {
+  document.querySelectorAll('.inventory-entity-swipe').forEach(wrapper => {
+    if (wrapper !== except) closeRow(wrapper);
+  });
+}
+
+function openRow(wrapper) {
+  if (!(wrapper instanceof HTMLElement)) return;
+  closeRows(wrapper);
+  wrapper.dataset.swipeOpen = 'true';
+  wrapper.dataset.swipeDeleteArmed = 'false';
+  wrapper.dataset.inventorySwipePosition = 'reveal';
+  setActionsAccessible(wrapper, true);
+}
+
 function enhanceRow(row, kind, config) {
   if (!(row instanceof HTMLButtonElement) || row.closest('.inventory-entity-swipe')) return;
   const id = config.id(row);
@@ -72,25 +107,22 @@ function enhanceRow(row, kind, config) {
   const deleteBlocked = config.deleteBlocked?.(row) === true;
   const wrapper = document.createElement('article');
   wrapper.className = 'swipe-shell inventory-entity-swipe';
-  wrapper.dataset.swipeRow = '';
   wrapper.dataset.swipeKind = kind;
   wrapper.dataset.swipeId = String(id);
   wrapper.dataset.swipeOpen = 'false';
+  wrapper.dataset.swipeDeleteArmed = 'false';
+  wrapper.dataset.inventorySwipePosition = 'closed';
   wrapper.dataset[ENHANCED_ATTR] = 'true';
   if (!deleteBlocked) wrapper.dataset.swipeEndAction = 'delete';
 
   const rail = fragment(inventorySwipeRail(kind, id, label, { deleteDisabled: deleteBlocked }));
   const content = document.createElement('div');
   content.className = 'inventory-entity-swipe__content swipe-content';
-  content.dataset.swipeContent = '';
-  const touchSurface = document.createElement('span');
-  touchSurface.className = 'inventory-swipe-touch-surface';
-  touchSurface.dataset.inventoryTouchSurface = '';
-  touchSurface.setAttribute('aria-hidden', 'true');
   const toggle = fragment(inventorySwipeToggle(label));
+  row.dataset.inventorySwipeSurface = '';
 
   row.before(wrapper);
-  content.append(row, touchSurface, toggle);
+  content.append(row, toggle);
   wrapper.append(rail, content);
 }
 
@@ -126,12 +158,6 @@ function waitForVisible(selector) {
   });
 }
 
-function wrapperFor(kind, id) {
-  return [...document.querySelectorAll('.inventory-entity-swipe')].find(wrapper => (
-    wrapper.dataset.swipeKind === kind && wrapper.dataset.swipeId === id
-  ));
-}
-
 function reportActionFailure(kind, error) {
   const statusSelector = ENTITY_CONFIG[kind]?.status;
   const status = statusSelector ? document.querySelector(statusSelector) : null;
@@ -148,6 +174,7 @@ async function activateRowAction(wrapper, action) {
   if (!(row instanceof HTMLButtonElement)) return;
   if (action === 'delete' && config.deleteBlocked?.(row) === true) return;
 
+  closeRow(wrapper);
   row.click();
   await waitForVisible(config.detail);
   const trigger = document.querySelector(config[action]);
@@ -159,70 +186,120 @@ function runRowAction(wrapper, action) {
   void activateRowAction(wrapper, action).catch(error => reportActionFailure(kind, error));
 }
 
-function bindTouchSurface() {
+function bindPointerGestures() {
   document.addEventListener('pointerdown', event => {
-    const surface = event.target.closest?.('[data-inventory-touch-surface]');
-    if (!(surface instanceof HTMLElement)) return;
-    touchGesture = {
+    if (event.button !== 0) return;
+    const surface = event.target.closest?.('[data-inventory-swipe-surface]');
+    if (!(surface instanceof HTMLButtonElement)) return;
+    const wrapper = surface.closest('.inventory-entity-swipe');
+    if (!(wrapper instanceof HTMLElement)) return;
+    closeRows(wrapper);
+    gesture = {
       pointerId: event.pointerId,
       x: event.clientX,
       y: event.clientY,
-      dragged: false,
-      wrapper: surface.closest('.inventory-entity-swipe'),
+      horizontal: false,
+      wrapper,
     };
   }, true);
 
   document.addEventListener('pointermove', event => {
-    if (!touchGesture || event.pointerId !== touchGesture.pointerId) return;
-    const deltaX = event.clientX - touchGesture.x;
-    const deltaY = event.clientY - touchGesture.y;
-    if (Math.abs(deltaX) >= DRAG_THRESHOLD_PX || Math.abs(deltaY) >= DRAG_THRESHOLD_PX) touchGesture.dragged = true;
+    if (!gesture || event.pointerId !== gesture.pointerId) return;
+    const deltaX = event.clientX - gesture.x;
+    const deltaY = event.clientY - gesture.y;
+    if (!gesture.horizontal) {
+      if (Math.abs(deltaX) < DRAG_THRESHOLD_PX && Math.abs(deltaY) < DRAG_THRESHOLD_PX) return;
+      if (Math.abs(deltaY) >= Math.abs(deltaX)) {
+        gesture = undefined;
+        return;
+      }
+      gesture.horizontal = true;
+    }
+    event.preventDefault();
+    const ratio = Math.abs(deltaX) / Math.max(gesture.wrapper.clientWidth, 1);
+    if (deltaX < 0 && ratio >= REVEAL_RATIO) {
+      gesture.wrapper.dataset.inventorySwipePosition = 'reveal';
+      gesture.wrapper.dataset.swipeDeleteArmed = String(
+        ratio >= DELETE_RATIO && Boolean(gesture.wrapper.dataset.swipeEndAction),
+      );
+    } else {
+      gesture.wrapper.dataset.inventorySwipePosition = 'closed';
+      gesture.wrapper.dataset.swipeDeleteArmed = 'false';
+    }
+  }, { capture: true, passive: false });
+
+  const finish = event => {
+    if (!gesture || event.pointerId !== gesture.pointerId) return;
+    const current = gesture;
+    gesture = undefined;
+    if (!current.horizontal) return;
+    const deltaX = event.clientX - current.x;
+    const ratio = Math.abs(deltaX) / Math.max(current.wrapper.clientWidth, 1);
+    current.wrapper.dataset.inventorySuppressTap = 'true';
+    if (deltaX < 0 && ratio >= DELETE_RATIO && current.wrapper.dataset.swipeEndAction === 'delete') {
+      current.wrapper.dataset.inventorySwipePosition = 'commit';
+      current.wrapper.dataset.swipeDeleteArmed = 'true';
+      const delay = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : COMMIT_DELAY_MS;
+      setTimeout(() => runRowAction(current.wrapper, 'delete'), delay);
+      return;
+    }
+    if (deltaX < 0 && ratio >= REVEAL_RATIO) {
+      openRow(current.wrapper);
+      return;
+    }
+    closeRow(current.wrapper);
+  };
+  document.addEventListener('pointerup', finish, true);
+  document.addEventListener('pointercancel', event => {
+    if (!gesture || event.pointerId !== gesture.pointerId) return;
+    const wrapper = gesture.wrapper;
+    gesture = undefined;
+    closeRow(wrapper);
   }, true);
 
-  const finishGesture = event => {
-    if (!touchGesture || event.pointerId !== touchGesture.pointerId) return;
-    const { wrapper, dragged } = touchGesture;
-    touchGesture = undefined;
-    if (wrapper instanceof HTMLElement) wrapper.dataset.inventorySuppressTap = String(dragged);
-  };
-  document.addEventListener('pointerup', finishGesture, true);
-  document.addEventListener('pointercancel', finishGesture, true);
-
   document.addEventListener('click', event => {
-    const surface = event.target.closest?.('[data-inventory-touch-surface]');
-    if (!(surface instanceof HTMLElement)) return;
-    event.preventDefault();
-    event.stopPropagation();
+    const surface = event.target.closest?.('[data-inventory-swipe-surface]');
+    if (!(surface instanceof HTMLButtonElement)) return;
     const wrapper = surface.closest('.inventory-entity-swipe');
-    if (!(wrapper instanceof HTMLElement)) return;
-    const suppressTap = wrapper.dataset.inventorySuppressTap === 'true';
+    if (!(wrapper instanceof HTMLElement) || wrapper.dataset.inventorySuppressTap !== 'true') return;
     delete wrapper.dataset.inventorySuppressTap;
-    if (suppressTap) return;
-    const config = ENTITY_CONFIG[wrapper.dataset.swipeKind];
-    const row = config ? wrapper.querySelector(config.row) : null;
-    if (row instanceof HTMLButtonElement) row.click();
+    event.preventDefault();
+    event.stopImmediatePropagation();
   }, true);
 }
 
 function bindActions() {
-  bindTouchSurface();
+  bindPointerGestures();
 
   document.addEventListener('click', event => {
+    const toggle = event.target.closest?.('.inventory-entity-swipe [data-swipe-toggle]');
+    if (toggle instanceof HTMLButtonElement) {
+      const wrapper = toggle.closest('.inventory-entity-swipe');
+      if (!(wrapper instanceof HTMLElement)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (wrapper.dataset.swipeOpen === 'true') closeRow(wrapper);
+      else openRow(wrapper);
+      return;
+    }
+
     const actionButton = event.target.closest?.('[data-inventory-row-action]');
-    if (!(actionButton instanceof HTMLButtonElement) || actionButton.disabled) return;
-    const wrapper = actionButton.closest('.inventory-entity-swipe');
-    if (!wrapper) return;
-    event.preventDefault();
-    event.stopPropagation();
-    runRowAction(wrapper, actionButton.dataset.inventoryRowAction);
+    if (actionButton instanceof HTMLButtonElement && !actionButton.disabled) {
+      const wrapper = actionButton.closest('.inventory-entity-swipe');
+      if (!wrapper) return;
+      event.preventDefault();
+      event.stopPropagation();
+      runRowAction(wrapper, actionButton.dataset.inventoryRowAction);
+      return;
+    }
+
+    if (!event.target.closest?.('.inventory-entity-swipe')) closeRows();
   });
 
-  document.addEventListener('basketra:swipe-action', event => {
-    const kind = String(event.detail?.kind || '');
-    const id = String(event.detail?.id || '');
-    if (!ENTITY_CONFIG[kind] || event.detail?.action !== 'delete' || !id) return;
-    const wrapper = wrapperFor(kind, id);
-    if (wrapper) runRowAction(wrapper, 'delete');
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    const wrapper = event.target.closest?.('.inventory-entity-swipe');
+    if (wrapper) closeRow(wrapper);
   });
 }
 
