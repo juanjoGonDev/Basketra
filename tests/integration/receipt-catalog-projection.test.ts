@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
+import { COLLABORATION_MIGRATIONS } from '../../src/infrastructure/collaboration-schema.ts';
 import { BasketraDatabase, CURRENT_SCHEMA_VERSION } from '../../src/infrastructure/database.ts';
 
 const RECEIPT_CATALOG_MIGRATION_VERSION = 7;
@@ -73,12 +74,21 @@ function insertLegacyReceipt(database: DatabaseSync, input: Readonly<{
   );
 }
 
-function resetToBeforeReceiptCatalogMigration(database: DatabaseSync): void {
-  database.exec(`
-    DROP TRIGGER IF EXISTS receipt_items_project_catalog;
-    DROP TABLE IF EXISTS runtime_settings;
-    DELETE FROM schema_migrations WHERE version >= ${RECEIPT_CATALOG_MIGRATION_VERSION};
-  `);
+function prepareHistoricalReceiptBackfill(database: DatabaseSync): void {
+  database.exec('DROP TRIGGER IF EXISTS receipt_items_project_catalog;');
+}
+
+function runReceiptCatalogMigration(database: DatabaseSync): void {
+  const migration = COLLABORATION_MIGRATIONS.find(entry => entry.version === RECEIPT_CATALOG_MIGRATION_VERSION);
+  assert.ok(migration);
+  database.exec('BEGIN IMMEDIATE;');
+  try {
+    database.exec(migration.sql);
+    database.exec('COMMIT;');
+  } catch (error) {
+    database.exec('ROLLBACK;');
+    throw error;
+  }
 }
 
 function readProjection(path: string, receiptId: string) {
@@ -170,7 +180,7 @@ test('migration reconciles historical confirmed receipt rows without overwriting
   const legacy = new DatabaseSync(databasePath);
   try {
     legacy.exec('PRAGMA foreign_keys = ON;');
-    resetToBeforeReceiptCatalogMigration(legacy);
+    prepareHistoricalReceiptBackfill(legacy);
     legacy.prepare('INSERT INTO retailers(id, name, created_at) VALUES (?, ?, ?)').run('retailer_legacy', 'Mercadona', '2026-08-01T10:00:00.000Z');
     insertLegacyReceipt(legacy, {
       receiptId: 'receipt_legacy',
@@ -181,6 +191,7 @@ test('migration reconciles historical confirmed receipt rows without overwriting
       importKey: 'receipt-legacy-0001',
       createdAt: '2026-08-01T10:00:00.000Z',
     });
+    runReceiptCatalogMigration(legacy);
   } finally {
     legacy.close();
   }
@@ -217,7 +228,7 @@ test('migration reuses one catalog variant for matching historical receipts from
   const legacy = new DatabaseSync(databasePath);
   try {
     legacy.exec('PRAGMA foreign_keys = ON;');
-    resetToBeforeReceiptCatalogMigration(legacy);
+    prepareHistoricalReceiptBackfill(legacy);
     legacy.prepare('INSERT INTO retailers(id, name, created_at) VALUES (?, ?, ?)').run('retailer_history', 'Alcampo', '2026-08-01T10:00:00.000Z');
     insertLegacyReceipt(legacy, {
       receiptId: 'receipt_history_1',
@@ -237,6 +248,7 @@ test('migration reuses one catalog variant for matching historical receipts from
       importKey: 'receipt-history-0002',
       createdAt: '2026-08-02T10:00:00.000Z',
     });
+    runReceiptCatalogMigration(legacy);
   } finally {
     legacy.close();
   }
