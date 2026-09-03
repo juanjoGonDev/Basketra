@@ -512,3 +512,39 @@
   color: var(--warning);
   font-weight: 800;
 }
+
+.receipt-line-category {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  margin-top: .25rem;
+  color: var(--color-on-surface-variant);
+  font-size: .75rem;
+  line-height: 1.35;
+}
+
+.receipt-line-category .icon {
+  width: .9rem;
+  height: .9rem;
+  flex: 0 0 auto;
+  color: var(--color-primary);
+}
+
+.receipt-line-category > span {
+  font-weight: 650;
+}
+
+.receipt-line-category strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-primary);
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.receipt-line-compact__copy .receipt-line-compact__category {
+  color: var(--color-primary);
+  font-weight: 750;
+}
