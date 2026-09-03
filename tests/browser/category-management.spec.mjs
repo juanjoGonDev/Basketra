@@ -83,7 +83,7 @@ test('hierarchical categories use separate list, detail and editor flows on mobi
   await expect(page.getByRole('heading', { name: 'Categorías', exact: true })).toBeVisible();
   await expect(page.locator('#category-range')).toHaveText('1-2 de 2');
 
-  const foodRow = page.getByRole('button', { name: /Alimentación/ });
+  const foodRow = page.locator('[data-category-id="category_food"]');
   await foodRow.focus();
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/#categories:category_food$/);
@@ -110,11 +110,11 @@ test('hierarchical categories use separate list, detail and editor flows on mobi
 
   await expect.poll(() => updatePayload).toEqual({ name: 'Lácteos y huevos', parentId: null, color: '#445566', description: 'Leche, yogur y derivados' });
   await page.getByRole('button', { name: 'Categorías', exact: true }).click();
-  const movedRow = page.getByRole('button', { name: /Lácteos y huevos/ });
+  const movedRow = page.locator('[data-category-id="category_dairy"]');
   await expect(movedRow).toBeVisible();
   await expect.poll(() => movedRow.evaluate(element => element.style.getPropertyValue('--category-indent'))).toBe('0rem');
 
-  const unknownRow = page.getByRole('button', { name: /desconocido/ });
+  const unknownRow = page.locator('[data-category-id="category_unknown"]');
   await unknownRow.click();
   await expect(page.locator('#category-protected-note')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Eliminar', exact: true })).toBeDisabled();
