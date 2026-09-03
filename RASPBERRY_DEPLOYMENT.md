@@ -1,211 +1,176 @@
 # Private Raspberry Pi deployment
 
-This runbook deploys Basketra from the private multi-architecture image `ghcr.io/juanjogondev/basketra`. Docker repository references are lowercase even though the account display name is `juanjoGonDev`.
+This runbook deploys Basketra from the private multi-architecture image `ghcr.io/juanjogondev/basketra`.
 
-Basketra is a single-installation private application. It has no internal application token or login screen. The default deployment publishes only on host loopback and must be reached through a VPN, SSH tunnel, reviewed LAN-only route, or authenticated private reverse proxy.
+## Supported boundary
 
-Anyone who can reach the Basketra HTTP service can access lists, receipts, diagnostics, logs, backups, and administrative restore operations. Direct public internet exposure is unsupported.
+Basketra is a single-user private application. It has no internal application login or access token. The repository-owned production Compose file publishes Basketra only on `127.0.0.1:3000` and is intended to be reached through a trusted VPN, SSH tunnel, reviewed LAN-only route, or authenticated private reverse proxy.
+
+Anyone who can reach the Basketra HTTP service can access lists, receipts, diagnostics, logs, backups, and administrative restore operations. Direct public Internet exposure is unsupported.
+
+Basketra application settings are not configured through environment variables. There is no required `.env` file.
 
 ## Requirements
 
-- Raspberry Pi OS or another Linux ARM64 distribution.
-- Docker Engine with the Compose plugin.
-- Access to the private GHCR package.
-- A private access path such as WireGuard, an SSH tunnel, or an authenticated private reverse proxy.
-- Free disk capacity for bounded application data plus at least two image revisions.
-
-Keep `BASKETRA_BIND_ADDRESS=127.0.0.1` unless a reviewed LAN-only bind and firewall policy are intentionally configured. Do not expose the port directly on a public interface.
+- Raspberry Pi OS or another Linux ARM64 distribution;
+- Docker Engine with the Compose plugin;
+- access to the private GHCR package;
+- a private access path such as WireGuard, SSH forwarding, or an authenticated private reverse proxy;
+- enough disk capacity for bounded application data, backups, and retained container images.
 
 ## Authenticate to private GHCR
 
-Use a GitHub credential limited to `read:packages` on the deployment host. Do not place it in `.env`, Compose, shell history, or this repository.
+The host needs a GitHub credential limited to `read:packages`. The optional Watchtower service mounts repository-local `./.docker` as its Docker client configuration, so authenticate into that directory rather than placing credentials in Compose or a Basketra environment file:
 
 ```bash
+mkdir -p .docker
+chmod 700 .docker
 read -rsp 'GHCR read token: ' CR_PAT
 echo
-printf '%s' "$CR_PAT" | docker login ghcr.io -u juanjoGonDev --password-stdin
+printf '%s' "$CR_PAT" | docker --config "$PWD/.docker" login ghcr.io -u juanjoGonDev --password-stdin
 unset CR_PAT
+chmod 600 .docker/config.json
 ```
 
-Protect Docker's client configuration with owner-only permissions. The optional Watchtower service receives that directory through `BASKETRA_DOCKER_CONFIG_DIR`.
+Do not paste registry credentials into chat, screenshots, logs, Compose files, or this repository.
 
-## Create the deployment environment
+## Validate and start Basketra
 
-```bash
-umask 077
-cp .env.example .env
-chmod 600 .env
-```
-
-Every variable must be on a separate line. Compose recognizes these canonical resource names:
-
-- `BASKETRA_BIND_ADDRESS`, not `BASKETRA_BIND_IP`;
-- `BASKETRA_MEMORY_LIMIT`, not `BASKETRA_MEM_LIMIT`;
-- `BASKETRA_CPU_LIMIT`, not `BASKETRA_CPUS`.
-
-`BASKETRA_AUTH_TOKEN` was removed from the application. Do not add it back; the access boundary is the private network path.
-
-Keep these defaults unless measurements or network design justify a reviewed change:
-
-```dotenv
-BASKETRA_IMAGE=ghcr.io/juanjogondev/basketra:stable
-BASKETRA_BIND_ADDRESS=127.0.0.1
-BASKETRA_PORT=3000
-BASKETRA_NODE_HEAP_MB=128
-BASKETRA_MEMORY_LIMIT=192m
-BASKETRA_CPU_LIMIT=0.75
-WATCHTOWER_POLL_INTERVAL=300
-WATCHTOWER_MEMORY_LIMIT=128m
-TZ=Europe/Madrid
-```
-
-Compose sets memory and swap to the same limit, caps PIDs and CPU, uses bounded tmpfs mounts, and rotates each Docker service log at three 5 MiB files. Provider credentials remain optional. Never commit a real `.env` or registry credential.
-
-## Configure a provider running on the Raspberry host
-
-Local JPEG/PNG OCR does not require AI. An OpenAI-compatible provider is only needed for optional verification, list assistance, or provider-dependent PDF processing.
-
-Inside the Basketra container, `127.0.0.1` means the Basketra container itself. It does not reach a process listening on the Raspberry host. `compose.raspberry.yml` maps `host.docker.internal` to Docker's host gateway, so the canonical configuration for a provider on host port 3001 is:
-
-```dotenv
-BASKETRA_AI_BASE_URL=http://host.docker.internal:3001/v1/
-BASKETRA_AI_API_KEY=<managed-webapi-token>
-BASKETRA_AI_MODEL=default
-BASKETRA_AI_MAX_RETRIES=1
-BASKETRA_AI_IMAGE_CAPABILITY=true
-BASKETRA_AI_PDF_CAPABILITY=false
-```
-
-For webApi, create a database-backed managed token in webApi `/admin` and copy the one-time token value into `BASKETRA_AI_API_KEY`. The removed webApi `API_KEY` environment variable is not a valid credential and must not be restored. Do not paste the managed token into chat, screenshots, shell history, logs, or this runbook.
-
-The provider itself must listen on an address reachable from Docker's bridge, not exclusively on host loopback, and its firewall must allow only the required local bridge/private source. Do not publish the provider to the public Internet.
-
-Changing `.env` does not alter an existing container. Validate the resolved configuration and recreate Basketra:
-
-```bash
-docker compose -f compose.raspberry.yml config --quiet
-docker compose -f compose.raspberry.yml up -d --force-recreate basketra
-docker compose -f compose.raspberry.yml ps
-```
-
-Do not use `docker inspect` formats that dump the full environment. The Basketra Settings page shows whether configuration is missing, loaded with a Docker-loopback error, unreachable, rejected by authentication, rejected while preparing an image, or unable to satisfy strict structured output. It returns only the provider URL, model, capabilities, and an optional last-four mask; it never returns the token.
-
-The Settings verification action performs one manual `POST /v1/chat/completions` request through Basketra's canonical provider client. For webApi, it sends `multipart/form-data`: the `request` field holds the OpenAI-compatible JSON request and strict response schema, and one `files` part holds a compact repository-owned JPEG fixture. The generic filename is `test.jpg`; neither the filename nor the prompt reveals the text the provider must read. Basketra sends the JPEG binary once, without a base64/data-URL duplicate in request JSON, and lets the fetch runtime generate multipart framing.
-
-The provider must both process the image and return the requested strict JSON object with the expected visible text. A successful `GET /v1/models` call therefore does not prove that the managed token, binary attachment transport, composer readiness, selected model, image processing, and Structured Outputs work together.
-
-`BASKETRA_AI_TIMEOUT_MS` is not a supported setting. Basketra does not apply an inference wall-clock timeout; webApi/the upstream provider owns that timeout. A browser-disconnected request is still cancelled and the manual test does not retry automatically.
-
-The Settings result is safe to share only as its stable outcome code. It distinguishes missing configuration, container-loopback configuration, unreachable provider, authentication failure, provider timeout, attachment too large, attachment upload failure, request/schema rejection, rate limiting, invalid or empty structured output, response too large, and provider failure. It never returns the managed token, request headers, fixture bytes, or raw provider response. Correct the configuration or provider condition and run the manual check again.
-
-Deterministic repository checks use a local mock provider; no required CI job contacts a live AI service. There is no unattended live-provider smoke command. After configuring a private provider and recreating the container, use **Test AI provider** in Settings as the optional operational smoke check. Do not put a real token or live-provider invocation in CI.
-
-After a credential has appeared in chat, screenshots, shell history, or logs, revoke and replace it before restarting the service.
-
-## Verify the private image pull and version
-
-After an approved merge, inspect and pull the immutable candidate before relying on `stable`:
-
-```bash
-COMMIT_SHA=<full-commit-sha>
-docker buildx imagetools inspect "ghcr.io/juanjogondev/basketra:${COMMIT_SHA}"
-docker pull "ghcr.io/juanjogondev/basketra:${COMMIT_SHA}"
-docker pull ghcr.io/juanjogondev/basketra:stable
-```
-
-Validate the production Compose reference:
+No `.env` preparation is required:
 
 ```bash
 docker compose -f compose.raspberry.yml config --quiet
 docker compose -f compose.raspberry.yml pull basketra
-docker image inspect ghcr.io/juanjogondev/basketra:stable \
-  --format '{{index .RepoDigests 0}} {{index .Config.Labels "org.opencontainers.image.version"}} {{index .Config.Labels "org.opencontainers.image.revision"}}'
-docker compose -f compose.raspberry.yml images
-```
-
-Each trusted main publication receives one semantic version. The first release is `1.0.0`; later releases increment only the patch component. The same version is embedded in the application, OCI labels, immutable numeric image tag, and GitHub release. A workflow rerun for the same commit reuses its assigned version.
-
-## Start Basketra
-
-```bash
-docker compose -f compose.raspberry.yml up -d --force-recreate basketra
+docker compose -f compose.raspberry.yml up -d basketra
 docker compose -f compose.raspberry.yml ps
 curl --fail --silent http://127.0.0.1:3000/health
 curl --fail --silent http://127.0.0.1:3000/readiness
 curl --fail --silent http://127.0.0.1:3000/api/v1/runtime
 ```
 
-`/health` confirms HTTP liveness. `/readiness` confirms database initialization and migrations completed. `/api/v1/runtime` exposes the deployed version, revision, start timestamp, and current uptime without exposing the environment.
+The reviewed production service contract is encoded directly in `compose.raspberry.yml`:
 
-Inspect startup without printing the environment:
+- image `ghcr.io/juanjogondev/basketra:stable`;
+- host loopback publication on port 3000;
+- `basketra-data` persistent volume;
+- host gateway alias `host.docker.internal`;
+- 128 MiB Node heap;
+- 192 MiB memory and swap cap;
+- 0.75 CPU and 128 PID cap;
+- read-only root filesystem;
+- all Linux capabilities dropped;
+- `no-new-privileges`;
+- bounded tmpfs and Docker logs;
+- readiness health check and bounded shutdown grace period.
 
-```bash
-docker compose -f compose.raspberry.yml logs --tail 100 basketra
-docker inspect --format '{{json .State.Health}}' basketra-basketra-1
-docker stats --no-stream basketra-basketra-1
-```
+These are deployment-code controls, not mutable application settings.
 
-## Application logs and Docker logs
+## Configure Basketra from Settings
 
-Settings displays the bounded Basketra application event stream. It contains allowlisted operational metadata from server and browser sources: event, level, timestamp, request identifier, method, path without query, status, duration, and stable error code.
+After Basketra is ready, open **Ajustes**. Mutable values are persisted in the Basketra SQLite database and apply to subsequent operations without restarting or recreating the container:
 
-It deliberately excludes receipt text, filenames, database content, request bodies, provider responses, headers, credentials, arbitrary client messages, and filesystem paths. Client logs are untrusted and are schema-validated, size-capped, batch-capped, and rate-limited before storage.
+- WebAPI URL;
+- optional WebAPI managed token;
+- model;
+- maximum AI retries;
+- Overpass URL;
+- local request-body limit;
+- idle hibernation delay.
 
-Application logs are stored under `/data/logs` as NDJSON. Rotation defaults to 10,000 lines or 40 MiB for the active file and removes oldest archives first. Docker's `json-file` logs remain a separate process-level source for startup, shutdown, native crashes, and restore failures:
+The WebAPI token is write-only. The browser receives only a configured flag and a mask. Leaving the token input empty preserves the stored value; the explicit delete control removes it.
 
-```bash
-docker compose -f compose.raspberry.yml logs --tail 100 basketra
-```
+A portable Basketra database backup therefore contains runtime settings and may contain the WebAPI token. Treat backups as private operational data.
 
-Do not copy the complete data volume or raw Docker configuration into a support ticket.
+## Configure WebAPI / AI
 
-## VPN and private-route recovery
+Local JPEG/PNG OCR does not require AI. An OpenAI-compatible service is needed only for optional AI workflows or provider-dependent PDF OCR.
 
-The browser does not rely only on `navigator.onLine`, because a VPN route can disappear while the device remains connected to another network. Basketra uses a visibility-aware heartbeat:
+If WebAPI runs on the Raspberry host at port 3001, set this in **Ajustes → IA**:
 
-- slow checks while healthy;
-- fast bounded retries while disconnected;
-- no active checks while the page is hidden;
-- request timeout and stale-response suppression;
-- operational refresh when the private route returns.
+- URL: `http://host.docker.internal:3001/v1/`
+- model: the WebAPI model you intend to use, for example `default`;
+- token: a managed WebAPI token only when authentication is enabled;
+- retry count: the desired bounded retry count.
 
-After reconnecting the VPN, the header should return to **Conectado** without a reload. A server restart caused by a staged restore uses the same recovery path.
+Inside the Basketra container, `127.0.0.1` is Basketra itself. `compose.raspberry.yml` maps `host.docker.internal` to Docker's host gateway. If WebAPI runs on another trusted machine, use its private LAN/VPN address instead.
 
-## Verify the private access boundary
+WebAPI must listen on an interface reachable from Basketra and its firewall should restrict access to the required private source. Do not expose WebAPI publicly just to make Basketra reach it.
 
-On the Raspberry Pi, the service should answer on the intended private bind:
+### Capability and attachment contract
+
+WebAPI is authoritative for provider capabilities and AI attachment limits. Basketra reads `/v1/capabilities` and does not define a competing AI attachment-size policy. A temporary capability-endpoint failure may use only the last validated WebAPI capability snapshot persisted in Basketra SQLite; authentication failures remain explicit.
+
+For the manual connectivity check, Basketra sends one repository-owned JPEG as `multipart/form-data`: OpenAI-compatible JSON metadata goes in `request`, while the JPEG bytes go once in `files`. For durable receipt `/v1/responses`, original receipt attachments are likewise binary multipart rather than Base64-expanded JSON.
+
+The manual Settings check verifies authentication, model routing, binary attachment handling, image processing, and strict structured output together. Its result is redacted; the raw token, headers, fixture bytes, and provider response bodies are never returned to the browser.
+
+There is no Basketra AI inference timeout setting. WebAPI/upstream owns provider timeout policy. Receipt verification still has its own bounded workflow deadline and caller cancellation remains terminal.
+
+## Verify private access
+
+On the Raspberry:
 
 ```bash
 ss -ltn | grep ':3000'
 curl --fail --silent http://127.0.0.1:3000/readiness
 ```
 
-From an untrusted network path, the port must not be reachable. Remote access must terminate at one of these reviewed boundaries:
+From an untrusted path, port 3000 must not be directly reachable. Remote access should terminate at one of the reviewed boundaries:
 
 - VPN interface with controlled membership;
 - SSH local port forwarding;
 - reverse proxy with TLS and authentication;
-- LAN-only interface protected by firewall rules.
+- explicitly reviewed LAN-only interface with firewall rules.
 
 Do not rely on obscurity, a non-standard port, or browser storage as an access control.
 
-## Backup download, import, and staged restore
+## Runtime verification
 
-Settings can create a portable SQLite backup and then offers a separate download action. It can also import a local `.db`, validate integrity and schema compatibility, and stage a restore after the exact confirmation phrase is entered.
+Inspect the application without dumping container environment/configuration:
 
-A staged restore:
+```bash
+docker compose -f compose.raspberry.yml ps
+docker compose -f compose.raspberry.yml logs --tail 100 basketra
+docker inspect --format '{{json .State.Health}}' basketra-basketra-1
+docker stats --no-stream basketra-basketra-1
+curl --fail --silent http://127.0.0.1:3000/api/v1/runtime
+```
 
-1. creates a portable pre-restore backup;
-2. writes an atomic pending marker;
-3. returns a successful response;
-4. stops Basketra cleanly;
-5. revalidates and applies the candidate before opening SQLite on restart;
-6. preserves the prior database if any validation or replacement step fails;
-7. moves a failed marker aside to prevent an automatic restart loop.
+`/health` proves HTTP liveness. `/readiness` proves database initialization/migrations have completed. `/api/v1/runtime` exposes version, revision, start time, and uptime without exposing credentials or arbitrary process data.
 
-The database-only restore does not replace `/data/files`. Preserve receipt evidence files together with compatible database backups for complete disaster recovery. See [BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md).
+## Application logs
 
-Manual API equivalents:
+Settings displays the bounded Basketra application event stream. Only allowlisted operational metadata is accepted from browser/server sources. Receipt text, filenames, database content, request bodies, provider responses, headers, credentials, arbitrary messages, and filesystem paths are excluded.
+
+Application logs are NDJSON under `/data/logs`. The active file defaults to a 10,000-line or 40 MiB limit with bounded archives. Docker `json-file` logs remain a separate source for startup, shutdown, native crashes, and restore failures.
+
+## VPN/private-route recovery
+
+The browser uses a visibility-aware private-route heartbeat rather than trusting only `navigator.onLine`:
+
+- slow checks while healthy;
+- fast bounded checks while disconnected;
+- no active checks while hidden;
+- request timeout and stale-response suppression;
+- state refresh after the private route returns.
+
+After reconnecting the VPN, the header should return to **Conectado** without a page reload.
+
+## Backup and staged restore
+
+Settings can:
+
+1. create a portable SQLite backup;
+2. optionally download it;
+3. import a candidate `.db`;
+4. validate SQLite integrity and schema compatibility;
+5. stage restore after the exact confirmation phrase.
+
+A staged restore creates a pre-restore backup, writes an atomic pending marker, returns success, stops Basketra cleanly, revalidates the candidate before opening the primary database on startup, and replaces the inactive primary only after validation. Failed startup restore preserves the prior database and moves the failed marker aside to prevent a restart loop.
+
+The database-only restore does not replace `/data/files`. Preserve receipt evidence files together with compatible database backups for full disaster recovery. See [BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md).
+
+Manual backup API equivalents on the trusted private path:
 
 ```bash
 curl --fail --request POST http://127.0.0.1:3000/api/v1/backup \
@@ -216,103 +181,86 @@ curl --fail --output basketra-manual.db \
   http://127.0.0.1:3000/api/v1/backups/basketra-manual.db
 ```
 
-## Automatic migrations and storage retention
+Never copy over an active SQLite database.
 
-Before listening, Basketra checkpoints WAL, reserves room under count and byte retention budgets, creates and validates an atomic standalone pre-migration backup, applies the complete pending batch transactionally, and validates the target database before commit.
+## Storage and migrations
 
-Defaults:
+Before listening, Basketra checkpoints WAL, creates/validates bounded pre-migration backup state when needed, applies pending migrations transactionally, and validates the target database.
+
+Current default storage guards include:
 
 - primary SQLite database: 512 MiB maximum;
 - SQLite cache: 8 MiB;
 - WAL target: 16 MiB;
 - migration backups: newest 3, maximum 768 MiB combined;
-- manual and pre-restore backups: newest 5, maximum 768 MiB combined;
+- manual/pre-restore backups: newest 5, maximum 768 MiB combined;
 - deduplicated receipt files: 512 MiB maximum.
 
-Schema migration 3 adds shopping-list completion state and completion timestamps without rewriting existing migrations. Existing list items remain pending after upgrade.
+Applied migrations are immutable. Repeated failed migrations cannot create unlimited backups. No deployment variable bypasses destructive-migration guards.
 
-Repeated failed migrations cannot create unlimited backups. Failed temporary copies are removed. A destructive migration requires explicit code-level authorization; no deployment variable bypasses that guard.
+## Verified publication
 
-## Offline restore
-
-Use the offline procedure for full-volume recovery, large databases, or an application that cannot start:
-
-```bash
-docker compose -f compose.raspberry.yml stop basketra
-docker compose -f compose.raspberry.yml run --rm --no-deps \
-  --env RESTORE_NAME=basketra-manual.db \
-  --entrypoint /bin/sh basketra -eu -c '
-    timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-    cp /data/basketra.db "/data/backups/pre-restore-${timestamp}.db"
-    cp "/data/backups/${RESTORE_NAME}" /data/basketra.db
-    rm -f /data/basketra.db-wal /data/basketra.db-shm
-  '
-docker compose -f compose.raspberry.yml up -d basketra
-curl --fail --silent http://127.0.0.1:3000/readiness
-```
-
-Never copy over an active SQLite database. Preserve `/data/files` and verify critical receipts after recovery.
-
-## Verified publication and image rollback
-
-An approved merge does not immediately move `stable`. The main workflow:
+Trusted `main` publication:
 
 1. resolves the deterministic patch version;
-2. publishes only a full-SHA multi-architecture candidate with version/revision metadata;
-3. verifies its registry digest and runnable AMD64/ARM64 entries;
-4. pulls and runs the exact digest under production limits;
-5. verifies readiness, runtime version, bounded shutdown, and zero exit status;
-6. promotes the identical digest to `stable` and the numeric version tag without rebuilding;
-7. verifies both promoted manifests;
-8. creates or verifies the matching GitHub release;
-9. retains the newest ten immutable SHA image versions.
+2. publishes a full-SHA multi-architecture candidate;
+3. verifies digest and runnable AMD64/ARM64 manifests;
+4. runs that exact digest under production restrictions;
+5. verifies readiness, version, resource bounds, and shutdown;
+6. promotes the identical digest to `stable` and its immutable numeric version;
+7. verifies promoted manifests and the GitHub release;
+8. retains a bounded set of immutable SHA versions.
 
-A candidate that fails before promotion is deleted. Set a previous retained SHA or numeric version in `.env` for rollback:
-
-```dotenv
-BASKETRA_IMAGE=ghcr.io/juanjogondev/basketra:<previous-full-commit-sha-or-version>
-```
+Inspect a release with:
 
 ```bash
-docker compose -f compose.raspberry.yml pull basketra
-docker compose -f compose.raspberry.yml up -d --no-deps --force-recreate basketra
+COMMIT_SHA=<full-commit-sha>
+docker buildx imagetools inspect "ghcr.io/juanjogondev/basketra:${COMMIT_SHA}"
+docker pull "ghcr.io/juanjogondev/basketra:${COMMIT_SHA}"
+docker pull ghcr.io/juanjogondev/basketra:stable
+```
+
+## Explicit image rollback
+
+Do not use an environment-variable image override. Pin a retained immutable SHA or numeric version in a reviewed local Compose override, for example `compose.rollback.yml`:
+
+```yaml
+services:
+  basketra:
+    image: ghcr.io/juanjogondev/basketra:<previous-full-sha-or-version>
+```
+
+Then:
+
+```bash
+docker compose -f compose.raspberry.yml -f compose.rollback.yml pull basketra
+docker compose -f compose.raspberry.yml -f compose.rollback.yml up -d --no-deps --force-recreate basketra
 curl --fail --silent http://127.0.0.1:3000/readiness
 curl --fail --silent http://127.0.0.1:3000/api/v1/runtime
 ```
 
-An immutable SHA or numeric version tag does not move. Return to `stable` only after the release is known good. A schema-incompatible application rollback may also require restoring its validated pre-migration backup.
+Remove the override only after the newer release is confirmed safe. If application rollback crosses a schema incompatibility, restore the matching validated pre-migration backup instead of attempting unsupported schema reversal.
 
-## Scoped Watchtower every five minutes
+## Scoped Watchtower
 
-The optional `autoupdate` profile uses Watchtower `1.7.1`, `WATCHTOWER_SCOPE=basketra`, enable-label filtering, and a 300-second interval. It removes superseded local image data after a successful update but sets `WATCHTOWER_REMOVE_VOLUMES=false`; application volumes must never be deleted by cleanup.
+The optional `autoupdate` profile uses Watchtower 1.7.1 with fixed Compose-owned controls:
 
-Before starting it, inspect every Watchtower attached to the daemon:
+- scope `basketra`;
+- label filtering enabled;
+- 300-second polling;
+- old image cleanup enabled;
+- volume removal disabled;
+- bounded memory, CPU, PID, tmpfs, and Docker logs.
 
-```bash
-docker ps --filter name=watchtower --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
-docker inspect --format '{{json .Config.Cmd}} {{json .Config.Env}} {{json .Config.Labels}}' watchtower
-```
+It mounts `/var/run/docker.sock` read-only and repository-local `./.docker` as `/config`. Authenticate that directory as described above before enabling the profile.
 
-An unscoped Watchtower can conflict with another instance. The existing `raspberry5` convention includes a global Watchtower, so do not start Basketra's instance until that global configuration has been reviewed without affecting other containers. This repository does not alter the Raspberry host.
+Before starting it, inspect any existing Watchtower attached to the same Docker daemon. An unscoped/global Watchtower can conflict with the scoped Basketra instance and must be reviewed separately; this repository does not mutate that external host configuration.
 
-After that separate review:
+After that review:
 
 ```bash
 docker compose -f compose.raspberry.yml --profile autoupdate up -d watchtower
 docker compose -f compose.raspberry.yml logs --tail 100 watchtower
 ```
 
-Never combine `WATCHTOWER_SCHEDULE` and `WATCHTOWER_POLL_INTERVAL`. Watchtower upstream is archived; `1.7.1` remains pinned because the existing host standardizes on it. Evaluate a maintained replacement before expanding its responsibility.
-
-## Routine diagnostics
-
-```bash
-docker compose -f compose.raspberry.yml pull basketra
-docker compose -f compose.raspberry.yml up -d --force-recreate basketra
-docker compose -f compose.raspberry.yml ps
-docker compose -f compose.raspberry.yml logs --tail 100 basketra
-curl --fail --silent http://127.0.0.1:3000/readiness
-curl --fail --silent http://127.0.0.1:3000/api/v1/runtime
-```
-
-Do not print `.env`, Docker registry configuration, container environment, receipt content, backup bytes, or provider credentials into tickets, CI logs, support output, or screenshots.
+Do not combine a cron schedule with the fixed poll interval. Application volumes must never be deleted by Watchtower cleanup.

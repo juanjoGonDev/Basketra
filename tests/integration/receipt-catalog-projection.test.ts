@@ -73,6 +73,14 @@ function insertLegacyReceipt(database: DatabaseSync, input: Readonly<{
   );
 }
 
+function resetToBeforeReceiptCatalogMigration(database: DatabaseSync): void {
+  database.exec(`
+    DROP TRIGGER IF EXISTS receipt_items_project_catalog;
+    DROP TABLE IF EXISTS runtime_settings;
+    DELETE FROM schema_migrations WHERE version >= ${RECEIPT_CATALOG_MIGRATION_VERSION};
+  `);
+}
+
 function readProjection(path: string, receiptId: string) {
   const database = new DatabaseSync(path, { readOnly: true });
   try {
@@ -157,13 +165,12 @@ test('migration reconciles historical confirmed receipt rows without overwriting
   const migrationBackupDir = join(root, 'migration-backups');
   const initial = new BasketraDatabase(databasePath, { migrationBackupDir });
   initial.close();
-  assert.equal(CURRENT_SCHEMA_VERSION, RECEIPT_CATALOG_MIGRATION_VERSION);
+  assert.ok(CURRENT_SCHEMA_VERSION >= RECEIPT_CATALOG_MIGRATION_VERSION);
 
   const legacy = new DatabaseSync(databasePath);
   try {
     legacy.exec('PRAGMA foreign_keys = ON;');
-    legacy.exec('DROP TRIGGER IF EXISTS receipt_items_project_catalog;');
-    legacy.prepare('DELETE FROM schema_migrations WHERE version = ?').run(RECEIPT_CATALOG_MIGRATION_VERSION);
+    resetToBeforeReceiptCatalogMigration(legacy);
     legacy.prepare('INSERT INTO retailers(id, name, created_at) VALUES (?, ?, ?)').run('retailer_legacy', 'Mercadona', '2026-08-01T10:00:00.000Z');
     insertLegacyReceipt(legacy, {
       receiptId: 'receipt_legacy',
@@ -210,8 +217,7 @@ test('migration reuses one catalog variant for matching historical receipts from
   const legacy = new DatabaseSync(databasePath);
   try {
     legacy.exec('PRAGMA foreign_keys = ON;');
-    legacy.exec('DROP TRIGGER IF EXISTS receipt_items_project_catalog;');
-    legacy.prepare('DELETE FROM schema_migrations WHERE version = ?').run(RECEIPT_CATALOG_MIGRATION_VERSION);
+    resetToBeforeReceiptCatalogMigration(legacy);
     legacy.prepare('INSERT INTO retailers(id, name, created_at) VALUES (?, ?, ?)').run('retailer_history', 'Alcampo', '2026-08-01T10:00:00.000Z');
     insertLegacyReceipt(legacy, {
       receiptId: 'receipt_history_1',

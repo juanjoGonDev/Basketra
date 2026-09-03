@@ -95,6 +95,38 @@ test('provider fetches live capabilities before every AI request without caching
   assert.equal(completionCalls, 1);
 });
 
+test('provider applies JSON limits only to multipart metadata, not binary attachment bytes', async () => {
+  const image = Buffer.alloc(2 * 1024 * 1024, 0x61);
+  const largeImageInput: AiStructuredInput = {
+    ...input,
+    content: [
+      { type: 'text', text: 'Read the large attachment.' },
+      {
+        type: 'image_url',
+        image_url: { url: `data:image/png;base64,${image.toString('base64')}` },
+      },
+    ],
+  };
+  let completionCalls = 0;
+  const fetchImplementation = (async (url) => {
+    if (new URL(String(url)).pathname.endsWith('/capabilities')) {
+      return new Response(runtimeCapabilityBody({
+        maxImageBytes: 4 * 1024 * 1024,
+        maxJsonBodyBytes: 1024 * 1024,
+      }), { status: 200 });
+    }
+    completionCalls += 1;
+    return completionResponse();
+  }) as typeof fetch;
+  const provider = new OpenAiCompatibleProvider({
+    baseUrl: new URL('http://provider.test/v1/'),
+    model: 'test-model',
+  }, fetchImplementation);
+
+  assert.deepEqual(await provider.executeStructured(largeImageInput), { value: 'ok' });
+  assert.equal(completionCalls, 1);
+});
+
 test('provider falls back to provider enforcement when capabilities endpoint is unsupported', async () => {
   const methods: string[] = [];
   const fetchImplementation = (async (url, init) => {

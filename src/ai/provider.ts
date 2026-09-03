@@ -149,7 +149,6 @@ const DEFAULT_CAPABILITIES: AiCapabilities = {
 export const DEFAULT_AI_MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_PROVIDER_ERROR_BYTES = 8 * 1024;
 const MAX_RUNTIME_CAPABILITIES_BYTES = 32 * 1024;
-const MULTIPART_OVERHEAD_BYTES_PER_FILE = 1024;
 const CORRELATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/u;
 const SESSION_AFFINITY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const PROVIDER_PROBE_FILENAME = 'test.jpg';
@@ -202,7 +201,7 @@ type BinaryMultipartAttachment = Readonly<{
 type ProviderRequest = Readonly<{
   body: BodyInit;
   contentType?: string;
-  estimatedBytes: number;
+  jsonBytes: number;
 }>;
 
 function assertPositiveInteger(value: number, name: string): number {
@@ -380,7 +379,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
       const providerRequest = buildProviderRequest(input, this.config.model);
       if (
         runtimeCapabilities !== undefined &&
-        providerRequest.estimatedBytes > runtimeCapabilities.requests.maxJsonBodyBytes
+        providerRequest.jsonBytes > runtimeCapabilities.requests.maxJsonBodyBytes
       ) {
         throw new AiProviderError('AI_ATTACHMENT_TOO_LARGE', { status: 413 });
       }
@@ -470,28 +469,27 @@ function buildProviderRequest(input: AiStructuredInput, model: string): Provider
     },
   };
   const requestJson = JSON.stringify(metadata);
+  const jsonBytes = Buffer.byteLength(requestJson, 'utf8');
 
   if (extracted.attachments.length === 0) {
     return {
       body: requestJson,
       contentType: 'application/json',
-      estimatedBytes: Buffer.byteLength(requestJson, 'utf8'),
+      jsonBytes,
     };
   }
 
   const form = new FormData();
   form.set('request', requestJson);
-  let estimatedBytes = Buffer.byteLength(requestJson, 'utf8');
   for (const attachment of extracted.attachments) {
     form.append(
       'files',
       new Blob([Uint8Array.from(attachment.bytes)], { type: attachment.mimeType }),
       attachment.fileName,
     );
-    estimatedBytes += attachment.bytes.byteLength + MULTIPART_OVERHEAD_BYTES_PER_FILE;
   }
 
-  return { body: form, estimatedBytes };
+  return { body: form, jsonBytes };
 }
 
 function extractBinaryAttachments(content: AiMessageContent): Readonly<{

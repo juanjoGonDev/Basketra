@@ -9,6 +9,7 @@ import type { AppConfig } from '../../src/infrastructure/config.ts';
 const pngBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x00]);
 const pngBase64 = Buffer.from(pngBytes).toString('base64');
 const pdfBase64 = Buffer.from(Uint8Array.from([0x25, 0x50, 0x44, 0x46, 0x00])).toString('base64');
+const runtimeBodyLimitBytes = 16_384;
 
 async function request(baseUrl: string, path: string, options: RequestInit = {}): Promise<Response> {
   const headers = new Headers(options.headers);
@@ -38,14 +39,6 @@ test('HTTP API works without an application token and completes list and receipt
     port: 0,
     dataDir: join(root, 'data'),
     tempDir: join(root, 'tmp'),
-    maxBodyBytes: 16_384,
-    aiTimeoutMs: 1_000,
-    aiMaxRetries: 1,
-    aiImageCapability: true,
-    aiPdfCapability: false,
-    overpassBaseUrl: 'http://127.0.0.1:9/api/',
-    idleHibernateAfterMs: 10,
-    idleExitAfterMs: 0,
   };
   const server = new BasketraServer(config);
   await server.listen();
@@ -53,6 +46,15 @@ test('HTTP API works without an application token and completes list and receipt
   const baseUrl = `http://127.0.0.1:${port}`;
 
   try {
+    const runtimeUpdate = await request(baseUrl, '/api/v1/settings/runtime', {
+      method: 'PUT',
+      body: JSON.stringify({
+        maxBodyBytes: runtimeBodyLimitBytes,
+        idleHibernateAfterMs: 10,
+      }),
+    });
+    assert.equal(runtimeUpdate.status, 200);
+
     const health = await request(baseUrl, '/health');
     assert.equal(health.status, 200);
     assert.deepEqual(await json(health), { status: 'ok' });
@@ -63,7 +65,7 @@ test('HTTP API works without an application token and completes list and receipt
     const metadata = await json<{ units: string[]; files: { mimeTypes: string[]; maxBytes: number } }>(await request(baseUrl, '/api/v1/meta'));
     assert.ok(metadata.units.includes('unit'));
     assert.deepEqual(metadata.files.mimeTypes, ['image/jpeg', 'image/png', 'application/pdf']);
-    assert.equal(metadata.files.maxBytes, config.maxBodyBytes);
+    assert.equal(metadata.files.maxBytes, runtimeBodyLimitBytes);
 
     const aiSettings = await request(baseUrl, '/api/v1/settings/ai-provider');
     assert.deepEqual(await json(aiSettings), { configured: false });

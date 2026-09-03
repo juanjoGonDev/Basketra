@@ -1,29 +1,15 @@
 name: basketra
 services:
   basketra:
-    image: ${BASKETRA_IMAGE:-ghcr.io/juanjogondev/basketra:stable}
+    image: ghcr.io/juanjogondev/basketra:stable
     pull_policy: always
+    command: ["node", "--max-old-space-size=128", "dist/main.js"]
     init: true
     restart: unless-stopped
     ports:
-      - "${BASKETRA_BIND_ADDRESS:-127.0.0.1}:${BASKETRA_PORT:-3000}:3000"
+      - "127.0.0.1:3000:3000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    environment:
-      NODE_OPTIONS: --max-old-space-size=${BASKETRA_NODE_HEAP_MB:-128}
-      BASKETRA_HOST: 0.0.0.0
-      BASKETRA_PORT: 3000
-      BASKETRA_DATA_DIR: /data
-      BASKETRA_TEMP_DIR: /tmp/basketra
-      BASKETRA_MAX_BODY_BYTES: ${BASKETRA_MAX_BODY_BYTES:-8388608}
-      BASKETRA_AI_BASE_URL: ${BASKETRA_AI_BASE_URL:-}
-      BASKETRA_AI_API_KEY: ${BASKETRA_AI_API_KEY:-}
-      BASKETRA_AI_MODEL: ${BASKETRA_AI_MODEL:-}
-      BASKETRA_AI_MAX_RETRIES: ${BASKETRA_AI_MAX_RETRIES:-1}
-      BASKETRA_AI_IMAGE_CAPABILITY: ${BASKETRA_AI_IMAGE_CAPABILITY:-true}
-      BASKETRA_AI_PDF_CAPABILITY: ${BASKETRA_AI_PDF_CAPABILITY:-false}
-      BASKETRA_IDLE_HIBERNATE_AFTER_MS: ${BASKETRA_IDLE_HIBERNATE_AFTER_MS:-300000}
-      IDLE_EXIT_AFTER_MS: ${IDLE_EXIT_AFTER_MS:-0}
     labels:
       com.centurylinklabs.watchtower.enable: "true"
       com.centurylinklabs.watchtower.scope: basketra
@@ -37,9 +23,9 @@ services:
     security_opt:
       - no-new-privileges:true
     pids_limit: 128
-    mem_limit: ${BASKETRA_MEMORY_LIMIT:-192m}
-    memswap_limit: ${BASKETRA_MEMORY_LIMIT:-192m}
-    cpus: ${BASKETRA_CPU_LIMIT:-0.75}
+    mem_limit: 192m
+    memswap_limit: 192m
+    cpus: 0.75
     stop_grace_period: 20s
     logging:
       driver: json-file
@@ -62,12 +48,12 @@ services:
     restart: unless-stopped
     environment:
       DOCKER_CONFIG: /config
-      DOCKER_API_VERSION: ${WATCHTOWER_DOCKER_API_VERSION:-1.52}
-      TZ: ${TZ:-Europe/Madrid}
+      DOCKER_API_VERSION: "1.52"
+      TZ: Europe/Madrid
       WATCHTOWER_CLEANUP: "true"
       WATCHTOWER_REMOVE_VOLUMES: "false"
       WATCHTOWER_LABEL_ENABLE: "true"
-      WATCHTOWER_POLL_INTERVAL: ${WATCHTOWER_POLL_INTERVAL:-300}
+      WATCHTOWER_POLL_INTERVAL: "300"
       WATCHTOWER_SCOPE: basketra
       WATCHTOWER_TIMEOUT: 30s
     labels:
@@ -75,7 +61,7 @@ services:
       com.centurylinklabs.watchtower.scope: basketra
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ${BASKETRA_DOCKER_CONFIG_DIR:-./.docker}:/config:ro
+      - ./.docker:/config:ro
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m
     read_only: true
@@ -84,9 +70,9 @@ services:
     security_opt:
       - no-new-privileges:true
     pids_limit: 64
-    mem_limit: ${WATCHTOWER_MEMORY_LIMIT:-128m}
-    memswap_limit: ${WATCHTOWER_MEMORY_LIMIT:-128m}
-    cpus: ${WATCHTOWER_CPU_LIMIT:-0.25}
+    mem_limit: 128m
+    memswap_limit: 128m
+    cpus: 0.25
     logging:
       driver: json-file
       options:

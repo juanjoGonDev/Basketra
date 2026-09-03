@@ -18,17 +18,21 @@ const interpretation = {
   warnings: [],
 };
 
-test('durable receipt responses use the Responses background contract and parse terminal output', async () => {
-  const requests: Array<Readonly<{ method: string; url: string; headers: Record<string, string | string[] | undefined>; body: unknown }>> = [];
+test('durable receipt responses send binary multipart and parse terminal output', async () => {
+  const requests: Array<Readonly<{
+    method: string;
+    url: string;
+    headers: Record<string, string | string[] | undefined>;
+    body: Buffer;
+  }>> = [];
   const server = createServer(async (request, response) => {
     const chunks: Uint8Array[] = [];
     for await (const chunk of request) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
-    const bodyText = Buffer.concat(chunks).toString('utf8');
     requests.push({
       method: request.method ?? '',
       url: request.url ?? '',
       headers: request.headers,
-      body: bodyText ? JSON.parse(bodyText) as unknown : undefined,
+      body: Buffer.concat(chunks),
     });
 
     response.setHeader('content-type', 'application/json');
@@ -101,7 +105,21 @@ test('durable receipt responses use the Responses background contract and parse 
     assert.equal(create.url, '/v1/responses');
     assert.equal(create.headers['authorization'], `Bearer ${apiKey}`);
     assert.equal(create.headers['idempotency-key'], 'basketra-receipt:job_1:g1:p0');
-    const body = create.body as Record<string, unknown>;
+    assert.match(String(create.headers['content-type']), /^multipart\/form-data; boundary=/u);
+    assert.ok(create.body.indexOf(Buffer.from(attachment.bytes)) >= 0);
+    assert.equal(create.body.includes(Buffer.from(Buffer.from(attachment.bytes).toString('base64'), 'utf8')), false);
+
+    const contentType = create.headers['content-type'];
+    assert.equal(typeof contentType, 'string');
+    const parsedRequest = new Request('http://localhost/v1/responses', {
+      method: 'POST',
+      headers: { 'content-type': contentType as string },
+      body: new Uint8Array(create.body),
+    });
+    const form = await parsedRequest.formData();
+    const metadataValue = form.get('request');
+    assert.equal(typeof metadataValue, 'string');
+    const body = JSON.parse(metadataValue as string) as Record<string, unknown>;
     assert.equal(body['model'], 'default');
     assert.equal(body['background'], true);
     assert.equal(body['store'], true);
@@ -110,8 +128,12 @@ test('durable receipt responses use the Responses background contract and parse 
     const input = body['input'] as Array<{ role: string; content: Array<Record<string, unknown>> }>;
     assert.equal(input[0]?.role, 'user');
     assert.match(String(input[0]?.content[0]?.['text']), /1: ALCAMPO/u);
-    assert.equal(input[0]?.content[1]?.['type'], 'input_image');
-    assert.match(String(input[0]?.content[1]?.['image_url']), /^data:image\/png;base64,/u);
+    assert.equal(input[0]?.content.length, 1);
+    const file = form.get('files');
+    assert.ok(file instanceof File);
+    assert.equal(file.name, 'ticket.png');
+    assert.equal(file.type, 'image/png');
+    assert.deepEqual(Buffer.from(await file.arrayBuffer()), Buffer.from(attachment.bytes));
     const text = body['text'] as { format?: { type?: string; strict?: boolean; name?: string; schema?: Record<string, unknown> } };
     assert.equal(text.format?.type, 'json_schema');
     assert.equal(text.format?.strict, true);

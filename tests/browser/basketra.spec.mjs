@@ -249,7 +249,7 @@ test('local suggestions ignore stale responses and never require AI', async ({ p
   await page.route('**/api/v1/products/suggestions**', async route => {
     const query = new URL(route.request().url()).searchParams.get('q');
     if (query === 'le') await new Promise(resolve => setTimeout(resolve, 450));
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ suggestions: [{ id: query, name: query === 'le' ? 'Old stale result' : 'Leche nueva 1 L', source: 'catalog' }] }) });
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ suggestions: [{ id: query, name: query === 'le' ? 'Old stale result' : 'Leche nueva 1 L', canonicalName: 'Leche', source: 'catalog' }] }) });
   });
   await page.goto('/');
   await createList(page, 'Suggestions E2E');
@@ -258,6 +258,7 @@ test('local suggestions ignore stale responses and never require AI', async ({ p
   await page.waitForTimeout(220);
   await productInput(page).fill('lech');
   await expect(page.getByRole('option', { name: /Leche nueva 1 L/ })).toBeVisible();
+  await expect(page.locator('#suggestions')).not.toContainText('undefined');
   await page.waitForTimeout(500);
   await expect(page.getByText('Old stale result')).toHaveCount(0);
   expect(failures).toEqual([]);
