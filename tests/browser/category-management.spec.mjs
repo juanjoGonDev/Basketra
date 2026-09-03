@@ -112,7 +112,7 @@ test('hierarchical categories use separate list, detail and editor flows on mobi
   await page.getByRole('button', { name: 'Categorías', exact: true }).click();
   const movedRow = page.locator('[data-category-id="category_dairy"]');
   await expect(movedRow).toBeVisible();
-  await expect.poll(() => movedRow.evaluate(element => element.style.getPropertyValue('--category-indent'))).toBe('0rem');
+  await expect(movedRow.locator('.category-indent-step')).toHaveCount(0);
 
   const unknownRow = page.locator('[data-category-id="category_unknown"]');
   await unknownRow.click();
