@@ -235,8 +235,19 @@ test('ticket history desktop preserves dense list/detail hierarchy without horiz
 
   await page.locator('[data-ticket-action="open"][data-ticket-id="ticket_20260902"]').click();
   await expect(page.locator('#ticket-history-detail-screen')).toBeVisible();
-  await expect(page.locator('.ticket-line-heading')).toBeVisible();
+  const lineHeading = page.locator('.ticket-line-heading');
+  await expect(lineHeading).toBeVisible();
   await expect(page.locator('#ticket-editor-lines-list .ticket-editor-line')).toHaveCount(1);
+  const headerWidths = await lineHeading.locator(':scope > span').evaluateAll(elements => elements.slice(2, 4).map(element => ({
+    label: element.textContent?.trim() || '',
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  })));
+  expect(headerWidths).toEqual([
+    expect.objectContaining({ label: 'Cantidad' }),
+    expect.objectContaining({ label: 'Unidad' }),
+  ]);
+  for (const header of headerWidths) expect(header.scrollWidth).toBeLessThanOrEqual(header.clientWidth);
   await expectNoHorizontalOverflow(page);
   await page.locator('.view[data-view="ticket-history"]').screenshot({ path: testInfo.outputPath('ticket-editor-desktop.png') });
 });
