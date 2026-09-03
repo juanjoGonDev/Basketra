@@ -615,9 +615,6 @@ function resetDocumentScroll() {
 
 function setNavigationReady(ready) {
   applicationReady = ready;
-  for (const element of $$('[data-nav]')) {
-    if (element instanceof HTMLButtonElement) element.disabled = !ready;
-  }
   $('#main').setAttribute('aria-busy', String(!ready));
 }
 
@@ -665,14 +662,15 @@ async function initialize() {
     const aiConfigured = await loadAiConfiguration();
     await initLists({ metadata, toast, aiConfigured });
     initReceipts({ metadata, toast, aiConfigured });
-    setNavigationReady(true);
-    const readyRoute = pendingRoute || initialRoute;
-    pendingRoute = '';
-    navigate(readyRoute, { allowBeforeReady: true });
   } catch (error) {
     $('#list-state').textContent = error.message;
     $('#upload-state').textContent = error.message;
     toast(error.message);
+  } finally {
+    setNavigationReady(true);
+    const readyRoute = pendingRoute || initialRoute;
+    pendingRoute = '';
+    navigate(readyRoute, { allowBeforeReady: true });
   }
 }
 
