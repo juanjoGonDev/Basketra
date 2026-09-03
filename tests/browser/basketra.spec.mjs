@@ -162,7 +162,7 @@ test('mobile PWA loads with private-network messaging and touch-safe navigation'
   await expect(page.locator('.bottom-nav button')).toHaveCount(5);
   const heights = await page.locator('button:visible').evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().height));
   expect(heights.every(height => height >= 44)).toBeTruthy();
-  for (const destination of ['Inicio', 'Listas', 'Tickets', 'Planes', 'Ajustes']) {
+  for (const destination of ['Inicio', 'Listas', 'Tickets', 'Inventario', 'Ajustes']) {
     await navigate(page, destination);
     await expectNoHorizontalOverflow(page);
   }
@@ -373,22 +373,6 @@ test('automatic local OCR failure preserves captures and supports per-image retr
   await expect(page.locator('#receipt-state')).toContainText('Todas las imágenes están combinadas');
   await expect(page.locator('.receipt-item')).toHaveCount(1);
   await expect(page.locator('#capture-list li')).toHaveCount(1);
-  expect(failures).toEqual([]);
-});
-
-test('comparison renders all deterministic plans in euros', async ({ page }) => {
-  const failures = await gotoApp(page);
-  await navigate(page, 'Planes');
-  await page.getByRole('button', { name: 'Generar ejemplo verificable', exact: true }).click();
-  await page.getByRole('tab', { name: 'Comparativa', exact: true }).click();
-  const rows = page.locator('.plan-comparison-row');
-  await expect(rows).toHaveCount(3);
-  await expect(rows.filter({ hasText: 'Un solo comercio' })).toBeVisible();
-  await expect(rows.filter({ hasText: 'Equilibrio recomendado' })).toBeVisible();
-  await expect(rows.filter({ hasText: 'Máximo ahorro' })).toBeVisible();
-  await expect(rows.first()).toContainText('€');
-  await expect(page.getByText(/cént\./i)).toHaveCount(0);
-  await expectNoHorizontalOverflow(page);
   expect(failures).toEqual([]);
 });
 
