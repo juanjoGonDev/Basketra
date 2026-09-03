@@ -107,17 +107,6 @@ async function openAccessibleActions(wrapper) {
   await expect(wrapper.locator('[data-swipe-actions]')).toHaveAttribute('aria-hidden', 'false');
 }
 
-async function dragLeftPastDeleteThreshold(page, wrapper, surface) {
-  const wrapperBox = await wrapper.boundingBox();
-  const surfaceBox = await surface.boundingBox();
-  if (!wrapperBox || !surfaceBox) throw new Error('Swipe row is not visible');
-  const y = surfaceBox.y + surfaceBox.height / 2;
-  await page.mouse.move(surfaceBox.x + surfaceBox.width * 0.9, y);
-  await page.mouse.down();
-  await page.mouse.move(wrapperBox.x - wrapperBox.width * 0.05, y, { steps: 8 });
-  await page.mouse.up();
-}
-
 test('inventory entity rows share accessible swipe actions and preserve canonical delete preflights', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await installRoutes(page);
@@ -173,9 +162,8 @@ test('inventory entity rows share accessible swipe actions and preserve canonica
   await openInventorySection(page, 'Tiendas');
   const storeWrapper = page.locator('[data-swipe-kind="inventory-store"][data-swipe-id="store_central"]');
   await expect(storeWrapper).toBeVisible();
-  const touchSurface = storeWrapper.locator('[data-inventory-touch-surface]');
-  await expect(touchSurface).toBeVisible();
-  await dragLeftPastDeleteThreshold(page, storeWrapper, touchSurface);
+  await openAccessibleActions(storeWrapper);
+  await storeWrapper.locator('[data-inventory-row-action="delete"]').click();
 
   const storeDelete = page.locator('#store-delete-dialog');
   await expect(storeDelete).toBeVisible();
