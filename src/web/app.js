@@ -16,6 +16,8 @@ const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 
 let receiptEditorSession = null;
+let applicationReady = false;
+let pendingRoute = '';
 
 function createTabGroup(name, label, tabs) {
   const root = document.createElement('section');
@@ -611,7 +613,19 @@ function resetDocumentScroll() {
   window.scrollTo(0, 0);
 }
 
-function navigate(requestedRoute) {
+function setNavigationReady(ready) {
+  applicationReady = ready;
+  for (const element of $$('[data-nav]')) {
+    if (element instanceof HTMLButtonElement) element.disabled = !ready;
+  }
+  $('#main').setAttribute('aria-busy', String(!ready));
+}
+
+function navigate(requestedRoute, { allowBeforeReady = false } = {}) {
+  if (!applicationReady && !allowBeforeReady) {
+    pendingRoute = requestedRoute;
+    return;
+  }
   const availableViews = new Set($$('.view').map(element => element.dataset.view).filter(Boolean));
   const { view, route } = resolveApplicationRoute(requestedRoute, availableViews);
   const primaryNavigation = primaryNavigationForView(view);
@@ -627,6 +641,8 @@ function navigate(requestedRoute) {
   requestAnimationFrame(resetDocumentScroll);
 }
 
+setNavigationReady(false);
+
 $$('[data-nav]').forEach(element => element.addEventListener('click', event => {
   event.preventDefault();
   navigate(element.dataset.nav);
@@ -641,12 +657,18 @@ async function loadAiConfiguration() {
 }
 
 async function initialize() {
-  navigate(location.hash.slice(1) || 'home');
+  const initialRoute = location.hash.slice(1) || 'home';
+  if (initialRoute === 'home') navigate('home', { allowBeforeReady: true });
+  else pendingRoute = initialRoute;
   try {
     const metadata = await api('/api/v1/meta');
     const aiConfigured = await loadAiConfiguration();
     await initLists({ metadata, toast, aiConfigured });
     initReceipts({ metadata, toast, aiConfigured });
+    setNavigationReady(true);
+    const readyRoute = pendingRoute || initialRoute;
+    pendingRoute = '';
+    navigate(readyRoute, { allowBeforeReady: true });
   } catch (error) {
     $('#list-state').textContent = error.message;
     $('#upload-state').textContent = error.message;
