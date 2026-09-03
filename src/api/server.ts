@@ -129,6 +129,7 @@ export class BasketraServer {
       () => this.getAiProvider(),
       () => this.runtimeSettings().aiMaxRetries,
     );
+    this.#receiptExtractionService.configureCategoryDatabase(this.#database.path);
     this.#receiptDurableStore = new ReceiptDurableJobStore(this.#database.path);
     this.#receiptDurableRunner = new ReceiptDurableExtractionRunner({
       durableStore: this.#receiptDurableStore,
@@ -254,7 +255,7 @@ export class BasketraServer {
         databasePath: this.#database.path,
         readJson: async () => await this.readJson(request),
         send: (status, body) => this.json(response, status, body),
-        publish: (entityId) => this.publishRealtime({ entityType: 'product', mutation: 'updated', entityId }),
+        publish: (entityId, entityType = 'product') => this.publishRealtime({ entityType, mutation: 'updated', entityId }),
       })) return;
       if (await handleReceiptCalculationRequest({
         method: request.method,

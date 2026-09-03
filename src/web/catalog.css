@@ -9,7 +9,10 @@
 
 .catalog-toolbar,
 .catalog-browser,
-.catalog-detail {
+.catalog-detail,
+.category-toolbar,
+.category-browser,
+.category-detail {
   display: grid;
   gap: var(--space-4);
   padding: var(--space-4);
@@ -18,7 +21,11 @@
 .catalog-toolbar h2,
 .catalog-toolbar p,
 .catalog-browser h2,
-.catalog-detail h2 {
+.catalog-detail h2,
+.category-toolbar h2,
+.category-toolbar p,
+.category-browser h2,
+.category-detail h2 {
   margin-bottom: 0;
 }
 
@@ -26,20 +33,23 @@
   width: 100%;
 }
 
-.catalog-layout {
+.catalog-layout,
+.category-layout {
   display: grid;
   gap: var(--space-4);
   align-items: start;
 }
 
 .catalog-product-list,
-.catalog-retailer-names {
+.catalog-retailer-names,
+.category-tree {
   display: grid;
   gap: var(--space-2);
 }
 
 .catalog-product-row,
-.catalog-retailer-row {
+.catalog-retailer-row,
+.category-row {
   width: 100%;
   min-height: var(--touch);
   display: flex;
@@ -54,13 +64,15 @@
   text-align: left;
 }
 
-.catalog-product-row[aria-pressed="true"] {
+.catalog-product-row[aria-pressed="true"],
+.category-row[aria-pressed="true"] {
   border-color: var(--primary);
   background: var(--primary-soft);
 }
 
 .catalog-product-row__copy,
-.catalog-retailer-row > span:first-child {
+.catalog-retailer-row > span:first-child,
+.category-row__copy {
   min-width: 0;
   display: grid;
   gap: var(--space-1);
@@ -69,7 +81,9 @@
 .catalog-product-row__copy strong,
 .catalog-product-row__copy small,
 .catalog-retailer-row strong,
-.catalog-retailer-row small {
+.catalog-retailer-row small,
+.category-row__copy strong,
+.category-row__copy small {
   overflow-wrap: anywhere;
 }
 
@@ -79,6 +93,26 @@
   color: var(--primary-strong);
   font-size: .82rem;
   font-weight: 850;
+}
+
+.category-row {
+  padding-inline-start: calc(var(--space-3) + var(--category-indent, 0rem));
+}
+
+.category-swatch {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 1rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+}
+
+.category-row__copy {
+  flex: 1 1 auto;
+}
+
+.category-row__copy small {
+  color: var(--text-soft);
 }
 
 .catalog-empty {
@@ -92,7 +126,8 @@
 }
 
 .catalog-form,
-.catalog-detail .flow-group {
+.catalog-detail .flow-group,
+.category-form {
   display: grid;
   gap: var(--space-4);
 }
@@ -144,26 +179,55 @@
   content: "";
 }
 
+.category-toolbar {
+  align-items: end;
+}
+
+.category-color-control {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.category-color-control input[type="color"] {
+  width: var(--touch);
+  height: var(--touch);
+  padding: .2rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.category-color-control output {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--text-soft);
+}
+
 @media (min-width: 52rem) {
   .catalog-page-header {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: end;
   }
 
-  .catalog-toolbar {
-    grid-template-columns: minmax(0, 1fr) minmax(18rem, 26rem);
+  .catalog-toolbar,
+  .category-toolbar {
+    grid-template-columns: minmax(0, 1fr) minmax(12rem, auto);
     align-items: end;
   }
 
-  .catalog-toolbar #catalog-state {
+  .catalog-toolbar #catalog-state,
+  .category-toolbar #category-state {
     grid-column: 1 / -1;
   }
 
-  .catalog-layout {
+  .catalog-layout,
+  .category-layout {
     grid-template-columns: minmax(17rem, 2fr) minmax(0, 3fr);
   }
 
-  .catalog-browser {
+  .catalog-browser,
+  .category-browser {
     position: sticky;
     top: calc(var(--header) + var(--space-4));
     max-height: calc(100dvh - var(--header) - var(--nav) - var(--space-6));
@@ -174,7 +238,9 @@
 @media (max-width: 27rem) {
   .catalog-page-header .button,
   .catalog-layout .button,
-  .catalog-toolbar .button {
+  .catalog-toolbar .button,
+  .category-layout .button,
+  .category-toolbar .button {
     width: 100%;
   }
 
@@ -185,7 +251,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .catalog-product-row,
-  .catalog-retailer-row {
+  .catalog-retailer-row,
+  .category-row {
     scroll-behavior: auto;
   }
 }

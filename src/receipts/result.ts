@@ -84,6 +84,7 @@ export function assembleReceiptExtraction(pages: readonly ReceiptPageEvidence[])
   const aiItemsByPage = pages.map((page) => page.ai?.interpretation.items ?? page.deterministic.items);
   const aiItems = mergeReceiptPageItems(aiItemsByPage);
   const warnings = aiInterpretations.flatMap((interpretation) => interpretation.warnings);
+  const newCategories = uniqueNewCategories(aiInterpretations.flatMap((interpretation) => interpretation.newCategories ?? []));
   const unassignedDiscounts = aiInterpretations.flatMap((interpretation) => interpretation.unassignedDiscounts ?? []);
 
   let ai: ReceiptExtractionResult['ai'];
@@ -100,6 +101,7 @@ export function assembleReceiptExtraction(pages: readonly ReceiptPageEvidence[])
         currency: 'EUR',
         correctedText: aiInterpretations.map((interpretation) => interpretation.correctedText).join('\n').trim(),
         items: aiItems,
+        newCategories,
         warnings,
         ...(unassignedDiscounts.length === 0 ? {} : { unassignedDiscounts }),
       },
@@ -134,6 +136,15 @@ export function assembleReceiptExtraction(pages: readonly ReceiptPageEvidence[])
       review: buildReceiptReview(normalized.items, finalTotal),
     },
   };
+}
+
+function uniqueNewCategories(categories: AiReceiptInterpretation['newCategories']): AiReceiptInterpretation['newCategories'] {
+  const seen = new Set<string>();
+  return categories.filter((category) => {
+    if (seen.has(category.id)) return false;
+    seen.add(category.id);
+    return true;
+  });
 }
 
 function combineMetadata(values: readonly ReceiptMetadata[]): ReceiptMetadata {

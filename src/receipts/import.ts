@@ -45,12 +45,16 @@ export function parseReceiptConfirmation(value: unknown): Readonly<{
     const confidence = item['confidence'] === undefined ? 1 : Number(item['confidence']);
     if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) throw new RangeError(`${path}.confidence must be between 0 and 1`);
     const userConfirmed = item['userConfirmed'] === undefined ? true : asBoolean(item['userConfirmed'], `${path}.userConfirmed`);
+    const categoryId = item['categoryId'] === undefined || item['categoryId'] === null || item['categoryId'] === ''
+      ? undefined
+      : asString(item['categoryId'], `${path}.categoryId`, { min: 1, max: 128 });
     return {
       description: line.description,
       quantity: line.quantity,
       unitPriceMinor: line.unitPriceMinor,
       lineTotalMinor: line.lineTotalMinor,
       discountMinor: calculateReceiptLineDiscountMinor(line),
+      ...(categoryId ? { categoryId } : {}),
       status: confidence < REVIEW_CONFIDENCE_THRESHOLD && !userConfirmed ? 'needs-review' : 'confirmed',
       confidence: userConfirmed ? 1 : confidence,
     };

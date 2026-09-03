@@ -1,5 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
+import { UNKNOWN_CATEGORY_COLOR } from '../domain/categories.ts';
 import { asRecord, asSafeInteger, asString } from '../domain/validation.ts';
+import { CategoryRepository } from '../infrastructure/category-repository.ts';
 import { createId } from '../infrastructure/ids.ts';
 import { ApiError } from './errors.ts';
 
@@ -101,7 +103,7 @@ type CatalogApiContext = Readonly<{
   databasePath: string;
   readJson(): Promise<unknown>;
   send(status: number, body: unknown): void;
-  publish(entityId: string): void;
+  publish(entityId: string, entityType?: 'product' | 'category'): void;
 }>;
 
 function normalizeText(value: string): string {
@@ -460,7 +462,93 @@ function upsertRetailerName(databasePath: string, variantId: string, retailerNam
   });
 }
 
+function parseNullableString(value: unknown, path: string, max: number): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  return asString(value, path, { min: 1, max });
+}
+
+function mapCategoryError(error: unknown): never {
+  if (error instanceof ApiError) throw error;
+  if (error instanceof RangeError) throw new ApiError(400, 'VALIDATION_ERROR', error.message);
+  if (error instanceof Error) {
+    if (error.message === 'PRODUCT_CATEGORY_PARENT_NOT_FOUND') {
+      throw new ApiError(400, 'CATEGORY_PARENT_NOT_FOUND', 'Category parent was not found');
+    }
+    if (error.message === 'PRODUCT_CATEGORY_CYCLE') {
+      throw new ApiError(409, 'CATEGORY_CYCLE', 'Category hierarchy cannot contain a cycle');
+    }
+    if (error.message === 'UNKNOWN_CATEGORY_PROTECTED') {
+      throw new ApiError(409, 'UNKNOWN_CATEGORY_PROTECTED', 'The desconocido category must remain a root fallback category');
+    }
+  }
+  throw error;
+}
+
+async function handleCategoryRequest(context: CatalogApiContext): Promise<boolean> {
+  if (context.pathname === '/api/v1/categories' && context.method === 'GET') {
+    const repository = new CategoryRepository(context.databasePath);
+    repository.ensureUnknown();
+    context.send(200, { categories: repository.list() });
+    return true;
+  }
+
+  if (context.pathname === '/api/v1/categories' && context.method === 'POST') {
+    const body = asRecord(await context.readJson());
+    const repository = new CategoryRepository(context.databasePath);
+    try {
+      const category = repository.getOrCreate({
+        name: asString(body['name'], '$.name', { min: 1, max: 120 }),
+        parentId: parseNullableString(body['parentId'], '$.parentId', 128) ?? null,
+        color: body['color'] === undefined
+          ? UNKNOWN_CATEGORY_COLOR
+          : asString(body['color'], '$.color', { min: 7, max: 7 }),
+        description: parseNullableString(body['description'], '$.description', 500) ?? null,
+      });
+      context.publish(category.id, 'category');
+      context.send(201, { category });
+      return true;
+    } catch (error) {
+      mapCategoryError(error);
+    }
+  }
+
+  const categoryMatch = /^\/api\/v1\/categories\/([^/]+)$/.exec(context.pathname);
+  if (categoryMatch?.[1] && context.method === 'PATCH') {
+    const categoryId = decodePathSegment(categoryMatch[1]);
+    const body = asRecord(await context.readJson());
+    const repository = new CategoryRepository(context.databasePath);
+    try {
+      const current = repository.get(categoryId);
+      if (!current) throw new ApiError(404, 'CATEGORY_NOT_FOUND', 'Category was not found');
+      const category = repository.update(categoryId, {
+        name: body['name'] === undefined
+          ? current.name
+          : asString(body['name'], '$.name', { min: 1, max: 120 }),
+        parentId: body['parentId'] === undefined
+          ? current.parentId ?? null
+          : parseNullableString(body['parentId'], '$.parentId', 128) ?? null,
+        color: body['color'] === undefined
+          ? current.color ?? null
+          : parseNullableString(body['color'], '$.color', 7) ?? null,
+        description: body['description'] === undefined
+          ? current.description ?? null
+          : parseNullableString(body['description'], '$.description', 500) ?? null,
+      });
+      if (!category) throw new ApiError(404, 'CATEGORY_NOT_FOUND', 'Category was not found');
+      context.publish(category.id, 'category');
+      context.send(200, { category });
+      return true;
+    } catch (error) {
+      mapCategoryError(error);
+    }
+  }
+
+  return false;
+}
+
 export async function handleCatalogManagementRequest(context: CatalogApiContext): Promise<boolean> {
+  if (await handleCategoryRequest(context)) return true;
+
   if (context.pathname === '/api/v1/catalog' && context.method === 'GET') {
     const query = normalizeText(context.searchParams.get('q') ?? '');
     if (query.length > 160) throw new ApiError(400, 'VALIDATION_ERROR', 'Catalog query is too long');

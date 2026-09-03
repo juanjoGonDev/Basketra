@@ -59,10 +59,12 @@ test('receipt page verification crosses the real OpenAI-compatible provider with
                 quantity: 6,
                 unitPriceMinor: 89,
                 lineTotalMinor: 534,
+                categoryId: 'category_unknown',
                 taxCategory: 'A',
                 confidence: 0.94,
                 sourceLines: [2, 3],
               }],
+              newCategories: [],
               warnings: [],
             }),
           },
@@ -146,12 +148,14 @@ test('receipt page verification crosses the real OpenAI-compatible provider with
     for (const request of requests) {
       const responseFormat = request.body['response_format'] as {
         type?: string;
-        json_schema?: { strict?: boolean; schema?: { required?: string[] } };
+        json_schema?: { strict?: boolean; schema?: { required?: string[]; properties?: { items?: { items?: { required?: string[] } } } } };
       };
       assert.equal(responseFormat.type, 'json_schema');
       assert.equal(responseFormat.json_schema?.strict, true);
       assert.ok(responseFormat.json_schema?.schema?.required?.includes('correctedText'));
       assert.ok(responseFormat.json_schema?.schema?.required?.includes('items'));
+      assert.ok(responseFormat.json_schema?.schema?.required?.includes('newCategories'));
+      assert.ok(responseFormat.json_schema?.schema?.properties?.items?.items?.required?.includes('categoryId'));
     }
 
     for (const extraction of [imageExtraction, pdfExtraction]) {
@@ -163,6 +167,7 @@ test('receipt page verification crosses the real OpenAI-compatible provider with
         quantity: 6,
         unitPriceMinor: 89,
         lineTotalMinor: 534,
+        categoryId: 'category_unknown',
         taxCategory: 'A',
         confidence: 0.94,
         sourceLines: [2, 3],

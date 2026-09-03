@@ -1,6 +1,7 @@
 import type { MigrationDefinition } from './database.ts';
+import { CATEGORY_MIGRATIONS } from './category-schema.ts';
 
-export const COLLABORATION_MIGRATIONS: readonly MigrationDefinition[] = [
+const COLLABORATION_BASE_MIGRATIONS: readonly MigrationDefinition[] = [
   {
     version: 4,
     kind: 'safe',
@@ -620,3 +621,8 @@ export const COLLABORATION_MIGRATIONS: readonly MigrationDefinition[] = [
     `,
   },
 ] as const;
+
+export const COLLABORATION_MIGRATIONS: readonly MigrationDefinition[] = [
+  ...COLLABORATION_BASE_MIGRATIONS,
+  ...CATEGORY_MIGRATIONS,
+];

@@ -137,7 +137,7 @@ test('saved catalog products can be browsed, edited and related on mobile', asyn
   await expect(page.locator('#catalog-latest-prices')).toContainText('1,19');
 
   await expectNoHorizontalOverflow(page);
-  const catalogView = page.locator('.catalog-view');
+  const catalogView = page.locator('.view[data-view="catalog"]');
   await expect(catalogView).toBeVisible();
   const shell = page.locator('.app-header, .bottom-nav, .skip-link');
   const shellHiddenState = await shell.evaluateAll(elements => elements.map(element => element.hidden));

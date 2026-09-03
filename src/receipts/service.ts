@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { AiProvider } from '../ai/provider.ts';
+import type { CategoryDescriptor } from '../domain/categories.ts';
 import { asArray, asBoolean, asRecord, asString } from '../domain/validation.ts';
+import { CategoryRepository } from '../infrastructure/category-repository.ts';
 import type { FileStore, StoredFileContent as StoredFile } from '../infrastructure/files.ts';
 import {
   EmbeddedTextOcrProvider,
@@ -9,10 +11,12 @@ import {
   type OcrProvider,
   type OcrResult,
 } from '../ocr/provider.ts';
+import { loadReceiptCategoryInventory, resolveReceiptCategories } from './categories.ts';
 import {
   extractReceiptMetadata,
   parseDeterministicReceiptText,
   verifyReceiptWithAi,
+  type AiReceiptInterpretation,
   type ReceiptAiSession,
 } from './extraction.ts';
 import {
@@ -59,6 +63,7 @@ export type ReceiptExtractionRequest = Readonly<{
   captures: readonly ReceiptCaptureRequest[];
   verifyWithAi: boolean;
   retryOfJobId?: string;
+  categoryInventory?: readonly CategoryDescriptor[];
 }>;
 
 type ReceiptOcrPageEvidence = ReceiptPageEvidence;
@@ -155,6 +160,7 @@ export class ReceiptExtractionService {
   #multimodalOcrProvider: MultimodalAiOcrProvider | undefined;
   #multimodalOcrAiProvider: AiProvider | undefined;
   #multimodalOcrMaxRetries: number | undefined;
+  #categoryRepository: CategoryRepository | undefined;
 
   constructor(
     fileStore: FileStore,
@@ -181,6 +187,13 @@ export class ReceiptExtractionService {
     this.#aiQueue = aiQueue;
     this.#aiVerificationBudgetMs = aiVerificationBudgetMs;
     this.maxRetries();
+  }
+
+  configureCategoryDatabase(databasePath: string): void {
+    const normalized = databasePath.trim();
+    if (!normalized) throw new RangeError('Category database path is required');
+    this.#categoryRepository = new CategoryRepository(normalized);
+    this.#categoryRepository.ensureUnknown();
   }
 
   parseRequest(value: unknown): ReceiptExtractionRequest {
@@ -212,21 +225,44 @@ export class ReceiptExtractionService {
     if (retryOfJobId && !verifyWithAi) {
       throw new RangeError('Receipt retry requires AI verification');
     }
+    const categoryInventory = verifyWithAi && this.#categoryRepository
+      ? loadReceiptCategoryInventory(this.#categoryRepository)
+      : undefined;
     return {
       captures,
       verifyWithAi,
       ...(retryOfJobId ? { retryOfJobId } : {}),
+      ...(categoryInventory ? { categoryInventory } : {}),
     };
+  }
+
+  categoryInventoryFor(request: ReceiptExtractionRequest): readonly CategoryDescriptor[] {
+    if (request.categoryInventory) return request.categoryInventory;
+    if (!this.#categoryRepository) return [];
+    return [this.#categoryRepository.ensureUnknown()];
+  }
+
+  resolveAiCategories(interpretation: AiReceiptInterpretation): AiReceiptInterpretation {
+    return this.#categoryRepository
+      ? resolveReceiptCategories(interpretation, this.#categoryRepository)
+      : interpretation;
   }
 
   async extract(request: ReceiptExtractionRequest, signal?: AbortSignal): Promise<ReceiptExtractionResult> {
     signal?.throwIfAborted();
     const captures = uniqueCaptures(request.captures);
     const resolveAiRuntime = this.aiRuntimeResolver();
+    const categoryInventory = this.categoryInventoryFor(request);
     const pages = request.verifyWithAi
       ? await this.runWithinAiVerificationBudget(async (verificationSignal) => {
           const ocrPages = this.queueOcrPages(captures, resolveAiRuntime, verificationSignal);
-          return await this.verifyOcrPagesInOrder(captures, ocrPages, resolveAiRuntime, verificationSignal);
+          return await this.verifyOcrPagesInOrder(
+            captures,
+            ocrPages,
+            resolveAiRuntime,
+            categoryInventory,
+            verificationSignal,
+          );
         }, signal)
       : await Promise.all(this.queueOcrPages(captures, resolveAiRuntime, signal));
     return assembleReceiptExtraction(pages);
@@ -379,6 +415,7 @@ export class ReceiptExtractionService {
     capture: ReceiptCaptureRequest,
     page: ReceiptOcrPageEvidence,
     resolveAiRuntime: ReceiptAiRuntimeResolver,
+    categoryInventory: readonly CategoryDescriptor[],
     signal?: AbortSignal,
     session?: ReceiptAiSession,
   ): Promise<ReceiptPageEvidence> {
@@ -395,12 +432,13 @@ export class ReceiptExtractionService {
       },
       signal,
       session,
+      categoryInventory,
     );
 
     return {
       ...page,
       ai: {
-        interpretation: ai.value,
+        interpretation: this.resolveAiCategories(ai.value),
         attempts: ai.attempts,
       },
     };
@@ -410,6 +448,7 @@ export class ReceiptExtractionService {
     captures: readonly ReceiptCaptureRequest[],
     ocrPages: readonly Promise<ReceiptOcrPageEvidence>[],
     resolveAiRuntime: ReceiptAiRuntimeResolver,
+    categoryInventory: readonly CategoryDescriptor[],
     signal?: AbortSignal,
   ): Promise<ReceiptPageEvidence[]> {
     const affinity = `basketra-receipt-${randomUUID()}`;
@@ -420,7 +459,7 @@ export class ReceiptExtractionService {
       const page = await ocrPage;
       const capture = captures[position]!;
       verified.push(await this.#aiQueue.run(
-        () => this.verifyPageWithAi(capture, page, resolveAiRuntime, signal, {
+        () => this.verifyPageWithAi(capture, page, resolveAiRuntime, categoryInventory, signal, {
           affinity,
           final: position === ocrPages.length - 1,
           pageCount: ocrPages.length,
