@@ -197,7 +197,7 @@
 
 .ticket-line-grid {
   display: grid;
-  grid-template-columns: minmax(11rem, 1.8fr) minmax(0, 1fr) minmax(0, .45fr) minmax(0, .55fr) minmax(0, .7fr) minmax(0, .65fr) minmax(0, .7fr) minmax(3rem, .55fr);
+  grid-template-columns: minmax(11rem, 1.8fr) minmax(0, 1fr) minmax(5rem, .55fr) minmax(4.25rem, .55fr) minmax(0, .7fr) minmax(0, .65fr) minmax(0, .7fr) minmax(3rem, .55fr);
   gap: var(--space-3);
   align-items: center;
 }
