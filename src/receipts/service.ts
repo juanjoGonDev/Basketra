@@ -265,7 +265,7 @@ export class ReceiptExtractionService {
           );
         }, signal)
       : await Promise.all(this.queueOcrPages(captures, resolveAiRuntime, signal));
-    return assembleReceiptExtraction(pages);
+    return assembleReceiptExtraction(pages, categoryInventory);
   }
 
   async extractOcrPage(
