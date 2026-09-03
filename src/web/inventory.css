@@ -257,6 +257,17 @@
   border-bottom: 0;
 }
 
+.inventory-statistics-grid .inventory-data-table {
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.inventory-statistics-grid .inventory-data-table th:first-child,
+.inventory-statistics-grid .inventory-data-table td:first-child {
+  width: 40%;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 70rem) {
   .inventory-overview-query {
     grid-template-columns: minmax(0, 1.7fr) minmax(8rem, 1fr) minmax(8rem, 1fr);
@@ -902,11 +913,11 @@
   }
 
   .inventory-overview-query-actions .button.secondary {
-    width: var(--touch);
-    min-width: var(--touch);
-    padding-inline: 0;
-    overflow: hidden;
-    text-indent: -9999px;
+    width: auto;
+    min-width: 5.75rem;
+    padding-inline: .75rem;
+    overflow: visible;
+    text-indent: 0;
   }
 
   .inventory-overview-chips {
