@@ -20,7 +20,7 @@ test('category migration and repository preserve an arbitrary-depth hierarchy wi
   const repository = new CategoryRepository(database.path, () => FIXED_NOW);
 
   try {
-    assert.equal(CURRENT_SCHEMA_VERSION, 9);
+    assert.equal(CURRENT_SCHEMA_VERSION, 10);
     const unknown = repository.ensureUnknown();
     assert.equal(unknown.id, UNKNOWN_CATEGORY_ID);
     assert.equal(unknown.name, UNKNOWN_CATEGORY_NAME);
@@ -101,7 +101,9 @@ test('category migration normalizes a legacy desconocido id without breaking ref
         id TEXT PRIMARY KEY,
         category_id TEXT REFERENCES product_categories(id)
       );
-      INSERT INTO schema_migrations(version, applied_at) VALUES (8, '2026-09-02T00:00:00.000Z');
+      INSERT INTO schema_migrations(version, applied_at) VALUES
+        (8, '2026-09-02T00:00:00.000Z'),
+        (9, '2026-09-02T00:00:00.000Z');
       INSERT INTO product_categories(id, name, parent_id, color, description, created_at, updated_at)
       VALUES ('category_legacy_unknown', 'desconocido', NULL, '#64748B', NULL, '2026-09-02T00:00:00.000Z', '2026-09-02T00:00:00.000Z');
       INSERT INTO product_categories(id, name, parent_id, color, description, created_at, updated_at)
