@@ -6,6 +6,13 @@ import { fileURLToPath } from 'node:url';
 import { BasketraDatabase, validateBackup } from '../infrastructure/database.ts';
 import { FileStore, SUPPORTED_FILE_MIME_TYPES } from '../infrastructure/files.ts';
 import type { AppConfig } from '../infrastructure/config.ts';
+import {
+  DEFAULT_RUNTIME_SETTINGS,
+  RuntimeSettingsStore,
+  toPublicRuntimeSettings,
+  type PublicRuntimeSettings,
+  type RuntimeSettings,
+} from '../infrastructure/runtime-settings.ts';
 import { asArray, asBoolean, asEnum, asRecord, asSafeInteger, asString } from '../domain/validation.ts';
 import { UNIT_VALUES } from '../domain/units.ts';
 import { optimizeBasket, type ShoppingRequirement } from '../domain/optimization.ts';
@@ -85,15 +92,16 @@ export class BasketraServer {
   readonly config: AppConfig;
   readonly #server: Server;
   readonly #database: BasketraDatabase;
+  readonly #runtimeSettingsStore: RuntimeSettingsStore;
   readonly #fileStore: FileStore;
   readonly #receiptExtractionService: ReceiptExtractionService;
   readonly #receiptDurableStore: ReceiptDurableJobStore;
   readonly #receiptDurableRunner: ReceiptDurableExtractionRunner;
   readonly #realtime = new RealtimeHub(8);
   readonly #realtimeResponses = new Set<ServerResponse>();
-  readonly #overpassClient: OverpassClient;
   readonly #startedAt = new Date().toISOString();
   readonly #publicDir: string;
+  readonly #retiredAiProviders = new Set<OpenAiCompatibleProvider>();
   #ready = false;
   #activeRequests = 0;
   #activeExpensiveOperations = 0;
@@ -101,15 +109,26 @@ export class BasketraServer {
   #lastActivityAt = new Date().toISOString();
   #hibernateTimer?: NodeJS.Timeout;
   #aiProvider: OpenAiCompatibleProvider | undefined;
+  #aiProviderIdentity: string | undefined;
   #receiptResponsesClient: ReceiptResponsesClient | undefined;
+  #receiptResponsesIdentity: string | undefined;
   readonly #receiptExtractionJobControllers = new Map<string, AbortController>();
   readonly #receiptExtractionJobTasks = new Map<string, Promise<void>>();
 
   constructor(config: AppConfig) {
     this.config = config;
     this.#database = new BasketraDatabase(join(config.dataDir, 'basketra.db'));
-    this.#fileStore = new FileStore(join(config.dataDir, 'files'), config.tempDir, config.maxBodyBytes);
-    this.#receiptExtractionService = new ReceiptExtractionService(this.#fileStore, () => this.getAiProvider(), config.aiMaxRetries);
+    this.#runtimeSettingsStore = new RuntimeSettingsStore(this.#database.path);
+    this.#fileStore = new FileStore(
+      join(config.dataDir, 'files'),
+      config.tempDir,
+      DEFAULT_RUNTIME_SETTINGS.maxBodyBytes,
+    );
+    this.#receiptExtractionService = new ReceiptExtractionService(
+      this.#fileStore,
+      () => this.getAiProvider(),
+      () => this.runtimeSettings().aiMaxRetries,
+    );
     this.#receiptExtractionService.configureCategoryDatabase(this.#database.path);
     this.#receiptDurableStore = new ReceiptDurableJobStore(this.#database.path);
     this.#receiptDurableRunner = new ReceiptDurableExtractionRunner({
@@ -129,9 +148,22 @@ export class BasketraServer {
         });
       },
     });
-    this.#overpassClient = new OverpassClient(new URL(config.overpassBaseUrl));
     this.#publicDir = resolve(dirname(fileURLToPath(import.meta.url)), '../web');
     this.#server = createServer((request, response) => void this.handle(request, response));
+  }
+
+  runtimeSettings(): RuntimeSettings {
+    return this.#runtimeSettingsStore.read();
+  }
+
+  publicRuntimeSettings(): PublicRuntimeSettings {
+    return toPublicRuntimeSettings(this.runtimeSettings());
+  }
+
+  updateRuntimeSettings(value: unknown): PublicRuntimeSettings {
+    const settings = this.#runtimeSettingsStore.update(value);
+    this.scheduleHibernation();
+    return toPublicRuntimeSettings(settings);
   }
 
   async listen(): Promise<void> {
@@ -183,10 +215,11 @@ export class BasketraServer {
     await new Promise<void>((resolvePromise, reject) => this.#server.close((error) => error ? reject(error) : resolvePromise()));
     this.#fileStore.cleanupTemporary();
     this.#receiptExtractionService.dispose();
-    this.#aiProvider?.dispose();
-    this.#aiProvider = undefined;
+    this.disposeAiProviders();
     this.#receiptResponsesClient = undefined;
+    this.#receiptResponsesIdentity = undefined;
     this.#receiptDurableStore.close();
+    this.#runtimeSettingsStore.close();
     this.#database.close();
   }
 
@@ -208,6 +241,10 @@ export class BasketraServer {
       if (request.method === 'GET' && url.pathname === '/readiness') return this.json(response, this.#ready ? 200 : 503, { ready: this.#ready });
       if (request.method === 'GET' && url.pathname === '/api/v1/diagnostics') return this.json(response, 200, this.diagnostics());
       if (request.method === 'GET' && url.pathname === '/api/v1/meta') return this.json(response, 200, this.applicationMetadata());
+      if (request.method === 'GET' && url.pathname === '/api/v1/settings/runtime') return this.json(response, 200, { settings: this.publicRuntimeSettings() });
+      if (request.method === 'PUT' && url.pathname === '/api/v1/settings/runtime') {
+        return this.json(response, 200, { settings: this.updateRuntimeSettings(await this.readJson(request)) });
+      }
       if (request.method === 'GET' && url.pathname === '/api/v1/settings/ai-provider') return this.json(response, 200, this.aiProviderSettings());
       if (request.method === 'POST' && url.pathname === '/api/v1/settings/ai-provider/test') return await this.testAiProvider(request, response);
       if (request.method === 'POST' && url.pathname === '/api/v1/ai/shopping-list-analysis') return await this.analyzeShoppingList(request, response);
@@ -366,7 +403,7 @@ export class BasketraServer {
       units: UNIT_VALUES,
       files: {
         mimeTypes: SUPPORTED_FILE_MIME_TYPES,
-        maxBytes: this.#fileStore.maxBytes,
+        maxBytes: this.runtimeSettings().maxBodyBytes,
       },
       location: {
         secureContextRequired: true,
@@ -376,12 +413,13 @@ export class BasketraServer {
   }
 
   private aiProviderSettings(): Readonly<{ configured: boolean; baseUrl?: string; model?: string; apiKeyMask?: string }> {
-    if (!this.config.aiBaseUrl || !this.config.aiModel) return { configured: false };
+    const settings = this.publicRuntimeSettings().ai;
+    if (!settings.configured) return { configured: false };
     return {
       configured: true,
-      baseUrl: this.config.aiBaseUrl,
-      model: this.config.aiModel,
-      ...(this.config.aiApiKey ? { apiKeyMask: `***${this.config.aiApiKey.slice(-4)}` } : {}),
+      ...(settings.baseUrl ? { baseUrl: settings.baseUrl } : {}),
+      ...(settings.model ? { model: settings.model } : {}),
+      ...(settings.apiKeyMask ? { apiKeyMask: settings.apiKeyMask } : {}),
     };
   }
 
@@ -446,7 +484,7 @@ export class BasketraServer {
           };
         },
       };
-      const executor = new StructuredAiExecutor(this.getAiProvider(), this.config.aiMaxRetries);
+      const executor = new StructuredAiExecutor(this.getAiProvider(), this.runtimeSettings().aiMaxRetries);
       const result = await executor.execute({
         operation: 'shopping-list-analysis',
         schemaName: 'shopping_list_analysis',
@@ -463,28 +501,41 @@ export class BasketraServer {
   }
 
   private getAiProvider(): OpenAiCompatibleProvider {
-    if (!this.config.aiBaseUrl || !this.config.aiModel) throw new ApiError(503, 'AI_NOT_CONFIGURED', 'AI provider is not configured');
-    if (!this.#aiProvider) {
+    const settings = this.runtimeSettings();
+    if (!settings.aiBaseUrl || !settings.aiModel) {
+      throw new ApiError(503, 'AI_NOT_CONFIGURED', 'AI provider is not configured');
+    }
+    const identity = providerIdentity(settings);
+    if (!this.#aiProvider || this.#aiProviderIdentity !== identity) {
+      if (this.#aiProvider) this.#retiredAiProviders.add(this.#aiProvider);
       this.#aiProvider = new OpenAiCompatibleProvider({
-        baseUrl: new URL(this.config.aiBaseUrl),
-        ...(this.config.aiApiKey ? { apiKey: this.config.aiApiKey } : {}),
-        model: this.config.aiModel,
+        baseUrl: new URL(settings.aiBaseUrl),
+        ...(settings.aiApiKey ? { apiKey: settings.aiApiKey } : {}),
+        model: settings.aiModel,
         capabilities: {
-          image: this.config.aiImageCapability,
-          pdf: this.config.aiPdfCapability,
+          image: true,
+          pdf: true,
         },
       });
+      this.#aiProviderIdentity = identity;
     }
     return this.#aiProvider;
   }
 
   private getReceiptResponsesClient(): ReceiptResponsesClient {
-    if (!this.config.aiBaseUrl || !this.config.aiModel) throw new ApiError(503, 'AI_NOT_CONFIGURED', 'AI provider is not configured');
-    this.#receiptResponsesClient ??= new ReceiptResponsesClient({
-      baseUrl: new URL(this.config.aiBaseUrl),
-      ...(this.config.aiApiKey ? { apiKey: this.config.aiApiKey } : {}),
-      model: this.config.aiModel,
-    });
+    const settings = this.runtimeSettings();
+    if (!settings.aiBaseUrl || !settings.aiModel) {
+      throw new ApiError(503, 'AI_NOT_CONFIGURED', 'AI provider is not configured');
+    }
+    const identity = providerIdentity(settings);
+    if (!this.#receiptResponsesClient || this.#receiptResponsesIdentity !== identity) {
+      this.#receiptResponsesClient = new ReceiptResponsesClient({
+        baseUrl: new URL(settings.aiBaseUrl),
+        ...(settings.aiApiKey ? { apiKey: settings.aiApiKey } : {}),
+        model: settings.aiModel,
+      });
+      this.#receiptResponsesIdentity = identity;
+    }
     return this.#receiptResponsesClient;
   }
 
@@ -666,7 +717,7 @@ export class BasketraServer {
       const result = await proposeProductFromPhoto({
         fileStore: this.#fileStore,
         provider: this.getAiProvider(),
-        maxRetries: this.config.aiMaxRetries,
+        maxRetries: this.runtimeSettings().aiMaxRetries,
         storageKey: asString(body['storageKey'], '$.storageKey', { min: 8, max: 160 }),
         ...(body['contextText'] === undefined ? {} : { contextText: asString(body['contextText'], '$.contextText', { max: 500 }) }),
         signal: controller.signal,
@@ -764,7 +815,8 @@ export class BasketraServer {
     request.once('aborted', onAborted);
     try {
       const body = asRecord(await this.readJson(request));
-      const candidates = await this.#overpassClient.findNearbyStores({
+      const overpassClient = new OverpassClient(new URL(this.runtimeSettings().overpassBaseUrl));
+      const candidates = await overpassClient.findNearbyStores({
         latitudeMicrodegrees: asSafeInteger(body['latitudeMicrodegrees'], '$.latitudeMicrodegrees', { min: -90_000_000, max: 90_000_000 }),
         longitudeMicrodegrees: asSafeInteger(body['longitudeMicrodegrees'], '$.longitudeMicrodegrees', { min: -180_000_000, max: 180_000_000 }),
         radiusMeters: asSafeInteger(body['radiusMeters'] ?? 1_500, '$.radiusMeters', { min: 100, max: 5_000 }),
@@ -787,8 +839,9 @@ export class BasketraServer {
 
   private async storeFile(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const body = asRecord(await this.readJson(request));
+    const maxBodyBytes = this.runtimeSettings().maxBodyBytes;
     const file = this.#fileStore.storeBase64({
-      base64: asString(body['base64'], '$.base64', { min: 4, max: Math.ceil(this.config.maxBodyBytes * 1.4) }),
+      base64: asString(body['base64'], '$.base64', { min: 4, max: Math.ceil(maxBodyBytes * 1.4) }),
       mimeType: asEnum(body['mimeType'], '$.mimeType', SUPPORTED_FILE_MIME_TYPES),
       ...(body['originalName'] === undefined ? {} : { originalName: asString(body['originalName'], '$.originalName', { min: 1, max: 240 }) }),
     });
@@ -1086,10 +1139,11 @@ export class BasketraServer {
   private async readJson(request: IncomingMessage): Promise<unknown> {
     const chunks: Uint8Array[] = [];
     let bytes = 0;
+    const maxBodyBytes = this.runtimeSettings().maxBodyBytes;
     for await (const chunk of request) {
       const buffer = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
       bytes += buffer.byteLength;
-      if (bytes > this.config.maxBodyBytes) throw new ApiError(413, 'BODY_TOO_LARGE', 'Request body exceeds the configured limit');
+      if (bytes > maxBodyBytes) throw new ApiError(413, 'BODY_TOO_LARGE', 'Request body exceeds the configured limit');
       chunks.push(buffer);
     }
     if (chunks.length === 0) return {};
@@ -1129,18 +1183,31 @@ export class BasketraServer {
 
   private scheduleHibernation(): void {
     if (this.#hibernateTimer) clearTimeout(this.#hibernateTimer);
-    if (this.config.idleHibernateAfterMs === 0) return;
+    const idleHibernateAfterMs = this.runtimeSettings().idleHibernateAfterMs;
+    if (idleHibernateAfterMs === 0) return;
     const timer = setTimeout(() => {
       if (this.#activeRequests === 0 && this.#activeExpensiveOperations === 0) {
         this.#fileStore.cleanupTemporary();
         this.#receiptExtractionService.dispose();
-        this.#aiProvider?.dispose();
-        this.#aiProvider = undefined;
+        this.disposeAiProviders();
         this.#receiptResponsesClient = undefined;
+        this.#receiptResponsesIdentity = undefined;
         this.#hibernated = true;
       }
-    }, this.config.idleHibernateAfterMs);
+    }, idleHibernateAfterMs);
     timer.unref();
     this.#hibernateTimer = timer;
   }
+
+  private disposeAiProviders(): void {
+    this.#aiProvider?.dispose();
+    this.#aiProvider = undefined;
+    this.#aiProviderIdentity = undefined;
+    for (const provider of this.#retiredAiProviders) provider.dispose();
+    this.#retiredAiProviders.clear();
+  }
+}
+
+function providerIdentity(settings: RuntimeSettings): string {
+  return JSON.stringify([settings.aiBaseUrl ?? null, settings.aiApiKey ?? null, settings.aiModel ?? null]);
 }
