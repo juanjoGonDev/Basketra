@@ -217,7 +217,7 @@ jobs:
           copy_flow_capture mobile-settings-receipts-s settings-light-390.png 11-settings-light-390.png
           copy_flow_capture mobile-settings-receipts-s settings-light-768.png 11-settings-light-768.png
           copy_flow_capture receipt-auto-review-flow-r test-finished-1.png 12-auto-ocr-review.png
-          copy_flow_capture catalog-management-saved-c catalog-mobile.png 13-catalog-management.png
+          copy_flow_capture catalog-management-invento catalog-mobile.png 13-catalog-management.png
           copy_flow_capture semantic-output percentage-editor.png 14-discount-percentage.png
           copy_flow_capture latest-result-is-valid calculation-error.png 14-discount-error.png
           copy_flow_capture visible-for-manual-review ambiguous-discount.png 14-discount-ambiguous.png
