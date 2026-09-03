@@ -94,8 +94,9 @@ test('Inventory replaces Plans with canonical overview metrics, search handoff a
   await page.locator('.bottom-nav [data-nav="inventory"]').click();
   await expect(page).toHaveURL(/#inventory$/);
 
-  await inventory.locator('#inventory-overview-search').fill('leche');
-  await inventory.getByRole('button', { name: 'Buscar', exact: true }).click();
+  const search = inventory.locator('#inventory-overview-search');
+  await search.fill('leche');
+  await search.press('Enter');
   await expect(page).toHaveURL(/#catalog$/);
   await expect(page.locator('#catalog-search')).toHaveValue('leche');
   await expect(page.locator('#catalog-sort')).toHaveValue('recent');
@@ -103,7 +104,7 @@ test('Inventory replaces Plans with canonical overview metrics, search handoff a
 
   await page.locator('.bottom-nav [data-nav="inventory"]').click();
   await inventory.locator('[data-inventory-scope="categories"]').click();
-  await inventory.locator('#inventory-overview-search').fill('lácteos');
+  await search.fill('lácteos');
   await inventory.getByRole('button', { name: 'Abrir filtros' }).click();
   await expect(page).toHaveURL(/#categories$/);
   await expect(page.locator('#category-search')).toHaveValue('lácteos');
@@ -111,8 +112,8 @@ test('Inventory replaces Plans with canonical overview metrics, search handoff a
 
   await page.locator('.bottom-nav [data-nav="inventory"]').click();
   await inventory.locator('[data-inventory-scope="stores"]').click();
-  await inventory.locator('#inventory-overview-search').fill('centro');
-  await inventory.getByRole('button', { name: 'Buscar', exact: true }).click();
+  await search.fill('centro');
+  await search.press('Enter');
   await expect(page).toHaveURL(/#stores$/);
   await expect(page.locator('#store-search')).toHaveValue('centro');
   await expect(page.locator('#store-sort')).toHaveValue('name');
