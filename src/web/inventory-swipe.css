@@ -1,0 +1,7 @@
+.inventory-entity-swipe[data-inventory-swipe-position='reveal'] .inventory-entity-swipe__content {
+  transform: translateX(-9.5rem);
+}
+
+.inventory-entity-swipe[data-inventory-swipe-position='commit'] .inventory-entity-swipe__content {
+  transform: translateX(-100%);
+}
