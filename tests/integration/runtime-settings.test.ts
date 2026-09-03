@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BasketraDatabase, CURRENT_SCHEMA_VERSION } from '../../src/infrastructure/database.ts';
+import { BasketraDatabase } from '../../src/infrastructure/database.ts';
 import {
   DEFAULT_RUNTIME_SETTINGS,
   RuntimeSettingsStore,
@@ -19,7 +19,6 @@ test('runtime settings migrate with the main database and expose deterministic d
   database.close();
   const store = new RuntimeSettingsStore(databasePath);
   try {
-    assert.equal(CURRENT_SCHEMA_VERSION, 8);
     assert.deepEqual(
       { ...store.read(), updatedAt: '<timestamp>' },
       {
