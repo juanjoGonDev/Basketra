@@ -742,3 +742,12 @@
     display: none;
   }
 }
+
+.breadcrumb { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; color: var(--muted); font-size: .875rem; }
+.breadcrumb a { color: var(--primary-strong); text-decoration: none; }
+.breadcrumb a:hover, .breadcrumb a:focus-visible { text-decoration: underline; }
+.field > span em { color: var(--muted); font-size: .8125rem; font-style: normal; font-weight: 500; }
+.field > span strong { color: var(--text); font-size: .8125rem; font-weight: 700; }
+.field-error { min-height: 1.25rem; color: var(--danger); font-weight: 650; }
+.field :is(input, select, textarea)[aria-invalid="true"] { border-color: var(--danger); }
+.field-required { color: var(--danger); font-weight: 800; }

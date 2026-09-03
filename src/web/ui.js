@@ -35,6 +35,7 @@ const ICONS = {
   backup: '<path d="M4 7v5h5"/><path d="M5.5 12a7 7 0 1 0 2-5"/><path d="m4 7 3.5-3.5"/>',
   chevronUp: '<path d="m18 15-6-6-6 6"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  chevronRight: '<path d="m9 6 6 6-6 6"/>',
   trash: '<path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6"/>',
   check: '<path d="m5 12 4 4L19 6"/>',
   wifi: '<path d="M5 9a10 10 0 0 1 14 0M8 12a6 6 0 0 1 8 0M11 15a2 2 0 0 1 2 0"/><circle cx="12" cy="18" r=".7" fill="currentColor" stroke="none"/>',
@@ -68,6 +69,25 @@ export function hydrateIcons(root = document) {
   root.querySelectorAll('[data-icon]').forEach(element => {
     element.innerHTML = icon(element.dataset.icon);
   });
+}
+
+export function breadcrumb(items) {
+  const entries = Array.isArray(items) ? items.filter(entry => entry?.label) : [];
+  if (entries.length === 0) return '';
+  return `<nav class="breadcrumb" aria-label="Ruta de navegación">${entries.map((entry, index) => {
+    const separator = index === 0 ? '' : `<span class="breadcrumb__separator" data-icon="chevronRight" aria-hidden="true"></span>`;
+    const label = escapeHtml(entry.label);
+    if (!entry.route) return `${separator}<span aria-current="page">${label}</span>`;
+    const leadingIcon = index === 0 ? `<span data-icon="home"></span>` : '';
+    return `${separator}<a href="#${escapeHtml(entry.route)}" data-app-route="${escapeHtml(entry.route)}">${leadingIcon}${label}</a>`;
+  }).join('')}</nav>`;
+}
+
+export function setFieldFeedback(fieldId, message, root = document) {
+  const input = root.querySelector(`#${fieldId}`);
+  const feedback = root.querySelector(`#${fieldId}-error`);
+  if (input) input.setAttribute('aria-invalid', String(Boolean(message)));
+  if (feedback) feedback.textContent = message || '';
 }
 
 export function formatEuroMinor(value) {

@@ -1,5 +1,5 @@
 import { api, setBusy } from './api.js';
-import { escapeHtml, formatEuroMinor, hydrateIcons } from './ui.js';
+import { breadcrumb, escapeHtml, formatEuroMinor, hydrateIcons } from './ui.js';
 
 const STORE_PAGE_SIZE = 12;
 const SEARCH_DELAY_MS = 250;
@@ -122,6 +122,7 @@ function installStoreView() {
     </section>
 
     <section id="store-detail-screen" class="inventory-detail-screen" aria-labelledby="store-detail-title" hidden>
+      ${breadcrumb([{ label: 'Inventario', route: 'inventory' }, { label: 'Tiendas', route: 'stores' }, { label: 'Ficha' }])}
       <header class="inventory-detail-header">
         <button id="stores-back-list" class="button secondary" type="button"><span data-icon="chevronUp" class="icon-rotate-left"></span>Tiendas</button>
         <div class="inventory-detail-header__copy"><p class="eyebrow">Tienda</p><h1 id="store-detail-title">Detalle de tienda</h1><p id="store-detail-subtitle"></p></div>

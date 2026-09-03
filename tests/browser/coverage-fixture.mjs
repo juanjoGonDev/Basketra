@@ -3,7 +3,14 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test as base, expect } from '@playwright/test';
 
-const COVERAGE_PATHS = new Set(['/operations.js', '/receipts.js']);
+const COVERAGE_PATHS = new Set([
+  '/operations.js',
+  '/receipts.js',
+  '/app.js',
+  '/catalog.js',
+  '/inventory.js',
+  '/ui.js',
+]);
 const COVERAGE_DIRECTORY = resolve('.coverage/browser');
 
 function relevantCoverage(entries) {

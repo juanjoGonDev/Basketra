@@ -55,7 +55,7 @@ test('skips browser diff coverage when no tracked browser module changed', () =>
 
 test('requires browser diff coverage when a tracked browser module changed', () => {
   assert.equal(requiresBrowserDiffCoverage(new Map([
-    ['src/web/receipts.js', new Set([10])],
+    ['src/web/catalog.js', new Set([10])],
   ])), true);
 });
 

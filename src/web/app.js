@@ -621,11 +621,20 @@ function setNavigationReady(ready) {
   });
 }
 
+function closeTransientOverlays() {
+  closeReceiptLineEditor({ revert: true, focus: false });
+  document.querySelectorAll('dialog[open]').forEach(dialog => {
+    if (dialog instanceof HTMLDialogElement) dialog.close();
+    else dialog.removeAttribute('open');
+  });
+}
+
 function navigate(requestedRoute, { allowBeforeReady = false } = {}) {
   if (!applicationReady && !allowBeforeReady) {
     pendingRoute = requestedRoute;
     return;
   }
+  closeTransientOverlays();
   const availableViews = new Set($$('.view').map(element => element.dataset.view).filter(Boolean));
   const { view, route } = resolveApplicationRoute(requestedRoute, availableViews);
   const primaryNavigation = primaryNavigationForView(view);
@@ -646,6 +655,13 @@ setNavigationReady(false);
 document.addEventListener('basketra:navigate', event => {
   const requestedRoute = String(event.detail?.route || '');
   if (requestedRoute) navigate(requestedRoute);
+});
+
+document.addEventListener('click', event => {
+  const link = event.target.closest('[data-app-route]');
+  if (!(link instanceof HTMLAnchorElement)) return;
+  event.preventDefault();
+  navigate(link.dataset.appRoute);
 });
 
 $$('[data-nav]').forEach(element => element.addEventListener('click', event => {

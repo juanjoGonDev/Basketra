@@ -1,5 +1,5 @@
 import { api, setBusy } from './api.js';
-import { escapeHtml, formatEuroMinor, hydrateIcons } from './ui.js';
+import { breadcrumb, escapeHtml, formatEuroMinor, hydrateIcons, setFieldFeedback } from './ui.js';
 
 const PRODUCT_PAGE_SIZE = 12;
 const CATEGORY_PAGE_SIZE = 12;
@@ -65,7 +65,7 @@ function installCatalogView() {
         <label class="field"><span>Categoría</span><select id="catalog-filter-category"><option value="">Todas</option></select></label>
         <label class="field"><span>Precio</span><select id="catalog-filter-price"><option value="all">Todos</option><option value="with-price">Con precio</option><option value="without-price">Sin precio</option></select></label>
         <label class="field"><span>Orden</span><select id="catalog-sort"><option value="name">Nombre A-Z</option><option value="recent">Actualizados recientemente</option><option value="price-desc">Precio más alto</option><option value="price-asc">Precio más bajo</option></select></label>
-        <button id="catalog-clear-filters" class="button secondary" type="button">Limpiar filtros</button>
+        <button id="catalog-clear-filters" class="button secondary" type="button"><span data-icon="refresh"></span>Limpiar filtros</button>
       </section>
       <p id="catalog-state" class="inline-status" role="status" aria-live="polite"></p>
       <section class="surface inventory-list-surface" aria-label="Listado de productos">
@@ -76,6 +76,7 @@ function installCatalogView() {
     </section>
 
     <section id="catalog-detail" class="inventory-detail-screen" aria-labelledby="catalog-detail-title" hidden>
+      ${breadcrumb([{ label: 'Inventario', route: 'inventory' }, { label: 'Productos', route: 'catalog' }, { label: 'Ficha' }])}
       <header class="inventory-detail-header">
         <button id="catalog-back-list" class="button secondary" type="button"><span data-icon="chevronUp" class="icon-rotate-left"></span>Productos</button>
         <div class="inventory-detail-header__copy"><p class="eyebrow">Producto</p><h1 id="catalog-detail-title">Detalle de producto</h1><p id="catalog-detail-meta"></p></div>
@@ -95,16 +96,17 @@ function installCatalogView() {
       </div>
       <section id="catalog-editor" class="surface inventory-editor" aria-labelledby="catalog-editor-title" hidden>
         <div class="section-header"><div><p class="eyebrow">Edición</p><h2 id="catalog-editor-title">Editar producto</h2></div><span id="catalog-product-status" class="status-pill">Guardado</span></div>
-        <form id="catalog-product-form" class="catalog-form">
-          <label class="field"><span>Nombre canónico</span><input id="catalog-canonical-name" maxlength="160" required></label>
-          <label class="field"><span>Nombre de esta variante</span><input id="catalog-variant-name" maxlength="160" required></label>
-          <div class="quantity-row"><label class="field"><span>Marca</span><input id="catalog-brand" maxlength="120"></label><label class="field"><span>EAN/GTIN</span><input id="catalog-ean" maxlength="14" inputmode="numeric"></label></div>
-          <label class="field"><span>Categoría</span><select id="catalog-category"><option value="">Sin categoría</option></select></label>
-          <label class="field"><span>Descripción</span><textarea id="catalog-description" maxlength="500" rows="3"></textarea></label>
-          <label class="field"><span>Alias de búsqueda, uno por línea</span><textarea id="catalog-aliases" maxlength="1000" rows="3"></textarea></label>
-          <div class="quantity-row"><label class="field"><span>Cantidad del formato</span><input id="catalog-package-minor" type="number" min="1" max="100000000" inputmode="numeric"></label><label class="field"><span>Unidad</span><select id="catalog-package-unit"><option value="">Sin formato</option></select></label></div>
+        <form id="catalog-product-form" class="catalog-form" novalidate>
+          <p class="field-help">Los campos marcados con asterisco son necesarios para guardar la ficha.</p>
+          <label class="field"><span>Nombre can\u00f3nico <span class="field-required" aria-hidden="true">*</span><strong>Obligatorio</strong></span><input id="catalog-canonical-name" maxlength="160" required aria-describedby="catalog-canonical-name-error"><small id="catalog-canonical-name-error" class="field-error"></small></label>
+          <label class="field"><span>Nombre de esta variante <span class="field-required" aria-hidden="true">*</span><strong>Obligatorio</strong></span><input id="catalog-variant-name" maxlength="160" required aria-describedby="catalog-variant-name-error"><small id="catalog-variant-name-error" class="field-error"></small></label>
+          <div class="quantity-row"><label class="field"><span>Marca <em>Opcional</em></span><input id="catalog-brand" maxlength="120" aria-describedby="catalog-brand-error"><small id="catalog-brand-error" class="field-error"></small></label><label class="field"><span>EAN/GTIN <em>Opcional</em></span><input id="catalog-ean" maxlength="14" inputmode="numeric" aria-describedby="catalog-ean-error"><small id="catalog-ean-error" class="field-error"></small></label></div>
+          <label class="field"><span>Categor\u00eda <em>Opcional</em></span><select id="catalog-category" aria-describedby="catalog-category-error"><option value="">Sin categor\u00eda</option></select><small id="catalog-category-error" class="field-error"></small></label>
+          <label class="field"><span>Descripci\u00f3n <em>Opcional</em></span><textarea id="catalog-description" maxlength="500" rows="3" aria-describedby="catalog-description-error"></textarea><small id="catalog-description-error" class="field-error"></small></label>
+          <label class="field"><span>Alias de b\u00fasqueda, uno por l\u00ednea <em>Opcional</em></span><textarea id="catalog-aliases" maxlength="1000" rows="3" aria-describedby="catalog-aliases-error"></textarea><small id="catalog-aliases-error" class="field-error"></small></label>
+          <div class="quantity-row"><label class="field"><span>Cantidad del formato <em>Opcional</em></span><input id="catalog-package-minor" type="number" min="1" max="100000000" inputmode="numeric" aria-describedby="catalog-package-minor-error"><small id="catalog-package-minor-error" class="field-error"></small></label><label class="field"><span>Unidad <em>Opcional</em></span><select id="catalog-package-unit" aria-describedby="catalog-package-unit-error"><option value="">Sin formato</option></select><small id="catalog-package-unit-error" class="field-error"></small></label></div>
           <div class="dialog-actions"><button id="catalog-cancel-edit" class="button secondary" type="button">Cancelar</button><button id="catalog-save-product" class="button primary" type="submit"><span data-icon="check"></span>Guardar ficha</button></div>
-          <p id="catalog-product-form-state" class="inline-status" role="status"></p>
+          <p id="catalog-product-form-state" class="inline-status" role="alert" aria-live="assertive"></p>
         </form>
         <hr>
         <div id="catalog-existing-relations" class="inventory-editor-columns">
@@ -133,6 +135,7 @@ function installCategoryView() {
       <section class="surface inventory-list-surface"><div class="inventory-list-heading category-list-grid" aria-hidden="true"><span>Nombre</span><span>Productos</span><span>Subcategorías</span><span>Padre</span><span></span></div><div id="category-tree" class="category-tree" aria-live="polite"></div><footer class="inventory-pagination"><span id="category-range">0 resultados</span><div><button id="category-prev" class="button secondary" type="button">Anterior</button><span id="category-page" class="count-badge">1</span><button id="category-next" class="button secondary" type="button">Siguiente</button></div></footer></section>
     </section>
     <section id="category-detail" class="inventory-detail-screen" aria-labelledby="category-form-title" hidden>
+      ${breadcrumb([{ label: 'Inventario', route: 'inventory' }, { label: 'Categor\u00edas', route: 'categories' }, { label: 'Ficha' }])}
       <header class="inventory-detail-header"><button id="categories-back-list" class="button secondary" type="button"><span data-icon="chevronUp" class="icon-rotate-left"></span>Categorías</button><div class="inventory-detail-header__copy"><p class="eyebrow">Categoría</p><h1 id="category-form-title">Nueva categoría</h1><p id="category-detail-hierarchy">Categoría raíz</p></div><div class="inventory-header-actions"><button id="category-edit" class="button secondary" type="button"><span data-icon="edit"></span>Editar</button><button id="category-delete" class="button danger" type="button"><span data-icon="trash"></span>Eliminar</button></div></header>
       <div class="inventory-detail-grid"><section class="surface inventory-detail-primary"><div class="inventory-category-identity"><svg id="category-detail-swatch" class="category-swatch" viewBox="0 0 1 1" aria-hidden="true" focusable="false"><rect width="1" height="1" rx=".22" fill="${DEFAULT_CATEGORY_COLOR}"></rect></svg><div><p class="eyebrow">Información general</p><h2 id="category-detail-name">Nueva categoría</h2><p id="category-detail-description">Sin descripción.</p></div></div><dl class="inventory-definition-grid"><div><dt>Productos directos</dt><dd id="category-detail-products">0</dd></div><div><dt>Subcategorías</dt><dd id="category-detail-children">0</dd></div><div><dt>Padre</dt><dd id="category-detail-parent">Raíz</dd></div><div><dt>Estado</dt><dd id="category-detail-status">Activa</dd></div></dl><div id="category-protected-note" class="catalog-shared-note" role="note" hidden><strong>Categoría protegida</strong><span>desconocido es el fallback canónico y no puede eliminarse ni moverse.</span></div></section></div>
       <section id="category-editor" class="surface inventory-editor" aria-labelledby="category-editor-title" hidden><div class="section-header"><div><p class="eyebrow">Edición</p><h2 id="category-editor-title">Editar categoría</h2></div><span id="category-form-status" class="status-pill">Guardada</span></div><form id="category-form" class="category-form"><label class="field"><span>Nombre</span><input id="category-name" maxlength="120" autocomplete="off" required></label><label class="field"><span>Categoría padre</span><select id="category-parent"><option value="">Sin padre · categoría raíz</option></select></label><label class="field category-color-field"><span>Color</span><span class="category-color-control"><input id="category-color" type="color" value="${DEFAULT_CATEGORY_COLOR}" aria-label="Color de la categoría"><output id="category-color-value">${DEFAULT_CATEGORY_COLOR}</output></span></label><label class="field"><span>Descripción opcional</span><textarea id="category-description" maxlength="500" rows="4"></textarea></label><div class="dialog-actions"><button id="category-cancel-edit" class="button secondary" type="button">Cancelar</button><button id="category-save" class="button primary" type="submit"><span data-icon="check"></span>Guardar categoría</button></div><button id="category-add-child" class="button secondary full" type="button" hidden><span data-icon="plus"></span>Añadir subcategoría</button><p id="category-form-state" class="inline-status" role="status"></p></form></section>
@@ -675,29 +678,71 @@ async function loadCategoryInventory({ resetPage = false } = {}) {
 
 function optionalText(value) {
   const normalized = String(value || '').trim();
-  return normalized || null;
+  return normalized || undefined;
+}
+
+function clearProductFieldErrors() {
+  for (const fieldId of ['catalog-canonical-name', 'catalog-variant-name', 'catalog-brand', 'catalog-ean', 'catalog-category', 'catalog-description', 'catalog-aliases', 'catalog-package-minor', 'catalog-package-unit']) setFieldFeedback(fieldId, '');
+}
+
+function invalidProductPayload(errors) {
+  const first = Object.keys(errors)[0];
+  for (const [fieldId, message] of Object.entries(errors)) setFieldFeedback(fieldId, message);
+  $('#catalog-product-form-state').textContent = 'Revisa los campos marcados antes de guardar.';
+  $(`#${first}`)?.focus();
+  return undefined;
 }
 
 function productPayload() {
-  const ean = optionalText($('#catalog-ean').value);
-  if (ean && !/^\d{8,14}$/u.test(ean)) throw new Error('El EAN/GTIN debe contener entre 8 y 14 dígitos.');
-  const packageRaw = $('#catalog-package-minor').value.trim();
-  const packageMinor = packageRaw ? Number(packageRaw) : null;
-  if (packageMinor !== null && (!Number.isSafeInteger(packageMinor) || packageMinor < 1)) throw new Error('La cantidad del formato debe ser un entero positivo.');
+  clearProductFieldErrors();
   const canonicalName = $('#catalog-canonical-name').value.trim();
   const variantName = $('#catalog-variant-name').value.trim();
-  if (!canonicalName || !variantName) throw new Error('El nombre canónico y la variante son obligatorios.');
+  const ean = optionalText($('#catalog-ean').value);
+  const packageRaw = $('#catalog-package-minor').value.trim();
+  const packageUnit = optionalText($('#catalog-package-unit').value);
+  const errors = {};
+  if (!canonicalName) errors['catalog-canonical-name'] = 'Indica el nombre can\u00f3nico.';
+  if (!variantName) errors['catalog-variant-name'] = 'Indica el nombre de esta variante.';
+  if (ean && !/^\d{8,14}$/u.test(ean)) errors['catalog-ean'] = 'El EAN/GTIN debe contener entre 8 y 14 d\u00edgitos.';
+  const packageMinor = packageRaw ? Number(packageRaw) : undefined;
+  if (packageRaw && (!Number.isSafeInteger(packageMinor) || packageMinor < 1)) errors['catalog-package-minor'] = 'La cantidad debe ser un entero positivo.';
+  if (packageMinor !== undefined && !packageUnit) errors['catalog-package-unit'] = 'Indica la unidad del formato.';
+  if (packageUnit && packageMinor === undefined) errors['catalog-package-minor'] = 'Indica la cantidad del formato.';
+  if (Object.keys(errors).length) return invalidProductPayload(errors);
+  const categoryId = optionalText($('#catalog-category').value);
+  const description = optionalText($('#catalog-description').value);
+  const brand = optionalText($('#catalog-brand').value);
   return {
     canonicalName,
     variantName,
-    categoryId: optionalText($('#catalog-category').value),
-    description: optionalText($('#catalog-description').value),
-    brand: optionalText($('#catalog-brand').value),
-    ean,
-    packageMinor,
-    packageUnit: packageMinor === null ? null : optionalText($('#catalog-package-unit').value),
+    ...(categoryId ? { categoryId } : {}),
+    ...(description ? { description } : {}),
+    ...(brand ? { brand } : {}),
+    ...(ean ? { ean } : {}),
+    ...(packageMinor !== undefined ? { packageMinor, packageUnit } : {}),
     aliases: $('#catalog-aliases').value.split('\n').map(value => value.trim()).filter(Boolean),
   };
+}
+
+function catalogFieldIdFromValidationDetails(details) {
+  const candidates = [];
+  const collect = value => {
+    if (typeof value === 'string') candidates.push(value);
+    else if (Array.isArray(value)) value.forEach(collect);
+    else if (value && typeof value === 'object') {
+      for (const key of ['path', 'field', 'details', 'errors']) collect(value[key]);
+    }
+  };
+  collect(details);
+  const fields = {
+    canonicalName: 'catalog-canonical-name', variantName: 'catalog-variant-name', brand: 'catalog-brand', ean: 'catalog-ean',
+    categoryId: 'catalog-category', description: 'catalog-description', aliases: 'catalog-aliases', packageMinor: 'catalog-package-minor', packageUnit: 'catalog-package-unit',
+  };
+  for (const candidate of candidates) {
+    const field = String(candidate).split(/[.[]/u).filter(Boolean).at(-1)?.replace(/\]/gu, '');
+    if (field && fields[field]) return fields[field];
+  }
+  return undefined;
 }
 
 async function saveProduct(button) {
@@ -706,6 +751,10 @@ async function saveProduct(button) {
   $('#catalog-product-status').textContent = current ? 'Guardando…' : 'Creando…';
   try {
     const payload = productPayload();
+    if (!payload) {
+      $('#catalog-product-status').textContent = 'Revisar';
+      return;
+    }
     const result = await api(current ? `/api/v1/products/${encodeURIComponent(current.id)}` : '/api/v1/products', {
       method: current ? 'PATCH' : 'POST',
       body: JSON.stringify(payload),
@@ -719,7 +768,14 @@ async function saveProduct(button) {
     history.replaceState(null, '', `#catalog:${encodeURIComponent(saved.id)}`);
     void loadProducts();
   } catch (error) {
-    $('#catalog-product-form-state').textContent = error.message;
+    const fieldId = catalogFieldIdFromValidationDetails(error?.details);
+    if (fieldId) {
+      setFieldFeedback(fieldId, error.message || 'Revisa este campo.');
+      $(`#${fieldId}`)?.focus();
+      $('#catalog-product-form-state').textContent = 'Revisa el campo marcado antes de guardar.';
+    } else {
+      $('#catalog-product-form-state').textContent = 'No se pudo guardar la ficha. Revisa los campos e int\u00e9ntalo de nuevo.';
+    }
     $('#catalog-product-status').textContent = 'Revisar';
   } finally {
     setBusy(button, false);
@@ -920,6 +976,11 @@ function bindInteractions() {
   $('#category-add-child').addEventListener('click', () => { const category = selectedCategory(); if (category) startCreateCategory(category.id); });
   $('#catalog-new-product').addEventListener('click', startCreateProduct);
   $('#catalog-product-form').addEventListener('submit', event => { event.preventDefault(); void saveProduct($('#catalog-save-product')); });
+  $('#catalog-product-form').addEventListener('input', event => {
+    const fieldId = event.target?.id;
+    if (fieldId) setFieldFeedback(fieldId, '');
+    $('#catalog-product-form-state').textContent = '';
+  });
   $('#category-form').addEventListener('submit', event => { event.preventDefault(); void saveCategory($('#category-save')); });
   $('#catalog-link-parent').addEventListener('click', event => void linkSelectedParent(event.currentTarget));
   $('#catalog-create-parent').addEventListener('click', event => void createParentForSelected(event.currentTarget));

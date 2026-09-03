@@ -1,8 +1,11 @@
 import { spawnSync } from 'node:child_process';
+const [typescriptCommand, typescriptArguments] = process.platform === 'win32'
+  ? [process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'tsc --noEmit']]
+  : ['tsc', ['--noEmit']];
 const commands=[
   ['node',['scripts/format-check.mjs']],
   ['node',['scripts/lint.mjs']],
-  ['tsc',['--noEmit']],
+  [typescriptCommand,typescriptArguments],
   ['node',['scripts/deadcode.mjs']],
   ['node',['scripts/deps-check.mjs']],
   ['node',['--experimental-strip-types','--test','tests/unit/*.test.ts']],
