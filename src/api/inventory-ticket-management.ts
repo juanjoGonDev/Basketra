@@ -563,7 +563,6 @@ export async function handleInventoryTicketManagementRequest(context: InventoryA
   if (context.pathname === '/api/v1/inventory/tickets/bulk-delete' && context.method === 'POST') {
     const ids = parseBulkReceiptIds(await context.readJson());
     const impact = bulkDeleteReceipts(context.databasePath, ids);
-    for (const id of ids) context.publish(id, 'receipt');
     context.send(200, { deletedIds: ids, impact });
     return true;
   }
