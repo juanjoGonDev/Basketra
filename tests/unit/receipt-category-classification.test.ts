@@ -7,6 +7,7 @@ import {
   RECEIPT_SCHEMA,
 } from '../../src/receipts/extraction.ts';
 import { resolveReceiptCategories } from '../../src/receipts/categories.ts';
+import { buildReceiptStoreContext } from '../../src/receipts/stores.ts';
 
 type ReceiptJsonSchema = Readonly<{
   required: readonly string[];
@@ -60,6 +61,28 @@ test('receipt parser keeps backward-compatible fallback for durable results crea
   });
   assert.equal(parsed.items[0]?.categoryId, UNKNOWN_CATEGORY_ID);
   assert.deepEqual(parsed.newCategories, []);
+});
+
+test('receipt structured output accepts only camel-case persisted store references', () => {
+  const parsed = RECEIPT_SCHEMA.parse({
+    ...baseInterpretation(),
+    retailerName: 'Mercadona',
+    storeId: 'store_centro',
+    storeName: 'Mercadona Centro',
+  });
+  assert.equal(parsed.storeId, 'store_centro');
+  assert.equal(parsed.storeName, 'Mercadona Centro');
+  assert.throws(() => RECEIPT_SCHEMA.parse({ ...baseInterpretation(), storeID: 'store_centro' }), /storeID/);
+
+  const context = buildReceiptStoreContext([{
+    id: 'store_centro',
+    name: 'Mercadona Centro',
+    retailerId: 'retailer_mercadona',
+    retailerName: 'Mercadona',
+  }]);
+  assert.match(context, /Available physical stores/);
+  assert.match(context, /"store_centro"/);
+  assert.doesNotMatch(context, /address/);
 });
 
 test('receipt category context sends only the persisted classification inventory', () => {

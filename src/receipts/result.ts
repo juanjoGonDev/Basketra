@@ -48,6 +48,8 @@ export type ReceiptExtractionResult = Readonly<{
   final: Readonly<{
     items: readonly ReceiptExtractionItem[];
     retailerName?: string;
+    storeId?: string;
+    storeName?: string;
     declaredTotalMinor?: number;
     articleCount?: number;
     warnings: readonly string[];
@@ -86,6 +88,7 @@ export function assembleReceiptExtraction(
     : []);
   const aiInterpretations = aiPages.map((page) => page.interpretation);
   const aiMetadata = combineMetadata(aiInterpretations);
+  const aiStore = combineStore(aiInterpretations);
   const aiItemsByPage = pages.map((page) => page.ai?.interpretation.items ?? page.deterministic.items);
   const aiItems = mergeReceiptPageItems(aiItemsByPage);
   const warnings = aiInterpretations.flatMap((interpretation) => interpretation.warnings);
@@ -97,6 +100,8 @@ export function assembleReceiptExtraction(
     ai = {
       interpretation: {
         ...(aiMetadata.retailerName ? { retailerName: aiMetadata.retailerName } : {}),
+        ...(aiStore.storeId ? { storeId: aiStore.storeId } : {}),
+        ...(aiStore.storeName ? { storeName: aiStore.storeName } : {}),
         ...(aiMetadata.declaredTotalMinor === undefined
           ? {}
           : { declaredTotalMinor: aiMetadata.declaredTotalMinor }),
@@ -135,6 +140,8 @@ export function assembleReceiptExtraction(
     final: {
       items: normalized.items,
       ...(finalRetailerName ? { retailerName: finalRetailerName } : {}),
+      ...(aiStore.storeId ? { storeId: aiStore.storeId } : {}),
+      ...(aiStore.storeName ? { storeName: aiStore.storeName } : {}),
       ...(finalTotal === undefined ? {} : { declaredTotalMinor: finalTotal }),
       ...(finalArticleCount === undefined ? {} : { articleCount: finalArticleCount }),
       warnings: normalized.warnings,
@@ -194,4 +201,17 @@ function combineMetadata(values: readonly ReceiptMetadata[]): ReceiptMetadata {
     ...(declaredTotalMinor === undefined ? {} : { declaredTotalMinor }),
     ...(articleCount === undefined ? {} : { articleCount }),
   };
+}
+
+function combineStore(values: readonly AiReceiptInterpretation[]): Readonly<{ storeId?: string; storeName?: string }> {
+  const candidates = values
+    .filter((value) => value.storeId || value.storeName)
+    .map((value) => ({
+      ...(value.storeId ? { storeId: value.storeId } : {}),
+      ...(value.storeName ? { storeName: value.storeName } : {}),
+    }));
+  const first = candidates[0];
+  if (!first) return {};
+  if (candidates.some((candidate) => candidate.storeId !== first.storeId || candidate.storeName !== first.storeName)) return {};
+  return first;
 }

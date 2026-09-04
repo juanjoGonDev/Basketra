@@ -9,6 +9,7 @@ import {
   RECEIPT_SCHEMA,
   type AiReceiptInterpretation,
 } from './extraction.ts';
+import { buildReceiptStoreContext, type ReceiptStoreDescriptor } from './stores.ts';
 
 const RESPONSE_ID_PATTERN = /^resp_[A-Za-z0-9]{7,128}$/u;
 const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
@@ -47,6 +48,7 @@ export type CreateReceiptResponseInput = Readonly<{
   pageCount: number;
   pagePosition: number;
   categoryInventory?: readonly CategoryDescriptor[];
+  storeInventory?: readonly ReceiptStoreDescriptor[];
   signal?: AbortSignal;
 }>;
 
@@ -99,6 +101,7 @@ export class ReceiptResponsesClient {
                 'Numbered OCR transcription for this same attachment:',
                 buildNumberedReceiptText(originalText),
                 buildReceiptCategoryContext(input.categoryInventory ?? []),
+                buildReceiptStoreContext(input.storeInventory ?? []),
               ].join('\n'),
             },
           ],

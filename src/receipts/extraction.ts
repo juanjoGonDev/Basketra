@@ -22,6 +22,7 @@ import {
   type ReceiptLineInput,
 } from '../domain/receipt.ts';
 import { asArray, asEnum, asRecord, asSafeInteger, asString } from '../domain/validation.ts';
+import { buildReceiptStoreContext, type ReceiptStoreDescriptor } from './stores.ts';
 
 const CURRENCIES = ['EUR'] as const;
 const TAX_CATEGORIES = ['A', 'B', 'C'] as const;
@@ -54,6 +55,8 @@ export type AiUnassignedReceiptDiscount = Readonly<{
 
 export type AiReceiptInterpretation = Readonly<{
   retailerName?: string;
+  storeId?: string;
+  storeName?: string;
   purchasedAt?: string;
   declaredTotalMinor?: number;
   articleCount?: number;
@@ -135,6 +138,8 @@ export const RECEIPT_SCHEMA: RuntimeSchema<AiReceiptInterpretation> = {
     required: ['currency', 'correctedText', 'items', 'newCategories', 'warnings'],
     properties: {
       retailerName: { type: 'string', minLength: 1, maxLength: 160 },
+      storeId: { type: 'string', minLength: 1, maxLength: 128 },
+      storeName: { type: 'string', minLength: 1, maxLength: 160 },
       purchasedAt: { type: 'string', minLength: 10, maxLength: 40 },
       declaredTotalMinor: { type: 'integer', minimum: 0 },
       articleCount: { type: 'integer', minimum: 0, maximum: 100_000 },
@@ -185,8 +190,15 @@ export const RECEIPT_SCHEMA: RuntimeSchema<AiReceiptInterpretation> = {
   },
   parse(value: unknown) {
     const root = asRecord(value);
+    if (root['storeID'] !== undefined) throw new RangeError('$.storeID is invalid; use $.storeId');
     const retailerName = typeof root['retailerName'] === 'string'
       ? asString(root['retailerName'], '$.retailerName', { min: 1, max: 160 })
+      : undefined;
+    const storeId = typeof root['storeId'] === 'string'
+      ? asString(root['storeId'], '$.storeId', { min: 1, max: 128 })
+      : undefined;
+    const storeName = typeof root['storeName'] === 'string'
+      ? asString(root['storeName'], '$.storeName', { min: 1, max: 160 })
       : undefined;
     const purchasedAt = typeof root['purchasedAt'] === 'string'
       ? asString(root['purchasedAt'], '$.purchasedAt', { min: 10, max: 40 })
@@ -248,6 +260,8 @@ export const RECEIPT_SCHEMA: RuntimeSchema<AiReceiptInterpretation> = {
       .map((warning, index) => asString(warning, `$.warnings[${index}]`, { max: 240 }));
     return {
       ...(retailerName ? { retailerName } : {}),
+      ...(storeId ? { storeId } : {}),
+      ...(storeName ? { storeName } : {}),
       ...(purchasedAt ? { purchasedAt } : {}),
       ...(declaredTotalMinor === undefined ? {} : { declaredTotalMinor }),
       ...(articleCount === undefined ? {} : { articleCount }),
@@ -334,6 +348,7 @@ export function buildReceiptVerificationInstructions(
     'Use unassignedDiscounts only when product ownership or affected quantity is genuinely unresolved after exact grouping. Include sourceLines, a description hint when visible and a short reason. Do not repeat an unassigned-discount reason in warnings.',
     'Return sourceLines with the numbered OCR lines supporting every item and unassigned discount, even when the attachment corrects OCR characters.',
     'Return correctedText in page order, retailerName, declaredTotalMinor and articleCount only when visible in the attachment or OCR.',
+    'For a physical branch, return storeId only when the receipt evidence identifies one exact available physical store. If a visible store name is not in the inventory, return storeName with retailerName so a human can confirm it. Never invent store ids, names, addresses or coordinates. Omit both fields when the evidence is insufficient.',
     'Keep each warning and unassigned-discount reason within 240 characters.',
     'Mark other uncertainty through confidence and warnings. Return JSON only.',
     ...(page
@@ -477,6 +492,7 @@ export async function verifyReceiptWithAi(
   signal?: AbortSignal,
   session?: ReceiptAiSession,
   categoryInventory: readonly CategoryDescriptor[] = [],
+  storeInventory: readonly ReceiptStoreDescriptor[] = [],
 ): Promise<Readonly<{ value: AiReceiptInterpretation; attempts: number }>> {
   const executor = new StructuredAiExecutor(provider, maxRetries);
   const attachmentPart = buildAiAttachmentContentPart(attachment, await provider.getCapabilities());
@@ -491,6 +507,7 @@ export async function verifyReceiptWithAi(
           'Numbered OCR transcription for this same attachment:',
           buildNumberedReceiptText(originalText),
           buildReceiptCategoryContext(categoryInventory),
+          buildReceiptStoreContext(storeInventory),
         ].join('\n'),
       },
       attachmentPart,
