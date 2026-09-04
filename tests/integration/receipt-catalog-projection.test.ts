@@ -15,7 +15,7 @@ function receiptInput(importKey: string, description: string, unitPriceMinor: nu
     declaredTotalMinor: unitPriceMinor,
     originalText: `${description} 1 ${unitPriceMinor}`,
     provider: 'manual-or-embedded',
-    ...(retailerName ? { retailerName } : {}),
+    ...(retailerName ? { retailerName, storeName: `${retailerName} Store` } : {}),
     deterministic: { items: [{ description, unitPriceMinor }] },
     items: [{
       description,
@@ -75,7 +75,12 @@ function insertLegacyReceipt(database: DatabaseSync, input: Readonly<{
 }
 
 function prepareHistoricalReceiptBackfill(database: DatabaseSync): void {
-  database.exec('DROP TRIGGER IF EXISTS receipt_items_project_catalog;');
+  database.exec(`
+    DROP TRIGGER IF EXISTS receipt_items_project_catalog;
+    DROP TRIGGER IF EXISTS receipt_price_observation_write_store;
+    DROP TRIGGER IF EXISTS confirmed_receipt_store_required_insert;
+    DROP TRIGGER IF EXISTS confirmed_receipt_store_required_update;
+  `);
 }
 
 function runReceiptCatalogMigration(database: DatabaseSync): void {
@@ -158,11 +163,11 @@ test('confirmed receipt lines become reusable catalog variants with retailer nam
     assert.equal(database.searchProducts('bebida', 8).length, 1);
     assert.deepEqual(database.listPriceObservations(variantId).map((entry) => entry.priceMinor), [92, 88]);
 
-    const noRetailerReceiptId = database.importReceipt(receiptInput('receipt-catalog-0003', 'Pan rústico', 145));
-    const bread = database.searchProducts('rústico', 8);
-    assert.equal(bread.length, 1);
-    assert.equal(database.listPriceObservations(bread[0]!.id).length, 0);
-    assert.equal(readProjection(databasePath, noRetailerReceiptId).item.productVariantId, bread[0]!.id);
+    assert.throws(
+      () => database.importReceipt(receiptInput('receipt-catalog-0003', 'Pan rústico', 145)),
+      /RECEIPT_STORE_REQUIRED/,
+    );
+    assert.equal(database.searchProducts('rústico', 8).length, 0);
   } finally {
     database.close();
     rmSync(root, { recursive: true, force: true });
