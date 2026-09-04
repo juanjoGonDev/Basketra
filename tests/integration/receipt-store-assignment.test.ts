@@ -184,3 +184,270 @@ test('AI receipt jobs persist the compact store snapshot used by direct and dura
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+
+test('new receipt projections keep the resolved Store even without the migration-12 repair trigger', () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-receipt-store-direct-write-'));
+  const path = join(root, 'basketra.db');
+  const database = new BasketraDatabase(path);
+  try {
+    const writer = new DatabaseSync(path);
+    try {
+      writer.exec('DROP TRIGGER receipt_price_observation_assign_store;');
+    } finally {
+      writer.close();
+    }
+
+    const input = {
+      importKey: 'receipt-store-direct-write-0001',
+      declaredTotalMinor: 335,
+      originalText: 'LECHE 1,20\nPAN 2,15',
+      provider: 'test',
+      retailerName: 'ALCAMPO',
+      storeName: 'ALCAMPO ALMERIA',
+      deterministic: { items: [] },
+      items: [
+        {
+          description: 'LECHE ENTERA 1L',
+          quantity: 1,
+          unitPriceMinor: 120,
+          lineTotalMinor: 120,
+          status: 'confirmed',
+          confidence: 1,
+        },
+        {
+          description: 'PAN RUSTICO',
+          quantity: 1,
+          unitPriceMinor: 215,
+          lineTotalMinor: 215,
+          status: 'confirmed',
+          confidence: 1,
+        },
+      ],
+    } as const;
+
+    const receiptId = database.importReceipt(input);
+    assert.equal(database.importReceipt(input), receiptId);
+
+    const raw = new DatabaseSync(path, { readOnly: true });
+    try {
+      const receiptRow = raw.prepare(`
+        SELECT id, store_id AS storeId FROM receipts WHERE id = ?
+      `).get(receiptId) as { id: string; storeId: string | null };
+      assert.ok(receiptRow.storeId);
+
+      const stores = raw.prepare(`
+        SELECT id FROM stores
+        WHERE retailer_id = (SELECT retailer_id FROM receipts WHERE id = ?)
+          AND name = 'ALCAMPO ALMERIA' COLLATE NOCASE
+      `).all(receiptId) as Array<{ id: string }>;
+      assert.equal(stores.length, 1);
+      assert.equal(stores[0]?.id, receiptRow.storeId);
+
+      const projection = raw.prepare(`
+        SELECT
+          receipt_items.id AS receiptItemId,
+          receipt_items.product_variant_id AS productVariantId,
+          product_variants.canonical_product_id AS canonicalProductId,
+          retailer_listings.id AS retailerListingId,
+          retailer_listings.retailer_id AS listingRetailerId,
+          price_observations.id AS priceObservationId,
+          price_observations.retailer_listing_id AS observationListingId,
+          price_observations.retailer_id AS observationRetailerId,
+          price_observations.store_id AS observationStoreId
+        FROM receipt_items
+        JOIN product_variants ON product_variants.id = receipt_items.product_variant_id
+        JOIN retailer_listings
+          ON retailer_listings.product_variant_id = product_variants.id
+         AND retailer_listings.retailer_id = (SELECT retailer_id FROM receipts WHERE id = receipt_items.receipt_id)
+        JOIN external_evidence
+          ON external_evidence.source_type = 'receipt'
+         AND external_evidence.source_reference = 'receipt-item:' || receipt_items.id
+        JOIN price_observations ON price_observations.evidence_id = external_evidence.id
+        WHERE receipt_items.receipt_id = ?
+        ORDER BY receipt_items.created_at, receipt_items.id
+      `).all(receiptId) as Array<{
+        receiptItemId: string;
+        productVariantId: string | null;
+        canonicalProductId: string;
+        retailerListingId: string;
+        listingRetailerId: string;
+        priceObservationId: string;
+        observationListingId: string;
+        observationRetailerId: string;
+        observationStoreId: string | null;
+      }>;
+      assert.equal(projection.length, 2);
+      for (const row of projection) {
+        assert.ok(row.productVariantId);
+        assert.ok(row.canonicalProductId);
+        assert.equal(row.observationListingId, row.retailerListingId);
+        assert.equal(row.observationRetailerId, row.listingRetailerId);
+        assert.equal(row.observationStoreId, receiptRow.storeId);
+      }
+
+      const counts = raw.prepare(`
+        SELECT
+          (SELECT COUNT(DISTINCT receipts.id) FROM receipts WHERE receipts.store_id = ?) AS ticketCount,
+          (
+            SELECT COUNT(DISTINCT retailer_listings.product_variant_id)
+            FROM price_observations
+            JOIN retailer_listings ON retailer_listings.id = price_observations.retailer_listing_id
+            WHERE price_observations.store_id = ?
+              AND retailer_listings.product_variant_id IS NOT NULL
+          ) AS productCount,
+          (SELECT COUNT(DISTINCT price_observations.id) FROM price_observations WHERE price_observations.store_id = ?) AS priceObservationCount
+      `).get(receiptRow.storeId, receiptRow.storeId, receiptRow.storeId) as {
+        ticketCount: number;
+        productCount: number;
+        priceObservationCount: number;
+      };
+      assert.deepEqual({ ...counts }, {
+        ticketCount: 1,
+        productCount: 2,
+        priceObservationCount: 2,
+      });
+      assert.equal((raw.prepare('SELECT COUNT(*) AS count FROM canonical_products').get() as { count: number }).count, 2);
+      assert.equal((raw.prepare('SELECT COUNT(*) AS count FROM product_variants').get() as { count: number }).count, 2);
+      assert.equal((raw.prepare('SELECT COUNT(*) AS count FROM retailer_listings').get() as { count: number }).count, 2);
+      assert.equal((raw.prepare('SELECT COUNT(*) AS count FROM price_observations').get() as { count: number }).count, 2);
+    } finally {
+      raw.close();
+    }
+  } finally {
+    database.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('receipt confirmation requires a resolvable Store and leaves no partial projection', () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-receipt-store-required-'));
+  const path = join(root, 'basketra.db');
+  const database = new BasketraDatabase(path);
+  try {
+    assert.throws(
+      () => database.importReceipt(receipt('receipt-store-required-0001', 'ALCAMPO')),
+      /RECEIPT_STORE_REQUIRED/,
+    );
+
+    const raw = new DatabaseSync(path, { readOnly: true });
+    try {
+      const counts = raw.prepare(`
+        SELECT
+          (SELECT COUNT(*) FROM receipts) AS receipts,
+          (SELECT COUNT(*) FROM receipt_items) AS items,
+          (SELECT COUNT(*) FROM canonical_products) AS products,
+          (SELECT COUNT(*) FROM product_variants) AS variants,
+          (SELECT COUNT(*) FROM retailer_listings) AS listings,
+          (SELECT COUNT(*) FROM price_observations) AS observations
+      `).get() as Record<string, number>;
+      assert.deepEqual({ ...counts }, {
+        receipts: 0,
+        items: 0,
+        products: 0,
+        variants: 0,
+        listings: 0,
+        observations: 0,
+      });
+    } finally {
+      raw.close();
+    }
+  } finally {
+    database.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('historical Store backfill changes only observations proven by receipt-item evidence', () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-receipt-store-backfill-scope-'));
+  const path = join(root, 'basketra.db');
+  const database = new BasketraDatabase(path);
+  const store = database.saveStore({ retailerName: 'ALCAMPO', name: 'ALCAMPO ALMERIA' });
+  const receiptId = database.importReceipt(receipt(
+    'receipt-store-backfill-scope-0001',
+    'ALCAMPO',
+    'ALCAMPO ALMERIA',
+    store.id,
+  ));
+  const product = database.searchProducts('LECHE', 8)[0];
+  assert.ok(product);
+  const manual = database.confirmPriceObservation({
+    productVariantId: product.id,
+    retailerName: 'ALCAMPO',
+    priceMinor: 130,
+    packageNumerator: 1,
+    packageDenominator: 1,
+    packageUnit: 'unit',
+    observedAt: '2026-09-03T10:00:00.000Z',
+    confidence: 1,
+    evidence: { sourceType: 'manual', sourceReference: 'manual-store-backfill-scope' },
+  });
+  const photo = database.confirmPriceObservation({
+    productVariantId: product.id,
+    retailerName: 'ALCAMPO',
+    priceMinor: 140,
+    packageNumerator: 1,
+    packageDenominator: 1,
+    packageUnit: 'unit',
+    observedAt: '2026-09-03T11:00:00.000Z',
+    confidence: 1,
+    evidence: { sourceType: 'product-photo', sourceReference: 'photo-store-backfill-scope' },
+  });
+  database.close();
+
+  const legacy = new DatabaseSync(path);
+  try {
+    legacy.prepare(`
+      UPDATE price_observations
+      SET store_id = NULL
+      WHERE evidence_id IN (
+        SELECT external_evidence.id
+        FROM external_evidence
+        JOIN receipt_items
+          ON external_evidence.source_type = 'receipt'
+         AND external_evidence.source_reference = 'receipt-item:' || receipt_items.id
+        WHERE receipt_items.receipt_id = ?
+      )
+    `).run(receiptId);
+    legacy.exec(`
+      DROP TRIGGER IF EXISTS receipt_price_observation_write_store;
+      DROP TRIGGER IF EXISTS confirmed_receipt_store_required_insert;
+      DROP TRIGGER IF EXISTS confirmed_receipt_store_required_update;
+    `);
+    legacy.prepare('DELETE FROM schema_migrations WHERE version >= 13').run();
+  } finally {
+    legacy.close();
+  }
+
+  const migrated = new BasketraDatabase(path, {
+    migrationBackupDir: join(root, 'migration-backups'),
+    clock: () => new Date('2026-09-04T14:30:00.000Z'),
+  });
+  migrated.close();
+
+  const raw = new DatabaseSync(path, { readOnly: true });
+  try {
+    const receiptStores = raw.prepare(`
+      SELECT price_observations.store_id AS storeId
+      FROM price_observations
+      JOIN external_evidence ON external_evidence.id = price_observations.evidence_id
+      JOIN receipt_items
+        ON external_evidence.source_type = 'receipt'
+       AND external_evidence.source_reference = 'receipt-item:' || receipt_items.id
+      WHERE receipt_items.receipt_id = ?
+    `).all(receiptId) as Array<{ storeId: string | null }>;
+    assert.ok(receiptStores.length > 0);
+    assert.ok(receiptStores.every(row => row.storeId === store.id));
+
+    const unrelated = raw.prepare(`
+      SELECT id, store_id AS storeId FROM price_observations WHERE id IN (?, ?) ORDER BY id
+    `).all(manual.id, photo.id) as Array<{ id: string; storeId: string | null }>;
+    assert.deepEqual(unrelated.map(row => ({ ...row })), [
+      { id: manual.id, storeId: null },
+      { id: photo.id, storeId: null },
+    ].sort((left, right) => left.id.localeCompare(right.id)));
+  } finally {
+    raw.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
