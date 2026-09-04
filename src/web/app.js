@@ -1,7 +1,13 @@
 import { api } from './api.js';
 import { initLists } from './lists.js';
 import { initReceipts } from './receipts.js';
-import { primaryNavigationForView, resolveApplicationRoute } from './routes.js';
+import {
+  readApplicationLocation,
+  readRouteEnum,
+  primaryNavigationForView,
+  resolveApplicationRoute,
+  writeApplicationLocation,
+} from './routes.js';
 import { createReceiptInvoiceLineDialog } from './receipt-editor-invoice.js';
 import {
   bindSwipeActions,
@@ -18,7 +24,7 @@ const $$ = selector => [...document.querySelectorAll(selector)];
 
 let receiptEditorSession = null;
 let applicationReady = false;
-let pendingRoute = '';
+let pendingRoute = null;
 
 function createTabGroup(name, label, tabs) {
   const root = document.createElement('section');
@@ -61,7 +67,7 @@ function createTabGroup(name, label, tabs) {
   return { root, tablist, panels };
 }
 
-function selectTab(tab, { focus = false } = {}) {
+function selectTab(tab, { focus = false, syncUrl = true } = {}) {
   const group = tab?.closest('[data-tab-group]');
   if (!(group instanceof HTMLElement)) return false;
   const panelId = tab.getAttribute('aria-controls');
@@ -75,7 +81,16 @@ function selectTab(tab, { focus = false } = {}) {
   for (const panel of group.querySelectorAll('[role="tabpanel"]')) {
     panel.hidden = panel.id !== panelId;
   }
-  group.dataset.activeTab = tab.dataset.tabValue || panelId;
+  const value = tab.dataset.tabValue || panelId;
+  group.dataset.activeTab = value;
+  if (syncUrl && group.dataset.tabGroup === 'settings') {
+    const current = readApplicationLocation();
+    if (current.route === 'settings') {
+      if (value === 'general') current.searchParams.delete('tab');
+      else current.searchParams.set('tab', value);
+      writeApplicationLocation('settings', current.searchParams);
+    }
+  }
   if (focus) tab.focus();
   return true;
 }
@@ -560,6 +575,11 @@ function organizeSettingsOperations() {
   }
 
   stack.replaceWith(root);
+  const current = readApplicationLocation();
+  if (current.route === 'settings') {
+    const tab = readRouteEnum(current.searchParams, 'tab', ['general', 'ai', 'diagnostics', 'data', 'advanced'], 'general');
+    selectTabValue('settings', tab, { syncUrl: false });
+  }
   return true;
 }
 
@@ -631,9 +651,16 @@ function closeTransientOverlays() {
   });
 }
 
-function navigate(requestedRoute, { allowBeforeReady = false } = {}) {
+function navigate(requestedRoute, {
+  allowBeforeReady = false,
+  historyMode = 'push',
+  searchParams = new URLSearchParams(),
+} = {}) {
+  const requestedSearchParams = searchParams instanceof URLSearchParams
+    ? new URLSearchParams(searchParams)
+    : new URLSearchParams(searchParams || '');
   if (!applicationReady && !allowBeforeReady) {
-    pendingRoute = requestedRoute;
+    pendingRoute = { route: requestedRoute, historyMode, searchParams: requestedSearchParams };
     return;
   }
   closeTransientOverlays();
@@ -645,8 +672,12 @@ function navigate(requestedRoute, { allowBeforeReady = false } = {}) {
     if (element.dataset.nav === primaryNavigation) element.setAttribute('aria-current', 'page');
     else element.removeAttribute('aria-current');
   });
-  history.replaceState(null, '', `#${route}`);
-  document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view, route } }));
+  if (historyMode !== 'none') {
+    writeApplicationLocation(route, requestedSearchParams, { replace: historyMode === 'replace' });
+  }
+  document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+    detail: { view, route, searchParams: requestedSearchParams },
+  }));
   resetDocumentScroll();
   $('#main').focus({ preventScroll: true });
   requestAnimationFrame(resetDocumentScroll);
@@ -656,10 +687,29 @@ setNavigationReady(false);
 
 document.addEventListener('basketra:navigate', event => {
   const requestedRoute = String(event.detail?.route || '');
-  if (requestedRoute) navigate(requestedRoute);
+  if (!requestedRoute) return;
+  navigate(requestedRoute, {
+    historyMode: event.detail?.historyMode || (event.detail?.replace === true ? 'replace' : 'push'),
+    searchParams: event.detail?.searchParams || new URLSearchParams(),
+  });
+});
+
+window.addEventListener('popstate', () => {
+  const current = readApplicationLocation();
+  navigate(current.route, {
+    allowBeforeReady: true,
+    historyMode: 'none',
+    searchParams: current.searchParams,
+  });
 });
 
 document.addEventListener('click', event => {
+  const skip = event.target.closest('[data-skip-to-main]');
+  if (skip) {
+    event.preventDefault();
+    $('#main')?.focus({ preventScroll: false });
+    return;
+  }
   const link = event.target.closest('[data-app-route]');
   if (!(link instanceof HTMLAnchorElement)) return;
   event.preventDefault();
@@ -680,8 +730,13 @@ async function loadAiConfiguration() {
 }
 
 async function initialize() {
-  const initialRoute = location.hash.slice(1) || 'home';
-  if (initialRoute === 'home') navigate('home', { allowBeforeReady: true });
+  const initial = readApplicationLocation();
+  navigate(initial.route, {
+    allowBeforeReady: true,
+    historyMode: 'replace',
+    searchParams: initial.searchParams,
+  });
+  document.documentElement.removeAttribute('data-route-pending');
   try {
     const metadata = await api('/api/v1/meta');
     const aiConfigured = await loadAiConfiguration();
@@ -693,9 +748,16 @@ async function initialize() {
     toast(error.message);
   } finally {
     setNavigationReady(true);
-    const readyRoute = pendingRoute || location.hash.slice(1) || initialRoute;
-    pendingRoute = '';
-    navigate(readyRoute, { allowBeforeReady: true });
+    const ready = pendingRoute || (() => {
+      const current = readApplicationLocation();
+      return { route: current.route, historyMode: 'replace', searchParams: current.searchParams };
+    })();
+    pendingRoute = null;
+    navigate(ready.route, {
+      allowBeforeReady: true,
+      historyMode: ready.historyMode,
+      searchParams: ready.searchParams,
+    });
   }
 }
 

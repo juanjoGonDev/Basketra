@@ -22,6 +22,7 @@ import { ApiError, mapError } from './errors.ts';
 import { handleCatalogManagementRequest } from './catalog-management.ts';
 import { handleReceiptCalculationRequest } from './receipt-calculation.ts';
 import { STATIC_ASSETS } from './static-assets.ts';
+import { isApplicationPath } from '../web/routes.js';
 import { OpenAiCompatibleProvider } from '../ai/provider.ts';
 import { StructuredAiExecutor, type RuntimeSchema } from '../ai/structured-executor.ts';
 import { ReceiptDurableJobStore } from '../receipts/durable-job-store.ts';
@@ -1125,7 +1126,7 @@ export class BasketraServer {
   }
 
   private serveStatic(response: ServerResponse, pathname: string): void {
-    const requested = pathname === '/' ? 'index.html' : pathname.slice(1);
+    const requested = isApplicationPath(pathname) ? 'index.html' : pathname.slice(1);
     if (!STATIC_ASSETS.has(requested)) throw new ApiError(404, 'NOT_FOUND', 'Resource was not found');
     const file = join(this.#publicDir, requested);
     if (!existsSync(file)) throw new ApiError(404, 'NOT_FOUND', 'Resource was not found');
