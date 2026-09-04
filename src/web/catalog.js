@@ -1,5 +1,6 @@
 import { api, setBusy } from './api.js';
 import { breadcrumb, escapeHtml, formatEuroMinor, hydrateIcons, setFieldFeedback } from './ui.js';
+import { createPagedSelection } from './entity-selection.js';
 
 const PRODUCT_PAGE_SIZE = 12;
 const CATEGORY_PAGE_SIZE = 12;
@@ -33,6 +34,8 @@ const state = {
   loadGeneration: 0,
   categoryLoadController: null,
   categoryLoadGeneration: 0,
+  productSelection: createPagedSelection(),
+  categorySelection: createPagedSelection(),
 };
 
 function injectStylesheet() {
@@ -68,8 +71,9 @@ function installCatalogView() {
         <button id="catalog-clear-filters" class="button secondary" type="button"><span data-icon="refresh"></span>Limpiar filtros</button>
       </section>
       <p id="catalog-state" class="inline-status" role="status" aria-live="polite"></p>
+      <div id="catalog-selection-bar" class="entity-selection-bar" hidden><span class="entity-selection-bar__copy"><strong id="catalog-selection-count">0 seleccionados</strong><small id="catalog-selection-context">Selección explícita</small></span><button id="catalog-selection-clear" class="button secondary" type="button">Limpiar selección</button></div>
       <section class="surface inventory-list-surface" aria-label="Listado de productos">
-        <div class="inventory-list-heading inventory-product-grid" aria-hidden="true"><span>Producto</span><span>Categoría</span><span>Comercios</span><span>Precio reciente</span><span>Actualizado</span><span></span></div>
+        <div class="entity-selection-heading"><label class="entity-selection-cell"><input id="catalog-select-page" type="checkbox" aria-label="Seleccionar productos de esta página"></label><div class="inventory-list-heading inventory-product-grid" aria-hidden="true"><span>Producto</span><span>Categoría</span><span>Comercios</span><span>Precio reciente</span><span>Actualizado</span><span></span></div></div>
         <div id="catalog-products" class="inventory-product-list" aria-live="polite"></div>
         <footer class="inventory-pagination" aria-label="Paginación de productos"><span id="catalog-range">0 resultados</span><div><button id="catalog-prev" class="button secondary" type="button">Anterior</button><span id="catalog-page" class="count-badge">1</span><button id="catalog-next" class="button secondary" type="button">Siguiente</button></div></footer>
       </section>
@@ -152,7 +156,8 @@ function installCategoryView() {
       <header class="inventory-entity-header"><div><p class="eyebrow">Inventario · Categorías</p><h1 id="categories-page-title">Categorías</h1><p>Gestiona una jerarquía reutilizable sin mezclar el listado con el formulario.</p></div><div class="inventory-header-actions">${inventoryBackButton()}<button id="category-new" class="button primary" type="button"><span data-icon="plus"></span>Nueva categoría</button></div></header>
       <section class="surface inventory-toolbar"><label class="field inventory-search-field"><span>Buscar</span><input id="category-search" type="search" maxlength="120" placeholder="Nombre o descripción"></label><label class="field"><span>Vista</span><select id="category-filter"><option value="all">Todas</option><option value="roots">Raíz</option><option value="without-products">Sin productos</option><option value="with-children">Con subcategorías</option></select></label><button id="category-clear-filters" class="button secondary" type="button">Limpiar filtros</button></section>
       <p id="category-state" class="inline-status" role="status" aria-live="polite"></p>
-      <section class="surface inventory-list-surface"><div class="inventory-list-heading category-list-grid" aria-hidden="true"><span>Nombre</span><span>Productos</span><span>Subcategorías</span><span>Padre</span><span></span></div><div id="category-tree" class="category-tree" aria-live="polite"></div><footer class="inventory-pagination"><span id="category-range">0 resultados</span><div><button id="category-prev" class="button secondary" type="button">Anterior</button><span id="category-page" class="count-badge">1</span><button id="category-next" class="button secondary" type="button">Siguiente</button></div></footer></section>
+      <div id="category-selection-bar" class="entity-selection-bar" hidden><span class="entity-selection-bar__copy"><strong id="category-selection-count">0 seleccionadas</strong><small id="category-selection-context">Selección explícita</small></span><button id="category-selection-clear" class="button secondary" type="button">Limpiar selección</button></div>
+      <section class="surface inventory-list-surface"><div class="entity-selection-heading"><label class="entity-selection-cell"><input id="category-select-page" type="checkbox" aria-label="Seleccionar categorías de esta página"></label><div class="inventory-list-heading category-list-grid" aria-hidden="true"><span>Nombre</span><span>Productos</span><span>Subcategorías</span><span>Padre</span><span></span></div></div><div id="category-tree" class="category-tree" aria-live="polite"></div><footer class="inventory-pagination"><span id="category-range">0 resultados</span><div><button id="category-prev" class="button secondary" type="button">Anterior</button><span id="category-page" class="count-badge">1</span><button id="category-next" class="button secondary" type="button">Siguiente</button></div></footer></section>
     </section>
     <section id="category-detail" class="inventory-detail-screen" aria-labelledby="category-form-title" hidden>
       ${breadcrumb([{ label: 'Inventario', route: 'inventory' }, { label: 'Categor\u00edas', route: 'categories' }, { label: 'Ficha' }])}
@@ -306,6 +311,72 @@ function latestPrice(product) {
   return product.latestPrices?.[0] || null;
 }
 
+function syncSelectionControls(selection, pageIds, {
+  pageCheckboxId,
+  barId,
+  countId,
+  contextId,
+  noun,
+}) {
+  const pageState = selection.pageState(pageIds);
+  const pageCheckbox = $(`#${pageCheckboxId}`);
+  if (pageCheckbox instanceof HTMLInputElement) {
+    pageCheckbox.checked = pageState.allSelected;
+    pageCheckbox.indeterminate = pageState.someSelected;
+  }
+  const bar = $(`#${barId}`);
+  if (bar) bar.hidden = selection.size === 0;
+  const count = $(`#${countId}`);
+  if (count) count.textContent = `${selection.size} ${noun}`;
+  const context = $(`#${contextId}`);
+  if (context) context.textContent = pageState.selectedOutsidePage
+    ? `${pageState.selectedOnPage} en esta página · ${pageState.selectedOutsidePage} en otras páginas`
+    : `${pageState.selectedOnPage} en esta página`;
+}
+
+function selectionCell(selection, id, label, sync) {
+  const cell = document.createElement('label');
+  cell.className = 'entity-selection-cell';
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.checked = selection.has(id);
+  input.setAttribute('aria-label', label);
+  input.addEventListener('change', () => {
+    selection.set(id, input.checked);
+    sync();
+  });
+  cell.append(input);
+  return cell;
+}
+
+function syncProductSelection() {
+  const ids = (state.catalog.products || []).map(product => product.id);
+  syncSelectionControls(state.productSelection, ids, {
+    pageCheckboxId: 'catalog-select-page',
+    barId: 'catalog-selection-bar',
+    countId: 'catalog-selection-count',
+    contextId: 'catalog-selection-context',
+    noun: 'productos seleccionados',
+  });
+  $('#catalog-products')?.querySelectorAll('[data-selection-id]').forEach(row => {
+    row.dataset.selected = String(state.productSelection.has(row.dataset.selectionId));
+  });
+}
+
+function syncCategorySelection() {
+  const ids = (state.categoryInventory.categories || []).map(category => category.id);
+  syncSelectionControls(state.categorySelection, ids, {
+    pageCheckboxId: 'category-select-page',
+    barId: 'category-selection-bar',
+    countId: 'category-selection-count',
+    contextId: 'category-selection-context',
+    noun: 'categorías seleccionadas',
+  });
+  $('#category-tree')?.querySelectorAll('[data-selection-id]').forEach(row => {
+    row.dataset.selected = String(state.categorySelection.has(row.dataset.selectionId));
+  });
+}
+
 function renderProductList() {
   const container = $('#catalog-products');
   if (!container) return;
@@ -319,6 +390,9 @@ function renderProductList() {
   }
   for (const product of products) {
     const price = latestPrice(product);
+    const wrapper = document.createElement('div');
+    wrapper.className = 'entity-selection-row';
+    wrapper.dataset.selectionId = product.id;
     const row = document.createElement('button');
     row.type = 'button';
     row.className = 'inventory-product-row inventory-product-grid';
@@ -327,7 +401,8 @@ function renderProductList() {
     const updated = Number.isNaN(Date.parse(product.updatedAt)) ? product.updatedAt : DATE_FORMATTER.format(new Date(product.updatedAt));
     row.innerHTML = `<span class="inventory-product-cell inventory-product-cell--name"><strong>${escapeHtml(product.variantName)}</strong><small>${escapeHtml(product.canonicalName)}</small></span><span>${escapeHtml(product.categoryName || 'Sin categoría')}</span><span>${retailers}</span><strong>${price ? escapeHtml(formatEuroMinor(price.priceMinor)) : '—'}</strong><span>${escapeHtml(updated)}</span><span class="inventory-row-action">Ver ficha</span>`;
     row.addEventListener('click', () => void openProductDetail(product.id));
-    container.append(row);
+    wrapper.append(selectionCell(state.productSelection, product.id, `Seleccionar ${product.variantName}`, syncProductSelection), row);
+    container.append(wrapper);
   }
   const total = Number(state.catalog.total || 0);
   const from = total ? state.catalog.offset + 1 : 0;
@@ -337,6 +412,7 @@ function renderProductList() {
   $('#catalog-page').textContent = `${state.productPage} / ${pageCount}`;
   $('#catalog-prev').disabled = state.productPage <= 1;
   $('#catalog-next').disabled = !state.catalog.hasMore;
+  syncProductSelection();
 }
 
 function renderCategoryList() {
@@ -351,6 +427,9 @@ function renderCategoryList() {
     container.append(empty);
   }
   for (const category of categories) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'entity-selection-row';
+    wrapper.dataset.selectionId = category.id;
     const row = document.createElement('button');
     row.type = 'button';
     row.className = 'category-row category-list-grid';
@@ -358,7 +437,8 @@ function renderCategoryList() {
     const depth = categoryDepth(category.id);
     row.innerHTML = `<span class="category-name-cell">${categoryIndentMarkup(depth)}${categorySwatchMarkup(category.color)}<span><strong>${escapeHtml(category.name)}</strong><small>${escapeHtml(category.description || (category.parentId ? 'Subcategoría' : 'Categoría raíz'))}</small></span></span><strong>${category.productCount}</strong><strong>${category.childCount}</strong><span>${escapeHtml(category.parentName || 'Raíz')}</span><span class="inventory-row-action">Ver detalle</span>`;
     row.addEventListener('click', () => openCategoryDetail(category.id));
-    container.append(row);
+    wrapper.append(selectionCell(state.categorySelection, category.id, `Seleccionar categoría ${category.name}`, syncCategorySelection), row);
+    container.append(wrapper);
   }
   const total = Number(state.categoryInventory.total || 0);
   const from = total ? state.categoryInventory.offset + 1 : 0;
@@ -368,6 +448,7 @@ function renderCategoryList() {
   $('#category-page').textContent = `${state.categoryPage} / ${pageCount}`;
   $('#category-prev').disabled = state.categoryPage <= 1;
   $('#category-next').disabled = !state.categoryInventory.hasMore;
+  syncCategorySelection();
 }
 
 function renderLatestPrices(product) {
