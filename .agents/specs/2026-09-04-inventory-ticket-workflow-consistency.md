@@ -10,6 +10,7 @@ Continue PR #51 from the user's current local branch state and make the professi
 - add Product history with a readable chart and supporting accessible data;
 - keep Ticket History editing visually modern and aligned with the receipt-line editor;
 - add explicit multi-selection to professional paginated lists, with selection preserved across page navigation for supported bulk actions.
+- replace hash-fragment routing with clean same-origin paths and persist tabs, sub-views, pagination, search and filters in the URL so refresh/back/forward restore the exact workflow state without briefly rendering the default view.
 
 ## Evidence
 
@@ -49,6 +50,18 @@ Continue PR #51 from the user's current local branch state and make the professi
 - Chart arithmetic/aggregation is server-owned where aggregation is needed; the browser only maps returned points to coordinates.
 - Loading, empty and error states are explicit.
 
+### Refresh-safe URL state
+
+- Use clean application paths instead of hash fragments. Deep links use path segments (for example product/ticket/store/category detail) and view state uses bounded query parameters.
+- The router is the single owner for path <-> internal route conversion and URL mutation. Feature modules consume canonical route/query helpers rather than writing `location.hash` or raw history URLs.
+- Direct GET requests for known application paths return the application shell; static assets/API endpoints retain their current explicit routing and 404 behavior.
+- Bootstrap applies the requested route synchronously before asynchronous metadata/data loading so a deep-link refresh never renders Home/default first.
+- Browser back/forward rehydrates the active view plus feature query state through `popstate` without creating a second history entry.
+- Search text updates use replace-state semantics to avoid one browser-history entry per keystroke; committed navigation, pagination, tabs and detail transitions use push-state semantics.
+- Persist at minimum: Settings tab; Inventory scope/query; Product/Category/Store/Ticket list page, search, sort/filter controls; Statistics period; entity detail routes; Shopping List detail route. Omit default query values from canonical URLs.
+- Legacy hash deep links are accepted only as a one-time compatibility input and are immediately canonicalized to the clean URL.
+- URL parsing is fail-closed and bounded: invalid pages, enums or oversized text fall back to canonical defaults rather than reaching API requests unchanged.
+
 ### Multi-selection
 
 - Add one reusable client selection owner for professional entity lists.
@@ -70,6 +83,8 @@ Continue PR #51 from the user's current local branch state and make the professi
 - Deleting shared catalog entities as part of ticket cascade would cause unrelated data loss; explicitly forbidden.
 - Bulk actions can amplify destructive mistakes. No implicit select-all, no client fan-out deletes, no partial-success ambiguity without structured results.
 - Product price history can become unbounded; endpoint must cap points and order deterministically.
+- Clean-path SPA routing can accidentally turn unknown GETs into shell 200 responses or break static assets; only canonical application path patterns may fall back to index.html.
+- URL-driven filters can create request races on popstate/search changes; every feature must keep its existing AbortController/generation guard and apply restored state before issuing the request.
 - Reusing the editor must not couple historical ticket save semantics to live receipt DOM mutation.
 
 ## Acceptance
@@ -84,6 +99,8 @@ Continue PR #51 from the user's current local branch state and make the professi
 - Products and Ticket History support explicit multi-selection that survives pagination.
 - Supported bulk actions use server-side batch contracts with deterministic per-ID results/preflights.
 - Existing single-row actions, filters, pagination, deep links, swipe equivalents, CSP, keyboard access and responsive layouts remain working.
+- No canonical application URL contains a hash fragment; refreshing any supported view/detail/tab/page/filter/search state restores it directly without first showing the default view.
+- Browser back/forward restores the previous application state, including list query controls, without stale requests overwriting the restored state.
 
 ## Tests
 
@@ -95,6 +112,9 @@ Continue PR #51 from the user's current local branch state and make the professi
 - Browser: full-page product detail with chart/table, deep link/back, loading/empty/error, no horizontal overflow.
 - Browser: explicit selection persists across pagination, clear selection works, hidden-page selection count is announced, row activation remains independent.
 - Integration/Browser: batch delete/preflight is atomic or returns deterministic structured blocked results according to endpoint contract.
+- Unit: canonical path/route/query parsing, legacy hash migration, bounded query normalization and default omission.
+- Integration: direct GET of every application path serves the shell while unknown/static/API paths retain fail-closed behavior.
+- Browser: refresh and back/forward restore Settings tab, list/detail deep links, pagination/search/filters and Shopping List detail without a Home/default-view flash.
 - Full quality/security/container/CodeQL/Browser and exact-head visual review.
 
 ## Rollback
