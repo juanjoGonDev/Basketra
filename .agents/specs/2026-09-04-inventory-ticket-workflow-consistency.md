@@ -11,6 +11,7 @@ Continue PR #51 from the user's current local branch state and make the professi
 - keep Ticket History editing visually modern and aligned with the receipt-line editor;
 - add explicit multi-selection to professional paginated lists, with selection preserved across page navigation for supported bulk actions.
 - replace hash-fragment routing with clean same-origin paths and persist tabs, sub-views, pagination, search and filters in the URL so refresh/back/forward restore the exact workflow state without briefly rendering the default view.
+- repair receipt-derived Store/Product linkage when AI detects or proposes a physical store: confirmed receipt price observations must inherit that Store, including observations created before the store-projection migration was installed.
 
 ## Evidence
 
@@ -21,6 +22,8 @@ Continue PR #51 from the user's current local branch state and make the professi
 - Catalog data already owns latest price observations. A full history needs a bounded chronological read model, not chart math duplicated in the browser.
 - Product, Category and Ticket History use offset pagination. Store lists and other Inventory lists need the same explicit selection interaction where actions are actually supported.
 - The user's local branch includes later shell/breadcrumb/dialog/store-classification changes; these must be preserved.
+- The supplied AI output already contains `retailerName: "ALCAMPO"` and `storeName: "ALCAMPO ALMERIA"`; `receipt-review.js` forwards detected Store data to `/api/v1/receipts/confirm`, and `BasketraDatabase.importReceipt` creates/reuses the Store before inserting receipt lines.
+- Migration 12 assigns Store IDs only to newly inserted receipt-derived `price_observations`; it has no backfill for observations projected earlier, while Store product counts are derived from `price_observations.store_id`. Existing receipts can therefore have the correct `receipts.store_id` but still show no Product linkage in Store views.
 
 ## Scope
 
@@ -101,6 +104,7 @@ Continue PR #51 from the user's current local branch state and make the professi
 - Existing single-row actions, filters, pagination, deep links, swipe equivalents, CSP, keyboard access and responsive layouts remain working.
 - No canonical application URL contains a hash fragment; refreshing any supported view/detail/tab/page/filter/search state restores it directly without first showing the default view.
 - Browser back/forward restores the previous application state, including list query controls, without stale requests overwriting the restored state.
+- A Store detected/proposed by receipt AI is represented by the confirmed receipt and every receipt-derived price observation for that ticket; upgrading an existing database repairs missing Store IDs without changing shared Products, listings, evidence or prices.
 
 ## Tests
 
@@ -115,6 +119,7 @@ Continue PR #51 from the user's current local branch state and make the professi
 - Unit: canonical path/route/query parsing, legacy hash migration, bounded query normalization and default omission.
 - Integration: direct GET of every application path serves the shell while unknown/static/API paths retain fail-closed behavior.
 - Browser: refresh and back/forward restore Settings tab, list/detail deep links, pagination/search/filters and Shopping List detail without a Home/default-view flash.
+- Integration/migration: a schema-12 database with a receipt-owned Store and previously projected price observation lacking `store_id` upgrades by backfilling that observation; current imports continue assigning the Store on insert.
 - Full quality/security/container/CodeQL/Browser and exact-head visual review.
 
 ## Rollback
@@ -141,4 +146,5 @@ Implementation is complete on the branch. Delivery remains evidence-gated: exact
 - Shared invoice editor ownership, evidence-warning ticket deletion, full-page Product detail/history and explicit cross-page selection/bulk contracts are implemented with regression coverage.
 - The first post-routing Browser run exposed concrete regressions rather than product-domain failures: an undefined invoice-layout variable, a historical editor leaking the generic `.receipt-item` selector, an unclosed desktop media query that swallowed mobile Inventory styles, stale detail-route mocks and a stale child-category URL assertion. Each root cause is fixed and covered on the branch.
 - Obsolete contextual Product split-preview CSS has been removed; the full-page detail is now the only maintained presentation path.
+- Store/Product projection repair is now in progress from local/remote head `9973da6bf11173495d44a35e1662dad9ce2dc3b1`; the AI extraction path itself carries the Store, so the repair targets persisted receipt-derived price observations and upgrade compatibility.
 - No merge, release or deploy has been performed.
