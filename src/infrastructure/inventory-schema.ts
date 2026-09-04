@@ -55,4 +55,32 @@ export const INVENTORY_MIGRATIONS: readonly MigrationDefinition[] = [
       END;
     `,
   },
+  {
+    version: 13,
+    kind: 'safe',
+    sql: `
+      UPDATE price_observations
+      SET store_id = (
+        SELECT receipts.store_id
+        FROM external_evidence
+        JOIN receipt_items
+          ON external_evidence.source_type = 'receipt'
+         AND external_evidence.source_reference = 'receipt-item:' || receipt_items.id
+        JOIN receipts ON receipts.id = receipt_items.receipt_id
+        WHERE external_evidence.id = price_observations.evidence_id
+          AND receipts.store_id IS NOT NULL
+      )
+      WHERE price_observations.store_id IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM external_evidence
+          JOIN receipt_items
+            ON external_evidence.source_type = 'receipt'
+           AND external_evidence.source_reference = 'receipt-item:' || receipt_items.id
+          JOIN receipts ON receipts.id = receipt_items.receipt_id
+          WHERE external_evidence.id = price_observations.evidence_id
+            AND receipts.store_id IS NOT NULL
+        );
+    `,
+  },
 ] as const;
