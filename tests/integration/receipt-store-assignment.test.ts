@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
-import { BasketraDatabase } from '../../src/infrastructure/database.ts';
+import { BasketraDatabase, CURRENT_SCHEMA_VERSION } from '../../src/infrastructure/database.ts';
 import { FileStore } from '../../src/infrastructure/files.ts';
 import { ReceiptExtractionService } from '../../src/receipts/service.ts';
 
@@ -58,6 +58,66 @@ test('receipt confirmation reuses or creates an evidenced store and projects onl
     }
   } finally {
     database.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test('store projection migration repairs receipt-derived prices that predate store assignment', () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-receipt-store-backfill-'));
+  const path = join(root, 'basketra.db');
+  const database = new BasketraDatabase(path);
+  const store = database.saveStore({ retailerName: 'ALCAMPO', name: 'ALCAMPO ALMERIA' });
+  const receiptId = database.importReceipt(receipt('receipt-store-backfill-0001', 'ALCAMPO', 'ALCAMPO ALMERIA', store.id));
+  database.close();
+
+  const legacy = new DatabaseSync(path);
+  try {
+    legacy.prepare(`
+      UPDATE price_observations
+      SET store_id = NULL
+      WHERE id IN (
+        SELECT 'price_receipt_' || receipt_items.id
+        FROM receipt_items
+        WHERE receipt_items.receipt_id = ?
+      )
+    `).run(receiptId);
+    legacy.prepare('DELETE FROM schema_migrations WHERE version = 13').run();
+    const before = legacy.prepare(`
+      SELECT receipts.store_id AS receiptStoreId, price_observations.store_id AS priceStoreId
+      FROM receipt_items
+      JOIN receipts ON receipts.id = receipt_items.receipt_id
+      JOIN price_observations ON price_observations.id = 'price_receipt_' || receipt_items.id
+      WHERE receipts.id = ?
+    `).get(receiptId) as { receiptStoreId: string | null; priceStoreId: string | null };
+    assert.equal(before.receiptStoreId, store.id);
+    assert.equal(before.priceStoreId, null);
+  } finally {
+    legacy.close();
+  }
+
+  const migrated = new BasketraDatabase(path, {
+    migrationBackupDir: join(root, 'migration-backups'),
+    clock: () => new Date('2026-09-04T14:00:00.000Z'),
+  });
+  migrated.close();
+
+  const repaired = new DatabaseSync(path, { readOnly: true });
+  try {
+    const schema = repaired.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number };
+    const projection = repaired.prepare(`
+      SELECT receipts.store_id AS receiptStoreId, price_observations.store_id AS priceStoreId
+      FROM receipt_items
+      JOIN receipts ON receipts.id = receipt_items.receipt_id
+      JOIN price_observations ON price_observations.id = 'price_receipt_' || receipt_items.id
+      WHERE receipts.id = ?
+    `).get(receiptId) as { receiptStoreId: string | null; priceStoreId: string | null };
+    assert.equal(CURRENT_SCHEMA_VERSION, 13);
+    assert.equal(Number(schema.version), 13);
+    assert.equal(projection.receiptStoreId, store.id);
+    assert.equal(projection.priceStoreId, store.id);
+  } finally {
+    repaired.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
