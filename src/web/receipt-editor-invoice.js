@@ -511,7 +511,7 @@ function ensureItemLayout(item) {
   descriptionLabel.before(sectionHeading(1, 'Producto', 'package'));
   detailRow.insertBefore(sectionHeading(2, 'Detalle de compra', 'cart'), detailRow.firstChild);
   discountRow.insertBefore(sectionHeading(3, 'Descuento', 'tag'), discountTypeLabel);
-  quantityRow.insertAdjacentElement('afterend', createSummary());
+  detailRow.insertAdjacentElement('afterend', createSummary());
   item.classList.add('receipt-line-editor-layout');
   item.dataset.invoiceEditorLayout = 'true';
   syncPresentationControls(item);
