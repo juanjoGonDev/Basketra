@@ -193,7 +193,8 @@ test('ticket history supports mobile list, keyboard detail, canonical line calcu
     unitPriceMinor: 150,
     discount: { type: 'amount', amountMinor: 20, quantity: 1 },
   });
-  await expect(lineDialog.locator('#historical-ticket-line-total')).toContainText('2,80');
+  await expect(lineDialog.locator('#historical-ticket-line-total')).toHaveJSProperty('value', '2.80');
+  await expect(lineDialog.locator('[data-editor-summary-total]')).toContainText('2,80');
   await lineDialog.getByRole('button', { name: 'Guardar línea' }).click();
   await expect(lineDialog).toBeHidden();
   await expect(page.locator('#ticket-editor-status')).toHaveText('Sin guardar');
