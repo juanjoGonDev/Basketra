@@ -149,8 +149,8 @@ function installCatalogView() {
           <fieldset class="flow-group"><legend>Nombre por comercio</legend><label class="field"><span>Comercio</span><input id="catalog-retailer-name" maxlength="160" autocomplete="organization"></label><label class="field"><span>Nombre en comercio</span><input id="catalog-retailer-title" maxlength="240"></label><button id="catalog-save-retailer-name" class="button secondary full" type="button">Guardar nombre del comercio</button><p id="catalog-retailer-state" class="inline-status" role="status"></p></fieldset>
         </div>
       </section>
-      <dialog id="catalog-delete-dialog" class="confirm-dialog" aria-labelledby="catalog-delete-title"><div class="dialog-content"><span class="dialog-icon" data-icon="alert"></span><h2 id="catalog-delete-title">Eliminar producto</h2><p id="catalog-delete-impact">Comprobando dependencias…</p><p class="inline-status" role="status" id="catalog-delete-state"></p><div class="dialog-actions"><button id="catalog-delete-cancel" class="button secondary" type="button">Cancelar</button><button id="catalog-delete-confirm" class="button danger" type="button" disabled>Eliminar producto</button></div></div></dialog>
-    </section>`;
+    </section>
+    <dialog id="catalog-delete-dialog" class="confirm-dialog" aria-labelledby="catalog-delete-title"><div class="dialog-content"><span class="dialog-icon" data-icon="alert"></span><h2 id="catalog-delete-title">Eliminar producto</h2><p id="catalog-delete-impact">Comprobando dependencias…</p><p class="inline-status" role="status" id="catalog-delete-state"></p><div class="dialog-actions"><button id="catalog-delete-cancel" class="button secondary" type="button">Cancelar</button><button id="catalog-delete-confirm" class="button danger" type="button" disabled>Eliminar producto</button></div></div></dialog>`;
   main.append(view);
   hydrateIcons(view);
 }
