@@ -180,6 +180,8 @@ test('ticket history supports mobile list, keyboard detail, canonical line calcu
   await expect(page).toHaveURL(/\/tickets\/history\/ticket_20260902$/);
   await expect(page.locator('#ticket-editor-title')).toContainText('ticket_20260902');
   await expect(page.locator('#ticket-editor-total')).toContainText('1,50');
+  await expect(page.locator('#ticket-editor-store')).toHaveAttribute('required', '');
+  await expect(page.locator('#ticket-editor-store option[value=""]')).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Editar línea 1' }).click();
   const lineDialog = page.locator('#historical-ticket-line-dialog');
