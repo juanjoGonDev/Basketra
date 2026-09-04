@@ -1,5 +1,6 @@
 import { api, setBusy } from './api.js';
 import { breadcrumb, escapeHtml, formatEuroMinor, hydrateIcons } from './ui.js';
+import { createPagedSelection } from './entity-selection.js';
 
 const STORE_PAGE_SIZE = 12;
 const SEARCH_DELAY_MS = 250;
@@ -23,6 +24,7 @@ const state = {
   searchTimer: null,
   storeLoadGeneration: 0,
   storeLoadController: null,
+  storeSelection: createPagedSelection(),
   statisticsPeriod: '30d',
   statistics: null,
   statisticsLoadGeneration: 0,
@@ -114,8 +116,9 @@ function installStoreView() {
         <button id="store-clear-filters" class="button secondary" type="button">Limpiar filtros</button>
       </section>
       <p id="store-state" class="inline-status" role="status" aria-live="polite"></p>
+      <div id="store-selection-bar" class="entity-selection-bar" hidden><span class="entity-selection-bar__copy"><strong id="store-selection-count">0 tiendas seleccionadas</strong><small id="store-selection-context">Selección explícita</small></span><button id="store-selection-clear" class="button secondary" type="button">Limpiar selección</button></div>
       <section class="surface inventory-list-surface" aria-label="Listado de tiendas">
-        <div class="inventory-list-heading inventory-store-grid" aria-hidden="true"><span>Tienda</span><span>Ubicación</span><span>Productos</span><span>Tickets</span><span>Última actividad</span><span></span></div>
+        <div class="entity-selection-heading"><label class="entity-selection-cell"><input id="store-select-page" type="checkbox" aria-label="Seleccionar tiendas de esta página"></label><div class="inventory-list-heading inventory-store-grid" aria-hidden="true"><span>Tienda</span><span>Ubicación</span><span>Productos</span><span>Tickets</span><span>Última actividad</span><span></span></div></div>
         <div id="store-list" class="inventory-store-list" aria-live="polite"></div>
         <footer class="inventory-pagination" aria-label="Paginación de tiendas"><span id="store-range">0 resultados</span><div><button id="store-prev" class="button secondary" type="button">Anterior</button><span id="store-page" class="count-badge">1</span><button id="store-next" class="button secondary" type="button">Siguiente</button></div></footer>
       </section>
@@ -289,6 +292,41 @@ function storeQueryString() {
   return params.toString();
 }
 
+function syncStoreSelection() {
+  const stores = state.stores.stores || [];
+  const ids = stores.map(store => store.id);
+  const pageState = state.storeSelection.pageState(ids);
+  const pageCheckbox = $('#store-select-page');
+  if (pageCheckbox instanceof HTMLInputElement) {
+    pageCheckbox.checked = pageState.allSelected;
+    pageCheckbox.indeterminate = pageState.someSelected;
+    pageCheckbox.disabled = ids.length === 0;
+  }
+  $('#store-selection-bar').hidden = state.storeSelection.size === 0;
+  $('#store-selection-count').textContent = `${state.storeSelection.size} tiendas seleccionadas`;
+  $('#store-selection-context').textContent = pageState.selectedOutsidePage
+    ? `${pageState.selectedOnPage} en esta página · ${pageState.selectedOutsidePage} en otras páginas`
+    : `${pageState.selectedOnPage} en esta página`;
+  $('#store-list')?.querySelectorAll('[data-selection-id]').forEach(row => {
+    row.dataset.selected = String(state.storeSelection.has(row.dataset.selectionId));
+  });
+}
+
+function storeSelectionCell(store) {
+  const cell = document.createElement('label');
+  cell.className = 'entity-selection-cell';
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.checked = state.storeSelection.has(store.id);
+  input.setAttribute('aria-label', `Seleccionar tienda ${store.name}`);
+  input.addEventListener('change', () => {
+    state.storeSelection.set(store.id, input.checked);
+    syncStoreSelection();
+  });
+  cell.append(input);
+  return cell;
+}
+
 function renderStoreList() {
   const container = $('#store-list');
   if (!container) return;
@@ -301,6 +339,9 @@ function renderStoreList() {
     container.append(empty);
   }
   for (const store of stores) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'entity-selection-row';
+    wrapper.dataset.selectionId = store.id;
     const row = document.createElement('button');
     row.type = 'button';
     row.className = 'inventory-store-row inventory-store-grid';
@@ -308,7 +349,8 @@ function renderStoreList() {
     const location = [store.address, store.region].filter(Boolean).join(' · ') || 'Sin ubicación';
     row.innerHTML = `<span class="inventory-product-cell inventory-product-cell--name"><strong>${escapeHtml(store.name)}</strong><small>${escapeHtml(store.retailerName)}</small></span><span>${escapeHtml(location)}</span><strong>${Number(store.productCount || 0)}</strong><strong>${Number(store.ticketCount || 0)}</strong><span>${escapeHtml(formatDateTime(store.lastActivityAt))}</span><span class="inventory-row-action">Ver detalle</span>`;
     row.addEventListener('click', () => void openStoreDetail(store.id));
-    container.append(row);
+    wrapper.append(storeSelectionCell(store), row);
+    container.append(wrapper);
   }
   const total = Number(state.stores.total || 0);
   const offset = Number(state.stores.offset || 0);
@@ -319,6 +361,7 @@ function renderStoreList() {
   $('#store-page').textContent = `${state.storePage} / ${pageCount}`;
   $('#store-prev').disabled = state.storePage <= 1;
   $('#store-next').disabled = !state.stores.hasMore;
+  syncStoreSelection();
 }
 
 async function loadStores({ resetPage = false } = {}) {
@@ -662,6 +705,14 @@ function bindInteractions() {
     state.storeRetailer = '';
     state.storeSort = 'name';
     void loadStores({ resetPage: true });
+  });
+  $('#store-select-page').addEventListener('change', event => {
+    state.storeSelection.setPage((state.stores.stores || []).map(store => store.id), event.currentTarget.checked);
+    syncStoreSelection();
+  });
+  $('#store-selection-clear').addEventListener('click', () => {
+    state.storeSelection.clear();
+    syncStoreSelection();
   });
   $('#store-prev').addEventListener('click', () => { if (state.storePage > 1) state.storePage -= 1; void loadStores(); window.scrollTo(0, 0); });
   $('#store-next').addEventListener('click', () => { if (state.stores.hasMore) state.storePage += 1; void loadStores(); window.scrollTo(0, 0); });
