@@ -33,6 +33,11 @@ const product = {
   updatedAt: '2026-08-31T10:00:00.000Z',
 };
 
+const priceHistory = [
+  { id: 'price_2', productVariantId: 'variant_milk', retailerId: 'retailer_mercadona', retailerName: 'Mercadona', storeId: 'store_centro', storeName: 'Mercadona Centro', priceMinor: 119, packageNumerator: 1, packageDenominator: 1, packageUnit: 'unit', normalizedPriceNumerator: 119, normalizedPriceDenominator: 1, evidenceId: 'evidence_2', observedAt: '2026-08-31T10:00:00.000Z', confidence: 1 },
+  { id: 'price_1', productVariantId: 'variant_milk', retailerId: 'retailer_mercadona', retailerName: 'Mercadona', storeId: 'store_centro', storeName: 'Mercadona Centro', priceMinor: 109, packageNumerator: 1, packageDenominator: 1, packageUnit: 'unit', normalizedPriceNumerator: 109, normalizedPriceDenominator: 1, evidenceId: 'evidence_1', observedAt: '2026-07-31T10:00:00.000Z', confidence: 1 },
+];
+
 async function installCatalogRoutes(page) {
   await page.route('**/api/v1/meta', route => route.fulfill({
     status: 200,
@@ -43,6 +48,11 @@ async function installCatalogRoutes(page) {
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({ categories: [{ id: 'category_dairy', name: 'Lácteos' }] }),
+  }));
+  await page.route('**/api/v1/products/variant_milk', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ product, priceHistory }),
   }));
   await page.route('**/api/v1/catalog?*', route => route.fulfill({
     status: 200,
@@ -68,7 +78,7 @@ async function expectNoHorizontalOverflow(page) {
   expect(dimensions.page).toBeLessThanOrEqual(dimensions.viewport);
 }
 
-test('product list preserves the approved desktop table and contextual preview hierarchy', async ({ page }, testInfo) => {
+test('product list opens a full-page product detail with accessible price history', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await installCatalogRoutes(page);
 
@@ -83,37 +93,26 @@ test('product list preserves the approved desktop table and contextual preview h
   await expect(row).toContainText('1,19');
   await row.click();
 
-  await expect(page.locator('#catalog-list-screen')).toBeVisible();
-  await expect(page.locator('#catalog-detail')).toBeVisible();
+  await expect(page.locator('#catalog-list-screen')).toBeHidden();
+  const detail = page.locator('#catalog-detail');
+  await expect(detail).toBeVisible();
+  await expect(page.locator('#catalog-back-list')).toBeVisible();
   await expect(page.locator('#catalog-detail-name')).toHaveText('Leche entera 1 L');
   await expect(page.locator('#catalog-detail-category')).toHaveText('Lácteos');
   await expect(page.locator('#catalog-latest-prices')).toContainText('Mercadona Centro');
+  await expect(page.locator('#catalog-price-history-chart')).toBeVisible();
+  await expect(page.locator('#catalog-price-history-table')).toContainText('Mercadona Centro');
+  await expect(page.locator('#catalog-price-history-table')).toContainText('1,09');
 
-  const geometry = await page.locator('.view[data-view="catalog"]').evaluate(element => {
-    const listScreen = element.querySelector('#catalog-list-screen');
-    const detail = element.querySelector('#catalog-detail');
-    const toolbar = listScreen.querySelector('.inventory-toolbar');
-    const listSurface = listScreen.querySelector('.inventory-list-surface');
-    const header = listScreen.querySelector('.inventory-entity-header');
-    const list = listScreen.getBoundingClientRect();
-    const detailBox = detail.getBoundingClientRect();
-    const headerBox = header.getBoundingClientRect();
+  const geometry = await detail.evaluate(element => {
+    const box = element.getBoundingClientRect();
     return {
-      listRight: list.right,
-      detailLeft: detailBox.left,
-      detailWidth: detailBox.width,
-      headerRight: headerBox.right,
-      toolbarClientWidth: toolbar.clientWidth,
-      toolbarScrollWidth: toolbar.scrollWidth,
-      listSurfaceClientWidth: listSurface.clientWidth,
-      listSurfaceScrollWidth: listSurface.scrollWidth,
+      left: box.left,
+      right: box.right,
+      viewport: document.documentElement.clientWidth,
     };
   });
-  expect(geometry.detailLeft).toBeGreaterThanOrEqual(geometry.listRight - 2);
-  expect(geometry.detailWidth).toBeGreaterThan(240);
-  expect(geometry.headerRight).toBeLessThanOrEqual(geometry.listRight + 1);
-  expect(geometry.toolbarScrollWidth).toBeLessThanOrEqual(geometry.toolbarClientWidth);
-  expect(geometry.listSurfaceScrollWidth).toBeLessThanOrEqual(geometry.listSurfaceClientWidth);
+  expect(geometry.right - geometry.left).toBeGreaterThan(700);
   await expectNoHorizontalOverflow(page);
 
   await page.locator('.view[data-view="catalog"]').screenshot({ path: testInfo.outputPath('catalog-desktop-preview.png') });
