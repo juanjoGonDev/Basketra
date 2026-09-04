@@ -128,6 +128,9 @@ test('inventory entity rows share accessible swipe actions and preserve canonica
   await productWrapper.locator('[data-inventory-row-action="edit"]').click();
   await expect(page.locator('#catalog-editor')).toBeVisible();
   await expect(page).toHaveURL(/\/inventory\/products\/variant_milk\?mode=edit$/);
+  await page.reload();
+  await expect(page).toHaveURL(/\/inventory\/products\/variant_milk\?mode=edit$/);
+  await expect(page.locator('#catalog-editor')).toBeVisible();
   await page.locator('.view[data-view="catalog"]').screenshot({ path: testInfo.outputPath('inventory-product-editor-mobile.png') });
   await page.locator('#catalog-back-list').click();
 
@@ -154,6 +157,9 @@ test('inventory entity rows share accessible swipe actions and preserve canonica
   await categoryWrapper.locator('[data-inventory-row-action="edit"]').click();
   await expect(page.locator('#category-editor')).toBeVisible();
   await expect(page).toHaveURL(/\/inventory\/categories\/category_food\?mode=edit$/);
+  await page.reload();
+  await expect(page).toHaveURL(/\/inventory\/categories\/category_food\?mode=edit$/);
+  await expect(page.locator('#category-editor')).toBeVisible();
   await page.locator('#categories-back-list').click();
 
   await openAccessibleActions(categoryWrapper);
@@ -173,6 +179,9 @@ test('inventory entity rows share accessible swipe actions and preserve canonica
   await storeWrapper.locator('[data-inventory-row-action="edit"]').click();
   await expect(page.locator('#store-editor')).toBeVisible();
   await expect(page).toHaveURL(/\/inventory\/stores\/store_central\?mode=edit$/);
+  await page.reload();
+  await expect(page).toHaveURL(/\/inventory\/stores\/store_central\?mode=edit$/);
+  await expect(page.locator('#store-editor')).toBeVisible();
   await page.locator('#stores-back-list').click();
 
   await openAccessibleActions(storeWrapper);
