@@ -45,6 +45,8 @@ test('shell, breadcrumb and receipt Store adapters cover defensive browser bound
 
   await page.goto('/tickets');
   await page.evaluate(async () => {
+    const { installReceiptEnhancements } = await import('/receipts.js');
+    installReceiptEnhancements();
     const { applyExtraction } = await import('/receipt-review.js');
     applyExtraction({
       originalText: 'PAN 1,50',
@@ -223,9 +225,10 @@ test('catalog covers filters, validation, relations, allowed deletes and error s
   await page.locator('#catalog-clear-filters').click();
   await page.locator('#catalog-next').click();
   await expect(page.locator('#catalog-page')).toHaveText('2 / 2');
-  await page.locator('#catalog-next').click();
+  await page.locator('#catalog-next').evaluate(element => element.dispatchEvent(new MouseEvent('click', { bubbles: true })));
   await page.locator('#catalog-prev').click();
-  await page.locator('#catalog-prev').click();
+  await expect(page.locator('#catalog-page')).toHaveText('1 / 2');
+  await page.locator('#catalog-prev').evaluate(element => element.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 
   await page.locator('#catalog-search').fill('vacío');
   await expect(page.locator('#catalog-products')).toContainText('No hay productos');
@@ -409,9 +412,11 @@ test('inventory Store CRUD, filters, validation and statistics exercise alternat
   await page.locator('#store-clear-filters').click();
   await expect(page.locator('#store-list')).toContainText('Centro');
   await page.locator('#store-next').click();
-  await page.locator('#store-next').click();
+  await expect(page.locator('#store-page')).toHaveText('2 / 2');
+  await page.locator('#store-next').evaluate(element => element.dispatchEvent(new MouseEvent('click', { bubbles: true })));
   await page.locator('#store-prev').click();
-  await page.locator('#store-prev').click();
+  await expect(page.locator('#store-page')).toHaveText('1 / 2');
+  await page.locator('#store-prev').evaluate(element => element.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 
   await page.getByRole('button', { name: 'Nueva tienda', exact: true }).click();
   await expect(page).toHaveURL(/\/inventory\/stores\/new/);
