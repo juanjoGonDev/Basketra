@@ -36,6 +36,7 @@ const state = {
   categoryLoadGeneration: 0,
   productSelection: createPagedSelection(),
   categorySelection: createPagedSelection(),
+  bulkProductDeleteIds: [],
 };
 
 function injectStylesheet() {
@@ -71,7 +72,7 @@ function installCatalogView() {
         <button id="catalog-clear-filters" class="button secondary" type="button"><span data-icon="refresh"></span>Limpiar filtros</button>
       </section>
       <p id="catalog-state" class="inline-status" role="status" aria-live="polite"></p>
-      <div id="catalog-selection-bar" class="entity-selection-bar" hidden><span class="entity-selection-bar__copy"><strong id="catalog-selection-count">0 seleccionados</strong><small id="catalog-selection-context">Selección explícita</small></span><button id="catalog-selection-clear" class="button secondary" type="button">Limpiar selección</button></div>
+      <div id="catalog-selection-bar" class="entity-selection-bar" hidden><span class="entity-selection-bar__copy"><strong id="catalog-selection-count">0 seleccionados</strong><small id="catalog-selection-context">Selección explícita</small></span><button id="catalog-selection-clear" class="button secondary" type="button">Limpiar selección</button><button id="catalog-selection-delete" class="button danger" type="button"><span data-icon="trash"></span>Eliminar seleccionados</button></div>
       <section class="surface inventory-list-surface" aria-label="Listado de productos">
         <div class="entity-selection-heading"><label class="entity-selection-cell"><input id="catalog-select-page" type="checkbox" aria-label="Seleccionar productos de esta página"></label><div class="inventory-list-heading inventory-product-grid" aria-hidden="true"><span>Producto</span><span>Categoría</span><span>Comercios</span><span>Precio reciente</span><span>Actualizado</span><span></span></div></div>
         <div id="catalog-products" class="inventory-product-list" aria-live="polite"></div>
@@ -1051,6 +1052,7 @@ async function saveRetailerName(button) {
 }
 
 async function openProductDeleteDialog() {
+  state.bulkProductDeleteIds = [];
   const product = state.productDetail;
   if (!product) return;
   const dialog = $('#catalog-delete-dialog');
@@ -1069,11 +1071,54 @@ async function openProductDeleteDialog() {
   }
 }
 
+async function openProductBulkDeleteDialog() {
+  const ids = state.productSelection.values();
+  if (!ids.length) return;
+  state.bulkProductDeleteIds = ids;
+  const dialog = $('#catalog-delete-dialog');
+  const confirm = $('#catalog-delete-confirm');
+  confirm.disabled = true;
+  $('#catalog-delete-impact').textContent = `Comprobando ${ids.length} productos seleccionados…`;
+  $('#catalog-delete-state').textContent = '';
+  dialog.showModal();
+  try {
+    const { impact } = await api('/api/v1/catalog/products/bulk-delete-impact', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+    if (impact.canDelete) {
+      $('#catalog-delete-impact').textContent = `${ids.length} productos no tienen tickets, listas ni precios históricos dependientes.`;
+      $('#catalog-delete-state').textContent = 'El lote se eliminará en una sola transacción.';
+      confirm.disabled = false;
+      return;
+    }
+    const blockedIds = (impact.blocked || []).map(entry => entry.id);
+    $('#catalog-delete-impact').textContent = `${blockedIds.length} de ${ids.length} productos están bloqueados por dependencias históricas o activas.`;
+    $('#catalog-delete-state').textContent = `Bloqueados: ${blockedIds.join(', ')}. Ningún producto se eliminará hasta resolver todas las dependencias.`;
+  } catch (error) {
+    $('#catalog-delete-state').textContent = error.message;
+  }
+}
+
 async function confirmProductDelete(button) {
+  const bulkIds = state.bulkProductDeleteIds;
   const product = state.productDetail;
-  if (!product) return;
+  if (!bulkIds.length && !product) return;
   setBusy(button, true);
   try {
+    if (bulkIds.length) {
+      const result = await api('/api/v1/catalog/products/bulk-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids: bulkIds }),
+      });
+      for (const id of result.deletedIds || bulkIds) state.productSelection.set(id, false);
+      state.bulkProductDeleteIds = [];
+      $('#catalog-delete-dialog').close();
+      await loadProducts();
+      syncProductSelection();
+      $('#catalog-state').textContent = `${bulkIds.length} productos eliminados.`;
+      return;
+    }
     await api(`/api/v1/catalog/products/${encodeURIComponent(product.id)}`, { method: 'DELETE' });
     $('#catalog-delete-dialog').close();
     closeProductDetail();
@@ -1173,6 +1218,7 @@ function bindInteractions() {
     state.productSelection.clear();
     syncProductSelection();
   });
+  $('#catalog-selection-delete').addEventListener('click', () => void openProductBulkDeleteDialog());
   $('#catalog-prev').addEventListener('click', () => { if (state.productPage > 1) state.productPage -= 1; void loadProducts(); window.scrollTo(0, 0); });
   $('#catalog-next').addEventListener('click', () => { if (state.catalog.hasMore) state.productPage += 1; void loadProducts(); window.scrollTo(0, 0); });
   $('#category-search').addEventListener('input', () => { clearTimeout(state.categorySearchTimer); state.categorySearchTimer = setTimeout(() => void loadCategoryInventory({ resetPage: true }), SEARCH_DELAY_MS); });
