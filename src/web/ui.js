@@ -46,6 +46,7 @@ const ICONS = {
   balance: '<path d="M12 4v16M5 7h14M7 7l-4 7h8ZM17 7l-4 7h8Z"/>',
   savings: '<path d="M5 8.5C5 6 7.7 4 11 4s6 2 6 4.5S14.3 13 11 13 5 11 5 8.5Z"/><path d="M17 8.5V15c0 2.5-2.7 4.5-6 4.5S5 17.5 5 15V8.5"/>',
   alert: '<path d="M12 4 3 20h18Z"/><path d="M12 9v5M12 17h.01"/>',
+  tag: '<path d="M20 13 13 20l-9-9V4h7Z"/><circle cx="8.5" cy="8.5" r="1"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',
 };
 
