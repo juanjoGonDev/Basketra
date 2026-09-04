@@ -134,7 +134,7 @@ No merge, release or deploy without explicit user approval.
 
 ## Status
 
-Implementation complete; exact-head CI and final visual review are pending.
+Implementation is complete on the branch. Delivery remains evidence-gated: exact-head CI and final visual review must be green before the task is reported done, and their observed results belong in the PR/final report rather than being predicted here.
 
 - Clean path routing, bounded query-state restoration, direct-GET shell fallback, legacy hash canonicalization and synchronous route bootstrap are implemented.
 - Settings tab, Inventory overview state, Product/Category/Store/Ticket filters and pagination, Statistics period, entity details, editor mode and Shopping List detail are represented in the URL; transient destructive selection/drafts remain intentionally non-restorable.
