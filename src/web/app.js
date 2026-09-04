@@ -761,16 +761,15 @@ async function initialize() {
     toast(error.message);
   } finally {
     setNavigationReady(true);
-    const ready = pendingRoute || (() => {
-      const current = readApplicationLocation();
-      return { route: current.route, historyMode: 'replace', searchParams: current.searchParams };
-    })();
+    const ready = pendingRoute;
     pendingRoute = null;
-    navigate(ready.route, {
-      allowBeforeReady: true,
-      historyMode: ready.historyMode,
-      searchParams: ready.searchParams,
-    });
+    if (ready) {
+      navigate(ready.route, {
+        allowBeforeReady: true,
+        historyMode: ready.historyMode,
+        searchParams: ready.searchParams,
+      });
+    }
   }
 }
 
