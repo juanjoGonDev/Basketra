@@ -28,6 +28,11 @@ const product = {
   updatedAt: '2026-08-31T10:00:00.000Z',
 };
 
+const priceHistory = [
+  { id: 'price_old', productVariantId: 'variant_milk', retailerId: 'retailer_mercadona', retailerName: 'Mercadona', priceMinor: 109, packageNumerator: 1, packageDenominator: 1, packageUnit: 'unit', normalizedPriceNumerator: 109, normalizedPriceDenominator: 1, evidenceId: 'evidence_old', observedAt: '2026-07-31T10:00:00.000Z', confidence: 1 },
+  { id: 'price_new', productVariantId: 'variant_milk', retailerId: 'retailer_mercadona', retailerName: 'Mercadona', priceMinor: 119, packageNumerator: 1, packageDenominator: 1, packageUnit: 'unit', normalizedPriceNumerator: 119, normalizedPriceDenominator: 1, evidenceId: 'evidence_new', observedAt: '2026-08-31T10:00:00.000Z', confidence: 1 },
+];
+
 const catalog = {
   products: [product],
   parents: [
@@ -64,7 +69,7 @@ test('inventory products use a separate paginated list and editable detail on mo
       productPatch = route.request().postDataJSON();
       Object.assign(product, productPatch);
     }
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ product }) });
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ product, priceHistory }) });
   });
   await page.route('**/api/v1/catalog/products/variant_milk/parent', route => {
     parentRelation = route.request().postDataJSON();
@@ -95,11 +100,16 @@ test('inventory products use a separate paginated list and editable detail on mo
   await catalogRow.click();
 
   await expect(page).toHaveURL(/#catalog:variant_milk$/);
+  await expect(page.locator('#catalog-list-screen')).toBeHidden();
   await expect(page.locator('#catalog-detail')).toBeVisible();
+  await expect(page.locator('#catalog-back-list')).toBeVisible();
   await expect(page.locator('#catalog-detail-name')).toHaveText('Leche entera 1 L');
   await expect(page.locator('#catalog-latest-prices')).toContainText('Mercadona');
   await expect(page.locator('#catalog-latest-prices')).toContainText('1,19');
   await expect(page.locator('#catalog-retailer-names')).toContainText('Leche entera Hacendado 1 L');
+  await expect(page.locator('#catalog-price-history-chart')).toBeVisible();
+  await expect(page.locator('#catalog-price-history-table')).toContainText('1,09');
+  await expect(page.locator('#catalog-price-history-table')).toContainText('1,19');
 
   await page.getByRole('button', { name: 'Editar', exact: true }).first().click();
   await expect(page.locator('#catalog-editor')).toBeVisible();
