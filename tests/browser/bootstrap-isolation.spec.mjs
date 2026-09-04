@@ -38,14 +38,18 @@ test('primary navigation stays disabled until application bootstrap is ready', a
   }));
 
   await page.goto('/');
-  const tickets = page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true });
+  const tickets = page.locator('.bottom-nav [data-nav="scan"]');
   await expect(page.locator('#main')).toHaveAttribute('aria-busy', 'true');
+  await expect(page.locator('html')).toHaveAttribute('data-route-pending', 'true');
   await expect(tickets).toBeDisabled();
+  await expect(tickets).toBeHidden();
 
   releaseMetadata();
 
   await expect(page.locator('#main')).toHaveAttribute('aria-busy', 'false');
+  await expect(page.locator('html')).not.toHaveAttribute('data-route-pending', 'true');
   await expect(tickets).toBeEnabled();
+  await expect(tickets).toBeVisible();
   await tickets.click();
   await expect(page).toHaveURL(/\/tickets$/);
 });
