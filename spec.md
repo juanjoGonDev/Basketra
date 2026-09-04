@@ -34,6 +34,17 @@ Suposiciones explícitas: una única instalación personal compartida por los di
 - Cualquier actor con conectividad HTTP a Basketra se considera plenamente autorizado para listas, tickets, diagnósticos, logs, backups y restore.
 - La aplicación completa debe seguir funcionando sobre HTTP privado. Las capacidades de navegador que requieran secure context, como geolocalización en navegadores móviles normales, se degradan de forma localizada sin bloquear el resto del producto.
 
+## Navegación web y estado de vista
+
+- Las vistas navegables usan rutas same-origin limpias y canónicas; la navegación normal no depende de fragmentos `#`.
+- El detalle de entidades se expresa en segmentos de path y el estado recuperable de la vista —pestaña, subvista de edición, página, búsqueda, filtros, orden y periodo— se expresa mediante query params acotados. Los valores por defecto se omiten de las URLs generadas.
+- La selección explícita para acciones masivas, los formularios sin guardar y los diálogos de confirmación son estado transitorio y no se restauran desde la URL para evitar repetir acciones peligrosas o revivir borradores obsoletos.
+- Un GET directo de cualquier ruta de aplicación conocida sirve el shell; rutas desconocidas, assets no permitidos y rutas API conservan su resolución explícita y fallan cerradas cuando no existen.
+- El bootstrap aplica la ruta solicitada antes de revelar el contenido principal, de modo que una recarga profunda no muestra primero Inicio ni otra vista por defecto.
+- Atrás/Adelante rehidrata la ruta y sus query params mediante `popstate` sin crear otra entrada. La búsqueda incremental usa `replaceState`; navegación comprometida, pestañas, paginación, filtros y detalles usan `pushState`.
+- Los hashes de versiones anteriores sólo se aceptan como entrada de compatibilidad y se reemplazan inmediatamente por la URL limpia equivalente.
+- Páginas, enums y texto procedentes de la URL se validan y acotan antes de alcanzar las consultas remotas; valores inválidos degradan al estado canónico por defecto.
+
 ## Flujos verificables
 
 ### Listas de compra
@@ -299,6 +310,7 @@ Los diagnósticos IA diferencian `AI_NOT_CONFIGURED`, `AI_LOOPBACK_CONTAINER`, `
 - No existe `BASKETRA_AUTH_TOKEN` en runtime, navegador, Compose, `.env.example` o documentación operativa.
 - La API funcional responde sin `Authorization` dentro del perímetro privado.
 - Gestión de listas y detalle de lista son vistas separadas; el contenido de compra domina el detalle y Add Product ya no ocupa permanentemente gran altura.
+- Tabs, subvistas, detalle de entidad, paginación, búsqueda, filtros, orden y periodos recuperables quedan reflejados en una URL limpia; recarga y Atrás/Adelante restauran ese estado sin flash de Inicio.
 - Dos dispositivos visibles convergen mediante SSE+REST sin polling/manual refresh; ocultar el documento suspende el stream y volver a mostrarlo re-sincroniza.
 - Simultaneous explicit edits y reorders no sobrescriben silenciosamente; producen conflicto resoluble y retry intencional.
 - Ítems pueden enlazar a variantes globales y los legacy siguen válidos.
