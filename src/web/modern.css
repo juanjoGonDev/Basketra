@@ -1448,6 +1448,10 @@ summary {
     .view[data-view="home"] {
       grid-template-columns: minmax(44rem, 1.55fr) minmax(20rem, .65fr);
     }
+
+    .view[data-view="home"] .hero h1 {
+      white-space: nowrap;
+    }
   }
 
   .list-overview-grid {
