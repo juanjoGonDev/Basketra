@@ -42,6 +42,7 @@ test('receipt projection does not guess between ambiguous exact retailer-title v
       originalText: 'MISMO TEXTO TICKET 1,20',
       provider: 'manual-or-embedded',
       retailerName: 'Alcampo',
+      storeName: 'Alcampo Centro',
       deterministic: { items: [{ description: 'MISMO TEXTO TICKET' }] },
       items: [{
         description: 'MISMO TEXTO TICKET',
