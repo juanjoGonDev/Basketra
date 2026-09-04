@@ -17,7 +17,7 @@ Continue PR #51 from the user's current local branch state and make the professi
 - The current historical-ticket add/edit flow already reuses receipt invoice presentation helpers, but it owns a second dialog shell/markup and can drift from the live receipt-line editor.
 - Ticket deletion currently computes capture/extraction/correction/evidence/price impact and disables the confirm action when any immutable evidence exists.
 - Receipt-owned captures, extractions, items and corrections have direct receipt/item cascade foreign keys. Receipt-projected external evidence and price observations are linked by canonical receipt-item source references and must be explicitly removed before deleting the receipt.
-- Product routes already use #catalog:<productId> and a separate detail screen, but desktop CSS presents that state as a contextual split preview.
+- At task start Product routes used `#catalog:<productId>` and desktop CSS presented detail as a contextual split preview; the target contract replaces both with a clean full-page route.
 - Catalog data already owns latest price observations. A full history needs a bounded chronological read model, not chart math duplicated in the browser.
 - Product, Category and Ticket History use offset pagination. Store lists and other Inventory lists need the same explicit selection interaction where actions are actually supported.
 - The user's local branch includes later shell/breadcrumb/dialog/store-classification changes; these must be preserved.
@@ -43,7 +43,7 @@ Continue PR #51 from the user's current local branch state and make the professi
 
 ### Product detail and history
 
-- #catalog:<id> is a full product route/view on desktop and mobile; no drawer/split overlay.
+- `/inventory/products/:id` is a full product route/view on desktop and mobile; no drawer/split overlay.
 - Detail keeps identity, category, brand, EAN, package, latest prices, retailer names and editing.
 - Add a bounded chronological price-history endpoint/read model for a product variant, including store/retailer, observedAt, priceMinor and confidence where applicable.
 - UI renders an accessible chart plus an equivalent table/list so information is not encoded only visually.
@@ -120,7 +120,7 @@ Continue PR #51 from the user's current local branch state and make the professi
 ## Rollback
 
 - Editor reuse can be reverted independently because domain payloads remain unchanged.
-- Product full-page/history is additive to the existing #catalog:<id> route and can be reverted without schema migration.
+- Product full-page/history is additive to the clean `/inventory/products/:id` route contract and can be reverted without schema migration.
 - Multi-selection is additive UI/API behavior and must not change single-item endpoints.
 - Ticket-delete semantics are the only destructive behavior change; rollback restores evidence-blocking preflight/DELETE guard. No schema migration is required.
 
@@ -134,4 +134,11 @@ No merge, release or deploy without explicit user approval.
 
 ## Status
 
-In progress from user-local head 234681f9aaa99f7950625a945f9ce3401cac0d46.
+Implementation complete; exact-head CI and final visual review are pending.
+
+- Clean path routing, bounded query-state restoration, direct-GET shell fallback, legacy hash canonicalization and synchronous route bootstrap are implemented.
+- Settings tab, Inventory overview state, Product/Category/Store/Ticket filters and pagination, Statistics period, entity details, editor mode and Shopping List detail are represented in the URL; transient destructive selection/drafts remain intentionally non-restorable.
+- Shared invoice editor ownership, evidence-warning ticket deletion, full-page Product detail/history and explicit cross-page selection/bulk contracts are implemented with regression coverage.
+- The first post-routing Browser run exposed concrete regressions rather than product-domain failures: an undefined invoice-layout variable, a historical editor leaking the generic `.receipt-item` selector, an unclosed desktop media query that swallowed mobile Inventory styles, stale detail-route mocks and a stale child-category URL assertion. Each root cause is fixed and covered on the branch.
+- Obsolete contextual Product split-preview CSS has been removed; the full-page detail is now the only maintained presentation path.
+- No merge, release or deploy has been performed.
