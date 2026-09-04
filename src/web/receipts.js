@@ -249,19 +249,41 @@ export function installReceiptEnhancements() {
     retailer.className = 'retailer-field';
     retailer.innerHTML = `
       <label class="field" for="receipt-retailer">
-        <span>Comercio (opcional)</span>
-        <input id="receipt-retailer" maxlength="120" autocomplete="organization" placeholder="Ej. Mercadona" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="retailer-suggestions">
+        <span>Comercio</span>
+        <input id="receipt-retailer" required maxlength="120" autocomplete="organization" placeholder="Ej. ALCAMPO" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="retailer-suggestions">
       </label>
-      <div id="receipt-detected-store" class="field" hidden>
-        <span>Tienda detectada (opcional)</span>
-        <input id="receipt-store" readonly aria-describedby="receipt-store-help">
-        <small id="receipt-store-help">Se aplicará al ticket y a los precios nuevos al confirmar.</small>
-      </div>
+      <label id="receipt-detected-store" class="field" for="receipt-store">
+        <span>Tienda</span>
+        <input id="receipt-store" required maxlength="160" autocomplete="organization" placeholder="Ej. ALCAMPO ALMERIA" list="receipt-store-options" aria-describedby="receipt-store-help">
+        <small id="receipt-store-help">La tienda es obligatoria. La IA puede proponerla; elige una guardada o escribe una nueva para crearla al confirmar.</small>
+      </label>
+      <datalist id="receipt-store-options"></datalist>
       <div id="retailer-suggestions" class="retailer-suggestions" role="listbox" aria-label="Comercios guardados o detectados" hidden></div>`;
     manualBody.prepend(retailer);
   }
 
   installReviewContextObservers();
+}
+
+async function refreshReceiptStoreOptions() {
+  const options = $('#receipt-store-options');
+  if (!options) return;
+  const retailer = $('#receipt-retailer')?.value.trim() || '';
+  options.replaceChildren();
+  if (!retailer) return;
+  try {
+    const result = await api(`/api/v1/inventory/stores?q=${encodeURIComponent(retailer)}&sort=name&limit=100&offset=0`);
+    if (($('#receipt-retailer')?.value.trim() || '') !== retailer) return;
+    for (const store of result.stores || []) {
+      if (store.retailerName?.toLocaleLowerCase('es-ES') !== retailer.toLocaleLowerCase('es-ES')) continue;
+      const option = document.createElement('option');
+      option.value = store.name;
+      option.label = store.name;
+      options.append(option);
+    }
+  } catch {
+    options.replaceChildren();
+  }
 }
 
 export function bindEvents() {
@@ -294,12 +316,25 @@ export function bindEvents() {
   $('#review-receipt').addEventListener('click', () => void validateRows());
   $('#confirm-receipt').addEventListener('click', () => void confirmReceipt());
   $('#add-manual-line').addEventListener('click', addBlankLine);
-  $('#receipt-retailer').addEventListener('input', scheduleRetailerSuggestions);
+  $('#receipt-retailer').addEventListener('input', event => {
+    scheduleRetailerSuggestions(event);
+    void refreshReceiptStoreOptions();
+  });
+  $('#receipt-retailer').addEventListener('change', () => void refreshReceiptStoreOptions());
   $('#receipt-retailer').addEventListener('keydown', event => {
     if (event.key === 'Escape') hideRetailerSuggestions();
   });
   $('#receipt-retailer').addEventListener('blur', () => setTimeout(hideRetailerSuggestions, 120));
-  $('#retailer-suggestions').addEventListener('click', selectRetailerSuggestion);
+  $('#retailer-suggestions').addEventListener('click', event => {
+    selectRetailerSuggestion(event);
+    void refreshReceiptStoreOptions();
+  });
+  $('#receipt-store').addEventListener('input', () => {
+    const value = $('#receipt-store').value.trim();
+    if (value !== state.detectedStoreName) state.detectedStoreId = '';
+    state.detectedStoreName = value;
+    state.detectedStoreRetailerName = $('#receipt-retailer').value.trim();
+  });
   document.addEventListener('basketra:swipe-action', event => {
     if (event.detail?.kind !== 'receipt-line' || event.detail?.action !== 'delete') return;
     deleteReceiptLine(Number(event.detail.id));
