@@ -205,7 +205,7 @@ test('HTTP API works without an application token and completes list and receipt
     assert.equal((await json<{ total: { valid: boolean } }>(receipt)).total.valid, true);
     const mismatch = await request(baseUrl, '/api/v1/receipts/confirm', { method: 'POST', body: JSON.stringify({ importKey: 'receipt-0001', originalText: 'Leche', declaredTotalMinor: 100, items: [{ description: 'Leche', quantity: 1, unitPriceMinor: 120, lineTotalMinor: 120 }] }) });
     assert.equal(mismatch.status, 409);
-    const confirmed = await request(baseUrl, '/api/v1/receipts/confirm', { method: 'POST', body: JSON.stringify({ importKey: 'receipt-0001', originalText: 'Leche', declaredTotalMinor: 120, captures: [{ storageKey, mimeType: 'image/png', originalName: 'receipt.png' }], items: [{ description: 'Leche', quantity: 1, unitPriceMinor: 120, lineTotalMinor: 120 }] }) });
+    const confirmed = await request(baseUrl, '/api/v1/receipts/confirm', { method: 'POST', body: JSON.stringify({ importKey: 'receipt-0001', originalText: 'Leche', declaredTotalMinor: 120, retailerName: 'Mercadona', storeName: 'Mercadona Centro', captures: [{ storageKey, mimeType: 'image/png', originalName: 'receipt.png' }], items: [{ description: 'Leche', quantity: 1, unitPriceMinor: 120, lineTotalMinor: 120 }] }) });
     assert.equal(confirmed.status, 201);
 
     const now = new Date().toISOString();

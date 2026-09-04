@@ -125,6 +125,7 @@ test('inventory statistics derive ticket spend independently from store price jo
         declaredTotalMinor: 500,
         originalText: 'Arroz 2 250 500',
         retailerName: 'Mercadona',
+        storeId: store['id'],
         items: [{
           description: 'Arroz 1 kg',
           quantity: 2,
