@@ -431,11 +431,7 @@ function receiptDeleteImpactFromDatabase(database: DatabaseSync, receiptId: stri
       SELECT 'receipt-item:' || id FROM receipt_items WHERE receipt_id = ?
     )
   `, receiptId);
-  const canDelete = captures === 0
-    && extractions === 0
-    && corrections === 0
-    && externalEvidence === 0
-    && retainedPriceObservations === 0;
+  const canDelete = true;
   return {
     ticket: receiptRecord(row),
     itemCount,
@@ -445,9 +441,9 @@ function receiptDeleteImpactFromDatabase(database: DatabaseSync, receiptId: stri
     externalEvidence,
     retainedPriceObservations,
     canDelete,
-    warning: canDelete
-      ? 'This ticket has no immutable capture, extraction, correction or price evidence and can be hard-deleted.'
-      : 'This ticket has immutable receipt or price evidence. Hard deletion is blocked to preserve historical evidence.',
+    warning: captures + extractions + corrections + externalEvidence + retainedPriceObservations === 0
+      ? 'Deleting this ticket permanently removes the ticket and its line records.'
+      : 'Deleting this ticket permanently removes its receipt captures, extractions, line corrections, receipt evidence and retained receipt price observations.',
   };
 }
 
@@ -455,15 +451,39 @@ function receiptDeleteImpact(databasePath: string, receiptId: string): ReceiptDe
   return withDatabase(databasePath, database => receiptDeleteImpactFromDatabase(database, receiptId), true);
 }
 
+function deleteReceiptFromDatabase(database: DatabaseSync, receiptId: string): ReceiptDeleteImpact {
+  const impact = receiptDeleteImpactFromDatabase(database, receiptId);
+  database.prepare(`
+    DELETE FROM price_observations
+    WHERE evidence_id IN (
+      SELECT external_evidence.id
+      FROM external_evidence
+      WHERE external_evidence.source_type = 'receipt'
+        AND external_evidence.source_reference IN (
+          SELECT 'receipt-item:' || receipt_items.id
+          FROM receipt_items
+          WHERE receipt_items.receipt_id = ?
+        )
+    )
+  `).run(receiptId);
+  database.prepare(`
+    DELETE FROM external_evidence
+    WHERE source_type = 'receipt'
+      AND source_reference IN (
+        SELECT 'receipt-item:' || receipt_items.id
+        FROM receipt_items
+        WHERE receipt_items.receipt_id = ?
+      )
+  `).run(receiptId);
+  database.prepare('DELETE FROM receipts WHERE id = ?').run(receiptId);
+  return impact;
+}
+
 function deleteReceipt(databasePath: string, receiptId: string): void {
   withDatabase(databasePath, (database) => {
     database.exec('BEGIN IMMEDIATE');
     try {
-      const impact = receiptDeleteImpactFromDatabase(database, receiptId);
-      if (!impact.canDelete) {
-        throw new ApiError(409, 'RECEIPT_DELETE_BLOCKED', 'Ticket has immutable receipt or price evidence and cannot be hard-deleted');
-      }
-      database.prepare('DELETE FROM receipts WHERE id = ?').run(receiptId);
+      deleteReceiptFromDatabase(database, receiptId);
       database.exec('COMMIT');
     } catch (error) {
       database.exec('ROLLBACK');
