@@ -54,7 +54,8 @@ test('catalog details expose a navigable breadcrumb and the application shell ha
   await expect(breadcrumb.getByRole('link', { name: 'Inventario', exact: true })).toHaveAttribute('href', '/inventory');
   await expect(breadcrumb.getByRole('link', { name: 'Productos', exact: true })).toHaveAttribute('href', '/inventory/products');
   await expect(breadcrumb.locator('.icon')).toHaveCount(3);
-  await expect(page.getByRole('button', { name: 'Limpiar filtros', exact: true }).locator('.icon')).toHaveCount(1);
+  await expect(page.locator('#catalog-list-screen')).toBeHidden();
+  await expect(page.locator('#catalog-clear-filters .icon')).toHaveCount(1);
   await breadcrumb.getByRole('link', { name: 'Inventario', exact: true }).focus();
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/inventory$/);
