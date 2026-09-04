@@ -477,6 +477,7 @@ test('catalog and inventory defensive residuals cover partial payloads and alter
   test.setTimeout(60_000);
   let catalogMode = 'single';
   let categoryMode = 'normal';
+  let categoryMetadataMode = 'normal';
   let overviewRequest = 0;
   let releaseOverview;
   let storesRequest = 0;
@@ -493,7 +494,7 @@ test('catalog and inventory defensive residuals cover partial payloads and alter
   await page.route('**/api/v1/meta', route => json(route, { units: {} }));
   await page.route(/\/api\/v1\/categories(?:\?.*)?$/, async route => {
     const url = new URL(route.request().url());
-    if (url.searchParams.get('mode') !== 'inventory') return json(route, { categories: {} });
+    if (url.searchParams.get('mode') !== 'inventory') return json(route, { categories: categoryMetadataMode === 'normal' ? categories : {} });
     if (categoryMode === 'missing-list') return json(route, { inventory: { total: 0, offset: 0, limit: 12, hasMore: false } });
     return json(route, { inventory: { categories, total: categories.length, offset: 0, limit: 12, hasMore: false } });
   });
@@ -582,7 +583,9 @@ test('catalog and inventory defensive residuals cover partial payloads and alter
   await page.locator('#category-cancel-edit').dispatchEvent('click');
 
   categoryMode = 'missing-list';
+  categoryMetadataMode = 'non-array';
   await page.goto('/inventory/categories');
+  await page.reload();
   await expect(page.locator('#category-tree')).toContainText('No hay categorías');
 
   await page.goto('/inventory');
