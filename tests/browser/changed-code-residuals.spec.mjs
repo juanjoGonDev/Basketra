@@ -207,6 +207,13 @@ test('catalog residual branches cover rich history, nested categories and destru
     if (productImpactMode === 'error') return json(route, { error: { message: 'Impact failed' } }, 500);
     return json(route, { impact: { receiptItems: 0, shoppingListItems: 0, priceObservations: 0, linkedStores: 0, canDelete: productImpactMode === 'allowed' } });
   });
+  await page.route(/\/api\/v1\/catalog\/products\/([^/]+)$/, route => {
+    if (route.request().method() !== 'DELETE') return route.fallback();
+    if (productDeleteMode === 'error') return json(route, { error: { message: 'Product delete failed' } }, 500);
+    const id = new URL(route.request().url()).pathname.split('/').at(-1);
+    products = products.filter(entry => entry.id !== id);
+    return route.fulfill({ status: 204, body: '' });
+  });
   await page.route('**/api/v1/catalog/products/bulk-delete-impact', route => json(route, { impact: { canDelete: true, blocked: [] } }));
   await page.route('**/api/v1/catalog/products/bulk-delete', route => {
     const ids = route.request().postDataJSON().ids;
@@ -411,10 +418,17 @@ test('inventory residual branches cover overview routing, Store guards and non-e
   await expect(page.locator('#store-form-state')).toContainText('obligatorios');
   await page.locator('#store-retailer').fill('Mercado');
   await page.locator('#store-name').fill('Nueva');
-  await page.locator('#store-latitude').fill('abc');
+  await page.locator('#store-editor details > summary').click();
+  await page.locator('#store-latitude').evaluate(input => {
+    input.type = 'text';
+    input.value = 'abc';
+  });
   await page.locator('#store-form').dispatchEvent('submit');
   await expect(page.locator('#store-form-state')).toContainText('latitud');
-  await page.locator('#store-latitude').fill('91');
+  await page.locator('#store-latitude').evaluate(input => {
+    input.type = 'number';
+    input.value = '91';
+  });
   await page.locator('#store-form').dispatchEvent('submit');
   await expect(page.locator('#store-form-state')).toContainText('latitud');
 
