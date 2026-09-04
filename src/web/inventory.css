@@ -758,8 +758,10 @@
 
   .inventory-overview-tabs .task-tab {
     min-width: 0;
-    padding-inline: .3rem;
-    font-size: .74rem;
+    min-height: var(--touch);
+    padding-inline: .15rem;
+    overflow-wrap: anywhere;
+    font-size: .7rem;
     white-space: normal;
     border-radius: 0;
     border-bottom: 2px solid transparent;
