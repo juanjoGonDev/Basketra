@@ -660,7 +660,11 @@ export class BasketraServer {
   private getProduct(response: ServerResponse, variantId: string): void {
     const product = this.#database.getProductVariant(variantId);
     if (!product) throw new ApiError(404, 'PRODUCT_VARIANT_NOT_FOUND', 'Product variant was not found');
-    this.json(response, 200, { product, priceHistory: this.#database.listPriceObservations(variantId) });
+    this.json(response, 200, {
+      product,
+      priceHistory: this.#database.listPriceObservations(variantId),
+      ticketHistory: this.#database.listProductTicketHistory(variantId),
+    });
   }
 
   private async updateProduct(request: IncomingMessage, response: ServerResponse, variantId: string): Promise<void> {

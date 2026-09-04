@@ -38,6 +38,11 @@ const priceHistory = [
   { id: 'price_1', productVariantId: 'variant_milk', retailerId: 'retailer_mercadona', retailerName: 'Mercadona', storeId: 'store_centro', storeName: 'Mercadona Centro', priceMinor: 109, packageNumerator: 1, packageDenominator: 1, packageUnit: 'unit', normalizedPriceNumerator: 109, normalizedPriceDenominator: 1, evidenceId: 'evidence_1', observedAt: '2026-07-31T10:00:00.000Z', confidence: 1 },
 ];
 
+const ticketHistory = [
+  { receiptId: 'receipt_milk_august', purchasedAt: '2026-08-31T10:00:00.000Z', retailerName: 'Mercadona', storeName: 'Mercadona Centro', quantity: 2, unit: 'unit', lineTotalMinor: 238 },
+  { receiptId: 'receipt_milk_july', purchasedAt: '2026-07-31T10:00:00.000Z', retailerName: 'Mercadona', quantity: 1, unit: 'unit', lineTotalMinor: 109 },
+];
+
 async function installCatalogRoutes(page) {
   await page.route('**/api/v1/meta', route => route.fulfill({
     status: 200,
@@ -52,7 +57,7 @@ async function installCatalogRoutes(page) {
   await page.route('**/api/v1/products/variant_milk', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
-    body: JSON.stringify({ product, priceHistory }),
+    body: JSON.stringify({ product, priceHistory, ticketHistory }),
   }));
   await page.route('**/api/v1/catalog?*', route => route.fulfill({
     status: 200,
@@ -104,6 +109,9 @@ test('product list opens a full-page product detail with accessible price histor
   await expect(page.locator('#catalog-price-history-chart')).toBeVisible();
   await expect(page.locator('#catalog-price-history-table')).toContainText('Mercadona Centro');
   await expect(page.locator('#catalog-price-history-table')).toContainText('1,09');
+  await expect(page.locator('#catalog-ticket-history')).toBeVisible();
+  await expect(page.locator('#catalog-ticket-history-table')).toContainText('Mercadona Centro');
+  await expect(page.locator('#catalog-ticket-history-table')).toContainText('2');
 
   const geometry = await detail.evaluate(element => {
     const box = element.getBoundingClientRect();
@@ -115,6 +123,36 @@ test('product list opens a full-page product detail with accessible price histor
   });
   expect(geometry.right - geometry.left).toBeGreaterThan(700);
   await expectNoHorizontalOverflow(page);
+  await expect(page.getByRole('link', { name: /Abrir ticket del 31 ago 2026/i })).toHaveAttribute('href', '/tickets/history/receipt_milk_august');
 
   await page.locator('.view[data-view="catalog"]').screenshot({ path: testInfo.outputPath('catalog-product-detail-desktop.png') });
+});
+
+test('product ticket history has an explicit empty state without mobile overflow', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installCatalogRoutes(page);
+  await page.route('**/api/v1/products/variant_milk', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ product, priceHistory, ticketHistory: [] }),
+  }));
+
+  await page.goto('/inventory/products/variant_milk');
+  await expect(page.locator('#catalog-detail')).toBeVisible();
+  await expect(page.locator('#catalog-ticket-history-state')).toHaveText('Todavía no hay tickets confirmados que contengan este producto.');
+  await expect(page.locator('#catalog-ticket-history-content')).toBeHidden();
+  await expectNoHorizontalOverflow(page);
+});
+
+test('product history exposes an explicit error state when its read model is unavailable', async ({ page }) => {
+  await installCatalogRoutes(page);
+  await page.route('**/api/v1/products/variant_milk', route => route.fulfill({
+    status: 503,
+    contentType: 'application/json',
+    body: JSON.stringify({ error: { message: 'Servicio no disponible' } }),
+  }));
+
+  await page.goto('/inventory/products/variant_milk');
+  await expect(page.locator('#catalog-detail-title')).toHaveText('No se pudo abrir el producto');
+  await expect(page.locator('#catalog-ticket-history-state')).toContainText('No se pudo cargar el historial de tickets');
 });

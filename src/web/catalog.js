@@ -129,6 +129,16 @@ function installCatalogView() {
           </div>
         </div>
       </section>
+      <section id="catalog-ticket-history" class="surface catalog-ticket-history" aria-labelledby="catalog-ticket-history-title">
+        <div class="section-header"><div><h2 id="catalog-ticket-history-title">Histórico de tickets</h2></div><span id="catalog-ticket-history-count" class="count-badge">0</span></div>
+        <p id="catalog-ticket-history-state" class="inline-status" role="status" aria-live="polite">Sin tickets confirmados.</p>
+        <div id="catalog-ticket-history-content" class="catalog-ticket-history__table-wrap" hidden>
+          <table id="catalog-ticket-history-table">
+            <thead><tr><th scope="col">Fecha</th><th scope="col">Comercio / tienda</th><th scope="col">Cantidad</th><th scope="col">Importe</th><th scope="col"><span class="sr-only">Acción</span></th></tr></thead>
+            <tbody id="catalog-ticket-history-body"></tbody>
+          </table>
+        </div>
+      </section>
       <section id="catalog-editor" class="surface inventory-editor" aria-labelledby="catalog-editor-title" hidden>
         <div class="section-header"><div><p class="eyebrow">Edición</p><h2 id="catalog-editor-title">Editar producto</h2></div><span id="catalog-product-status" class="status-pill">Guardado</span></div>
         <form id="catalog-product-form" class="catalog-form" novalidate>
@@ -518,6 +528,40 @@ function renderPriceHistory(product) {
   content.hidden = false;
 }
 
+function ticketHistoryLocation(entry) {
+  if (entry.storeName && entry.retailerName) return `${entry.retailerName} · ${entry.storeName}`;
+  return entry.storeName || entry.retailerName || 'Sin comercio ni tienda';
+}
+
+function ticketHistoryDate(value) {
+  return Number.isNaN(Date.parse(value)) ? value : DATE_FORMATTER.format(new Date(value));
+}
+
+function renderTicketHistory(product) {
+  const history = Array.isArray(product?.ticketHistory) ? product.ticketHistory : [];
+  const stateElement = $('#catalog-ticket-history-state');
+  const content = $('#catalog-ticket-history-content');
+  const tableBody = $('#catalog-ticket-history-body');
+  $('#catalog-ticket-history-count').textContent = String(history.length);
+  tableBody?.replaceChildren();
+  if (!history.length) {
+    stateElement.textContent = 'Todavía no hay tickets confirmados que contengan este producto.';
+    content.hidden = true;
+    return;
+  }
+  for (const entry of history) {
+    const row = document.createElement('tr');
+    const date = ticketHistoryDate(entry.purchasedAt);
+    const location = ticketHistoryLocation(entry);
+    const quantity = `${Number(entry.quantity)} ${entry.unit || 'unit'}`;
+    const ticketUrl = `/tickets/history/${encodeURIComponent(entry.receiptId)}`;
+    row.innerHTML = `<td>${escapeHtml(date)}</td><td>${escapeHtml(location)}</td><td>${escapeHtml(quantity)}</td><td><strong>${escapeHtml(formatEuroMinor(entry.lineTotalMinor))}</strong></td><td><a class="button secondary catalog-ticket-history__open" href="${ticketUrl}" aria-label="Abrir ticket del ${escapeHtml(date)}">Abrir ticket</a></td>`;
+    tableBody?.append(row);
+  }
+  stateElement.textContent = `${history.length} ticket${history.length === 1 ? '' : 's'} confirmado${history.length === 1 ? '' : 's'} con este producto.`;
+  content.hidden = false;
+}
+
 function renderRetailerNames(product) {
   const container = $('#catalog-retailer-names');
   if (!container) return;
@@ -585,24 +629,26 @@ function renderProductDetail(product, { creating = false } = {}) {
   $('#catalog-parent-name').textContent = product?.canonicalName || 'Pendiente';
   renderLatestPrices(product);
   renderPriceHistory(product);
+  renderTicketHistory(product);
   renderRetailerNames(product);
   populateProductForm(product, { creating });
   $('#catalog-edit-product').hidden = creating;
   $('#catalog-delete-product').hidden = creating;
 }
 
-function productFromCanonicalRecord(record, priceHistory = []) {
+function productFromCanonicalRecord(record, priceHistory = [], ticketHistory = []) {
   return {
     ...record,
     retailerNames: record.retailerNames || [],
     latestPrices: record.latestPrices || [],
     priceHistory: Array.isArray(priceHistory) ? priceHistory : [],
+    ticketHistory: Array.isArray(ticketHistory) ? ticketHistory : [],
   };
 }
 
 async function fetchProductDetail(productId) {
   const result = await api(`/api/v1/products/${encodeURIComponent(productId)}`);
-  return productFromCanonicalRecord(result.product, result.priceHistory);
+  return productFromCanonicalRecord(result.product, result.priceHistory, result.ticketHistory);
 }
 
 async function openProductDetail(productOrId, { edit = false, historyMode = 'push' } = {}) {
@@ -614,6 +660,8 @@ async function openProductDetail(productOrId, { edit = false, historyMode = 'pus
   $('#catalog-detail-meta').textContent = 'Consultando ficha e histórico.';
   $('#catalog-price-history-state').textContent = 'Cargando histórico…';
   $('#catalog-price-history-content').hidden = true;
+  $('#catalog-ticket-history-state').textContent = 'Cargando historial de tickets…';
+  $('#catalog-ticket-history-content').hidden = true;
   if (historyMode !== 'none') writeProductRoute(`catalog:${productId}`, { replace: historyMode === 'replace', edit });
   window.scrollTo(0, 0);
   try {
@@ -625,6 +673,7 @@ async function openProductDetail(productOrId, { edit = false, historyMode = 'pus
     $('#catalog-detail-title').textContent = 'No se pudo abrir el producto';
     $('#catalog-detail-meta').textContent = error.message;
     $('#catalog-price-history-state').textContent = `No se pudo cargar el histórico: ${error.message}`;
+    $('#catalog-ticket-history-state').textContent = `No se pudo cargar el historial de tickets: ${error.message}`;
     showProductEditor(false);
   }
 }

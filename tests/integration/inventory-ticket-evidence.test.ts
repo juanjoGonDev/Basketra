@@ -82,6 +82,15 @@ function queryOne<T>(databasePath: string, sql: string, ...params: Array<string 
   }
 }
 
+function execute(databasePath: string, sql: string, ...params: Array<string | number>): void {
+  const database = new DatabaseSync(databasePath);
+  try {
+    database.prepare(sql).run(...params);
+  } finally {
+    database.close();
+  }
+}
+
 test('historical ticket edits preserve immutable receipt and price evidence', async () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-inventory-ticket-evidence-'));
   const server = new BasketraServer(config(root));
@@ -108,6 +117,24 @@ test('historical ticket edits preserve immutable receipt and price evidence', as
     });
     assert.equal(imported.status, 201);
     const receiptId = string(imported.body?.['receiptId']);
+
+    const productResponse = await request(baseUrl, '/api/v1/products', {
+      method: 'POST',
+      body: { canonicalName: 'Leche entera', variantName: 'Leche entera 1 L' },
+    });
+    assert.equal(productResponse.status, 201);
+    const productId = string(record(productResponse.body?.['product'])['id']);
+    execute(databasePath, 'UPDATE receipt_items SET product_variant_id = ? WHERE receipt_id = ?', productId, receiptId);
+
+    const productDetail = await request(baseUrl, `/api/v1/products/${encodeURIComponent(productId)}`);
+    assert.equal(productDetail.status, 200);
+    const productTickets = array(productDetail.body?.['ticketHistory']);
+    assert.equal(productTickets.length, 1);
+    const ticketUsage = record(productTickets[0]);
+    assert.equal(ticketUsage['receiptId'], receiptId);
+    assert.equal(ticketUsage['retailerName'], 'Mercadona');
+    assert.equal(ticketUsage['quantity'], 1);
+    assert.equal(ticketUsage['lineTotalMinor'], 100);
 
     const detail = await request(baseUrl, `/api/v1/inventory/tickets/${encodeURIComponent(receiptId)}`);
     assert.equal(detail.status, 200);

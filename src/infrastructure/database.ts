@@ -11,6 +11,7 @@ import { ShoppingRepository } from './shopping-repository.ts';
 
 export type {
   PriceObservationRecord,
+  ProductTicketHistoryRecord,
   ProductCategoryRecord,
   ProductSuggestionRecord,
   ProductVariantRecord,
@@ -573,6 +574,10 @@ export class BasketraDatabase {
 
   listPriceObservations(productVariantId: string) {
     return this.#catalog.listPriceObservations(productVariantId);
+  }
+
+  listProductTicketHistory(productVariantId: string) {
+    return this.#catalog.listProductTicketHistory(productVariantId);
   }
 
   searchRetailers(query: string, limit: number): RetailerSuggestion[] {

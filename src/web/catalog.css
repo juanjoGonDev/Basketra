@@ -795,6 +795,48 @@
   border-bottom: 0;
 }
 
+.catalog-ticket-history {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.catalog-ticket-history__table-wrap {
+  min-width: 0;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: .9rem;
+}
+
+.catalog-ticket-history table {
+  width: 100%;
+  min-width: 42rem;
+  border-collapse: collapse;
+}
+
+.catalog-ticket-history th,
+.catalog-ticket-history td {
+  padding: .7rem .8rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.catalog-ticket-history th {
+  background: color-mix(in srgb, var(--surface) 92%, var(--primary) 8%);
+  color: var(--muted);
+  font-size: .75rem;
+  font-weight: 750;
+}
+
+.catalog-ticket-history tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.catalog-ticket-history__open {
+  white-space: nowrap;
+}
+
 @media (max-width: 52rem) {
   .catalog-price-history__content {
     grid-template-columns: minmax(0, 1fr);

@@ -70,6 +70,16 @@ export type PriceObservationRecord = Readonly<{
   confidence: number;
 }>;
 
+export type ProductTicketHistoryRecord = Readonly<{
+  receiptId: string;
+  purchasedAt: string;
+  retailerName?: string;
+  storeName?: string;
+  quantity: number;
+  unit: string;
+  lineTotalMinor: number;
+}>;
+
 type CategoryRow = Readonly<{
   id: string;
   name: string;
@@ -611,6 +621,38 @@ export class CatalogRepository {
         ...(storeName ? { storeName } : {}),
       };
     }) as PriceObservationRecord[];
+  }
+
+  listProductTicketHistory(productVariantId: string, limit = 90): ProductTicketHistoryRecord[] {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 90) {
+      throw new RangeError('Product ticket history limit must be between 1 and 90');
+    }
+    return this.#database.prepare(`
+      SELECT
+        receipt_items.receipt_id AS receiptId,
+        COALESCE(receipts.purchased_at, receipts.created_at) AS purchasedAt,
+        retailers.name AS retailerName,
+        stores.name AS storeName,
+        receipt_items.quantity,
+        receipt_items.unit,
+        receipt_items.line_total_minor AS lineTotalMinor
+      FROM receipt_items
+      JOIN receipts ON receipts.id = receipt_items.receipt_id
+      LEFT JOIN retailers ON retailers.id = receipts.retailer_id
+      LEFT JOIN stores ON stores.id = receipts.store_id
+      WHERE receipt_items.product_variant_id = ?
+        AND receipt_items.status = 'confirmed'
+      ORDER BY COALESCE(receipts.purchased_at, receipts.created_at) DESC, receipts.id DESC, receipt_items.id DESC
+      LIMIT ?
+    `).all(productVariantId, limit).map((row) => {
+      const value = row as ProductTicketHistoryRecord & { retailerName: string | null; storeName: string | null };
+      const { retailerName, storeName, ...base } = value;
+      return {
+        ...base,
+        ...(retailerName ? { retailerName } : {}),
+        ...(storeName ? { storeName } : {}),
+      };
+    }) as ProductTicketHistoryRecord[];
   }
 
   private categoryById(id: string): ProductCategoryRecord | undefined {
