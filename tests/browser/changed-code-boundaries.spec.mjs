@@ -311,7 +311,9 @@ test('catalog covers filters, validation, relations, allowed deletes and error s
   await page.locator('#category-filter').selectOption('roots');
   await page.locator('#category-clear-filters').click();
   await page.locator('#category-next').click();
+  await expect(page.locator('#category-page')).toHaveText('2 / 2');
   await page.locator('#category-prev').click();
+  await expect(page.locator('#category-page')).toHaveText('1 / 2');
   await page.locator('#category-search').fill('vacío');
   await expect(page.locator('#category-tree')).toContainText('No hay categorías');
   await page.locator('#category-search').fill('fallo');

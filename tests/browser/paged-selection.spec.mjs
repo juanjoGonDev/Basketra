@@ -292,6 +292,7 @@ test('category and store page selection synchronize each visible checkbox across
   await page.getByRole('checkbox', { name: 'Seleccionar categorías de esta página' }).check();
   await expect(page.getByRole('checkbox', { name: 'Seleccionar categoría Categoría página 1' })).toBeChecked();
   await page.locator('#category-next').click();
+  await expect(page.getByRole('checkbox', { name: 'Seleccionar categoría Categoría página 2' })).toBeVisible();
   await expect(page.getByRole('checkbox', { name: 'Seleccionar categorías de esta página' })).not.toBeChecked();
   await page.getByRole('checkbox', { name: 'Seleccionar categorías de esta página' }).check();
   await expect(page.getByRole('checkbox', { name: 'Seleccionar categoría Categoría página 2' })).toBeChecked();
@@ -303,6 +304,7 @@ test('category and store page selection synchronize each visible checkbox across
   await page.getByRole('checkbox', { name: 'Seleccionar tiendas de esta página' }).check();
   await expect(page.getByRole('checkbox', { name: 'Seleccionar tienda Tienda página 1' })).toBeChecked();
   await page.locator('#store-next').click();
+  await expect(page.getByRole('checkbox', { name: 'Seleccionar tienda Tienda página 2' })).toBeVisible();
   await expect(page.getByRole('checkbox', { name: 'Seleccionar tiendas de esta página' })).not.toBeChecked();
   await page.getByRole('checkbox', { name: 'Seleccionar tiendas de esta página' }).check();
   await expect(page.getByRole('checkbox', { name: 'Seleccionar tienda Tienda página 2' })).toBeChecked();
