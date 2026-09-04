@@ -29,4 +29,30 @@ export const INVENTORY_MIGRATIONS: readonly MigrationDefinition[] = [
         ON receipts(purchased_at DESC, created_at DESC);
     `,
   },
+  {
+    version: 12,
+    kind: 'safe',
+    sql: `
+      CREATE TRIGGER receipt_price_observation_assign_store
+      AFTER INSERT ON price_observations
+      WHEN NEW.id GLOB 'price_receipt_*'
+      BEGIN
+        UPDATE price_observations
+        SET store_id = (
+          SELECT receipts.store_id
+          FROM receipts
+          JOIN receipt_items ON receipt_items.receipt_id = receipts.id
+          WHERE 'price_receipt_' || receipt_items.id = NEW.id
+        )
+        WHERE id = NEW.id
+          AND EXISTS (
+            SELECT 1
+            FROM receipts
+            JOIN receipt_items ON receipt_items.receipt_id = receipts.id
+            WHERE 'price_receipt_' || receipt_items.id = NEW.id
+              AND receipts.store_id IS NOT NULL
+          );
+      END;
+    `,
+  },
 ] as const;
