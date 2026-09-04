@@ -261,7 +261,7 @@ test('catalog covers filters, validation, relations, allowed deletes and error s
   await expect(page.locator('#catalog-parent-state')).toContainText('Escribe el nombre');
   await page.locator('#catalog-new-parent-name').fill('Padre nuevo');
   await page.getByRole('button', { name: 'Crear padre y relacionar' }).click();
-  await expect(page.locator('#catalog-parent-state')).toContainText('creado y relacionado');
+  await expect(page.locator('#catalog-detail-meta')).toHaveText('Padre nuevo');
   parentMode = 'error';
   await page.locator('#catalog-new-parent-name').fill('Otro padre');
   await page.getByRole('button', { name: 'Crear padre y relacionar' }).click();
@@ -422,6 +422,7 @@ test('inventory Store CRUD, filters, validation and statistics exercise alternat
   await expect(page).toHaveURL(/\/inventory\/stores\/new/);
   await page.locator('#store-retailer').fill('Mercado');
   await page.locator('#store-name').fill('Nueva');
+  await page.locator('#store-editor details').getByRole('button').click();
   await page.locator('#store-latitude').fill('37.1');
   await page.getByRole('button', { name: 'Guardar tienda' }).click();
   await expect(page.locator('#store-form-state')).toContainText('latitud y longitud juntas');
