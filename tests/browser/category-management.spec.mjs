@@ -92,6 +92,10 @@ test('hierarchical categories use separate list, detail and editor flows on mobi
   await page.getByRole('button', { name: 'Añadir subcategoría' }).click();
   await expect(page).toHaveURL(/\/inventory\/categories\/new\?parent=category_food$/);
   await expect(page.locator('#category-parent')).toHaveValue('category_food');
+  await page.reload();
+  await expect(page).toHaveURL(/\/inventory\/categories\/new\?parent=category_food$/);
+  await expect(page.locator('#category-editor')).toBeVisible();
+  await expect(page.locator('#category-parent')).toHaveValue('category_food');
 
   await page.locator('#category-name').fill('Lácteos');
   await setCategoryColor(page.locator('#category-color'), '#33aaff');
