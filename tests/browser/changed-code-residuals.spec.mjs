@@ -311,6 +311,8 @@ test('catalog residual branches cover rich history, nested categories and destru
   await page.locator('#category-delete-confirm').click();
   await expect(page.locator('#category-delete-state')).toContainText('Category delete failed');
   await page.locator('#category-delete-cancel').click();
+  await page.locator('#categories-back-list').click();
+  await expect(page.locator('#category-list-screen')).toBeVisible();
 
   await page.locator('#category-search').fill('noinventory');
   await expect(page.locator('#category-state')).toContainText('0 categorías encontradas');

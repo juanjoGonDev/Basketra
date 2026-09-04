@@ -289,8 +289,10 @@ test('category and store page selection synchronize each visible checkbox across
 
   await page.goto('/inventory/categories');
   await expect(page.getByRole('heading', { name: 'Categorías', exact: true })).toBeVisible();
+  const firstCategory = page.getByRole('checkbox', { name: 'Seleccionar categoría Categoría página 1' });
+  await expect(firstCategory).toBeVisible();
   await page.getByRole('checkbox', { name: 'Seleccionar categorías de esta página' }).check();
-  await expect(page.getByRole('checkbox', { name: 'Seleccionar categoría Categoría página 1' })).toBeChecked();
+  await expect(firstCategory).toBeChecked();
   await page.locator('#category-next').click();
   await expect(page.getByRole('checkbox', { name: 'Seleccionar categoría Categoría página 2' })).toBeVisible();
   await expect(page.getByRole('checkbox', { name: 'Seleccionar categorías de esta página' })).not.toBeChecked();
