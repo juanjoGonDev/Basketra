@@ -175,7 +175,7 @@ function installHistoryView() {
     ],
   });
   lineDialog.querySelector('[data-editor-slot]').innerHTML = `
-    <fieldset class="receipt-item receipt-item--editing" data-receipt-line-editor data-editor-validation="review">
+    <fieldset class="ticket-history-line-editor receipt-item--editing" data-receipt-line-editor data-editor-validation="review">
       <legend>Línea del ticket</legend>
       <label class="field"><span>Producto</span><input id="historical-ticket-line-description" data-field="description" maxlength="240" required autocomplete="off"></label>
       <label class="field receipt-editor-category-field"><span>Categoría</span><select id="historical-ticket-line-category"><option value="">Sin categoría</option></select></label>
