@@ -244,7 +244,8 @@ jobs:
 
           copy_unique_capture inventory-mobile.png 20-inventory-overview-mobile.png
           copy_unique_capture inventory-desktop.png 20-inventory-overview-desktop.png
-          copy_unique_capture catalog-desktop-preview.png 21-product-list-desktop.png
+          copy_unique_capture catalog-product-list-desktop.png 21-product-list-desktop.png
+          copy_unique_capture catalog-product-detail-desktop.png 22-product-detail-desktop.png
           copy_unique_capture inventory-product-editor-mobile.png 22-product-editor-mobile.png
           copy_unique_capture inventory-product-delete-mobile.png 22-product-delete-mobile.png
           copy_unique_capture categories-mobile.png 23-categories-mobile.png
@@ -255,7 +256,7 @@ jobs:
           copy_unique_capture ticket-history-desktop.png 25-ticket-history-desktop.png
           copy_unique_capture ticket-editor-desktop.png 25-ticket-editor-desktop.png
 
-          test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 42
+          test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 43
           test "$(find evidence-assets -maxdepth 1 -type f -name '*.gif' | wc -l)" -eq 11
           test "$(find evidence-assets -maxdepth 1 -type f -name '*.webm' | wc -l)" -eq 11
 
@@ -328,11 +329,11 @@ jobs:
           </tr>
           <tr>
           <td><strong>02 · Product list</strong><br><img src="$reference_base/02-product-list.png" width="420" alt="Approved product list reference"></td>
-          <td><img src="$base/21-product-list-desktop.png" width="420" alt="Validated product list desktop with contextual preview"></td>
+          <td><img src="$base/21-product-list-desktop.png" width="420" alt="Validated product list desktop"></td>
           </tr>
           <tr>
           <td><strong>03 · Product detail, editor and delete</strong><br><img src="$reference_base/03-product-detail-editor-delete.png" width="420" alt="Approved product detail editor and delete reference"></td>
-          <td><strong>Editor</strong><br><img src="$base/22-product-editor-mobile.png" width="240" alt="Validated product editor mobile"><br><strong>Dependency-aware delete</strong><br><img src="$base/22-product-delete-mobile.png" width="240" alt="Validated product delete impact mobile"></td>
+          <td><strong>Full detail + price history · desktop</strong><br><img src="$base/22-product-detail-desktop.png" width="420" alt="Validated full-page product detail with accessible price history"><br><strong>Editor · mobile</strong><br><img src="$base/22-product-editor-mobile.png" width="240" alt="Validated product editor mobile"><br><strong>Dependency-aware delete</strong><br><img src="$base/22-product-delete-mobile.png" width="240" alt="Validated product delete impact mobile"></td>
           </tr>
           <tr>
           <td><strong>04 · Category management</strong><br><img src="$reference_base/04-category-management.png" width="420" alt="Approved category management reference"></td>
