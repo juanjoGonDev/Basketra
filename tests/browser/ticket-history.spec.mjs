@@ -206,6 +206,7 @@ test('ticket history supports mobile list, keyboard detail, canonical line calcu
   await expect(lineDialog.locator('[data-editor-section="descuento"]')).toHaveText('3. Descuento');
   await expect(lineDialog.getByRole('heading', { name: 'Resumen' })).toBeVisible();
   await expect(lineDialog.locator('[data-editor-summary-validation]')).toContainText('Revisar total');
+  await lineDialog.screenshot({ path: testInfo.outputPath('ticket-line-add-mobile.png') });
   await lineDialog.locator('#historical-ticket-line-description').fill('Pan integral');
   await lineDialog.locator('#historical-ticket-line-quantity').fill('2');
   await lineDialog.locator('#historical-ticket-line-unit-price').fill('1.20');
@@ -244,6 +245,7 @@ test('ticket history supports mobile list, keyboard detail, canonical line calcu
   await expect(deleteDialog.locator('#ticket-history-delete-impact')).toContainText('Se eliminarán permanentemente');
   await expect(deleteDialog.locator('#ticket-history-delete-impact')).toContainText('1 captura');
   await expect(deleteDialog.locator('#ticket-history-delete-state')).toContainText('no se puede deshacer');
+  await deleteDialog.screenshot({ path: testInfo.outputPath('ticket-delete-warning-mobile.png') });
   const confirmDelete = deleteDialog.getByRole('button', { name: 'Eliminar ticket y datos' });
   await expect(confirmDelete).toBeEnabled();
   await confirmDelete.click();
