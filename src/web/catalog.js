@@ -1071,7 +1071,7 @@ async function saveCategory(button) {
     const savedId = result.category?.id;
     await loadCategoryMetadata({ force: true });
     await loadCategoryInventory();
-    if (`${location.pathname}${location.search}` !== saveRoute) return;
+    if (`${location.pathname}${location.search}` !== saveRoute || $('#category-detail')?.hidden) return;
     if (savedId) await openCategoryDetail(savedId, { historyMode: 'replace' });
     $('#category-form-status').textContent = 'Guardada';
     $('#category-form-state').textContent = current ? 'Categoría actualizada.' : 'Categoría creada.';
