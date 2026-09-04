@@ -12,4 +12,6 @@ test('receipt line dialogs share one invoice shell owner', () => {
   assert.match(history, /createReceiptInvoiceLineDialog/u);
   assert.doesNotMatch(app, /dialog\.innerHTML\s*=\s*`[\s\S]*Línea del ticket/u);
   assert.doesNotMatch(history, /lineDialog\.innerHTML\s*=\s*`[\s\S]*Línea del ticket/u);
+  assert.doesNotMatch(history, /class="receipt-item receipt-item--editing"[^>]*data-receipt-line-editor/u);
+  assert.match(history, /class="ticket-history-line-editor receipt-item--editing"[^>]*data-receipt-line-editor/u);
 });
