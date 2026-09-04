@@ -754,6 +754,7 @@ export class BasketraDatabase {
             .run(storeId, retailerId, input.storeName, timestamp);
         }
       }
+      if (!storeId) throw new Error('RECEIPT_STORE_REQUIRED');
       this.#database.prepare('INSERT INTO receipts(id, retailer_id, store_id, status, currency, declared_total_minor, import_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(receiptId, retailerId, storeId, 'confirmed', 'EUR', input.declaredTotalMinor, input.importKey, timestamp, timestamp);
       for (const [position, capture] of (input.captures ?? []).entries()) {
         this.#database.prepare('INSERT INTO receipt_captures(id, receipt_id, position, storage_key, content_hash, mime_type, original_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(createId('capture'), receiptId, position, capture.storageKey, capture.contentHash ?? null, capture.mimeType, capture.originalName ?? null, timestamp);
