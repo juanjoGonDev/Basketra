@@ -56,7 +56,9 @@ export type PriceObservationRecord = Readonly<{
   id: string;
   productVariantId: string;
   retailerId: string;
+  retailerName: string;
   storeId?: string;
+  storeName?: string;
   priceMinor: number;
   packageNumerator: number;
   packageDenominator: number;
@@ -566,13 +568,18 @@ export class CatalogRepository {
     }
   }
 
-  listPriceObservations(productVariantId: string): PriceObservationRecord[] {
+  listPriceObservations(productVariantId: string, limit = 180): PriceObservationRecord[] {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 180) {
+      throw new RangeError('Price history limit must be between 1 and 180');
+    }
     return this.#database.prepare(`
       SELECT
         price_observations.id,
         retailer_listings.product_variant_id AS productVariantId,
         price_observations.retailer_id AS retailerId,
+        retailers.name AS retailerName,
         price_observations.store_id AS storeId,
+        stores.name AS storeName,
         price_observations.price_minor AS priceMinor,
         price_observations.package_numerator AS packageNumerator,
         price_observations.package_denominator AS packageDenominator,
@@ -584,13 +591,17 @@ export class CatalogRepository {
         price_observations.confidence
       FROM price_observations
       JOIN retailer_listings ON retailer_listings.id = price_observations.retailer_listing_id
+      JOIN retailers ON retailers.id = price_observations.retailer_id
+      LEFT JOIN stores ON stores.id = price_observations.store_id
       WHERE retailer_listings.product_variant_id = ?
       ORDER BY price_observations.observed_at DESC, price_observations.id DESC
-    `).all(productVariantId).map((row) => {
-      const value = row as PriceObservationRecord & { storeId: string | null };
+      LIMIT ?
+    `).all(productVariantId, limit).map((row) => {
+      const value = row as PriceObservationRecord & { storeId: string | null; storeName: string | null };
       return {
         ...value,
         ...(value.storeId ? { storeId: value.storeId } : {}),
+        ...(value.storeName ? { storeName: value.storeName } : {}),
       };
     }) as PriceObservationRecord[];
   }
