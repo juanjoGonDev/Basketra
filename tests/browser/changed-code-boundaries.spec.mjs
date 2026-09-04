@@ -292,7 +292,8 @@ test('catalog covers filters, validation, relations, allowed deletes and error s
   const deleteDialog = page.locator('#catalog-delete-dialog');
   await expect(deleteDialog.getByRole('button', { name: 'Eliminar producto' })).toBeEnabled();
   await deleteDialog.getByRole('button', { name: 'Eliminar producto' }).click();
-  await expect(page.locator('#catalog-state')).toHaveText('Producto eliminado.');
+  await expect(page).toHaveURL(/\/inventory\/products$/);
+  await expect(page.locator('#catalog-products')).not.toContainText('Producto Uno');
 
   await page.getByRole('checkbox', { name: 'Seleccionar Producto Dos' }).check();
   await page.getByRole('button', { name: 'Eliminar seleccionados' }).click();
@@ -451,7 +452,8 @@ test('inventory Store CRUD, filters, validation and statistics exercise alternat
   await expect(deleteDialog.locator('#store-delete-state')).toContainText('Delete failed');
   storeSaveMode = 'success';
   await deleteDialog.getByRole('button', { name: 'Eliminar tienda' }).click();
-  await expect(page.locator('#store-state')).toHaveText('Tienda eliminada.');
+  await expect(page).toHaveURL(/\/inventory\/stores$/);
+  await expect(page.locator('#store-list')).not.toContainText('Nueva editada');
 
   storeImpactMode = 'error';
   await page.goto('/inventory/stores/store_one');
