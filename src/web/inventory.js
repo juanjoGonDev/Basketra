@@ -1,12 +1,23 @@
 import { api, setBusy } from './api.js';
 import { breadcrumb, escapeHtml, formatEuroMinor, hydrateIcons } from './ui.js';
 import { createPagedSelection } from './entity-selection.js';
+import {
+  readApplicationLocation,
+  readRouteEnum,
+  readRoutePage,
+  readRouteText,
+  writeApplicationLocation,
+} from './routes.js';
 
 const STORE_PAGE_SIZE = 12;
 const SEARCH_DELAY_MS = 250;
 const DATE_FORMATTER = new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium' });
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium', timeStyle: 'short' });
 const OVERVIEW_DESTINATIONS = ['catalog', 'categories', 'stores'];
+const OVERVIEW_SCOPES = ['catalog', 'categories', 'stores'];
+const OVERVIEW_SORTS = ['recent', 'name'];
+const STORE_SORTS = ['name', 'activity', 'recent'];
+const STATISTICS_PERIODS = ['30d', '90d', 'year', 'all'];
 
 const $ = selector => document.querySelector(selector);
 
@@ -186,17 +197,18 @@ function activateView(viewName, { dispatch = true } = {}) {
   document.querySelectorAll('.view').forEach(view => view.classList.toggle('active', view === target));
   document.querySelectorAll('.bottom-nav [data-nav]').forEach(button => button.removeAttribute('aria-current'));
   document.querySelector('.bottom-nav [data-nav="inventory"]')?.setAttribute('aria-current', 'page');
-  history.replaceState(null, '', `#${viewName}`);
-  if (dispatch) document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: viewName } }));
+  if (dispatch) document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: viewName, route: viewName, searchParams: new URLSearchParams() } }));
   window.scrollTo(0, 0);
   $('#main')?.focus({ preventScroll: true });
   return true;
 }
 
+function navigate(route, searchParams = new URLSearchParams(), options = {}) {
+  document.dispatchEvent(new CustomEvent('basketra:navigate', { detail: { route, searchParams, ...options } }));
+}
+
 function goInventory() {
-  const button = document.querySelector('.bottom-nav [data-nav="inventory"]');
-  if (button instanceof HTMLButtonElement) button.click();
-  else activateView('inventory');
+  navigate('inventory');
 }
 
 function overviewDestination(value) {
@@ -207,6 +219,27 @@ function overviewTarget(destination) {
   if (destination === 'categories') return { search: '#category-search', filter: '#category-filter', sort: null };
   if (destination === 'stores') return { search: '#store-search', filter: '#store-retailer-filter', sort: '#store-sort' };
   return { search: '#catalog-search', filter: '#catalog-filter-category', sort: '#catalog-sort' };
+}
+
+function overviewRouteSearchParams() {
+  const params = new URLSearchParams();
+  const query = $('#inventory-overview-search')?.value.trim() || '';
+  const scope = overviewDestination($('#inventory-overview-scope')?.value);
+  const sort = readRouteEnum(new URLSearchParams(`sort=${encodeURIComponent($('#inventory-overview-sort')?.value || '')}`), 'sort', OVERVIEW_SORTS, 'recent');
+  if (query) params.set('q', query);
+  if (scope !== 'catalog') params.set('scope', scope);
+  if (sort !== 'recent') params.set('sort', sort);
+  return params;
+}
+
+function applyOverviewRouteState(searchParams) {
+  const query = readRouteText(searchParams, 'q', { maxLength: 160 });
+  const scope = readRouteEnum(searchParams, 'scope', OVERVIEW_SCOPES, 'catalog');
+  const sort = readRouteEnum(searchParams, 'sort', OVERVIEW_SORTS, 'recent');
+  if ($('#inventory-overview-search')) $('#inventory-overview-search').value = query;
+  if ($('#inventory-overview-scope')) $('#inventory-overview-scope').value = scope;
+  if ($('#inventory-overview-sort')) $('#inventory-overview-sort').value = sort;
+  syncOverviewScope();
 }
 
 function syncOverviewScope() {
@@ -226,21 +259,14 @@ function transferOverviewQuery({ focusFilters = false } = {}) {
   const query = $('#inventory-overview-search')?.value.trim() || '';
   const requestedSort = $('#inventory-overview-sort')?.value === 'name' ? 'name' : 'recent';
   const target = overviewTarget(scope);
-  const search = $(target.search);
-  if (search instanceof HTMLInputElement) search.value = query;
-
-  if (target.sort) {
-    const sort = $(target.sort);
-    if (sort instanceof HTMLSelectElement) {
-      sort.value = requestedSort;
-      sort.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-  }
-
-  if (!activateView(scope)) return;
+  const params = new URLSearchParams();
+  if (query) params.set('q', query);
+  if (scope === 'catalog' && requestedSort !== 'name') params.set('sort', requestedSort);
+  if (scope === 'stores' && requestedSort !== 'name') params.set('sort', requestedSort === 'recent' ? 'recent' : 'name');
+  navigate(scope, params);
   requestAnimationFrame(() => {
     if (focusFilters) $(target.filter)?.focus({ preventScroll: false });
-    else search?.focus({ preventScroll: false });
+    else $(target.search)?.focus({ preventScroll: false });
   });
 }
 
@@ -278,7 +304,31 @@ async function loadOverview() {
 
 function openOverviewDestination(destination) {
   const target = String(destination || '');
-  if (target === 'inventory-statistics' || OVERVIEW_DESTINATIONS.includes(target)) activateView(target);
+  if (target === 'inventory-statistics' || OVERVIEW_DESTINATIONS.includes(target)) navigate(target);
+}
+
+function storeRouteSearchParams({ edit = false } = {}) {
+  const params = new URLSearchParams();
+  if (state.storeQuery) params.set('q', state.storeQuery);
+  if (state.storeRetailer) params.set('retailer', state.storeRetailer);
+  if (state.storeSort !== 'name') params.set('sort', state.storeSort);
+  if (state.storePage > 1) params.set('page', String(state.storePage));
+  if (edit) params.set('mode', 'edit');
+  return params;
+}
+
+function applyStoreRouteState(searchParams) {
+  state.storePage = readRoutePage(searchParams);
+  state.storeQuery = readRouteText(searchParams, 'q', { maxLength: 160 });
+  state.storeRetailer = readRouteText(searchParams, 'retailer', { maxLength: 160 });
+  state.storeSort = readRouteEnum(searchParams, 'sort', STORE_SORTS, 'name');
+  if ($('#store-search')) $('#store-search').value = state.storeQuery;
+  if ($('#store-retailer-filter')) $('#store-retailer-filter').value = state.storeRetailer;
+  if ($('#store-sort')) $('#store-sort').value = state.storeSort;
+}
+
+function writeStoreRoute(route = 'stores', { replace = false, edit = false } = {}) {
+  writeApplicationLocation(route, storeRouteSearchParams({ edit }), { replace });
 }
 
 function storeQueryString() {
@@ -424,22 +474,22 @@ function populateStoreForm(store, { creating = false } = {}) {
   $('#store-form-state').textContent = '';
 }
 
-async function openStoreDetail(storeId, { edit = false } = {}) {
+async function openStoreDetail(storeId, { edit = false, historyMode = 'push' } = {}) {
   const result = await api(`/api/v1/inventory/stores/${encodeURIComponent(storeId)}`);
   $('#store-list-screen').hidden = true;
   $('#store-detail-screen').hidden = false;
   renderStoreDetail(result.store);
   showStoreEditor(edit);
-  history.replaceState(null, '', `#stores:${encodeURIComponent(storeId)}`);
+  if (historyMode !== 'none') writeStoreRoute(`stores:${storeId}`, { replace: historyMode === 'replace', edit });
   window.scrollTo(0, 0);
 }
 
-function startCreateStore() {
+function startCreateStore({ historyMode = 'push' } = {}) {
   $('#store-list-screen').hidden = true;
   $('#store-detail-screen').hidden = false;
   renderStoreDetail(null, { creating: true });
   showStoreEditor(true);
-  history.replaceState(null, '', '#stores:new');
+  if (historyMode !== 'none') writeStoreRoute('stores:new', { replace: historyMode === 'replace', edit: true });
   requestAnimationFrame(() => $('#store-retailer')?.focus());
 }
 
@@ -449,7 +499,7 @@ function closeStoreDetail() {
   $('#store-list-screen').hidden = false;
   $('#store-edit').hidden = false;
   $('#store-delete').hidden = false;
-  history.replaceState(null, '', '#stores');
+  writeStoreRoute('stores', { replace: true });
   window.scrollTo(0, 0);
   void loadStores();
 }
@@ -510,7 +560,7 @@ async function saveStore(button) {
     showStoreEditor(false);
     $('#store-editor-status').textContent = 'Guardada';
     $('#store-form-state').textContent = current ? 'Tienda actualizada.' : 'Tienda creada.';
-    history.replaceState(null, '', `#stores:${encodeURIComponent(result.store.id)}`);
+    writeStoreRoute(`stores:${result.store.id}`, { replace: true });
     void loadStores();
   } catch (error) {
     $('#store-editor-status').textContent = 'Revisar';
@@ -634,43 +684,54 @@ async function loadStatistics() {
   }
 }
 
-async function openRequestedStore(requested) {
+async function openRequestedStore(requested, { edit = false } = {}) {
   if (requested === 'stores:new') {
-    startCreateStore();
+    startCreateStore({ historyMode: 'none' });
     return;
   }
   if (!requested.startsWith('stores:')) return;
   try {
-    await openStoreDetail(decodeURIComponent(requested.slice('stores:'.length)));
+    await openStoreDetail(decodeURIComponent(requested.slice('stores:'.length)), { edit, historyMode: 'none' });
   } catch (error) {
     $('#store-state').textContent = `No se pudo abrir la tienda: ${error.message}`;
   }
 }
 
-async function activateStores(requested = 'stores') {
+async function activateStores(requested = 'stores', searchParams = new URLSearchParams()) {
   activateView('stores', { dispatch: false });
-  await loadStores({ resetPage: true });
-  await openRequestedStore(requested);
+  applyStoreRouteState(searchParams);
+  $('#store-detail-screen').hidden = true;
+  $('#store-list-screen').hidden = false;
+  await loadStores();
+  await openRequestedStore(requested, { edit: searchParams.get('mode') === 'edit' });
 }
 
-async function activateStatistics() {
+async function activateStatistics(searchParams = new URLSearchParams()) {
   activateView('inventory-statistics', { dispatch: false });
+  state.statisticsPeriod = readRouteEnum(searchParams, 'period', STATISTICS_PERIODS, '30d');
+  if ($('#statistics-period')) $('#statistics-period').value = state.statisticsPeriod;
   await loadStatistics();
 }
 
 function bindOverviewInteractions() {
-  $('#inventory-overview-new-product').addEventListener('click', () => {
-    if (!activateView('catalog')) return;
-    requestAnimationFrame(() => $('#catalog-new-product')?.click());
-  });
+  $('#inventory-overview-new-product').addEventListener('click', () => navigate('catalog:new'));
   document.querySelectorAll('[data-inventory-destination]').forEach(button => {
     button.addEventListener('click', () => openOverviewDestination(button.dataset.inventoryDestination));
   });
-  $('#inventory-overview-scope').addEventListener('change', syncOverviewScope);
+  $('#inventory-overview-search').addEventListener('input', () => {
+    clearTimeout(state.searchTimer);
+    state.searchTimer = setTimeout(() => writeApplicationLocation('inventory', overviewRouteSearchParams(), { replace: true }), SEARCH_DELAY_MS);
+  });
+  $('#inventory-overview-scope').addEventListener('change', () => {
+    syncOverviewScope();
+    writeApplicationLocation('inventory', overviewRouteSearchParams());
+  });
+  $('#inventory-overview-sort').addEventListener('change', () => writeApplicationLocation('inventory', overviewRouteSearchParams()));
   document.querySelectorAll('[data-inventory-scope]').forEach(button => {
     button.addEventListener('click', () => {
       $('#inventory-overview-scope').value = overviewDestination(button.dataset.inventoryScope);
       syncOverviewScope();
+      writeApplicationLocation('inventory', overviewRouteSearchParams());
       $('#inventory-overview-search').focus();
     });
   });
@@ -687,16 +748,47 @@ function bindInteractions() {
   $('#stores-back-inventory').addEventListener('click', goInventory);
   $('#statistics-back-inventory').addEventListener('click', goInventory);
   $('#stores-back-list').addEventListener('click', closeStoreDetail);
-  $('#store-new').addEventListener('click', startCreateStore);
-  $('#store-edit').addEventListener('click', () => showStoreEditor(true));
-  $('#store-cancel-edit').addEventListener('click', () => state.selectedStore ? showStoreEditor(false) : closeStoreDetail());
+  $('#store-new').addEventListener('click', () => startCreateStore());
+  $('#store-edit').addEventListener('click', () => {
+    const store = state.selectedStore;
+    if (!store) return;
+    showStoreEditor(true);
+    writeStoreRoute(`stores:${store.id}`, { edit: true });
+  });
+  $('#store-cancel-edit').addEventListener('click', () => {
+    const store = state.selectedStore;
+    if (!store) return closeStoreDetail();
+    showStoreEditor(false);
+    writeStoreRoute(`stores:${store.id}`, { replace: true });
+  });
   $('#store-form').addEventListener('submit', event => { event.preventDefault(); void saveStore($('#store-save')); });
   $('#store-delete').addEventListener('click', () => void openStoreDeleteDialog());
   $('#store-delete-cancel').addEventListener('click', () => $('#store-delete-dialog').close());
   $('#store-delete-confirm').addEventListener('click', event => void confirmStoreDelete(event.currentTarget));
-  $('#store-search').addEventListener('input', () => { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(() => void loadStores({ resetPage: true }), SEARCH_DELAY_MS); });
-  $('#store-retailer-filter').addEventListener('input', () => { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(() => void loadStores({ resetPage: true }), SEARCH_DELAY_MS); });
-  $('#store-sort').addEventListener('change', event => { state.storeSort = event.currentTarget.value; void loadStores({ resetPage: true }); });
+  $('#store-search').addEventListener('input', () => {
+    clearTimeout(state.searchTimer);
+    state.searchTimer = setTimeout(() => {
+      state.storeQuery = $('#store-search').value.trim();
+      state.storePage = 1;
+      writeStoreRoute('stores', { replace: true });
+      void loadStores();
+    }, SEARCH_DELAY_MS);
+  });
+  $('#store-retailer-filter').addEventListener('input', () => {
+    clearTimeout(state.searchTimer);
+    state.searchTimer = setTimeout(() => {
+      state.storeRetailer = $('#store-retailer-filter').value.trim();
+      state.storePage = 1;
+      writeStoreRoute('stores', { replace: true });
+      void loadStores();
+    }, SEARCH_DELAY_MS);
+  });
+  $('#store-sort').addEventListener('change', event => {
+    state.storeSort = readRouteEnum(new URLSearchParams(`sort=${encodeURIComponent(event.currentTarget.value)}`), 'sort', STORE_SORTS, 'name');
+    state.storePage = 1;
+    writeStoreRoute();
+    void loadStores();
+  });
   $('#store-clear-filters').addEventListener('click', () => {
     $('#store-search').value = '';
     $('#store-retailer-filter').value = '';
@@ -704,7 +796,9 @@ function bindInteractions() {
     state.storeQuery = '';
     state.storeRetailer = '';
     state.storeSort = 'name';
-    void loadStores({ resetPage: true });
+    state.storePage = 1;
+    writeStoreRoute();
+    void loadStores();
   });
   $('#store-select-page').addEventListener('change', event => {
     state.storeSelection.setPage((state.stores.stores || []).map(store => store.id), event.currentTarget.checked);
@@ -714,18 +808,44 @@ function bindInteractions() {
     state.storeSelection.clear();
     syncStoreSelection();
   });
-  $('#store-prev').addEventListener('click', () => { if (state.storePage > 1) state.storePage -= 1; void loadStores(); window.scrollTo(0, 0); });
-  $('#store-next').addEventListener('click', () => { if (state.stores.hasMore) state.storePage += 1; void loadStores(); window.scrollTo(0, 0); });
-  $('#statistics-period').addEventListener('change', event => { state.statisticsPeriod = event.currentTarget.value; void loadStatistics(); });
+  $('#store-prev').addEventListener('click', () => {
+    if (state.storePage <= 1) return;
+    state.storePage -= 1;
+    writeStoreRoute();
+    void loadStores();
+    window.scrollTo(0, 0);
+  });
+  $('#store-next').addEventListener('click', () => {
+    if (!state.stores.hasMore) return;
+    state.storePage += 1;
+    writeStoreRoute();
+    void loadStores();
+    window.scrollTo(0, 0);
+  });
+  $('#statistics-period').addEventListener('change', event => {
+    state.statisticsPeriod = readRouteEnum(new URLSearchParams(`period=${encodeURIComponent(event.currentTarget.value)}`), 'period', STATISTICS_PERIODS, '30d');
+    const params = new URLSearchParams();
+    if (state.statisticsPeriod !== '30d') params.set('period', state.statisticsPeriod);
+    writeApplicationLocation('inventory-statistics', params);
+    void loadStatistics();
+  });
 }
 
 function handleViewChanged(event) {
   const view = String(event.detail?.view || '');
-  if (view === 'inventory') void loadOverview();
-  else state.overviewLoadController?.abort();
-  if (view === 'stores') void loadStores({ resetPage: true });
+  const route = String(event.detail?.route || view);
+  const searchParams = event.detail?.searchParams instanceof URLSearchParams
+    ? event.detail.searchParams
+    : new URLSearchParams(event.detail?.searchParams || '');
+  if (view === 'inventory') {
+    applyOverviewRouteState(searchParams);
+    void loadOverview();
+  } else {
+    state.overviewLoadController?.abort();
+  }
+  if (view === 'stores') void activateStores(route, searchParams);
   else state.storeLoadController?.abort();
-  if (view === 'inventory-statistics') void loadStatistics();
+  if (view === 'inventory-statistics') void activateStatistics(searchParams);
   else state.statisticsLoadController?.abort();
   if (view === 'inventory' || view === 'catalog' || view === 'categories' || view === 'stores' || view === 'inventory-statistics') {
     document.querySelector('.bottom-nav [data-nav="inventory"]')?.setAttribute('aria-current', 'page');
@@ -742,17 +862,21 @@ export function initializeInventoryFeature({ activateOverviewView = false, activ
     bindInteractions();
     document.addEventListener('basketra:view-changed', handleViewChanged);
   }
-  if (activateOverviewView) void loadOverview();
-  if (activateStoreView) void activateStores(location.hash.slice(1));
-  else if (activateStatisticsView) void activateStatistics();
+  const current = readApplicationLocation();
+  if (activateOverviewView || current.route === 'inventory') {
+    applyOverviewRouteState(current.searchParams);
+    void loadOverview();
+  }
+  if (activateStoreView || current.route === 'stores' || current.route.startsWith('stores:')) void activateStores(current.route, current.searchParams);
+  else if (activateStatisticsView || current.route === 'inventory-statistics') void activateStatistics(current.searchParams);
 }
 
 function autoInitializeInventoryFeature() {
-  const requested = location.hash.slice(1);
+  const current = readApplicationLocation();
   initializeInventoryFeature({
-    activateOverviewView: requested === 'inventory',
-    activateStoreView: requested === 'stores' || requested.startsWith('stores:'),
-    activateStatisticsView: requested === 'inventory-statistics',
+    activateOverviewView: current.route === 'inventory',
+    activateStoreView: current.route === 'stores' || current.route.startsWith('stores:'),
+    activateStatisticsView: current.route === 'inventory-statistics',
   });
 }
 
