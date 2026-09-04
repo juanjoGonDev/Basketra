@@ -242,7 +242,8 @@ test('ticket history supports mobile list, keyboard detail, canonical line calcu
   const deleteDialog = page.locator('#ticket-history-delete-dialog');
   await expect(deleteDialog).toBeVisible();
   await expect(deleteDialog.locator('#ticket-history-delete-impact')).toContainText('Se eliminarán permanentemente');
-  await expect(deleteDialog.locator('#ticket-history-delete-state')).toContainText('1 captura');
+  await expect(deleteDialog.locator('#ticket-history-delete-impact')).toContainText('1 captura');
+  await expect(deleteDialog.locator('#ticket-history-delete-state')).toContainText('no se puede deshacer');
   const confirmDelete = deleteDialog.getByRole('button', { name: 'Eliminar ticket y datos' });
   await expect(confirmDelete).toBeEnabled();
   await confirmDelete.click();
