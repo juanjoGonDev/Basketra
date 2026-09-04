@@ -18,6 +18,83 @@ function ensureInvoiceEditorStylesheet() {
   document.head.append(link);
 }
 
+export function createReceiptInvoiceLineDialog({
+  id,
+  titleId,
+  title,
+  closeId,
+  slotId,
+  stateId,
+  contentId = '',
+  contentTag = 'div',
+  className = '',
+  actions = [],
+}) {
+  const dialog = document.createElement('dialog');
+  dialog.id = id;
+  dialog.className = ['sheet-dialog', 'receipt-line-dialog', className].filter(Boolean).join(' ');
+  dialog.setAttribute('aria-labelledby', titleId);
+
+  const content = document.createElement(contentTag);
+  content.className = 'dialog-content';
+  if (contentId) content.id = contentId;
+
+  const header = document.createElement('div');
+  header.className = 'dialog-header';
+  const copy = document.createElement('div');
+  const eyebrow = document.createElement('p');
+  eyebrow.className = 'eyebrow';
+  eyebrow.textContent = 'Línea del ticket';
+  const heading = document.createElement('h2');
+  heading.id = titleId;
+  heading.textContent = title;
+  copy.append(eyebrow, heading);
+
+  const close = document.createElement('button');
+  close.id = closeId;
+  close.className = 'icon-button';
+  close.type = 'button';
+  close.dataset.editorAction = 'close';
+  close.setAttribute('aria-label', 'Cerrar editor');
+  const closeIcon = document.createElement('span');
+  closeIcon.dataset.icon = 'close';
+  close.append(closeIcon);
+  header.append(copy, close);
+
+  const slot = document.createElement('div');
+  slot.id = slotId;
+  slot.dataset.editorSlot = 'true';
+
+  const state = document.createElement('p');
+  state.id = stateId;
+  state.className = 'inline-status';
+  state.setAttribute('role', 'alert');
+  state.setAttribute('aria-live', 'assertive');
+
+  const actionBar = document.createElement('div');
+  actionBar.className = 'dialog-actions receipt-line-editor-actions';
+  actionBar.dataset.editorActions = 'true';
+  for (const action of actions) {
+    const button = document.createElement('button');
+    button.id = action.id;
+    button.className = action.className;
+    button.type = action.type ?? 'button';
+    if (action.editorAction) button.dataset.editorAction = action.editorAction;
+    if (action.icon) {
+      const icon = document.createElement('span');
+      icon.dataset.icon = action.icon;
+      button.append(icon);
+    }
+    button.append(document.createTextNode(action.label));
+    actionBar.append(button);
+  }
+
+  content.append(header, slot, state, actionBar);
+  dialog.append(content);
+  hydrateIcons(dialog);
+  return dialog;
+}
+
 function editorItem(dialog) {
   return dialog?.querySelector('[data-receipt-line-editor], .receipt-item--editing, #receipt-line-editor-slot .receipt-item') || null;
 }
