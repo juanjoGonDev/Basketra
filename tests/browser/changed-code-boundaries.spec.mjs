@@ -323,7 +323,7 @@ test('catalog covers filters, validation, relations, allowed deletes and error s
   await expect(page.locator('#category-tree')).toContainText('Raíz');
 
   await page.getByRole('button', { name: 'Nueva categoría', exact: true }).click();
-  await page.getByRole('button', { name: 'Guardar categoría' }).click();
+  await page.locator('#category-form').dispatchEvent('submit');
   await expect(page.locator('#category-form-state')).toContainText('obligatorio');
   await page.locator('#category-name').fill('Creada');
   await page.getByRole('button', { name: 'Guardar categoría' }).click();
