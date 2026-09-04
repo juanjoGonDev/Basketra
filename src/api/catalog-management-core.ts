@@ -1,11 +1,12 @@
 import { DatabaseSync } from 'node:sqlite';
 import { UNKNOWN_CATEGORY_COLOR, UNKNOWN_CATEGORY_ID } from '../domain/categories.ts';
-import { asRecord, asString } from '../domain/validation.ts';
+import { asArray, asRecord, asString } from '../domain/validation.ts';
 import { CategoryRepository } from '../infrastructure/category-repository.ts';
 import { createId } from '../infrastructure/ids.ts';
 import { ApiError } from './errors.ts';
 
 const MAX_LATEST_PRICES_PER_PRODUCT = 12;
+const MAX_BULK_PRODUCT_DELETE = 100;
 const CATALOG_SORTS = ['name', 'recent', 'price-desc', 'price-asc'] as const;
 const CATALOG_PRICE_FILTERS = ['all', 'with-price', 'without-price'] as const;
 const CATEGORY_INVENTORY_VIEWS = ['all', 'roots', 'without-products', 'with-children'] as const;
@@ -97,6 +98,13 @@ export type ProductDeleteImpact = Readonly<{
   priceObservations: number;
   retailerListings: number;
   linkedStores: number;
+  canDelete: boolean;
+}>;
+
+export type ProductBulkDeleteImpact = Readonly<{
+  requestedCount: number;
+  deletableIds: readonly string[];
+  blocked: readonly Readonly<{ id: string; impact: ProductDeleteImpact }>[];
   canDelete: boolean;
 }>;
 
@@ -631,20 +639,70 @@ export function categoryDeleteImpact(databasePath: string, categoryId: string): 
   return withDatabase(databasePath, database => categoryDeleteImpactFromDatabase(database, categoryId), true);
 }
 
+function deleteProductFromDatabase(database: DatabaseSync, variantId: string): ProductDeleteImpact {
+  const impact = productDeleteImpactFromDatabase(database, variantId);
+  if (!impact.canDelete) throw new ApiError(409, 'PRODUCT_DELETE_BLOCKED', 'Product is referenced by historical evidence or active shopping lists', impact);
+  const row = database.prepare('SELECT canonical_product_id AS canonicalProductId FROM product_variants WHERE id = ?').get(variantId) as { canonicalProductId: string };
+  database.prepare('DELETE FROM product_aliases WHERE product_variant_id = ?').run(variantId);
+  database.prepare('DELETE FROM product_search WHERE entity_id = ?').run(variantId);
+  database.prepare('DELETE FROM retailer_listings WHERE product_variant_id = ?').run(variantId);
+  database.prepare('DELETE FROM product_variants WHERE id = ?').run(variantId);
+  const remaining = count(database, 'SELECT COUNT(*) AS count FROM product_variants WHERE canonical_product_id = ?', row.canonicalProductId);
+  if (remaining === 0) database.prepare('DELETE FROM canonical_products WHERE id = ?').run(row.canonicalProductId);
+  return impact;
+}
+
 function deleteProduct(databasePath: string, variantId: string): void {
   withDatabase(databasePath, (database) => {
     database.exec('BEGIN IMMEDIATE');
     try {
-      const impact = productDeleteImpactFromDatabase(database, variantId);
-      if (!impact.canDelete) throw new ApiError(409, 'PRODUCT_DELETE_BLOCKED', 'Product is referenced by historical evidence or active shopping lists');
-      const row = database.prepare('SELECT canonical_product_id AS canonicalProductId FROM product_variants WHERE id = ?').get(variantId) as { canonicalProductId: string };
-      database.prepare('DELETE FROM product_aliases WHERE product_variant_id = ?').run(variantId);
-      database.prepare('DELETE FROM product_search WHERE entity_id = ?').run(variantId);
-      database.prepare('DELETE FROM retailer_listings WHERE product_variant_id = ?').run(variantId);
-      database.prepare('DELETE FROM product_variants WHERE id = ?').run(variantId);
-      const remaining = count(database, 'SELECT COUNT(*) AS count FROM product_variants WHERE canonical_product_id = ?', row.canonicalProductId);
-      if (remaining === 0) database.prepare('DELETE FROM canonical_products WHERE id = ?').run(row.canonicalProductId);
+      deleteProductFromDatabase(database, variantId);
       database.exec('COMMIT');
+    } catch (error) {
+      database.exec('ROLLBACK');
+      throw error;
+    }
+  });
+}
+
+function parseBulkProductIds(body: unknown): readonly string[] {
+  const record = asRecord(body);
+  const values = asArray(record['ids'], '$.ids', MAX_BULK_PRODUCT_DELETE);
+  if (values.length === 0) throw new ApiError(400, 'VALIDATION_ERROR', 'Select at least one product');
+  return [...new Set(values.map((value, index) => asString(value, `$.ids[${index}]`, { min: 1, max: 128 })))];
+}
+
+function productBulkDeleteImpactFromDatabase(database: DatabaseSync, ids: readonly string[]): ProductBulkDeleteImpact {
+  const rows = ids.map(id => ({ id, impact: productDeleteImpactFromDatabase(database, id) }));
+  const blocked = rows.filter(row => !row.impact.canDelete);
+  return {
+    requestedCount: ids.length,
+    deletableIds: rows.filter(row => row.impact.canDelete).map(row => row.id),
+    blocked,
+    canDelete: blocked.length === 0,
+  };
+}
+
+function productBulkDeleteImpact(databasePath: string, ids: readonly string[]): ProductBulkDeleteImpact {
+  return withDatabase(databasePath, database => productBulkDeleteImpactFromDatabase(database, ids), true);
+}
+
+function bulkDeleteProducts(databasePath: string, ids: readonly string[]): ProductBulkDeleteImpact {
+  return withDatabase(databasePath, (database) => {
+    database.exec('BEGIN IMMEDIATE');
+    try {
+      const impact = productBulkDeleteImpactFromDatabase(database, ids);
+      if (!impact.canDelete) {
+        throw new ApiError(
+          409,
+          'PRODUCT_BULK_DELETE_BLOCKED',
+          'One or more selected products still have historical or active dependencies',
+          impact,
+        );
+      }
+      for (const id of ids) deleteProductFromDatabase(database, id);
+      database.exec('COMMIT');
+      return impact;
     } catch (error) {
       database.exec('ROLLBACK');
       throw error;
@@ -878,6 +936,19 @@ export async function handleCatalogManagementRequest(context: CatalogApiContext)
         offset,
       }),
     });
+    return true;
+  }
+
+  if (context.pathname === '/api/v1/catalog/products/bulk-delete-impact' && context.method === 'POST') {
+    const ids = parseBulkProductIds(await context.readJson());
+    context.send(200, { impact: productBulkDeleteImpact(context.databasePath, ids) });
+    return true;
+  }
+  if (context.pathname === '/api/v1/catalog/products/bulk-delete' && context.method === 'POST') {
+    const ids = parseBulkProductIds(await context.readJson());
+    const impact = bulkDeleteProducts(context.databasePath, ids);
+    for (const id of ids) context.publish(id);
+    context.send(200, { deletedIds: ids, impact });
     return true;
   }
 
