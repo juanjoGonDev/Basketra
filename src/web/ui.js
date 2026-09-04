@@ -1,3 +1,5 @@
+import { applicationPathForRoute } from './routes.js';
+
 const EURO_FORMATTER = new Intl.NumberFormat('es-ES', {
   style: 'currency',
   currency: 'EUR',
@@ -80,7 +82,8 @@ export function breadcrumb(items) {
     const label = escapeHtml(entry.label);
     if (!entry.route) return `${separator}<span aria-current="page">${label}</span>`;
     const leadingIcon = index === 0 ? `<span data-icon="home"></span>` : '';
-    return `${separator}<a href="#${escapeHtml(entry.route)}" data-app-route="${escapeHtml(entry.route)}">${leadingIcon}${label}</a>`;
+    const href = escapeHtml(applicationPathForRoute(entry.route));
+    return `${separator}<a href="${href}" data-app-route="${escapeHtml(entry.route)}">${leadingIcon}${label}</a>`;
   }).join('')}</nav>`;
 }
 

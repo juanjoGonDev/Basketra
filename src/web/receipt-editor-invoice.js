@@ -492,12 +492,14 @@ function ensureItemLayout(item) {
   }
 
   const description = item.querySelector('[data-field="description"]');
-  const quantityRow = item.querySelector('.quantity-row');
   const quantity = item.querySelector('[data-field="quantity"]');
   const unitPrice = item.querySelector('[data-field="unitPriceEuro"]');
   const discountType = item.querySelector('[data-field="discountType"]');
+  const detailRow = quantity?.closest('.quantity-row');
+  const discountRow = discountType?.closest('.quantity-row');
   if (!(description instanceof HTMLInputElement)
-    || !(quantityRow instanceof HTMLElement)
+    || !(detailRow instanceof HTMLElement)
+    || !(discountRow instanceof HTMLElement)
     || !(quantity instanceof HTMLInputElement)
     || !(unitPrice instanceof HTMLInputElement)
     || !(discountType instanceof HTMLSelectElement)) return;
@@ -507,8 +509,8 @@ function ensureItemLayout(item) {
   if (!descriptionLabel || !discountTypeLabel) return;
 
   descriptionLabel.before(sectionHeading(1, 'Producto', 'package'));
-  quantityRow.insertBefore(sectionHeading(2, 'Detalle de compra', 'cart'), quantityRow.firstChild);
-  quantityRow.insertBefore(sectionHeading(3, 'Descuento', 'tag'), discountTypeLabel);
+  detailRow.insertBefore(sectionHeading(2, 'Detalle de compra', 'cart'), detailRow.firstChild);
+  discountRow.insertBefore(sectionHeading(3, 'Descuento', 'tag'), discountTypeLabel);
   quantityRow.insertAdjacentElement('afterend', createSummary());
   item.classList.add('receipt-line-editor-layout');
   item.dataset.invoiceEditorLayout = 'true';
