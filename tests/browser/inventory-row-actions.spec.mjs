@@ -56,6 +56,11 @@ async function installRoutes(page) {
     contentType: 'application/json',
     body: JSON.stringify({ catalog: { products: [product], parents: [], total: 1, offset: 0, limit: 12, hasMore: false } }),
   }));
+  await page.route('**/api/v1/products/variant_milk', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ product, priceHistory: [] }),
+  }));
   await page.route('**/api/v1/catalog/products/variant_milk/delete-impact', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
