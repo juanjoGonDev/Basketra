@@ -243,11 +243,12 @@ export function installReceiptEnhancements() {
     workflow.replaceChildren(panel);
   }
 
-  const manualBody = $('.manual-entry .details-body');
-  if (manualBody && !$('#receipt-retailer')) {
-    const retailer = document.createElement('div');
-    retailer.className = 'retailer-field';
-    retailer.innerHTML = `
+  const reviewEditor = $('.receipt-review-editor');
+  if (reviewEditor && !$('#receipt-retailer')) {
+    const storeFields = document.createElement('fieldset');
+    storeFields.className = 'flow-group receipt-store-fields';
+    storeFields.innerHTML = `
+      <legend>Comercio y tienda</legend>
       <label class="field" for="receipt-retailer">
         <span>Comercio</span>
         <input id="receipt-retailer" required maxlength="120" autocomplete="organization" placeholder="Ej. ALCAMPO" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="retailer-suggestions">
@@ -259,7 +260,7 @@ export function installReceiptEnhancements() {
       </label>
       <datalist id="receipt-store-options"></datalist>
       <div id="retailer-suggestions" class="retailer-suggestions" role="listbox" aria-label="Comercios guardados o detectados" hidden></div>`;
-    manualBody.prepend(retailer);
+    reviewEditor.prepend(storeFields);
   }
 
   installReviewContextObservers();
