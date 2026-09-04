@@ -67,6 +67,7 @@ async function importReceipt(baseUrl: string, key: string, description: string):
     declaredTotalMinor: 100,
     originalText: `${description} 1,00`,
     retailerName: 'Mercado',
+    storeName: 'Mercado Centro',
     items: [{ description, quantity: 1, unitPriceMinor: 100, lineTotalMinor: 100 }],
   });
   assert.equal(response.status, 201);
