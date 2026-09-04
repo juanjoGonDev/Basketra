@@ -1,10 +1,20 @@
 import { api, setBusy } from './api.js';
 import { breadcrumb, escapeHtml, formatEuroMinor, hydrateIcons, setFieldFeedback } from './ui.js';
 import { createPagedSelection } from './entity-selection.js';
+import {
+  readApplicationLocation,
+  readRouteEnum,
+  readRoutePage,
+  readRouteText,
+  writeApplicationLocation,
+} from './routes.js';
 
 const PRODUCT_PAGE_SIZE = 12;
 const CATEGORY_PAGE_SIZE = 12;
 const SEARCH_DELAY_MS = 250;
+const PRODUCT_PRICE_FILTERS = ['all', 'with-price', 'without-price'];
+const PRODUCT_SORTS = ['name', 'recent', 'price-desc', 'price-asc'];
+const CATEGORY_FILTERS = ['all', 'roots', 'without-products', 'with-children'];
 const UNKNOWN_CATEGORY_NAME = 'desconocido';
 const DEFAULT_CATEGORY_COLOR = '#64748B';
 const DATE_FORMATTER = new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium' });
@@ -177,8 +187,7 @@ function activateFeatureView(viewName, { dispatch = true } = {}) {
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element === view));
   document.querySelectorAll('.bottom-nav [data-nav]').forEach(element => element.removeAttribute('aria-current'));
   document.querySelector('.bottom-nav [data-nav="inventory"]')?.setAttribute('aria-current', 'page');
-  history.replaceState(null, '', `#${viewName}`);
-  if (dispatch) document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: viewName } }));
+  if (dispatch) document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: viewName, route: viewName, searchParams: new URLSearchParams() } }));
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
   window.scrollTo(0, 0);
@@ -603,7 +612,7 @@ async function fetchProductDetail(productId) {
   return productFromCanonicalRecord(result.product, result.priceHistory);
 }
 
-async function openProductDetail(productOrId, { edit = false } = {}) {
+async function openProductDetail(productOrId, { edit = false, historyMode = 'push' } = {}) {
   const productId = typeof productOrId === 'string' ? productOrId : productOrId?.id;
   if (!productId) return;
   $('#catalog-list-screen').hidden = true;
@@ -612,7 +621,7 @@ async function openProductDetail(productOrId, { edit = false } = {}) {
   $('#catalog-detail-meta').textContent = 'Consultando ficha e histórico.';
   $('#catalog-price-history-state').textContent = 'Cargando histórico…';
   $('#catalog-price-history-content').hidden = true;
-  history.replaceState(null, '', `#catalog:${encodeURIComponent(productId)}`);
+  if (historyMode !== 'none') writeProductRoute(`catalog:${productId}`, { replace: historyMode === 'replace', edit });
   window.scrollTo(0, 0);
   try {
     const product = await fetchProductDetail(productId);
@@ -627,23 +636,18 @@ async function openProductDetail(productOrId, { edit = false } = {}) {
   }
 }
 
-function startCreateProduct() {
+function startCreateProduct({ historyMode = 'push' } = {}) {
   $('#catalog-list-screen').hidden = true;
   $('#catalog-detail').hidden = false;
   renderProductDetail(null, { creating: true });
   showProductEditor(true);
-  history.replaceState(null, '', '#catalog:new');
+  if (historyMode !== 'none') writeProductRoute('catalog:new', { replace: historyMode === 'replace' });
   requestAnimationFrame(() => $('#catalog-canonical-name')?.focus());
 }
 
 function closeProductDetail() {
-  state.productDetail = null;
-  $('#catalog-detail').hidden = true;
-  $('#catalog-list-screen').hidden = false;
-  $('#catalog-edit-product').hidden = false;
-  $('#catalog-delete-product').hidden = false;
-  $('#catalog-existing-relations').hidden = false;
-  history.replaceState(null, '', '#catalog');
+  showProductListScreen();
+  writeProductRoute('catalog', { replace: true });
   window.scrollTo(0, 0);
   void loadProducts();
 }
@@ -697,7 +701,7 @@ function renderCategoryDetail(category) {
   populateCategoryForm(category);
 }
 
-async function openCategoryDetail(categoryId, { edit = false } = {}) {
+async function openCategoryDetail(categoryId, { edit = false, historyMode = 'push' } = {}) {
   state.selectedCategoryId = categoryId;
   state.categoryCreateParentId = '';
   const category = selectedCategory();
@@ -708,7 +712,7 @@ async function openCategoryDetail(categoryId, { edit = false } = {}) {
   $('#category-delete').hidden = false;
   renderCategoryDetail(category);
   showCategoryEditor(edit);
-  history.replaceState(null, '', `#categories:${encodeURIComponent(categoryId)}`);
+  if (historyMode !== 'none') writeCategoryRoute(`categories:${categoryId}`, { replace: historyMode === 'replace', edit });
   window.scrollTo(0, 0);
   try {
     await refreshCategoryImpact(categoryId);
@@ -719,7 +723,7 @@ async function openCategoryDetail(categoryId, { edit = false } = {}) {
   }
 }
 
-function startCreateCategory(parentId = '') {
+function startCreateCategory(parentId = '', { historyMode = 'push' } = {}) {
   state.selectedCategoryId = '';
   state.categoryCreateParentId = parentId;
   $('#category-list-screen').hidden = true;
@@ -732,19 +736,13 @@ function startCreateCategory(parentId = '') {
   $('#category-delete').hidden = true;
   $('#category-detail-products').textContent = '0';
   $('#category-detail-children').textContent = '0';
-  history.replaceState(null, '', '#categories:new');
+  if (historyMode !== 'none') writeCategoryRoute('categories:new', { replace: historyMode === 'replace', parentId });
   requestAnimationFrame(() => $('#category-name')?.focus());
 }
 
 function closeCategoryDetail() {
-  state.selectedCategoryId = '';
-  state.categoryCreateParentId = '';
-  $('#category-detail').hidden = true;
-  $('#category-list-screen').hidden = false;
-  $('#category-edit').hidden = false;
-  $('#category-delete').hidden = false;
-  history.replaceState(null, '', '#categories');
-  document.dispatchEvent(new CustomEvent('basketra:navigate', { detail: { route: 'categories' } }));
+  showCategoryListScreen();
+  writeCategoryRoute('categories', { replace: true });
   window.scrollTo(0, 0);
   void loadCategoryInventory();
 }
@@ -769,6 +767,73 @@ async function ensureMetadata() {
   await Promise.all(tasks);
   renderCategoryOptions();
   renderUnitOptions();
+}
+
+function productRouteSearchParams({ edit = false } = {}) {
+  const params = new URLSearchParams();
+  if (state.productQuery) params.set('q', state.productQuery);
+  if (state.productCategoryId) params.set('category', state.productCategoryId);
+  if (state.productPriceFilter !== 'all') params.set('price', state.productPriceFilter);
+  if (state.productSort !== 'name') params.set('sort', state.productSort);
+  if (state.productPage > 1) params.set('page', String(state.productPage));
+  if (edit) params.set('mode', 'edit');
+  return params;
+}
+
+function categoryRouteSearchParams({ edit = false, parentId = '' } = {}) {
+  const params = new URLSearchParams();
+  if (state.categoryQuery) params.set('q', state.categoryQuery);
+  if (state.categoryFilter !== 'all') params.set('view', state.categoryFilter);
+  if (state.categoryPage > 1) params.set('page', String(state.categoryPage));
+  if (edit) params.set('mode', 'edit');
+  if (parentId) params.set('parent', parentId);
+  return params;
+}
+
+function applyProductRouteState(searchParams) {
+  state.productPage = readRoutePage(searchParams);
+  state.productQuery = readRouteText(searchParams, 'q', { maxLength: 160 });
+  state.productCategoryId = readRouteText(searchParams, 'category', { maxLength: 128 });
+  state.productPriceFilter = readRouteEnum(searchParams, 'price', PRODUCT_PRICE_FILTERS, 'all');
+  state.productSort = readRouteEnum(searchParams, 'sort', PRODUCT_SORTS, 'name');
+  if ($('#catalog-search')) $('#catalog-search').value = state.productQuery;
+  if ($('#catalog-filter-category')) $('#catalog-filter-category').value = state.productCategoryId;
+  if ($('#catalog-filter-price')) $('#catalog-filter-price').value = state.productPriceFilter;
+  if ($('#catalog-sort')) $('#catalog-sort').value = state.productSort;
+}
+
+function applyCategoryRouteState(searchParams) {
+  state.categoryPage = readRoutePage(searchParams);
+  state.categoryQuery = readRouteText(searchParams, 'q', { maxLength: 120 });
+  state.categoryFilter = readRouteEnum(searchParams, 'view', CATEGORY_FILTERS, 'all');
+  if ($('#category-search')) $('#category-search').value = state.categoryQuery;
+  if ($('#category-filter')) $('#category-filter').value = state.categoryFilter;
+}
+
+function writeProductRoute(route = 'catalog', { replace = false, edit = false } = {}) {
+  writeApplicationLocation(route, productRouteSearchParams({ edit }), { replace });
+}
+
+function writeCategoryRoute(route = 'categories', { replace = false, edit = false, parentId = '' } = {}) {
+  writeApplicationLocation(route, categoryRouteSearchParams({ edit, parentId }), { replace });
+}
+
+function showProductListScreen() {
+  state.productDetail = null;
+  $('#catalog-detail').hidden = true;
+  $('#catalog-list-screen').hidden = false;
+  $('#catalog-edit-product').hidden = false;
+  $('#catalog-delete-product').hidden = false;
+  $('#catalog-existing-relations').hidden = false;
+}
+
+function showCategoryListScreen() {
+  state.selectedCategoryId = '';
+  state.categoryCreateParentId = '';
+  $('#category-detail').hidden = true;
+  $('#category-list-screen').hidden = false;
+  $('#category-edit').hidden = false;
+  $('#category-delete').hidden = false;
 }
 
 function productQueryString() {
@@ -930,7 +995,7 @@ async function saveProduct(button) {
     $('#catalog-product-status').textContent = 'Guardado';
     renderProductDetail(saved);
     showProductEditor(false);
-    history.replaceState(null, '', `#catalog:${encodeURIComponent(saved.id)}`);
+    writeProductRoute(`catalog:${saved.id}`, { replace: true });
     void loadProducts();
   } catch (error) {
     const fieldId = catalogFieldIdFromValidationDetails(error?.details);
@@ -949,7 +1014,7 @@ async function saveProduct(button) {
 
 async function saveCategory(button) {
   const current = selectedCategory();
-  const saveRoute = location.hash;
+  const saveRoute = `${location.pathname}${location.search}`;
   const name = $('#category-name').value.trim();
   const parentId = $('#category-parent').value || null;
   const color = normalizedCategoryColor($('#category-color').value);
@@ -969,8 +1034,8 @@ async function saveCategory(button) {
     const savedId = result.category?.id;
     await loadCategoryMetadata({ force: true });
     await loadCategoryInventory();
-    if (location.hash !== saveRoute) return;
-    if (savedId) await openCategoryDetail(savedId);
+    if (`${location.pathname}${location.search}` !== saveRoute) return;
+    if (savedId) await openCategoryDetail(savedId, { historyMode: 'replace' });
     $('#category-form-status').textContent = 'Guardada';
     $('#category-form-state').textContent = current ? 'Categoría actualizada.' : 'Categoría creada.';
     showCategoryEditor(false);
@@ -1171,13 +1236,30 @@ function bindInteractions() {
   document.querySelectorAll('[data-catalog-nav="inventory"]').forEach(button => button.addEventListener('click', goInventory));
   $('#catalog-back-list').addEventListener('click', closeProductDetail);
   $('#categories-back-list').addEventListener('click', closeCategoryDetail);
-  $('#catalog-edit-product').addEventListener('click', () => showProductEditor(true));
-  $('#catalog-cancel-edit').addEventListener('click', () => state.productDetail ? showProductEditor(false) : closeProductDetail());
+  $('#catalog-edit-product').addEventListener('click', () => {
+    showProductEditor(true);
+    if (state.productDetail) writeProductRoute(`catalog:${state.productDetail.id}`, { edit: true });
+  });
+  $('#catalog-cancel-edit').addEventListener('click', () => {
+    if (!state.productDetail) return closeProductDetail();
+    showProductEditor(false);
+    writeProductRoute(`catalog:${state.productDetail.id}`, { replace: true });
+  });
   $('#catalog-delete-product').addEventListener('click', () => void openProductDeleteDialog());
   $('#catalog-delete-cancel').addEventListener('click', () => $('#catalog-delete-dialog').close());
   $('#catalog-delete-confirm').addEventListener('click', event => void confirmProductDelete(event.currentTarget));
-  $('#category-edit').addEventListener('click', () => showCategoryEditor(true));
-  $('#category-cancel-edit').addEventListener('click', () => selectedCategory() ? showCategoryEditor(false) : closeCategoryDetail());
+  $('#category-edit').addEventListener('click', () => {
+    const category = selectedCategory();
+    if (!category) return;
+    showCategoryEditor(true);
+    writeCategoryRoute(`categories:${category.id}`, { edit: true });
+  });
+  $('#category-cancel-edit').addEventListener('click', () => {
+    const category = selectedCategory();
+    if (!category) return closeCategoryDetail();
+    showCategoryEditor(false);
+    writeCategoryRoute(`categories:${category.id}`, { replace: true });
+  });
   $('#category-delete').addEventListener('click', () => void openCategoryDeleteDialog());
   $('#category-delete-cancel').addEventListener('click', () => $('#category-delete-dialog').close());
   $('#category-delete-confirm').addEventListener('click', event => void confirmCategoryDelete(event.currentTarget));
@@ -1195,10 +1277,33 @@ function bindInteractions() {
   $('#catalog-create-parent').addEventListener('click', event => void createParentForSelected(event.currentTarget));
   $('#catalog-save-retailer-name').addEventListener('click', event => void saveRetailerName(event.currentTarget));
   $('#category-color').addEventListener('input', event => { $('#category-color-value').textContent = normalizedCategoryColor(event.currentTarget.value); });
-  $('#catalog-search').addEventListener('input', () => { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(() => void loadProducts({ resetPage: true }), SEARCH_DELAY_MS); });
-  $('#catalog-filter-category').addEventListener('change', event => { state.productCategoryId = event.currentTarget.value; void loadProducts({ resetPage: true }); });
-  $('#catalog-filter-price').addEventListener('change', event => { state.productPriceFilter = event.currentTarget.value; void loadProducts({ resetPage: true }); });
-  $('#catalog-sort').addEventListener('change', event => { state.productSort = event.currentTarget.value; void loadProducts({ resetPage: true }); });
+  $('#catalog-search').addEventListener('input', () => {
+    clearTimeout(state.searchTimer);
+    state.searchTimer = setTimeout(() => {
+      state.productQuery = $('#catalog-search').value.trim();
+      state.productPage = 1;
+      writeProductRoute('catalog', { replace: true });
+      void loadProducts();
+    }, SEARCH_DELAY_MS);
+  });
+  $('#catalog-filter-category').addEventListener('change', event => {
+    state.productCategoryId = event.currentTarget.value;
+    state.productPage = 1;
+    writeProductRoute();
+    void loadProducts();
+  });
+  $('#catalog-filter-price').addEventListener('change', event => {
+    state.productPriceFilter = event.currentTarget.value;
+    state.productPage = 1;
+    writeProductRoute();
+    void loadProducts();
+  });
+  $('#catalog-sort').addEventListener('change', event => {
+    state.productSort = event.currentTarget.value;
+    state.productPage = 1;
+    writeProductRoute();
+    void loadProducts();
+  });
   $('#catalog-clear-filters').addEventListener('click', () => {
     $('#catalog-search').value = '';
     $('#catalog-filter-category').value = '';
@@ -1208,7 +1313,9 @@ function bindInteractions() {
     state.productCategoryId = '';
     state.productPriceFilter = 'all';
     state.productSort = 'name';
-    void loadProducts({ resetPage: true });
+    state.productPage = 1;
+    writeProductRoute();
+    void loadProducts();
   });
   $('#catalog-select-page').addEventListener('change', event => {
     state.productSelection.setPage((state.catalog.products || []).map(product => product.id), event.currentTarget.checked);
@@ -1219,11 +1326,44 @@ function bindInteractions() {
     syncProductSelection();
   });
   $('#catalog-selection-delete').addEventListener('click', () => void openProductBulkDeleteDialog());
-  $('#catalog-prev').addEventListener('click', () => { if (state.productPage > 1) state.productPage -= 1; void loadProducts(); window.scrollTo(0, 0); });
-  $('#catalog-next').addEventListener('click', () => { if (state.catalog.hasMore) state.productPage += 1; void loadProducts(); window.scrollTo(0, 0); });
-  $('#category-search').addEventListener('input', () => { clearTimeout(state.categorySearchTimer); state.categorySearchTimer = setTimeout(() => void loadCategoryInventory({ resetPage: true }), SEARCH_DELAY_MS); });
-  $('#category-filter').addEventListener('change', event => { state.categoryFilter = event.currentTarget.value; void loadCategoryInventory({ resetPage: true }); });
-  $('#category-clear-filters').addEventListener('click', () => { $('#category-search').value = ''; $('#category-filter').value = 'all'; state.categoryQuery = ''; state.categoryFilter = 'all'; void loadCategoryInventory({ resetPage: true }); });
+  $('#catalog-prev').addEventListener('click', () => {
+    if (state.productPage <= 1) return;
+    state.productPage -= 1;
+    writeProductRoute();
+    void loadProducts();
+    window.scrollTo(0, 0);
+  });
+  $('#catalog-next').addEventListener('click', () => {
+    if (!state.catalog.hasMore) return;
+    state.productPage += 1;
+    writeProductRoute();
+    void loadProducts();
+    window.scrollTo(0, 0);
+  });
+  $('#category-search').addEventListener('input', () => {
+    clearTimeout(state.categorySearchTimer);
+    state.categorySearchTimer = setTimeout(() => {
+      state.categoryQuery = $('#category-search').value.trim();
+      state.categoryPage = 1;
+      writeCategoryRoute('categories', { replace: true });
+      void loadCategoryInventory();
+    }, SEARCH_DELAY_MS);
+  });
+  $('#category-filter').addEventListener('change', event => {
+    state.categoryFilter = event.currentTarget.value;
+    state.categoryPage = 1;
+    writeCategoryRoute();
+    void loadCategoryInventory();
+  });
+  $('#category-clear-filters').addEventListener('click', () => {
+    $('#category-search').value = '';
+    $('#category-filter').value = 'all';
+    state.categoryQuery = '';
+    state.categoryFilter = 'all';
+    state.categoryPage = 1;
+    writeCategoryRoute();
+    void loadCategoryInventory();
+  });
   $('#category-select-page').addEventListener('change', event => {
     state.categorySelection.setPage((state.categoryInventory.categories || []).map(category => category.id), event.currentTarget.checked);
     syncCategorySelection();
@@ -1232,54 +1372,81 @@ function bindInteractions() {
     state.categorySelection.clear();
     syncCategorySelection();
   });
-  $('#category-prev').addEventListener('click', () => { if (state.categoryPage > 1) state.categoryPage -= 1; void loadCategoryInventory(); window.scrollTo(0, 0); });
-  $('#category-next').addEventListener('click', () => { if (state.categoryInventory.hasMore) state.categoryPage += 1; void loadCategoryInventory(); window.scrollTo(0, 0); });
+  $('#category-prev').addEventListener('click', () => {
+    if (state.categoryPage <= 1) return;
+    state.categoryPage -= 1;
+    writeCategoryRoute();
+    void loadCategoryInventory();
+    window.scrollTo(0, 0);
+  });
+  $('#category-next').addEventListener('click', () => {
+    if (!state.categoryInventory.hasMore) return;
+    state.categoryPage += 1;
+    writeCategoryRoute();
+    void loadCategoryInventory();
+    window.scrollTo(0, 0);
+  });
 }
 
-async function openRequestedProduct(requested) {
+async function openRequestedProduct(requested, searchParams) {
   if (requested === 'catalog:new') {
-    startCreateProduct();
+    startCreateProduct({ historyMode: 'none' });
     return;
   }
   if (!requested.startsWith('catalog:')) return;
-  const raw = requested.slice('catalog:'.length);
+  const productId = requested.slice('catalog:'.length);
   try {
-    await openProductDetail(decodeURIComponent(raw));
+    await openProductDetail(productId, {
+      edit: searchParams.get('mode') === 'edit',
+      historyMode: 'none',
+    });
   } catch (error) {
     $('#catalog-state').textContent = `No se pudo abrir el producto: ${error.message}`;
   }
 }
 
-async function openRequestedCategory(requested) {
+async function openRequestedCategory(requested, searchParams) {
   if (requested === 'categories:new') {
-    startCreateCategory();
+    const parentId = readRouteText(searchParams, 'parent', { maxLength: 128 });
+    startCreateCategory(parentId, { historyMode: 'none' });
     return;
   }
   if (!requested.startsWith('categories:')) return;
   try {
-    await openCategoryDetail(decodeURIComponent(requested.slice('categories:'.length)));
+    await openCategoryDetail(requested.slice('categories:'.length), {
+      edit: searchParams.get('mode') === 'edit',
+      historyMode: 'none',
+    });
   } catch (error) {
     $('#category-state').textContent = `No se pudo abrir la categoría: ${error.message}`;
   }
 }
 
-async function activateCatalog(requested = 'catalog') {
+async function activateCatalog(requested = 'catalog', searchParams = new URLSearchParams()) {
   if (!activateFeatureView('catalog', { dispatch: false })) return;
-  await loadProducts({ resetPage: true });
-  await openRequestedProduct(requested);
+  applyProductRouteState(searchParams);
+  showProductListScreen();
+  await loadProducts();
+  await openRequestedProduct(requested, searchParams);
 }
 
-async function activateCategories(requested = 'categories') {
+async function activateCategories(requested = 'categories', searchParams = new URLSearchParams()) {
   if (!activateFeatureView('categories', { dispatch: false })) return;
-  await loadCategoryInventory({ resetPage: true });
-  await openRequestedCategory(requested);
+  applyCategoryRouteState(searchParams);
+  showCategoryListScreen();
+  await loadCategoryInventory();
+  await openRequestedCategory(requested, searchParams);
 }
 
 function handleViewChanged(event) {
   const view = String(event.detail?.view || '');
-  if (view === 'catalog') void loadProducts({ resetPage: true });
+  const route = String(event.detail?.route || view);
+  const searchParams = event.detail?.searchParams instanceof URLSearchParams
+    ? event.detail.searchParams
+    : new URLSearchParams();
+  if (view === 'catalog') void activateCatalog(route, searchParams);
   else state.loadController?.abort();
-  if (view === 'categories') void loadCategoryInventory({ resetPage: true });
+  if (view === 'categories') void activateCategories(route, searchParams);
   else state.categoryLoadController?.abort();
   if (view === 'catalog' || view === 'categories') document.querySelector('.bottom-nav [data-nav="inventory"]')?.setAttribute('aria-current', 'page');
 }
@@ -1293,15 +1460,16 @@ export function initializeCatalogFeature({ activate = false, activateCategoryVie
     bindInteractions();
     document.addEventListener('basketra:view-changed', handleViewChanged);
   }
-  if (activateCategoryView) void activateCategories(location.hash.slice(1));
-  else if (activate) void activateCatalog(location.hash.slice(1));
+  const current = readApplicationLocation();
+  if (activateCategoryView) void activateCategories(current.route, current.searchParams);
+  else if (activate) void activateCatalog(current.route, current.searchParams);
 }
 
 function autoInitializeCatalogFeature() {
-  const requested = location.hash.slice(1);
+  const current = readApplicationLocation();
   initializeCatalogFeature({
-    activate: requested === 'catalog' || requested.startsWith('catalog:'),
-    activateCategoryView: requested === 'categories' || requested.startsWith('categories:'),
+    activate: current.route === 'catalog' || current.route.startsWith('catalog:'),
+    activateCategoryView: current.route === 'categories' || current.route.startsWith('categories:'),
   });
 }
 
