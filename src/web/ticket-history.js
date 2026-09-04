@@ -14,6 +14,13 @@ import {
 } from './receipt-editor-invoice.js';
 import { localDateBoundaryIso, parsePercentageBasisPoints } from './ticket-history-values.js';
 import { createPagedSelection } from './entity-selection.js';
+import {
+  readApplicationLocation,
+  readRouteEnum,
+  readRoutePage,
+  readRouteText,
+  writeApplicationLocation,
+} from './routes.js';
 
 const PAGE_SIZE = 12;
 const SEARCH_DELAY_MS = 250;
@@ -21,6 +28,7 @@ const LINE_CALCULATION_DELAY_MS = 120;
 const STORE_METADATA_PAGE_SIZE = 100;
 const STORE_METADATA_MAX_PAGES = 5;
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium', timeStyle: 'short' });
+const PAYMENT_STATUSES = ['', 'paid', 'pending', 'cancelled'];
 
 const $ = selector => document.querySelector(selector);
 
@@ -73,7 +81,7 @@ function installTicketEntryNavigation() {
     <button class="task-tab" type="button" data-ticket-destination="history">Historial</button>`;
   header.insertAdjacentElement('afterend', nav);
   nav.querySelector('[data-ticket-destination="capture"]').addEventListener('click', () => navigateToCapture());
-  nav.querySelector('[data-ticket-destination="history"]').addEventListener('click', () => void activateTicketHistory({ push: true }));
+  nav.querySelector('[data-ticket-destination="history"]').addEventListener('click', () => navigate('ticket-history'));
 }
 
 function installHistoryView() {
@@ -188,8 +196,12 @@ function installHistoryView() {
   hydrateIcons(deleteDialog);
 }
 
+function navigate(route, searchParams = new URLSearchParams(), options = {}) {
+  document.dispatchEvent(new CustomEvent('basketra:navigate', { detail: { route, searchParams, ...options } }));
+}
+
 function navigateToCapture() {
-  document.dispatchEvent(new CustomEvent('basketra:navigate', { detail: { route: 'scan' } }));
+  navigate('scan');
 }
 
 function setPrimaryTicketsActive() {
@@ -202,12 +214,41 @@ function activateFeatureView() {
   if (!view) return false;
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element === view));
   setPrimaryTicketsActive();
-  document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: 'ticket-history' } }));
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
   window.scrollTo(0, 0);
   $('#main')?.focus({ preventScroll: true });
   return true;
+}
+
+function ticketRouteSearchParams() {
+  const params = new URLSearchParams();
+  if (state.query) params.set('q', state.query);
+  if (state.dateFrom) params.set('from', state.dateFrom);
+  if (state.dateTo) params.set('to', state.dateTo);
+  if (state.storeId) params.set('store', state.storeId);
+  if (state.categoryId) params.set('category', state.categoryId);
+  if (state.paymentStatus) params.set('status', state.paymentStatus);
+  if (state.page > 1) params.set('page', String(state.page));
+  return params;
+}
+
+function applyRouteState(searchParams) {
+  state.page = readRoutePage(searchParams);
+  state.query = readRouteText(searchParams, 'q', { maxLength: 160 });
+  state.dateFrom = readRouteText(searchParams, 'from', { maxLength: 10 });
+  state.dateTo = readRouteText(searchParams, 'to', { maxLength: 10 });
+  state.storeId = readRouteText(searchParams, 'store', { maxLength: 128 });
+  state.categoryId = readRouteText(searchParams, 'category', { maxLength: 128 });
+  state.paymentStatus = readRouteEnum(searchParams, 'status', PAYMENT_STATUSES, '');
+  if ($('#ticket-history-search')) $('#ticket-history-search').value = state.query;
+  if ($('#ticket-history-date-from')) $('#ticket-history-date-from').value = state.dateFrom;
+  if ($('#ticket-history-date-to')) $('#ticket-history-date-to').value = state.dateTo;
+  if ($('#ticket-history-status')) $('#ticket-history-status').value = state.paymentStatus;
+}
+
+function writeTicketRoute(route = 'ticket-history', { replace = false } = {}) {
+  writeApplicationLocation(route, ticketRouteSearchParams(), { replace, state: { ticketHistory: true } });
 }
 
 function readFilters() {
@@ -459,7 +500,7 @@ function populateTicketEditor(ticket) {
   renderEditorLines();
 }
 
-async function openTicket(ticketId, { push = true } = {}) {
+async function openTicket(ticketId, { historyMode = 'push' } = {}) {
   activateFeatureView();
   $('#ticket-history-list-screen').hidden = true;
   $('#ticket-history-detail-screen').hidden = false;
@@ -468,9 +509,7 @@ async function openTicket(ticketId, { push = true } = {}) {
     await ensureMetadata();
     const result = await api(`/api/v1/inventory/tickets/${encodeURIComponent(ticketId)}`);
     populateTicketEditor(result.ticket);
-    const url = `#ticket-history:${encodeURIComponent(ticketId)}`;
-    if (push) history.pushState({ ticketHistory: true }, '', url);
-    else history.replaceState({ ticketHistory: true }, '', url);
+    if (historyMode !== 'none') writeTicketRoute(`ticket-history:${ticketId}`, { replace: historyMode === 'replace' });
   } catch (error) {
     $('#ticket-editor-status').textContent = 'Error';
     $('#ticket-editor-form-state').textContent = `No se pudo abrir el ticket: ${error.message}`;
@@ -483,17 +522,20 @@ function showHistoryList({ updateHistory = true, reload = true } = {}) {
   $('#ticket-history-list-screen').hidden = false;
   state.ticket = null;
   state.editorItems = [];
-  if (updateHistory) history.replaceState({ ticketHistory: true }, '', '#ticket-history');
+  if (updateHistory) writeTicketRoute('ticket-history', { replace: true });
   if (reload) void loadHistory();
 }
 
-async function activateTicketHistory({ push = false } = {}) {
+async function activateTicketHistory(route = 'ticket-history', searchParams = new URLSearchParams()) {
   activateFeatureView();
+  applyRouteState(searchParams);
   $('#ticket-history-detail-screen').hidden = true;
   $('#ticket-history-list-screen').hidden = false;
-  if (push) history.pushState({ ticketHistory: true }, '', '#ticket-history');
-  else history.replaceState({ ticketHistory: true }, '', '#ticket-history');
-  await loadHistory({ resetPage: true });
+  await loadHistory();
+  if (!route.startsWith('ticket-history:')) return;
+  const ticketId = route.slice('ticket-history:'.length);
+  if (!ticketId) return;
+  await openTicket(ticketId, { historyMode: 'none' });
 }
 
 function parseDiscountQuantity(lineQuantity) {
@@ -795,7 +837,16 @@ function clearFilters() {
   state.storeId = '';
   state.categoryId = '';
   state.paymentStatus = '';
-  void loadHistory({ resetPage: true });
+  state.page = 1;
+  writeTicketRoute();
+  void loadHistory();
+}
+
+function syncFilterRoute({ replace = false } = {}) {
+  readFilters();
+  state.page = 1;
+  writeTicketRoute('ticket-history', { replace });
+  void loadHistory();
 }
 
 function bindInteractions() {
@@ -812,10 +863,10 @@ function bindInteractions() {
 
   $('#ticket-history-search').addEventListener('input', () => {
     clearTimeout(state.searchTimer);
-    state.searchTimer = setTimeout(() => void loadHistory({ resetPage: true }), SEARCH_DELAY_MS);
+    state.searchTimer = setTimeout(() => syncFilterRoute({ replace: true }), SEARCH_DELAY_MS);
   });
   for (const id of ['ticket-history-date-from', 'ticket-history-date-to', 'ticket-history-store', 'ticket-history-category', 'ticket-history-status']) {
-    $(`#${id}`).addEventListener('change', () => void loadHistory({ resetPage: true }));
+    $(`#${id}`).addEventListener('change', () => syncFilterRoute());
   }
   $('#ticket-history-clear').addEventListener('click', clearFilters);
   $('#ticket-history-select-page').addEventListener('change', event => {
@@ -830,11 +881,13 @@ function bindInteractions() {
   $('#ticket-history-prev').addEventListener('click', () => {
     if (state.page <= 1) return;
     state.page -= 1;
+    writeTicketRoute();
     void loadHistory();
   });
   $('#ticket-history-next').addEventListener('click', () => {
     if (!state.result.hasMore) return;
     state.page += 1;
+    writeTicketRoute();
     void loadHistory();
   });
 
@@ -897,33 +950,20 @@ function bindInteractions() {
     syncLineDiscountFields();
     scheduleLineCalculation();
   });
-
   $('#ticket-history-delete-cancel').addEventListener('click', () => $('#ticket-history-delete-dialog').close());
   $('#ticket-history-delete-confirm').addEventListener('click', event => void confirmDelete(event.currentTarget));
 }
 
-function handleRoute({ initial = false } = {}) {
-  const requested = location.hash.slice(1);
-  if (requested === 'ticket-history') {
-    activateFeatureView();
-    $('#ticket-history-detail-screen').hidden = true;
-    $('#ticket-history-list-screen').hidden = false;
-    void loadHistory({ resetPage: initial });
-    return true;
+function handleViewChanged(event) {
+  if (String(event.detail?.view || '') !== 'ticket-history') {
+    state.loadController?.abort();
+    return;
   }
-  if (requested.startsWith('ticket-history:')) {
-    const encodedId = requested.slice('ticket-history:'.length);
-    try {
-      void openTicket(decodeURIComponent(encodedId), { push: false });
-    } catch {
-      showHistoryList({ updateHistory: true });
-    }
-    return true;
-  }
-  if (!initial && requested === 'scan' && document.querySelector('.view[data-view="ticket-history"]')?.classList.contains('active')) {
-    navigateToCapture();
-  }
-  return false;
+  const route = String(event.detail?.route || 'ticket-history');
+  const searchParams = event.detail?.searchParams instanceof URLSearchParams
+    ? event.detail.searchParams
+    : new URLSearchParams(event.detail?.searchParams || '');
+  void activateTicketHistory(route, searchParams);
 }
 
 export function initializeTicketHistoryFeature() {
@@ -933,8 +973,11 @@ export function initializeTicketHistoryFeature() {
   installTicketEntryNavigation();
   installHistoryView();
   bindInteractions();
-  window.addEventListener('popstate', () => handleRoute());
-  handleRoute({ initial: true });
+  document.addEventListener('basketra:view-changed', handleViewChanged);
+  const current = readApplicationLocation();
+  if (current.route === 'ticket-history' || current.route.startsWith('ticket-history:')) {
+    void activateTicketHistory(current.route, current.searchParams);
+  }
 }
 
 if (document.readyState === 'loading') {
