@@ -126,8 +126,8 @@ test('inventory entity rows share accessible swipe actions and preserve canonica
   await expect(productWrapper).toBeVisible();
   await openAccessibleActions(productWrapper);
   await productWrapper.locator('[data-inventory-row-action="edit"]').click();
-  await expect(page).toHaveURL(/\/inventory\/products\/variant_milk$/);
   await expect(page.locator('#catalog-editor')).toBeVisible();
+  await expect(page).toHaveURL(/\/inventory\/products\/variant_milk\?mode=edit$/);
   await page.locator('.view[data-view="catalog"]').screenshot({ path: testInfo.outputPath('inventory-product-editor-mobile.png') });
   await page.locator('#catalog-back-list').click();
 
@@ -152,8 +152,8 @@ test('inventory entity rows share accessible swipe actions and preserve canonica
   const categoryWrapper = page.locator('[data-swipe-kind="inventory-category"][data-swipe-id="category_food"]');
   await openAccessibleActions(categoryWrapper);
   await categoryWrapper.locator('[data-inventory-row-action="edit"]').click();
-  await expect(page).toHaveURL(/\/inventory\/categories\/category_food$/);
   await expect(page.locator('#category-editor')).toBeVisible();
+  await expect(page).toHaveURL(/\/inventory\/categories\/category_food\?mode=edit$/);
   await page.locator('#categories-back-list').click();
 
   await openAccessibleActions(categoryWrapper);
@@ -169,6 +169,12 @@ test('inventory entity rows share accessible swipe actions and preserve canonica
   await openInventorySection(page, 'Tiendas');
   const storeWrapper = page.locator('[data-swipe-kind="inventory-store"][data-swipe-id="store_central"]');
   await expect(storeWrapper).toBeVisible();
+  await openAccessibleActions(storeWrapper);
+  await storeWrapper.locator('[data-inventory-row-action="edit"]').click();
+  await expect(page.locator('#store-editor')).toBeVisible();
+  await expect(page).toHaveURL(/\/inventory\/stores\/store_central\?mode=edit$/);
+  await page.locator('#stores-back-list').click();
+
   await openAccessibleActions(storeWrapper);
   await storeWrapper.locator('[data-inventory-row-action="delete"]').click();
 
