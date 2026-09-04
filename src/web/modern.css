@@ -1512,3 +1512,89 @@ summary {
     border: 1px solid CanvasText;
   }
 }
+
+
+.entity-selection-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .65rem;
+  padding: .7rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+  border-radius: .8rem;
+  background: color-mix(in srgb, var(--surface) 90%, var(--primary) 10%);
+}
+
+.entity-selection-bar[hidden] {
+  display: none;
+}
+
+.entity-selection-bar__copy {
+  min-width: min(100%, 13rem);
+  margin-right: auto;
+  display: grid;
+  gap: .15rem;
+}
+
+.entity-selection-bar__copy small {
+  color: var(--muted);
+}
+
+.entity-selection-row,
+.entity-selection-heading {
+  display: grid;
+  grid-template-columns: 2.8rem minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.entity-selection-cell {
+  display: grid;
+  place-items: center;
+  min-width: 2.8rem;
+  border-right: 1px solid var(--border);
+}
+
+.entity-selection-cell input {
+  width: 1.15rem;
+  height: 1.15rem;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.entity-selection-heading > .entity-selection-cell {
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 90%, var(--primary) 10%);
+}
+
+.entity-selection-row > .inventory-product-row,
+.entity-selection-row > .category-row,
+.entity-selection-row > .inventory-store-row {
+  border-bottom: 1px solid var(--border);
+}
+
+.entity-selection-row[data-selected="true"] {
+  background: color-mix(in srgb, var(--surface) 84%, var(--primary) 16%);
+}
+
+.entity-selection-row[data-selected="true"] > .entity-selection-cell {
+  box-shadow: inset .2rem 0 0 var(--primary);
+}
+
+@media (max-width: 52rem) {
+  .entity-selection-bar {
+    align-items: stretch;
+  }
+
+  .entity-selection-bar .button {
+    flex: 1 1 auto;
+  }
+
+  .entity-selection-row,
+  .entity-selection-heading {
+    grid-template-columns: 2.6rem minmax(0, 1fr);
+  }
+
+  .entity-selection-cell {
+    min-width: 2.6rem;
+  }
+}
