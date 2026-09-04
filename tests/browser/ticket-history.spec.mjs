@@ -191,6 +191,26 @@ test('ticket history supports mobile list, keyboard detail, canonical line calcu
   await expect(lineDialog).toBeHidden();
   await expect(page.locator('#ticket-editor-status')).toHaveText('Sin guardar');
 
+  await page.getByRole('button', { name: 'Añadir artículo' }).click();
+  await expect(lineDialog).toBeVisible();
+  await expect(lineDialog.getByRole('heading', { name: 'Añadir artículo' })).toBeVisible();
+  await expect(lineDialog.locator('[data-editor-section="producto"]')).toHaveText('1. Producto');
+  await expect(lineDialog.locator('[data-editor-section="detalle-de-compra"]')).toHaveText('2. Detalle de compra');
+  await expect(lineDialog.locator('[data-editor-section="descuento"]')).toHaveText('3. Descuento');
+  await expect(lineDialog.getByRole('heading', { name: 'Resumen' })).toBeVisible();
+  await expect(lineDialog.locator('[data-editor-summary-validation]')).toContainText('Revisar total');
+  await lineDialog.locator('#historical-ticket-line-description').fill('Pan integral');
+  await lineDialog.locator('#historical-ticket-line-quantity').fill('2');
+  await lineDialog.locator('#historical-ticket-line-unit-price').fill('1.20');
+  await expect.poll(() => observed.getCalculations().at(-1)).toMatchObject({
+    quantity: 2,
+    unitPriceMinor: 120,
+  });
+  await expect(lineDialog.locator('[data-editor-summary-total]')).toContainText('2,40');
+  await expect(lineDialog.locator('[data-editor-summary-validation]')).toContainText('Total validado');
+  await lineDialog.getByRole('button', { name: 'Cancelar' }).click();
+  await expect(lineDialog).toBeHidden();
+
   await page.locator('#ticket-editor-notes').fill('Compra semanal corregida');
   await page.getByRole('button', { name: 'Guardar cambios' }).click();
   await expect.poll(() => observed.getPatch()).toBeTruthy();

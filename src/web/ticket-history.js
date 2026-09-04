@@ -7,6 +7,10 @@ import {
   icon,
   minorToEuroInput,
 } from './ui.js';
+import {
+  enhanceReceiptInvoiceEditor,
+  refreshReceiptInvoiceEditor,
+} from './receipt-editor-invoice.js';
 import { localDateBoundaryIso, parsePercentageBasisPoints } from './ticket-history-values.js';
 
 const PAGE_SIZE = 12;
@@ -148,17 +152,20 @@ function installHistoryView() {
   lineDialog.setAttribute('aria-labelledby', 'historical-ticket-line-title');
   lineDialog.innerHTML = `
     <form id="historical-ticket-line-form" class="dialog-content receipt-invoice-dialog__content">
-      <div class="dialog-header receipt-invoice-dialog__header"><div><p class="eyebrow">Línea del ticket</p><h2 id="historical-ticket-line-title">Editar artículo</h2></div><button id="historical-ticket-line-close" class="icon-button" type="button" aria-label="Cerrar"><span data-icon="close"></span></button></div>
-      <label class="field"><span>Producto</span><input id="historical-ticket-line-description" maxlength="240" required autocomplete="off"></label>
-      <label class="field"><span>Categoría</span><select id="historical-ticket-line-category"><option value="">Sin categoría</option></select></label>
-      <div class="quantity-row"><label class="field"><span>Cantidad</span><input id="historical-ticket-line-quantity" type="number" min="1" max="100000" step="1" required></label><label class="field"><span>Unidad</span><select id="historical-ticket-line-unit"></select></label><label class="field"><span>Precio unitario (€)</span><input id="historical-ticket-line-unit-price" inputmode="decimal" required></label></div>
-      <div class="quantity-row"><label class="field"><span>Descuento</span><select id="historical-ticket-line-discount-type"><option value="none">Sin descuento</option><option value="amount">Importe (€)</option><option value="percentage">Porcentaje</option></select></label><label id="historical-ticket-line-discount-field" class="field"><span id="historical-ticket-line-discount-label">Valor</span><input id="historical-ticket-line-discount-value" inputmode="decimal"></label><label id="historical-ticket-line-discount-quantity-field" class="field"><span>Unidades con descuento</span><input id="historical-ticket-line-discount-quantity" type="number" min="1" step="1"></label></div>
-      <aside class="receipt-line-editor-summary ticket-line-calculation-summary" aria-live="polite"><h3>Total calculado</h3><strong id="historical-ticket-line-total">0,00 €</strong><small id="historical-ticket-line-calculation-state">Calculado por el servidor.</small></aside>
-      <p id="historical-ticket-line-state" class="inline-status" role="status"></p>
-      <div class="dialog-actions"><button id="historical-ticket-line-cancel" class="button secondary" type="button">Cancelar</button><button id="historical-ticket-line-save" class="button primary" type="submit"><span data-icon="check"></span>Guardar línea</button></div>
+      <div class="dialog-header receipt-invoice-dialog__header"><div><p class="eyebrow">Línea del ticket</p><h2 id="historical-ticket-line-title">Editar artículo</h2></div><button id="historical-ticket-line-close" data-editor-action="close" class="icon-button" type="button" aria-label="Cerrar"><span data-icon="close"></span></button></div>
+      <div class="receipt-invoice-dialog__slot" data-editor-slot>
+        <fieldset class="receipt-item receipt-item--editing" data-receipt-line-editor data-editor-validation="review">
+          <legend>Línea del ticket</legend>
+          <label class="field"><span>Producto</span><input id="historical-ticket-line-description" data-field="description" maxlength="240" required autocomplete="off"></label>
+          <label class="field receipt-editor-category-field"><span>Categoría</span><select id="historical-ticket-line-category"><option value="">Sin categoría</option></select></label>
+          <div class="quantity-row"><label class="field"><span>Cantidad</span><input id="historical-ticket-line-quantity" data-field="quantity" type="number" min="1" max="100000" step="1" required></label><label class="field"><span>Unidad</span><select id="historical-ticket-line-unit"></select></label><label class="field"><span>Precio unitario (€)</span><input id="historical-ticket-line-unit-price" data-field="unitPriceEuro" inputmode="decimal" required></label></div>
+          <div class="quantity-row"><label class="field receipt-discount-type-field"><span>Descuento</span><select id="historical-ticket-line-discount-type" data-field="discountType"><option value="none">Sin descuento</option><option value="amount">Importe (€)</option><option value="percentage">Porcentaje</option></select></label><label id="historical-ticket-line-discount-field" class="field receipt-discount-value-field"><span id="historical-ticket-line-discount-label">Valor</span><input id="historical-ticket-line-discount-value" data-field="discountValue" inputmode="decimal"></label><label id="historical-ticket-line-discount-quantity-field" class="field receipt-discount-quantity-field"><span>Unidades con descuento</span><input id="historical-ticket-line-discount-quantity" data-field="discountQuantity" type="number" min="1" step="1"></label><output id="historical-ticket-line-total" class="receipt-line-result" data-field="lineTotalEuro" aria-label="Total calculado (€)">0.00</output><p id="historical-ticket-line-state" class="inline-status receipt-line-derived-state" role="status" aria-live="polite"></p></div>
+        </fieldset>
+      </div>
+      <div class="dialog-actions receipt-line-editor-actions receipt-invoice-dialog__actions" data-editor-actions><button id="historical-ticket-line-cancel" class="button secondary" type="button">Cancelar</button><button id="historical-ticket-line-save" data-editor-action="save" class="button primary" type="submit"><span data-icon="check"></span>Guardar línea</button></div>
     </form>`;
   document.body.append(lineDialog);
-
+  enhanceReceiptInvoiceEditor(lineDialog);
   const deleteDialog = document.createElement('dialog');
   deleteDialog.id = 'ticket-history-delete-dialog';
   deleteDialog.className = 'confirm-dialog';
@@ -499,23 +506,30 @@ async function calculateLine(generation) {
   state.lineCalculationController?.abort();
   const controller = new AbortController();
   state.lineCalculationController = controller;
+  const lineItem = $('#historical-ticket-line-dialog [data-receipt-line-editor]');
+  const total = $('#historical-ticket-line-total');
   try {
     const payload = lineCalculationPayload();
-    $('#historical-ticket-line-calculation-state').textContent = 'Calculando en el servidor…';
+    total?.setAttribute('aria-busy', 'true');
+    lineItem?.setAttribute('data-editor-validation', 'review');
     const result = await api('/api/v1/receipts/calculate-line', {
       method: 'POST',
       signal: controller.signal,
       body: JSON.stringify(payload),
     });
     if (generation !== state.lineCalculationGeneration) return null;
-    $('#historical-ticket-line-total').textContent = formatEuroMinor(result.lineTotalMinor);
-    $('#historical-ticket-line-calculation-state').textContent = 'Total derivado por el servidor.';
+    if (total instanceof HTMLOutputElement) total.value = minorToEuroInput(result.lineTotalMinor);
+    lineItem?.setAttribute('data-editor-validation', 'confirmed');
     $('#historical-ticket-line-state').textContent = '';
+    total?.removeAttribute('aria-busy');
+    refreshReceiptInvoiceEditor($('#historical-ticket-line-dialog'));
     return { ...payload, lineTotalMinor: result.lineTotalMinor };
   } catch (error) {
     if (error?.name === 'AbortError' || generation !== state.lineCalculationGeneration) return null;
-    $('#historical-ticket-line-calculation-state').textContent = 'Revisa los datos de la línea.';
+    lineItem?.setAttribute('data-editor-validation', 'review');
     $('#historical-ticket-line-state').textContent = error.message;
+    total?.removeAttribute('aria-busy');
+    refreshReceiptInvoiceEditor($('#historical-ticket-line-dialog'));
     return null;
   } finally {
     if (generation === state.lineCalculationGeneration) state.lineCalculationController = null;
@@ -549,10 +563,12 @@ function openLineEditor(index) {
     ? minorToEuroInput(item.discount.amountMinor)
     : percentageInput(item?.discount);
   $('#historical-ticket-line-discount-quantity').value = String(item?.discount?.quantity || item?.quantity || 1);
-  $('#historical-ticket-line-total').textContent = formatEuroMinor(item?.lineTotalMinor || 0);
-  $('#historical-ticket-line-calculation-state').textContent = 'Calculado por el servidor.';
+  const total = $('#historical-ticket-line-total');
+  if (total instanceof HTMLOutputElement) total.value = minorToEuroInput(item?.lineTotalMinor || 0);
+  $('#historical-ticket-line-dialog [data-receipt-line-editor]').dataset.editorValidation = item ? 'confirmed' : 'review';
   $('#historical-ticket-line-state').textContent = '';
   syncLineDiscountFields();
+  refreshReceiptInvoiceEditor($('#historical-ticket-line-dialog'));
   $('#historical-ticket-line-dialog').showModal();
   requestAnimationFrame(() => $('#historical-ticket-line-description').focus());
 }
