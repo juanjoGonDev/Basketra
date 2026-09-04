@@ -347,7 +347,7 @@ function renderHistory() {
   const from = total ? offset + 1 : 0;
   const to = Math.min(offset + tickets.length, total);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  $('#ticket-history-range').textContent = `${from}-${to} de ${total}`;
+  $('#ticket-history-range').textContent = total ? `${from}-${to} de ${total}` : '0 resultados';
   $('#ticket-history-page').textContent = `${state.page} / ${pages}`;
   $('#ticket-history-prev').disabled = state.page <= 1;
   $('#ticket-history-next').disabled = !state.result.hasMore;
