@@ -491,10 +491,12 @@ export class CatalogRepository {
     this.#database.exec('BEGIN IMMEDIATE');
     try {
       const retailerId = this.resolveRetailer(input.retailerName);
+      let storeName: string | undefined;
       if (input.storeId) {
-        const store = this.#database.prepare('SELECT retailer_id AS retailerId FROM stores WHERE id = ?').get(input.storeId) as { retailerId: string } | undefined;
+        const store = this.#database.prepare('SELECT retailer_id AS retailerId, name FROM stores WHERE id = ?').get(input.storeId) as { retailerId: string; name: string } | undefined;
         if (!store) throw new Error('STORE_NOT_FOUND');
         if (store.retailerId !== retailerId) throw new RangeError('Store does not belong to the selected retailer');
+        storeName = store.name;
       }
       let listing = this.#database.prepare(`
         SELECT id FROM retailer_listings
@@ -552,10 +554,7 @@ export class CatalogRepository {
         productVariantId: input.productVariantId,
         retailerId,
         retailerName: input.retailerName,
-        ...(input.storeId ? {
-          storeId: input.storeId,
-          ...(this.storeById(input.storeId)?.name ? { storeName: this.storeById(input.storeId)!.name } : {}),
-        } : {}),
+        ...(input.storeId ? { storeId: input.storeId, ...(storeName ? { storeName } : {}) } : {}),
         priceMinor: input.priceMinor,
         packageNumerator: packageAmount.numerator,
         packageDenominator: packageAmount.denominator,
