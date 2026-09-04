@@ -17,3 +17,20 @@ test('receipt catalog projection remains owned by its safe schema migration', ()
   assert.match(migration?.sql ?? '', /NEW\.unit_price_minor/u);
   assert.match(migration?.sql ?? '', /product_variant_id/u);
 });
+
+
+test('receipt Store ownership is enforced by forward-safe migration 14 while migration 12 remains a compatibility fallback', () => {
+  const compatibility = COLLABORATION_MIGRATIONS.find(candidate => candidate.version === 12);
+  const ownership = COLLABORATION_MIGRATIONS.find(candidate => candidate.version === 14);
+  assert.ok(compatibility);
+  assert.ok(ownership);
+  assert.equal(compatibility.kind, 'safe');
+  assert.equal(ownership.kind, 'safe');
+  assert.match(compatibility.sql, /CREATE TRIGGER receipt_price_observation_assign_store/u);
+  assert.match(ownership.sql, /CREATE TRIGGER receipt_price_observation_write_store/u);
+  assert.match(ownership.sql, /BEFORE INSERT ON price_observations/u);
+  assert.match(ownership.sql, /external_evidence\.source_type = 'receipt'/u);
+  assert.match(ownership.sql, /external_evidence\.source_reference = 'receipt-item:' \|\| receipt_items\.id/u);
+  assert.match(ownership.sql, /receipts\.store_id/u);
+  assert.doesNotMatch(ownership.sql, /DROP TRIGGER/u);
+});
