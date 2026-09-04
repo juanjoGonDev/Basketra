@@ -55,8 +55,26 @@ test('server exposes every service-worker shell asset through the explicit stati
       assert.match(response.headers.get('content-type') ?? '', expectedContentType(asset));
     }
 
+    for (const applicationPath of [
+      '/lists/list_1',
+      '/inventory/products/product_1?q=milk&page=2',
+      '/inventory/categories/category_1?view=roots',
+      '/inventory/stores/store_1?sort=recent',
+      '/inventory/statistics?period=90d',
+      '/tickets/history/ticket_1?status=paid',
+      '/settings?tab=ai',
+    ]) {
+      const response = await fetch(`${baseUrl}${applicationPath}`);
+      assert.equal(response.status, 200, `${applicationPath} must serve the application shell`);
+      assert.match(response.headers.get('content-type') ?? '', /text\/html/u);
+      assert.match(await response.text(), /id="main"/u);
+    }
+
     const rejected = await fetch(`${baseUrl}/../src/api/server.ts`);
     assert.equal(rejected.status, 404);
+
+    const unknownApplicationPath = await fetch(`${baseUrl}/inventory/products/a/b`);
+    assert.equal(unknownApplicationPath.status, 404);
   } finally {
     await server.close();
     rmSync(root, { recursive: true, force: true });

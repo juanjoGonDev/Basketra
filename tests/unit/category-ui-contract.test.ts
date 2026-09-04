@@ -43,9 +43,10 @@ test('category rendering preserves strict CSP without inline styles', () => {
   assert.match(css, /\.category-indent-step/u);
 });
 
-test('direct category hashes support list, detail and new-category states', () => {
+test('category UI delegates clean list, detail and new-category states to route-aware handlers', () => {
   const javascript = source('src/web/catalog.js');
+  assert.match(javascript, /openRequestedCategory/u);
   assert.match(javascript, /requested === 'categories:new'/u);
   assert.match(javascript, /requested\.startsWith\('categories:'\)/u);
-  assert.match(javascript, /activateCategoryView: requested === 'categories' \|\| requested\.startsWith\('categories:'\)/u);
+  assert.match(javascript, /writeCategoryRoute/u);
 });

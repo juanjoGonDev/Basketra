@@ -26,6 +26,8 @@ let receiptEditorSession = null;
 let applicationReady = false;
 let pendingRoute = null;
 
+const SETTINGS_TAB_VALUES = ['general', 'ai', 'diagnostics', 'data', 'advanced'];
+
 function createTabGroup(name, label, tabs) {
   const root = document.createElement('section');
   root.className = 'task-tabs';
@@ -577,7 +579,7 @@ function organizeSettingsOperations() {
   stack.replaceWith(root);
   const current = readApplicationLocation();
   if (current.route === 'settings') {
-    const tab = readRouteEnum(current.searchParams, 'tab', ['general', 'ai', 'diagnostics', 'data', 'advanced'], 'general');
+    const tab = readRouteEnum(current.searchParams, 'tab', SETTINGS_TAB_VALUES, 'general');
     selectTabValue('settings', tab, { syncUrl: false });
   }
   return true;
@@ -592,6 +594,15 @@ function installSettingsDisclosureWatcher() {
   });
   observer.observe(settings, { childList: true, subtree: true });
 }
+
+document.addEventListener('basketra:view-changed', event => {
+  if (event.detail?.view !== 'settings') return;
+  const searchParams = event.detail?.searchParams instanceof URLSearchParams
+    ? event.detail.searchParams
+    : new URLSearchParams(event.detail?.searchParams || '');
+  const tab = readRouteEnum(searchParams, 'tab', SETTINGS_TAB_VALUES, 'general');
+  selectTabValue('settings', tab, { syncUrl: false });
+});
 
 installReceiptReviewPresentation();
 installTicketContinuousWorkflow();

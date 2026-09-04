@@ -46,7 +46,7 @@ test('ticket-derived catalog shows retailer prices on desktop', async ({ page },
     }),
   }));
 
-  await page.goto('/#home');
+  await page.goto('/');
   await page.getByRole('button', { name: 'Inventario', exact: true }).first().click();
   await page.locator('.view[data-view="inventory"]').getByRole('button', { name: 'Productos', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: 'Productos', exact: true })).toBeVisible();

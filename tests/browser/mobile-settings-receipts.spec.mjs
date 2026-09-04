@@ -46,7 +46,7 @@ test('settings remain readable and unobscured across light and dark responsive l
   for (const [colorScheme, viewport] of scenarios) {
     await page.setViewportSize(viewport);
     await page.emulateMedia({ colorScheme });
-    await page.goto('/#home');
+    await page.goto('/');
     await navigate(page, 'Ajustes');
 
     await expect(page.getByRole('heading', { name: 'Ajustes', exact: true })).toBeVisible();

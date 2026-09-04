@@ -35,7 +35,7 @@ async function expectSettingsTabsInsideViewport(page) {
 
 test('adaptive Android scaffold uses a navigation bar on compact screens and a rail on expanded screens', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/#home');
+  await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Organiza la compra sin perder tiempo.' })).toBeVisible();
 
   const mobileGeometry = await page.evaluate(() => {
@@ -73,14 +73,15 @@ test('adaptive Android scaffold uses a navigation bar on compact screens and a r
   expect(desktopGeometry.navigationLeft).toBeLessThanOrEqual(1);
   expect(desktopGeometry.navigationTop).toBeGreaterThanOrEqual(desktopGeometry.headerBottom - 1);
   expect(desktopGeometry.navigationBottom).toBeGreaterThanOrEqual(899);
-  expect(desktopGeometry.navigationWidth).toBeLessThanOrEqual(100);
+  expect(desktopGeometry.navigationWidth).toBeGreaterThanOrEqual(180);
+  expect(desktopGeometry.navigationWidth).toBeLessThanOrEqual(200);
   expect(desktopGeometry.mainLeft).toBeGreaterThanOrEqual(desktopGeometry.navigationWidth);
   await screenshotView(page, testInfo, 'home-desktop-1280');
 });
 
 test('all primary destinations share touch-safe controls, reflow and the same visual language', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/#home');
+  await page.goto('/');
 
   const destinations = [
     ['Inicio', 'home'],
@@ -111,9 +112,30 @@ test('all primary destinations share touch-safe controls, reflow and the same vi
   await screenshotView(page, testInfo, 'settings-mobile-320');
 });
 
+test('settings tabs persist in the clean URL across refresh and browser history', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/settings');
+
+  const aiTab = page.getByRole('tab', { name: 'IA', exact: true });
+  await aiTab.click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/settings');
+  await expect.poll(() => new URL(page.url()).searchParams.get('tab')).toBe('ai');
+
+  await page.reload();
+  await expect(aiTab).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('heading', { name: 'Proveedor de IA' })).toBeVisible();
+
+  await page.getByRole('tab', { name: 'Diagnóstico', exact: true }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.get('tab')).toBe('diagnostics');
+  await page.goBack();
+  await expect.poll(() => new URL(page.url()).searchParams.get('tab')).toBe('ai');
+  await expect(aiTab).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('heading', { name: 'Proveedor de IA' })).toBeVisible();
+});
+
 test('keyboard focus stays visibly exposed on primary and visually hidden controls', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/#home');
+  await page.goto('/');
   await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
 

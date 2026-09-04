@@ -229,9 +229,10 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await page.locator('#delete-item-dialog').getByRole('button', { name: 'Eliminar producto', exact: true }).click();
   await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
 
+  const listPath = new URL(page.url()).pathname;
+  expect(listPath).toMatch(/^\/lists\/[^/]+$/u);
   await page.reload();
-  await navigate(page, 'Listas');
-  await page.locator('[data-list-action="open"]').filter({ hasText: 'Compra completa' }).click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe(listPath);
   await expect(page.locator('#active-list-title')).toHaveText('Compra completa');
   await expect(page.locator('#pending-items')).toContainText('Leche semidesnatada 1 L');
   await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
@@ -239,6 +240,7 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await page.locator('#list-menu').click();
   await page.getByRole('button', { name: 'Eliminar lista', exact: true }).click();
   await page.locator('#delete-list-dialog').getByRole('button', { name: 'Eliminar lista', exact: true }).click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/lists');
   await expect(page.locator('#list-cards')).toContainText('Tu primera lista empieza aquí');
   await expectNoHorizontalOverflow(page);
   expect(failures).toEqual([]);
