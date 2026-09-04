@@ -255,6 +255,8 @@ function syncOverviewScope() {
 }
 
 function transferOverviewQuery({ focusFilters = false } = {}) {
+  clearTimeout(state.searchTimer);
+  state.searchTimer = null;
   const scope = overviewDestination($('#inventory-overview-scope')?.value);
   const query = $('#inventory-overview-search')?.value.trim() || '';
   const requestedSort = $('#inventory-overview-sort')?.value === 'name' ? 'name' : 'recent';
@@ -841,6 +843,8 @@ function handleViewChanged(event) {
     applyOverviewRouteState(searchParams);
     void loadOverview();
   } else {
+    clearTimeout(state.searchTimer);
+    state.searchTimer = null;
     state.overviewLoadController?.abort();
   }
   if (view === 'stores') void activateStores(route, searchParams);
