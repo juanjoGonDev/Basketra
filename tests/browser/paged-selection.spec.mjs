@@ -102,7 +102,7 @@ test('product selection survives pagination and bulk delete sends only explicit 
     if (message.type() === 'error') runtimeErrors.push(message.text());
   });
 
-  await page.goto('/#catalog');
+  await page.goto('/inventory/products');
   await expect(page.getByRole('heading', { name: 'Productos', exact: true })).toBeVisible();
   await page.getByRole('checkbox', { name: 'Seleccionar Producto página 1' }).check();
   await expect(page.locator('#catalog-selection-count')).toHaveText('1 productos seleccionados');
@@ -201,7 +201,7 @@ test('ticket selection survives pagination and one bulk transaction receives eve
     if (message.type() === 'error') runtimeErrors.push(message.text());
   });
 
-  await page.goto('/#ticket-history');
+  await page.goto('/tickets/history');
   await expect(page.getByRole('heading', { name: 'Historial de tickets' })).toBeVisible();
   await page.getByRole('checkbox', { name: 'Seleccionar ticket ticket_page_1' }).check();
   await expect(page.locator('#ticket-history-selection-count')).toHaveText('1 tickets seleccionados');

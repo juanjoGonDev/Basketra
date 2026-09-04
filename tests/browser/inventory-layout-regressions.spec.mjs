@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 async function navigateToInventory(page) {
-  await page.goto('/#home');
+  await page.goto('/');
   await page.getByRole('button', { name: /Inventario/i }).first().click();
 }
 
@@ -92,7 +92,7 @@ test('statistics keep every desktop table column inside its visible surface', as
 test('ticket history desktop date filters never overlap', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await installTicketHistoryRoutes(page);
-  await page.goto('/#home');
+  await page.goto('/');
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
   await page.getByRole('button', { name: 'Historial', exact: true }).click();
   await expect(page.locator('#ticket-history-date-from')).toBeVisible();

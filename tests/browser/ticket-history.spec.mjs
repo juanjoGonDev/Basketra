@@ -162,11 +162,11 @@ test('ticket history supports mobile list, keyboard detail, canonical line calcu
   page.on('pageerror', error => runtimeErrors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') runtimeErrors.push(message.text()); });
 
-  await page.goto('/#home');
+  await page.goto('/');
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
   await page.getByRole('button', { name: 'Historial', exact: true }).click();
 
-  await expect(page).toHaveURL(/#ticket-history$/);
+  await expect(page).toHaveURL(/\/tickets\/history$/);
   await expect(page.getByRole('heading', { name: 'Historial de tickets' })).toBeVisible();
   await expect(page.locator('#ticket-summary-count')).toHaveText('1');
   await expect(page.locator('#ticket-summary-spent')).toContainText('1,50');
@@ -177,7 +177,7 @@ test('ticket history supports mobile list, keyboard detail, canonical line calcu
   const row = page.locator('[data-ticket-action="open"][data-ticket-id="ticket_20260902"]');
   await row.focus();
   await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(/#ticket-history:ticket_20260902$/);
+  await expect(page).toHaveURL(/\/tickets\/history\/ticket_20260902$/);
   await expect(page.locator('#ticket-editor-title')).toContainText('ticket_20260902');
   await expect(page.locator('#ticket-editor-total')).toContainText('1,50');
 
@@ -251,7 +251,7 @@ test('ticket history supports mobile list, keyboard detail, canonical line calcu
   await confirmDelete.click();
   await expect(deleteDialog).toBeHidden();
   await expect.poll(() => observed.wasDeleted()).toBe(true);
-  await expect(page).toHaveURL(/#ticket-history$/);
+  await expect(page).toHaveURL(/\/tickets\/history$/);
   await expect(page.locator('#ticket-history-range')).toHaveText('0 resultados');
   await expectNoHorizontalOverflow(page);
   expect(runtimeErrors).toEqual([]);
@@ -261,7 +261,7 @@ test('ticket history desktop preserves dense list/detail hierarchy without horiz
   await page.setViewportSize({ width: 1280, height: 900 });
   await installRoutes(page);
 
-  await page.goto('/#home');
+  await page.goto('/');
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
   await page.getByRole('button', { name: 'Historial', exact: true }).click();
   await expect(page.locator('.ticket-history-list-heading')).toBeVisible();

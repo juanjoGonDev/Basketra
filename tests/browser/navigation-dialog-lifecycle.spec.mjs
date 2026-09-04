@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('navigating away closes the active shopping-item editor immediately', async ({ page }) => {
-  await page.goto('/#lists');
+  await page.goto('/lists');
   await page.getByRole('button', { name: 'Nueva lista', exact: true }).click();
   const createDialog = page.locator('#create-list-dialog');
   await createDialog.getByLabel('Nombre', { exact: true }).fill('Compra');
@@ -13,5 +13,5 @@ test('navigating away closes the active shopping-item editor immediately', async
     detail: { route: 'inventory' },
   })));
   await expect(itemDialog).not.toHaveAttribute('open', '');
-  await expect(page).toHaveURL(/#inventory$/);
+  await expect(page).toHaveURL(/\/inventory$/);
 });

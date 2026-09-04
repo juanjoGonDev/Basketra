@@ -88,12 +88,12 @@ test('stores provide mobile list, editable detail and dependency-aware delete wa
   page.on('pageerror', error => runtimeErrors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') runtimeErrors.push(message.text()); });
 
-  await page.goto('/#home');
+  await page.goto('/');
   await page.getByRole('button', { name: /Inventario/i }).first().click();
   const inventory = page.locator('.view[data-view="inventory"]');
   await inventory.getByRole('button', { name: 'Tiendas', exact: true }).first().click();
 
-  await expect(page).toHaveURL(/#stores$/);
+  await expect(page).toHaveURL(/\/inventory\/stores$/);
   await expect(page.getByRole('heading', { name: 'Tiendas', exact: true })).toBeVisible();
   await expect(page.locator('#store-range')).toHaveText('1-1 de 1');
   await expect(page.locator('#store-list')).toContainText('Mercado Central');
@@ -103,7 +103,7 @@ test('stores provide mobile list, editable detail and dependency-aware delete wa
 
   const storeSwipe = page.locator('[data-swipe-kind="inventory-store"][data-swipe-id="store_central"]');
   await storeSwipe.locator('[data-inventory-swipe-surface]').click();
-  await expect(page).toHaveURL(/#stores:store_central$/);
+  await expect(page).toHaveURL(/\/inventory\/stores\/store_central$/);
   await expect(page.locator('#store-detail-name')).toHaveText('Centro');
   await expect(page.locator('#store-detail-products')).toHaveText('4');
   await expect(page.locator('#store-detail-tickets')).toHaveText('2');
@@ -157,7 +157,7 @@ test('category activity bars use each canonical category color and proportional 
     }),
   }));
 
-  await page.goto('/#inventory-statistics');
+  await page.goto('/inventory/statistics');
   const fills = page.locator('#statistics-categories-bars .inventory-bar-fill');
   await expect(fills).toHaveCount(3);
   await expect(fills.nth(0)).toHaveCSS('--inventory-bar', '100%');
@@ -192,7 +192,7 @@ test('statistics discard an obsolete period response and expose accessible table
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ statistics: statisticsFixture(period) }) });
   });
 
-  await page.goto('/#home');
+  await page.goto('/');
   await page.getByRole('button', { name: /Inventario/i }).first().click();
   const inventory = page.locator('.view[data-view="inventory"]');
   await inventory.getByRole('button', { name: 'Estadísticas', exact: true }).first().click();

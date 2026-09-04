@@ -114,14 +114,14 @@ test('inventory entity rows share accessible swipe actions and preserve canonica
   page.on('pageerror', error => runtimeErrors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') runtimeErrors.push(message.text()); });
 
-  await page.goto('/#home');
+  await page.goto('/');
 
   await openInventorySection(page, 'Productos');
   const productWrapper = page.locator('[data-swipe-kind="inventory-product"][data-swipe-id="variant_milk"]');
   await expect(productWrapper).toBeVisible();
   await openAccessibleActions(productWrapper);
   await productWrapper.locator('[data-inventory-row-action="edit"]').click();
-  await expect(page).toHaveURL(/#catalog:variant_milk$/);
+  await expect(page).toHaveURL(/\/inventory\/products\/variant_milk$/);
   await expect(page.locator('#catalog-editor')).toBeVisible();
   await page.locator('.view[data-view="catalog"]').screenshot({ path: testInfo.outputPath('inventory-product-editor-mobile.png') });
   await page.locator('#catalog-back-list').click();
@@ -147,7 +147,7 @@ test('inventory entity rows share accessible swipe actions and preserve canonica
   const categoryWrapper = page.locator('[data-swipe-kind="inventory-category"][data-swipe-id="category_food"]');
   await openAccessibleActions(categoryWrapper);
   await categoryWrapper.locator('[data-inventory-row-action="edit"]').click();
-  await expect(page).toHaveURL(/#categories:category_food$/);
+  await expect(page).toHaveURL(/\/inventory\/categories\/category_food$/);
   await expect(page.locator('#category-editor')).toBeVisible();
   await page.locator('#categories-back-list').click();
 
@@ -169,7 +169,7 @@ test('inventory entity rows share accessible swipe actions and preserve canonica
 
   const storeDelete = page.locator('#store-delete-dialog');
   await expect(storeDelete).toBeVisible();
-  await expect(page).toHaveURL(/#stores:store_central$/);
+  await expect(page).toHaveURL(/\/inventory\/stores\/store_central$/);
   await expect(storeDelete.locator('#store-delete-impact')).toContainText('4 productos vinculados');
   await expect(storeDelete.locator('#store-delete-impact')).toContainText('6 observaciones de precio');
   await expect(storeDelete.locator('#store-delete-impact')).toContainText('2 tickets históricos');

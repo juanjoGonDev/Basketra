@@ -82,7 +82,7 @@ test('product list opens a full-page product detail with accessible price histor
   await page.setViewportSize({ width: 1280, height: 900 });
   await installCatalogRoutes(page);
 
-  await page.goto('/#catalog');
+  await page.goto('/inventory/products');
   await expect(page.getByRole('heading', { name: 'Productos', exact: true })).toBeVisible();
   await expect(page.locator('#catalog-range')).toHaveText('1-1 de 1');
   await expect(page.locator('#catalog-list-screen .inventory-list-heading')).toBeVisible();
