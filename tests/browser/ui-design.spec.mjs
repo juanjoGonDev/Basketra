@@ -123,14 +123,14 @@ test('settings tabs persist in the clean URL across refresh and browser history'
 
   await page.reload();
   await expect(aiTab).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('heading', { name: 'Proveedor de IA' })).toBeVisible();
+  await expect(page.locator('#ai-config-title')).toHaveText('Conexiones y límites locales');
 
   await page.getByRole('tab', { name: 'Diagnóstico', exact: true }).click();
   await expect.poll(() => new URL(page.url()).searchParams.get('tab')).toBe('diagnostics');
   await page.goBack();
   await expect.poll(() => new URL(page.url()).searchParams.get('tab')).toBe('ai');
   await expect(aiTab).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('heading', { name: 'Proveedor de IA' })).toBeVisible();
+  await expect(page.locator('#ai-config-title')).toHaveText('Conexiones y límites locales');
 });
 
 test('keyboard focus stays visibly exposed on primary and visually hidden controls', async ({ page }) => {
