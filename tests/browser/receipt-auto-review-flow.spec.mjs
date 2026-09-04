@@ -384,3 +384,27 @@ test('desktop review keeps evidence and total summary sticky and preserves confi
   await page.getByRole('button', { name: 'Confirmar e importar', exact: true }).click();
   await expect(page.locator('#receipt-state')).toContainText('Ticket importado: sticky-desktop');
 });
+
+
+test('receipt review requires an editable Store before confirmation', async ({ page }) => {
+  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ configured: false }),
+  }));
+  await page.goto('/');
+  await navigate(page, 'Tickets');
+  await page.evaluate(async () => {
+    const { installReceiptEnhancements } = await import('/receipts.js');
+    installReceiptEnhancements();
+  });
+
+  const retailer = page.locator('#receipt-retailer');
+  const store = page.locator('#receipt-store');
+  await expect(retailer).toHaveAttribute('required', '');
+  await expect(store).toBeVisible();
+  await expect(store).toHaveAttribute('required', '');
+  await expect(store).toBeEditable();
+  await expect(page.getByText('Tienda detectada (opcional)', { exact: true })).toHaveCount(0);
+  await expect(page.locator('#receipt-store-help')).toContainText('obligatoria');
+});
