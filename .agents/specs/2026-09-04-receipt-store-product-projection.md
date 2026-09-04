@@ -2,48 +2,54 @@
 
 ## Request
 
-Enforce one concrete Store for every newly confirmed receipt and ensure every catalog/price projection derived from that receipt uses the same Store. Preserve the normalized Product-to-Store relationship through `canonical_products -> product_variants -> retailer_listings -> price_observations.store_id`; do not add a parallel relationship.
+Enforce one concrete Store for every confirmed receipt and ensure every catalog/price projection derived from that receipt uses that exact Store. Preserve the normalized Product-to-Store relationship through `canonical_products -> product_variants -> retailer_listings -> price_observations.store_id`; do not add a parallel relationship.
 
-This task also requires safe historical repair, atomic Store reassignment through `PATCH /api/v1/inventory/tickets/:id`, and focused receipt-review UI wording/selection so confirmation cannot represent Store as optional.
+The scope also includes safe historical repair, atomic Store reassignment through `PATCH /api/v1/inventory/tickets/:id`, and focused receipt-review UI behavior so confirmation cannot represent Store as optional.
 
 ## Evidence
 
-### Verified repository facts
+### Verified repository facts before the fix
 
-- `BasketraDatabase.importReceipt` in `src/infrastructure/database.ts` checks `receipts.import_key` for idempotency, starts `BEGIN IMMEDIATE`, resolves/creates the retailer, then resolves a supplied Store id or reuses/creates `storeName + retailerName`. The confirmed `receipts` row is inserted before any `receipt_items`, and the whole import commits or rolls back together.
-- The same import currently initializes `storeId` to `null` and still inserts `status = 'confirmed'` when neither `storeId` nor `storeName` is supplied. Therefore the current application path permits a confirmed receipt with no Store.
-- A supplied `storeId` is looked up and its retailer is checked against an already resolved retailer. A supplied Store name is reused case-insensitively for the resolved retailer or created inside the same receipt transaction.
-- `src/receipts/import.ts` currently parses `retailerName`, `storeId`, and `storeName` as optional confirmation fields, so an API caller can reach `importReceipt` without any resolvable Store.
-- `src/receipts/extraction.ts` and `src/receipts/result.ts` model Store identity as optional AI interpretation data. `assembleReceiptExtraction` carries a Store only when the page interpretations agree. This is proposal/evidence behavior and is not item-level ownership.
-- `src/web/receipt-review.js` carries detected Store id/name into `POST /api/v1/receipts/confirm`, but confirmation does not require either field. `src/web/receipts.js` renders `Tienda detectada (opcional)` and a read-only Store field.
-- Migration 7 in `src/infrastructure/collaboration-schema-core.ts` owns receipt catalog projection. For confirmed receipt lines it resolves/reuses or creates the canonical product and variant, assigns `receipt_items.product_variant_id`, resolves/reuses a retailer listing, creates receipt evidence with `source_type = 'receipt'` and `source_reference = 'receipt-item:' || receipt_item.id`, and inserts one observation per evidence according to its existing `NOT EXISTS` rule.
-- Both the historical migration-7 INSERT and the runtime `receipt_items_project_catalog` trigger explicitly pass `NULL` as `price_observations.store_id`.
-- Migration 12 in `src/infrastructure/inventory-schema.ts` creates `receipt_price_observation_assign_store`, an `AFTER INSERT ON price_observations` trigger keyed by the `price_receipt_<receipt_item_id>` id convention. It updates newly inserted receipt prices to the receipt Store only when the receipt already has a non-null Store. It does not backfill observations that existed before migration 12.
-- Migration 13 performs the historical repair by joining `price_observations.evidence_id -> external_evidence`, requiring `source_type = 'receipt'` and `source_reference = 'receipt-item:' || receipt_items.id`, then joining that item to its receipt. It changes only observations whose `store_id IS NULL` and whose owning receipt has a non-null Store.
-- The migration runner applies only versions greater than `MAX(schema_migrations.version)`, requires contiguous versions, takes a pre-migration backup, runs pending migrations in one immediate transaction, checks integrity/version, and rolls back on failure. Repository policy states applied migrations are not rewritten.
-- The migration safety classifier currently treats `DROP TRIGGER` as destructive. Replacing the migration-7 runtime trigger by dropping/recreating it would therefore violate the normal safe-upgrade contract unless migration infrastructure semantics were broadened.
-- Store read-model counts in `src/api/inventory-management-core.ts` remain normalized: tickets count distinct `receipts.id` joined by `receipts.store_id`; prices count distinct `price_observations.id` joined by `price_observations.store_id`; products count distinct `retailer_listings.product_variant_id` reachable from those Store-owned observations. No cached counters exist.
-- `PATCH /api/v1/inventory/tickets/:id` in `src/api/inventory-ticket-management.ts` already uses one `BEGIN IMMEDIATE` transaction for line and receipt edits. However, a selected Store currently replaces the receipt retailer with the Store retailer instead of rejecting an incompatible Store, and the code updates `receipts.store_id` without retargeting receipt-derived `price_observations.store_id`.
-- New manual lines added during ticket editing are inserted before the receipt metadata update, so the existing receipt projection trigger observes the old receipt Store during a Store-changing edit.
-- `src/api/errors.ts` maps `RangeError`/validation errors to the existing 400 `VALIDATION_ERROR` contract, but the current `RECEIPT_STORE_*` string errors are not explicitly mapped and can otherwise become an unexpected 500.
-- Existing tests cover receipt Store creation/reuse, Store/retailer mismatch at `importReceipt`, migration-13 repair, product count derived from repaired observations, catalog latest Store price, Store management, migration upgrades, and ticket evidence preservation. They do not yet cover all acceptance scenarios below.
+- `BasketraDatabase.importReceipt` owns receipt persistence and import-key idempotency inside `BEGIN IMMEDIATE` / `COMMIT` with rollback on failure.
+- Store resolution already existed there: a supplied `storeId` is resolved and retailer compatibility is checked; `storeName + retailerName` reuses a case-insensitive match or creates one Store in the same transaction.
+- Before this change, the import path could still confirm without resolving a Store.
+- Migration 7 in `src/infrastructure/collaboration-schema-core.ts` owns receipt catalog projection. It resolves/reuses or creates canonical products and variants, assigns `receipt_items.product_variant_id`, resolves/reuses retailer listings, writes receipt evidence as `source_type='receipt'` and `source_reference='receipt-item:' || receipt_items.id`, and creates one price observation per evidence according to its existing idempotency rule.
+- Both migration 7's historical projection and its runtime `receipt_items_project_catalog` trigger explicitly insert receipt-derived `price_observations.store_id` as `NULL`.
+- Migration 12 in `src/infrastructure/inventory-schema.ts` creates `receipt_price_observation_assign_store`, an `AFTER INSERT` compatibility trigger keyed by the legacy `price_receipt_<receipt_item_id>` convention. It can repair a newly inserted receipt price after insertion when the receipt already has a Store, but it does not repair rows that predate the trigger.
+- Migration 13 is the historical backfill. It proves receipt ownership through `price_observations.evidence_id -> external_evidence`, requiring `source_type='receipt'` and `source_reference='receipt-item:' || receipt_items.id`, then joins the item to its receipt. Only `price_observations.store_id IS NULL` rows with a non-null receipt Store are eligible.
+- The migration runner applies only versions greater than the recorded schema version, requires contiguous versions, takes a pre-migration backup, executes pending migrations transactionally, verifies integrity/version, and rolls back on failure. Applied migrations are treated as immutable. The safety classifier treats `DROP TRIGGER` as destructive.
+- Store read-model counts remain normalized in `src/api/inventory-management-core.ts`: tickets derive from `receipts.store_id`, prices from `price_observations.store_id`, and products from distinct retailer-listing variants reachable through those Store-owned price observations. No counter cache or Product-to-Store table exists.
+- Before the ticket edit fix, `PATCH /api/v1/inventory/tickets/:id` changed `receipts.store_id` without moving receipt-evidenced observations and could adopt an incompatible Store retailer. Newly inserted lines could also project before the new Store metadata was established.
+- Before the UI fix, the receipt review represented detected Store as optional/read-only and only submitted Store data supplied by AI detection.
+
+### Verified current implementation
+
+- `BasketraDatabase.importReceipt` now rejects unresolved Store with `RECEIPT_STORE_REQUIRED` before inserting the confirmed receipt or any receipt items. The resolved `receipts.store_id` is persisted before item projection, inside the existing receipt transaction.
+- `src/api/errors.ts` maps all receipt Store validation failures to the existing 400 `VALIDATION_ERROR` contract.
+- Forward migration 14 adds `receipt_price_observation_write_store`, a receipt-evidence-specific `BEFORE INSERT` trigger. When legacy migration 7 attempts to insert a receipt-derived observation with null Store, migration 14 proves the owning receipt through evidence, requires a non-null receipt Store, writes the observation with `store_id = receipts.store_id`, and ignores the original null insert. The persisted row is therefore born Store-owned rather than relying on migration 12's later update.
+- Migration 14 also adds confirmed-receipt insert/update guards preventing `status='confirmed'` with null Store at the database boundary.
+- Migrations 7, 12, and 13 remain unchanged. Migration 12 remains installed as a compatibility fallback; it is no longer the primary normal write path. Migration 13 remains the historical repair owner and is not superseded.
+- `PATCH /api/v1/inventory/tickets/:id` now validates the target Store, rejects retailer mismatch, updates receipt Store metadata before inserting new confirmed lines, and retargets only observations whose evidence is proven to originate from receipt items of that receipt. All mutations occur in the same `BEGIN IMMEDIATE` transaction and roll back together.
+- Receipt review now requires both Commerce and Store fields, allows Store input rather than read-only AI ownership, loads existing Store names from the existing Inventory Store endpoint, preserves AI prefill, and blocks confirmation before the API call when no Store can be resolved from the user-visible field.
+- No item-level Store selector or AI item ownership was introduced.
 
 ### Assumptions
 
-- Historical confirmed receipts that genuinely have no known Store cannot be assigned a fabricated Store during migration. The invariant is enforced for new confirmations and subsequent confirmed-ticket writes; legacy unknown Store rows remain historical debt until explicitly repaired with real Store evidence.
-- Migration 12 remains installed for compatibility because applied migration objects are immutable. It must no longer be the primary mechanism that gives new receipt observations their Store.
-- A legacy ticket with no retailer may adopt the retailer of a user-selected Store when explicitly repaired through the editor; when a retailer already exists, Store/retailer mismatch must be rejected.
+- Historical confirmed receipts that genuinely have no known Store cannot be assigned a fabricated Store during migration. The invariant is enforced for new confirmations and subsequent confirmed-ticket writes; legacy unknown-Store receipts require real Store evidence before manual repair.
+- A legacy receipt with no retailer may adopt the retailer of an explicitly selected Store during repair; once a receipt already has a retailer, incompatible Store ownership is rejected.
 
 ## Root cause
 
-The primary defect is not AI extraction. Store identity already flows from extraction to confirmation and `importReceipt` can resolve/create it.
+The primary failure was not AI extraction. AI already proposed receipt-level Store identity and the backend could resolve/create a Store.
 
-The consistency failure is caused by two write-path gaps:
+The real write-path defects were:
 
-1. Confirmation does not require a Store, so a confirmed receipt can be persisted with `store_id = NULL`.
-2. Migration 7's runtime projection inserts receipt-derived `price_observations` with `store_id = NULL`; migration 12 repairs only later in an AFTER INSERT trigger. Databases containing projections created before that trigger can retain null Store ownership, which is why a Store can report a ticket but zero products/prices.
+1. confirmation could persist a confirmed receipt without a Store;
+2. migration 7's canonical receipt projection inserted receipt-derived observations with `store_id = NULL`, while migration 12 only repaired them after insertion and did not backfill older rows;
+3. ticket Store editing changed the receipt without synchronously retargeting evidence-proven receipt observations;
+4. the review UI still presented Store as optional and could not resolve it manually.
 
-Ticket editing has a related consistency gap: Store reassignment changes the receipt but not the evidence-proven observations, and it currently changes retailer ownership instead of validating compatibility.
+The historical symptom `Tickets = 1, Products = 0, Prices = 0` occurs because Store product/price counts are correctly derived from `price_observations.store_id`, so a receipt may be attached to a Store while its older observations remain unowned.
 
 ## Domain invariant
 
@@ -65,82 +71,79 @@ product_variant
        evidence.source_reference = receipt-item:<receipt_item.id>
 ```
 
-AI may propose receipt-level Store identity. Once the Store is resolved, every confirmed item is projected to that Store deterministically. Item-level AI Store assignment is forbidden.
+AI may propose receipt-level Store identity. Once Store is resolved, every confirmed item is projected to that Store deterministically. Item-level Store assignment is forbidden.
 
 ## Decision
 
-Use the smallest forward-compatible change:
-
-1. Require a resolvable Store in receipt confirmation and keep Store resolution inside the existing `importReceipt` transaction before the receipt row and receipt-item projection.
-2. Add a new safe forward migration rather than modifying migrations 7, 12, or 13.
-3. The new migration will install a receipt-evidence-specific `BEFORE INSERT` guard/write trigger for `price_observations`. When legacy migration-7 projection attempts a receipt-derived observation with null Store, the trigger will prove receipt ownership through the canonical evidence relation, require a non-null receipt Store, insert the row with all original values but `store_id = receipts.store_id`, and ignore the original null insert. Therefore the persisted observation is born with Store ownership; migration 12 remains only a compatibility safety net.
-4. Add forward guards preventing new confirmed receipt writes from introducing a null Store. Application validation remains the user-facing error owner.
-5. Keep migration 13 as the historical backfill; do not widen it to ids, manual evidence, photo evidence, or unrelated observations.
-6. Reorder the ticket-edit transaction so Store validation and receipt Store metadata are established before any newly inserted confirmed line can trigger catalog projection. Retarget only evidence-proven observations for that receipt in the same transaction.
-7. Keep Store read models normalized and unchanged.
-8. Make the receipt Store field required/editable in the focused review flow. AI may prefill it; manual input uses the existing backend Store reuse/create convention. Existing Store suggestions may reuse the current Inventory Store listing API, but no per-item Store UI is introduced.
+1. Keep Store resolution in the existing `importReceipt` transaction and require it before receipt/item persistence.
+2. Preserve migrations 7, 12, and 13 as immutable history.
+3. Add migration 14 as the smallest forward-safe write-boundary correction instead of dropping/recreating migration-7 or migration-12 triggers.
+4. Keep migration 12 only as compatibility fallback.
+5. Keep migration 13 as the evidence-scoped historical backfill.
+6. Keep Store counts normalized and derived; add no parallel relationship or cached counters.
+7. Make ticket Store reassignment synchronous and atomic with evidence-proven observation reassignment.
+8. Make receipt Store a required receipt-level UI decision while preserving AI proposal and existing Store reuse/create behavior.
 
 ## Migration strategy
 
-- Migrations 7, 12, and 13 are immutable and remain unchanged.
-- Migration 7 remains the historical/runtime catalog projection owner.
-- Migration 12 remains installed because removing it would require rewriting applied migration history or dropping a trigger. Its role becomes compatibility fallback only.
-- Migration 13 is sufficient for historical observations that can be proven by receipt evidence and whose receipt already has a Store. It is not superseded.
-- The new forward migration changes no historical prices, evidence, products, variants, listings, or Store ids. It adds write guards only.
-- Eligible migration-13 rows are exactly observations with `store_id IS NULL` where their `evidence_id` joins an `external_evidence` row with `source_type='receipt'` and `source_reference='receipt-item:' || receipt_items.id`, and that item joins a receipt with non-null `store_id`.
-- Manual/photo/unrelated evidence cannot satisfy that predicate and is not modified.
-- The migration runner executes each version once transactionally, so the forward migration is safe under existing execution guarantees.
+- Migration 7 remains the immutable catalog projection owner.
+- Migration 12 remains installed because removing/replacing an applied trigger would rewrite migration history or require a destructive `DROP TRIGGER`; its role is compatibility fallback only.
+- Migration 13 remains sufficient for historical receipt-derived observations whose ownership can be proven and whose receipt already has a Store.
+- Migration 14 is forward-only and safe: it adds write guards/triggers without deleting or rewriting products, variants, listings, evidence, receipts, or historical observations.
+- Historical migration-13 eligibility is exactly: `price_observations.store_id IS NULL`, evidence joins `external_evidence`, evidence is `source_type='receipt'`, `source_reference='receipt-item:' || receipt_items.id`, and that item belongs to a receipt with non-null `store_id`.
+- Manual, photo and unrelated evidence do not satisfy that predicate and are untouched.
+- Migration execution is once-per-version and transactional under the existing runner.
 
 ## Acceptance criteria
 
-- New ALCAMPO receipt with `retailerName=ALCAMPO`, `storeName=ALCAMPO ALMERIA`, multiple lines and no pre-existing Store creates/reuses exactly one Store.
+- A new ALCAMPO receipt with `retailerName=ALCAMPO`, `storeName=ALCAMPO ALMERIA`, multiple lines and no pre-existing Store creates/reuses exactly one appropriate Store.
 - Every newly confirmed receipt has non-null `receipts.store_id`.
 - Every confirmed line has `product_variant_id`; canonical products, variants and retailer listings follow existing reuse/idempotency rules.
-- Every receipt-derived observation is persisted with the same Store as its receipt from its initial successful INSERT path.
-- Reimporting the same logical receipt preserves current import-key idempotency and does not duplicate catalog/listing/observation data.
+- Every receipt-derived observation is persisted with the same Store as its receipt from its initial successful insertion path; migration 12 is not required for the normal path.
 - Existing Store confirmation does not duplicate the Store and validates retailer compatibility.
-- Missing Store confirmation fails explicitly and leaves no receipt/catalog/price partial writes.
-- Incompatible Store/retailer confirmation fails explicitly and atomically.
+- Reimporting the same logical receipt preserves import-key idempotency without duplicate projection data.
+- Missing or incompatible Store confirmation fails explicitly and atomically.
 - Migration 13 repairs only eligible historical receipt observations and leaves manual/photo/unrelated observations unchanged.
-- Ticket Store reassignment validates Store existence and retailer compatibility, updates the receipt and every evidence-proven observation for that receipt in one transaction, and leaves unrelated observations untouched.
-- A failed ticket Store edit leaves receipt and observations unchanged.
-- Store detail for the ALCAMPO fixture reports `ticketCount = 1`, `productCount > 0`, and `priceObservationCount > 0`.
-- Receipt review no longer labels Store optional and cannot confirm without a concrete Store name/id.
-- No parallel Product-to-Store table, cache, queue, or asynchronous repair path is introduced.
+- Ticket Store reassignment validates Store existence/retailer, moves the receipt and all evidence-proven receipt observations in one transaction, and leaves unrelated observations untouched.
+- Failed ticket Store editing leaves receipt and observations unchanged.
+- Store detail for the ALCAMPO fixture returns `ticketCount = 1`, `productCount > 0`, and `priceObservationCount > 0`.
+- Receipt review no longer calls Store optional and cannot confirm without a concrete Store name/id.
+- No `product_store`, equivalent duplicate relationship, cache, queue, or asynchronous repair path is introduced.
 
 ## Tests/checks
 
-Regression tests must cover:
+Regression coverage includes:
 
-1. New receipt + previously nonexistent ALCAMPO Store, multiple lines, full persisted relationship and Store read-model counts.
-2. Existing Store reuse and retailer-listing reuse.
-3. Import-key idempotent reconfirmation.
-4. Real migration upgrade from a pre-13 state with receipt-owned null-Store observations.
-5. Manual, product-photo, and unrelated evidence unchanged by historical backfill.
-6. Ticket Store reassignment propagation by receipt evidence and transaction rollback.
-7. Incompatible Store retailer rejected for confirmation and ticket editing.
-8. Receipt without a resolvable Store rejected with no partial projection.
-9. Browser confirmation flow requires Store and uses AI proposal/manual Store input without per-item Store logic.
-10. Exact database proof of receipt -> item -> variant -> canonical product -> listing -> observation -> Store ids.
+1. new receipt plus previously nonexistent ALCAMPO Store, multiple lines, full projection and Store counts;
+2. existing Store reuse and retailer/listing reuse;
+3. import-key idempotent reimport;
+4. real schema upgrade from historical null-Store receipt prices;
+5. manual/photo observations unchanged by backfill;
+6. ticket Store reassignment and evidence scoping;
+7. incompatible Store retailer rollback for confirmation/editing;
+8. missing Store confirmation rollback;
+9. required/editable receipt Store UI contract and browser confirmation flow;
+10. dedicated database-proof fixture emitting the actual receipt/item/product/listing/observation/Store ids from the executed fixture.
 
-Required checks after implementation: focused integration tests, affected receipt/catalog/Store/schema/API tests, affected Playwright browser tests, `pnpm quality`, exact-head GitHub CI, and final visual/runtime review.
+Required checks before delivery: focused receipt/catalog/Store/schema/API tests, affected Playwright tests, `pnpm quality`, exact-head GitHub CI, database-proof log inspection, and final runtime/visual review.
 
 ## Rollback
 
-- Application-code rollback can restore the prior confirmation/editor behavior, but doing so would again permit the historical inconsistency and is not recommended while the new migration is present.
-- The forward migration only adds defensive triggers; it does not delete or rewrite evidence or price history.
-- Data already repaired by migration 13 remains valid historical data and must not be nulled or deleted during rollback.
-- Migration 12 remains installed throughout rollback and can continue acting as a compatibility fallback for legacy projection behavior.
-- Do not delete valid historical observations merely to reverse application behavior. A later forward migration is required if trigger policy ever needs to change.
+- Application-code rollback can restore prior behavior, but doing so would re-open the consistency defect and is not safe while accepting new confirmed receipts.
+- Migration 14 is additive and does not delete or rewrite historical evidence. If its policy must change later, use another forward migration rather than rewriting applied migration 14.
+- Rows already repaired by migration 13 remain valid historical data and must not be nulled or deleted during rollback.
+- Migration 12 remains installed throughout and continues to serve as a compatibility fallback.
+- Do not delete valid observations merely to reverse application behavior.
 
 ## Delivery status
 
 - Recon complete: yes
 - Spec complete: yes
-- Regression tests added: not yet for the expanded invariant
-- Implementation complete: no
-- Focused tests passing: not run for the expanded invariant
-- Browser tests passing: no; exact head `8cc74577dc6b89e2e037a4ac239e61283a01c78e` has two unrelated layout regressions still to fix after this domain work
-- `pnpm quality` passing: exact-head Quality job passed in CI, but must be rerun after new changes
-- CI status: failing on Browser E2E at the pre-change head
+- Regression tests added: yes
+- Implementation complete: yes
+- Focused tests passing: pending exact-head CI execution
+- Browser tests passing: pending exact-head CI execution
+- `pnpm quality` passing: pending exact-head CI execution
+- CI status: pending on the current implementation head
+- Database proof: fixture added; actual IDs pending extraction from exact-head CI logs
 - Ready for human review: no
