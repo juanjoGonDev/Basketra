@@ -743,20 +743,20 @@
   }
 
   .inventory-overview-tabs {
-    overflow-x: auto;
-    scrollbar-width: none;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    overflow: visible;
     border-bottom: 1px solid var(--border);
     border-radius: 0;
     padding-inline: 0;
     background: transparent;
   }
 
-  .inventory-overview-tabs::-webkit-scrollbar {
-    display: none;
-  }
-
   .inventory-overview-tabs .task-tab {
-    min-width: max-content;
+    min-width: 0;
+    padding-inline: .3rem;
+    font-size: .74rem;
+    white-space: normal;
     border-radius: 0;
     border-bottom: 2px solid transparent;
     background: transparent;

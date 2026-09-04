@@ -258,6 +258,26 @@ test('ticket history supports mobile list, keyboard detail, canonical line calcu
   expect(runtimeErrors).toEqual([]);
 });
 
+test('historical ticket detail wraps long identifiers without mobile overflow', async ({ page }) => {
+  const longId = 'receipt_8b08452c25a243ed9fab00ebc2b5c9a6_very_long_import_identifier_20260904';
+  await installRoutes(page);
+
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/tickets/history');
+    await page.locator('[data-ticket-action="open"][data-ticket-id="ticket_20260902"]').click();
+    await page.locator('#ticket-editor-title').evaluate((title, value) => { title.textContent = `Ticket ${value}`; }, longId);
+    await expect(page.locator('#ticket-editor-title')).toContainText(longId);
+    const dimensions = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      document: document.documentElement.scrollWidth,
+      titleRight: document.querySelector('#ticket-editor-title')?.getBoundingClientRect().right || 0,
+    }));
+    expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport);
+    expect(dimensions.titleRight).toBeLessThanOrEqual(dimensions.viewport + 1);
+  }
+});
+
 test('ticket history desktop preserves dense list/detail hierarchy without horizontal page overflow', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await installRoutes(page);

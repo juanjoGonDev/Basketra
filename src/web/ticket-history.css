@@ -19,6 +19,14 @@
   min-width: 0;
 }
 
+.ticket-editor-header .inventory-detail-header__copy,
+.ticket-editor-header #ticket-editor-title,
+.ticket-editor-header #ticket-editor-identity {
+  min-width: 0;
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+}
+
 .ticket-history-screen[hidden] {
   display: none !important;
 }
@@ -337,6 +345,14 @@
 @media (max-width: 52rem) {
   .ticket-history-view {
     width: 100%;
+  }
+
+  .ticket-editor-header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ticket-editor-header .inventory-header-actions {
+    justify-content: space-between;
   }
 
   .ticket-history-toolbar,

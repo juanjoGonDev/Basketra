@@ -118,3 +118,45 @@ test('inventory mobile filter control keeps a visible text affordance', async ({
   expect(box).not.toBeNull();
   expect(box.width).toBeGreaterThanOrEqual(92);
 });
+
+test('inventory overview tabs stay visible and reachable at every supported viewport', async ({ page }, testInfo) => {
+  await installStatisticsRoute(page);
+  await page.route('**/api/v1/categories?*', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ inventory: { categories: [], total: 0, offset: 0, limit: 12, hasMore: false } }),
+  }));
+  await page.route('**/api/v1/inventory/stores?*', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ stores: [], total: 0, offset: 0, limit: 12, hasMore: false }),
+  }));
+
+  for (const width of [320, 390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/inventory');
+    const tabs = page.locator('.inventory-overview-tabs .task-tab');
+    await expect(tabs).toHaveCount(4);
+    for (let index = 0; index < 4; index += 1) await expect(tabs.nth(index)).toBeVisible();
+    const geometry = await page.locator('.inventory-overview-tabs').evaluate(tablist => ({
+      scrollWidth: tablist.scrollWidth,
+      clientWidth: tablist.clientWidth,
+      viewportWidth: document.documentElement.clientWidth,
+      rightmostTab: [...tablist.querySelectorAll('button')].at(-1)?.getBoundingClientRect().right || 0,
+    }));
+    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth + 1);
+    expect(geometry.rightmostTab).toBeLessThanOrEqual(geometry.viewportWidth + 1);
+    await page.locator('.view[data-view="inventory"]').screenshot({ path: testInfo.outputPath(`inventory-tabs-${width}.png`) });
+  }
+
+  for (const [label, path] of [
+    ['Productos', '/inventory/products'],
+    ['Categorías', '/inventory/categories'],
+    ['Tiendas', '/inventory/stores'],
+    ['Estadísticas', '/inventory/statistics'],
+  ]) {
+    await page.goto('/inventory');
+    await page.getByRole('button', { name: label, exact: true }).first().click();
+    await expect(page).toHaveURL(new RegExp(`${path.replaceAll('/', '\\/')}$`));
+  }
+});
