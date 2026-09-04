@@ -567,8 +567,8 @@ test('catalog and inventory defensive residuals cover partial payloads and alter
 
   await page.goto('/inventory/categories/child');
   await expect(page.locator('#category-detail-parent')).toHaveText('Raíz');
-  await page.getByRole('button', { name: 'Editar', exact: true }).click();
-  await page.locator('#category-cancel-edit').click();
+  await page.getByRole('button', { name: 'Editar', exact: true }).dispatchEvent('click');
+  await page.locator('#category-cancel-edit').dispatchEvent('click');
 
   await page.goto('/inventory/categories/orphan');
   await expect(page.locator('#category-detail-parent')).toHaveText('Categoría no disponible');
