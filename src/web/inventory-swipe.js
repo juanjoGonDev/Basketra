@@ -13,6 +13,7 @@ const ENTITY_CONFIG = {
     row: '.inventory-product-row',
     id: row => row.dataset.catalogProductId,
     detail: '#catalog-detail',
+    ready: '#catalog-detail-name',
     edit: '#catalog-edit-product',
     delete: '#catalog-delete-product',
     status: '#catalog-state',
@@ -22,6 +23,7 @@ const ENTITY_CONFIG = {
     row: '.category-row',
     id: row => row.dataset.categoryId,
     detail: '#category-detail',
+    ready: '#category-detail-name',
     edit: '#category-edit',
     delete: '#category-delete',
     status: '#category-state',
@@ -32,6 +34,7 @@ const ENTITY_CONFIG = {
     row: '.inventory-store-row',
     id: row => row.dataset.storeId,
     detail: '#store-detail-screen',
+    ready: '#store-detail-name',
     edit: '#store-edit',
     delete: '#store-delete',
     status: '#store-state',
@@ -166,6 +169,28 @@ function waitForVisible(selector) {
   });
 }
 
+function waitForText(selector, expected) {
+  const matches = () => {
+    const candidate = document.querySelector(selector);
+    return visible(candidate) && candidate.textContent?.trim() === expected;
+  };
+  if (matches()) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    const observer = new MutationObserver(() => {
+      if (!matches()) return;
+      clearTimeout(timeout);
+      observer.disconnect();
+      resolve();
+    });
+    const timeout = setTimeout(() => {
+      observer.disconnect();
+      reject(new Error(`Timed out waiting for ${selector} to show ${expected}`));
+    }, ACTION_WAIT_MS);
+    observer.observe(document.body, { attributes: true, childList: true, characterData: true, subtree: true });
+  });
+}
+
 function reportActionFailure(kind, error) {
   const statusSelector = ENTITY_CONFIG[kind]?.status;
   const status = statusSelector ? document.querySelector(statusSelector) : null;
@@ -182,9 +207,11 @@ async function activateRowAction(wrapper, action) {
   if (!(row instanceof HTMLButtonElement)) return;
   if (action === 'delete' && config.deleteBlocked?.(row) === true) return;
 
+  const label = rowLabel(row);
   closeRow(wrapper);
   row.click();
   await waitForVisible(config.detail);
+  await waitForText(config.ready, label);
   const trigger = document.querySelector(config[action]);
   if (trigger instanceof HTMLButtonElement && !trigger.disabled) trigger.click();
 }
