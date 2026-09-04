@@ -757,9 +757,9 @@ function clearIncompatibleDetectedStore() {
   state.detectedStoreId = '';
   state.detectedStoreName = '';
   state.detectedStoreRetailerName = '';
-  $('#receipt-detected-store').hidden = true;
+  $('#receipt-detected-store').hidden = false;
   $('#receipt-store').value = '';
-  $('#receipt-state').textContent = 'La tienda detectada no pertenece al comercio seleccionado y se ha quitado.';
+  $('#receipt-state').textContent = 'La tienda detectada no pertenece al comercio seleccionado. Elige o escribe una tienda válida.';
 }
 
 function applyStoreCandidate(extraction) {
@@ -898,6 +898,25 @@ export async function confirmReceipt() {
   }
   const originalText = state.originalText.trim() || serializeManualItems(items);
   const retailerName = $('#receipt-retailer').value.trim();
+  const storeFieldValue = $('#receipt-store').value.trim();
+  const savedStorePlaceholder = 'Tienda guardada detectada';
+  const detectedStoreSelected = Boolean(
+    state.detectedStoreId
+      && (state.detectedStoreName
+        ? storeFieldValue === state.detectedStoreName
+        : storeFieldValue === savedStorePlaceholder),
+  );
+  const storeName = detectedStoreSelected ? state.detectedStoreName : storeFieldValue;
+  if (!retailerName) {
+    $('#receipt-state').textContent = 'Indica el comercio antes de confirmar el ticket.';
+    $('#receipt-retailer').focus();
+    return;
+  }
+  if (!detectedStoreSelected && !storeName) {
+    $('#receipt-state').textContent = 'Elige o escribe una tienda antes de confirmar el ticket.';
+    $('#receipt-store').focus();
+    return;
+  }
   const button = $('#confirm-receipt');
   setBusy(button, true);
   $('#receipt-state').textContent = 'Validando ticket…';
@@ -929,9 +948,9 @@ export async function confirmReceipt() {
         originalText,
         declaredTotalMinor,
         provider: providerLabel(),
-        ...(retailerName ? { retailerName } : {}),
-        ...(state.detectedStoreId ? { storeId: state.detectedStoreId } : {}),
-        ...(state.detectedStoreName ? { storeName: state.detectedStoreName } : {}),
+        retailerName,
+        ...(detectedStoreSelected ? { storeId: state.detectedStoreId } : {}),
+        ...(storeName ? { storeName } : {}),
         deterministic: state.extraction?.deterministic || { items },
         ...(aiPages.length > 0 ? { ai: { pages: aiPages } } : {}),
         captures: state.captures.map(capture => ({
@@ -972,7 +991,7 @@ export async function confirmReceipt() {
     state.detectedStoreId = '';
     state.detectedStoreName = '';
     state.detectedStoreRetailerName = '';
-    $('#receipt-detected-store').hidden = true;
+    $('#receipt-detected-store').hidden = false;
     $('#receipt-store').value = '';
     hideRetailerSuggestions();
   } catch (error) {
