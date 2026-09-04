@@ -773,6 +773,12 @@
     border-bottom-color: var(--primary);
   }
 
+  @media (max-width: 22rem) {
+    .inventory-overview-tabs {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
   .inventory-overview-kpis {
     gap: .55rem;
   }
