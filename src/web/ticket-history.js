@@ -137,7 +137,7 @@ function installHistoryView() {
           <div class="section-header"><div><p class="eyebrow">Factura</p><h2 id="ticket-metadata-title">Datos del ticket</h2></div></div>
           <div class="ticket-editor-metadata-grid">
             <label class="field"><span>Fecha y hora</span><input id="ticket-editor-purchased-at" type="datetime-local" required></label>
-            <label class="field"><span>Tienda</span><select id="ticket-editor-store"><option value="">Sin tienda</option></select></label>
+            <label class="field"><span>Tienda</span><select id="ticket-editor-store" required></select><small>Todo ticket confirmado debe pertenecer a una tienda.</small></label>
             <label class="field"><span>Estado</span><select id="ticket-editor-payment-status"><option value="paid">Pagado</option><option value="pending">Pendiente</option><option value="cancelled">Cancelado</option></select></label>
             <label class="field"><span>Método de pago</span><input id="ticket-editor-payment-method" maxlength="80" autocomplete="off"></label>
           </div>
@@ -368,7 +368,7 @@ function renderMetadataOptions() {
   const editorStore = $('#ticket-editor-store');
   const currentEditorStore = state.ticket?.storeId || '';
   historyStore.replaceChildren(new Option('Todas', ''));
-  editorStore.replaceChildren(new Option('Sin tienda', ''));
+  editorStore.replaceChildren();
   for (const store of state.stores) {
     const label = `${store.name}${store.retailerName && store.retailerName !== store.name ? ` · ${store.retailerName}` : ''}`;
     historyStore.append(new Option(label, store.id));
@@ -686,9 +686,11 @@ async function saveLine(button) {
 
 function ticketPayload() {
   if (!state.editorItems.length) throw new Error('El ticket debe conservar al menos una línea activa.');
+  const storeId = $('#ticket-editor-store').value;
+  if (!storeId) throw new Error('Selecciona una tienda antes de guardar el ticket.');
   return {
     purchasedAt: localDateTimeToIso($('#ticket-editor-purchased-at').value),
-    storeId: $('#ticket-editor-store').value || null,
+    storeId,
     paymentStatus: $('#ticket-editor-payment-status').value,
     paymentMethod: $('#ticket-editor-payment-method').value.trim() || null,
     notes: $('#ticket-editor-notes').value.trim() || null,
