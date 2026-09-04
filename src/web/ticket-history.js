@@ -691,7 +691,12 @@ async function saveTicket(button) {
   }
 }
 
+function deleteImpactSummary(impact) {
+  return `Se eliminarán permanentemente: ${impact.itemCount} líneas, ${impact.captures} capturas, ${impact.extractions} extracciones, ${impact.corrections} correcciones, ${impact.externalEvidence} evidencias externas y ${impact.retainedPriceObservations} precios históricos.`;
+}
+
 async function openDeleteDialog(ticketId) {
+  state.bulkDeleteIds = [];
   const ticket = state.ticket?.id === ticketId
     ? state.ticket
     : state.result.tickets.find(candidate => candidate.id === ticketId);
@@ -709,7 +714,7 @@ async function openDeleteDialog(ticketId) {
   try {
     const result = await api(`/api/v1/inventory/tickets/${encodeURIComponent(ticketId)}/delete-impact`);
     const impact = result.impact;
-    $('#ticket-history-delete-impact').textContent = `Se eliminarán permanentemente: ${impact.itemCount} líneas, ${impact.captures} capturas, ${impact.extractions} extracciones, ${impact.corrections} correcciones, ${impact.externalEvidence} evidencias externas y ${impact.retainedPriceObservations} precios históricos asociados a este ticket.`;
+    $('#ticket-history-delete-impact').textContent = deleteImpactSummary(impact);
     $('#ticket-history-delete-state').textContent = 'Esta acción no se puede deshacer. Productos, categorías, tiendas y otras entidades compartidas se conservarán.';
     confirm.disabled = false;
   } catch (error) {
@@ -717,11 +722,50 @@ async function openDeleteDialog(ticketId) {
   }
 }
 
+async function openBulkDeleteDialog() {
+  const ids = state.selection.values();
+  if (!ids.length) return;
+  state.bulkDeleteIds = ids;
+  const dialog = $('#ticket-history-delete-dialog');
+  const confirm = $('#ticket-history-delete-confirm');
+  delete confirm.dataset.ticketId;
+  confirm.disabled = true;
+  $('#ticket-history-delete-identity').textContent = `${ids.length} tickets seleccionados entre una o varias páginas.`;
+  $('#ticket-history-delete-impact').textContent = 'Comprobando el impacto conjunto…';
+  $('#ticket-history-delete-state').textContent = '';
+  dialog.showModal();
+  try {
+    const { impact } = await api('/api/v1/inventory/tickets/bulk-delete-impact', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+    $('#ticket-history-delete-impact').textContent = deleteImpactSummary(impact);
+    $('#ticket-history-delete-state').textContent = 'El borrado se ejecutará como una única transacción. Si un ticket falla, no se eliminará ninguno.';
+    confirm.disabled = false;
+  } catch (error) {
+    $('#ticket-history-delete-state').textContent = error.message;
+  }
+}
+
 async function confirmDelete(button) {
+  const bulkIds = state.bulkDeleteIds;
   const ticketId = button.dataset.ticketId;
-  if (!ticketId) return;
+  if (!bulkIds.length && !ticketId) return;
   setBusy(button, true);
   try {
+    if (bulkIds.length) {
+      const result = await api('/api/v1/inventory/tickets/bulk-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids: bulkIds }),
+      });
+      for (const id of result.deletedIds || bulkIds) state.selection.set(id, false);
+      state.bulkDeleteIds = [];
+      $('#ticket-history-delete-dialog').close();
+      await loadHistory();
+      syncTicketSelection();
+      $('#ticket-history-state').textContent = `${bulkIds.length} tickets eliminados.`;
+      return;
+    }
     await api(`/api/v1/inventory/tickets/${encodeURIComponent(ticketId)}`, { method: 'DELETE' });
     $('#ticket-history-delete-dialog').close();
     if (state.ticket?.id === ticketId) showHistoryList();
@@ -774,6 +818,15 @@ function bindInteractions() {
     $(`#${id}`).addEventListener('change', () => void loadHistory({ resetPage: true }));
   }
   $('#ticket-history-clear').addEventListener('click', clearFilters);
+  $('#ticket-history-select-page').addEventListener('change', event => {
+    state.selection.setPage((state.result.tickets || []).map(ticket => ticket.id), event.currentTarget.checked);
+    syncTicketSelection();
+  });
+  $('#ticket-history-selection-clear').addEventListener('click', () => {
+    state.selection.clear();
+    syncTicketSelection();
+  });
+  $('#ticket-history-selection-delete').addEventListener('click', () => void openBulkDeleteDialog());
   $('#ticket-history-prev').addEventListener('click', () => {
     if (state.page <= 1) return;
     state.page -= 1;
@@ -785,6 +838,12 @@ function bindInteractions() {
     void loadHistory();
   });
 
+  $('#ticket-history-list').addEventListener('change', event => {
+    const input = event.target.closest('[data-ticket-selection-id]');
+    if (!(input instanceof HTMLInputElement)) return;
+    state.selection.set(input.dataset.ticketSelectionId, input.checked);
+    syncTicketSelection();
+  });
   $('#ticket-history-list').addEventListener('click', event => {
     const target = event.target.closest('[data-ticket-action]');
     if (!target) return;
