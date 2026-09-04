@@ -551,7 +551,11 @@ export class CatalogRepository {
         id: observationId,
         productVariantId: input.productVariantId,
         retailerId,
-        ...(input.storeId ? { storeId: input.storeId } : {}),
+        retailerName: input.retailerName,
+        ...(input.storeId ? {
+          storeId: input.storeId,
+          ...(this.storeById(input.storeId)?.name ? { storeName: this.storeById(input.storeId)!.name } : {}),
+        } : {}),
         priceMinor: input.priceMinor,
         packageNumerator: packageAmount.numerator,
         packageDenominator: packageAmount.denominator,
@@ -597,11 +601,15 @@ export class CatalogRepository {
       ORDER BY price_observations.observed_at DESC, price_observations.id DESC
       LIMIT ?
     `).all(productVariantId, limit).map((row) => {
-      const value = row as PriceObservationRecord & { storeId: string | null; storeName: string | null };
+      const value = row as Omit<PriceObservationRecord, 'storeId' | 'storeName'> & {
+        storeId: string | null;
+        storeName: string | null;
+      };
+      const { storeId, storeName, ...base } = value;
       return {
-        ...value,
-        ...(value.storeId ? { storeId: value.storeId } : {}),
-        ...(value.storeName ? { storeName: value.storeName } : {}),
+        ...base,
+        ...(storeId ? { storeId } : {}),
+        ...(storeName ? { storeName } : {}),
       };
     }) as PriceObservationRecord[];
   }
