@@ -185,13 +185,14 @@ function createSummaryStatus() {
   return slot;
 }
 
-function createSummary() {
+function createSummary(item) {
+  const summaryTitleId = `${item.closest('dialog')?.id || DIALOG_ID}-summary-title`;
   const summary = document.createElement('aside');
   summary.className = 'receipt-line-editor-summary';
-  summary.setAttribute('aria-labelledby', 'receipt-line-editor-summary-title');
+  summary.setAttribute('aria-labelledby', summaryTitleId);
 
   const heading = document.createElement('h3');
-  heading.id = 'receipt-line-editor-summary-title';
+  heading.id = summaryTitleId;
   heading.textContent = 'Resumen';
 
   const values = document.createElement('dl');
@@ -511,7 +512,7 @@ function ensureItemLayout(item) {
   descriptionLabel.before(sectionHeading(1, 'Producto', 'package'));
   detailRow.insertBefore(sectionHeading(2, 'Detalle de compra', 'cart'), detailRow.firstChild);
   discountRow.insertBefore(sectionHeading(3, 'Descuento', 'tag'), discountTypeLabel);
-  detailRow.insertAdjacentElement('afterend', createSummary());
+  detailRow.insertAdjacentElement('afterend', createSummary(item));
   item.classList.add('receipt-line-editor-layout');
   item.dataset.invoiceEditorLayout = 'true';
   syncPresentationControls(item);
