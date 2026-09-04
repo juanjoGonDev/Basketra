@@ -151,8 +151,8 @@ function referencedCategories(
   materialized: readonly CategoryDescriptor[],
 ): readonly CategoryDescriptor[] {
   const available = new Map<string, CategoryDescriptor>();
-  for (const category of inventory) available.set(category.id, category);
-  for (const category of materialized) available.set(category.id, category);
+  for (const category of inventory) available.set(category.id, categoryDescriptor(category));
+  for (const category of materialized) available.set(category.id, categoryDescriptor(category));
 
   const seen = new Set<string>();
   const referenced: CategoryDescriptor[] = [];
@@ -164,6 +164,16 @@ function referencedCategories(
     if (category) referenced.push(category);
   }
   return referenced;
+}
+
+function categoryDescriptor(category: CategoryDescriptor): CategoryDescriptor {
+  return {
+    id: category.id,
+    name: category.name,
+    ...(category.parentId ? { parentId: category.parentId } : {}),
+    ...(category.color ? { color: category.color } : {}),
+    ...(category.description ? { description: category.description } : {}),
+  };
 }
 
 function uniqueNewCategories(categories: AiReceiptInterpretation['newCategories']): AiReceiptInterpretation['newCategories'] {
