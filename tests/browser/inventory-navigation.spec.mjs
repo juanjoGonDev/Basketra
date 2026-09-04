@@ -125,7 +125,8 @@ test('Inventory replaces Plans with canonical overview metrics, search handoff a
   await search.press('Enter');
   await expect(page).toHaveURL(/\/inventory\/stores(?:\?.*)?$/);
   await expect(page.locator('#store-search')).toHaveValue('centro');
-  await expect(page.locator('#store-sort')).toHaveValue('name');
+  await expect(page.locator('#store-sort')).toHaveValue('recent');
+  await expect.poll(() => new URL(page.url()).searchParams.get('sort')).toBe('recent');
 
   await page.locator('.bottom-nav [data-nav="inventory"]').click();
   await inventory.getByRole('button', { name: 'Estadísticas', exact: true }).first().click();
