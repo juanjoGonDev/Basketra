@@ -91,6 +91,7 @@ test('product list opens a full-page product detail with accessible price histor
   await expect(row).toContainText('Leche entera 1 L');
   await expect(row).toContainText('Lácteos');
   await expect(row).toContainText('1,19');
+  await page.locator('.view[data-view="catalog"]').screenshot({ path: testInfo.outputPath('catalog-product-list-desktop.png') });
   await row.click();
 
   await expect(page.locator('#catalog-list-screen')).toBeHidden();
@@ -115,5 +116,5 @@ test('product list opens a full-page product detail with accessible price histor
   expect(geometry.right - geometry.left).toBeGreaterThan(700);
   await expectNoHorizontalOverflow(page);
 
-  await page.locator('.view[data-view="catalog"]').screenshot({ path: testInfo.outputPath('catalog-desktop-preview.png') });
+  await page.locator('.view[data-view="catalog"]').screenshot({ path: testInfo.outputPath('catalog-product-detail-desktop.png') });
 });
