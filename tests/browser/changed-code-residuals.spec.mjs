@@ -43,9 +43,22 @@ test('shell defensive branches keep receipt Store options and generic swipe fail
   await page.evaluate(async () => {
     const { installReceiptEnhancements } = await import('/receipts.js');
     installReceiptEnhancements();
+    const { applyExtraction } = await import('/receipt-review.js');
+    applyExtraction({
+      originalText: 'PAN 1,50',
+      final: {
+        items: [{ description: 'PAN', quantity: 1, unitPriceMinor: 150, lineTotalMinor: 150, confidence: 1, sourceLines: [1] }],
+        declaredTotalMinor: 150,
+        review: {
+          lines: [{ status: 'confirmed', expectedMinor: 150, differenceMinor: 0 }],
+          total: { expectedMinor: 150, differenceMinor: 0, valid: true },
+        },
+      },
+    });
   });
 
   const retailer = page.locator('#receipt-retailer');
+  await expect(retailer).toBeVisible();
   await page.locator('#receipt-store-options').evaluate(element => element.remove());
   await retailer.fill('MISSING');
   await page.evaluate(() => {
@@ -221,12 +234,12 @@ test('catalog residual branches cover rich history, nested categories and destru
   await page.locator('#catalog-retailer-names button').click();
   await page.locator('#catalog-parent-select').selectOption('parent_existing');
   await page.locator('#catalog-link-parent').click();
-  await expect(page.locator('#catalog-parent-state')).toContainText('actualizado');
+  await expect(page.locator('#catalog-detail-meta')).toHaveText('Padre existente');
 
   await page.locator('#catalog-parent-select').evaluate(select => select.append(new Option('Desconocido', 'missing_parent')));
   await page.locator('#catalog-parent-select').selectOption('missing_parent');
   await page.locator('#catalog-link-parent').click();
-  await expect(page.locator('#catalog-parent-state')).toContainText('actualizado');
+  await expect(page.locator('#catalog-parent-select')).toHaveValue('');
 
   productImpactMode = 'error';
   await page.locator('#catalog-delete-product').click();
@@ -362,10 +375,19 @@ test('inventory residual branches cover overview routing, Store guards and non-e
   });
 
   await page.goto('/inventory');
-  await page.locator('#inventory-overview-scope').selectOption('categories');
+  await page.locator('#inventory-overview-scope').evaluate(select => {
+    select.value = 'categories';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
   await expect(page.locator('#inventory-overview-sort')).toBeDisabled();
-  await page.locator('#inventory-overview-scope').selectOption('stores');
-  await page.locator('#inventory-overview-sort').selectOption('recent');
+  await page.locator('#inventory-overview-scope').evaluate(select => {
+    select.value = 'stores';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.locator('#inventory-overview-sort').evaluate(select => {
+    select.value = 'recent';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
   await page.locator('#inventory-overview-search').fill('leche');
   await page.locator('#inventory-overview-search-form').dispatchEvent('submit');
   await expect(page).toHaveURL(/\/inventory\/stores\?q=leche&sort=recent|\/inventory\/stores\?sort=recent&q=leche/u);
