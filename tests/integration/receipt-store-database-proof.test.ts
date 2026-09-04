@@ -100,7 +100,7 @@ test('ALCAMPO receipt persists the complete receipt-to-store projection chain', 
       };
       assert.deepEqual({ ...counts }, { ticketCount: 1, productCount: 2, priceObservationCount: 2 });
 
-      console.info('RECEIPT_STORE_DATABASE_PROOF', JSON.stringify({
+      const proof = {
         receipt: { id: receipt.id, storeId: receipt.storeId, retailerId: receipt.retailerId },
         store: { id: receipt.storeId, name: receipt.storeName },
         items: rows.map(row => ({
@@ -116,7 +116,8 @@ test('ALCAMPO receipt persists the complete receipt-to-store projection chain', 
           observationStoreId: row.observationStoreId,
         })),
         counts: { ...counts },
-      }));
+      };
+      process.stdout.write(`RECEIPT_STORE_DATABASE_PROOF ${JSON.stringify(proof)}\n`);
     } finally {
       raw.close();
     }
