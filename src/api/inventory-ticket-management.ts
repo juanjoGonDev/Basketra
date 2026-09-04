@@ -12,6 +12,7 @@ import { ApiError } from './errors.ts';
 import type { InventoryApiContext } from './inventory-management-core.ts';
 
 const PAYMENT_STATUSES = ['paid', 'pending', 'cancelled'] as const;
+const MAX_BULK_TICKET_DELETE = 100;
 
 type PaymentStatus = typeof PAYMENT_STATUSES[number];
 type SqlValue = string | number | null;
@@ -76,6 +77,17 @@ type ReceiptDeleteImpact = Readonly<{
   retainedPriceObservations: number;
   canDelete: boolean;
   warning: string;
+}>;
+
+type ReceiptBulkDeleteImpact = Readonly<{
+  ticketCount: number;
+  itemCount: number;
+  captures: number;
+  extractions: number;
+  corrections: number;
+  externalEvidence: number;
+  retainedPriceObservations: number;
+  canDelete: true;
 }>;
 
 function withDatabase<T>(path: string, callback: (database: DatabaseSync) => T, readOnly = false): T {
@@ -492,7 +504,70 @@ function deleteReceipt(databasePath: string, receiptId: string): void {
   });
 }
 
+function parseBulkReceiptIds(body: unknown): readonly string[] {
+  const record = asRecord(body);
+  const values = asArray(record['ids'], '$.ids', MAX_BULK_TICKET_DELETE);
+  if (values.length === 0) throw new ApiError(400, 'VALIDATION_ERROR', 'Select at least one ticket');
+  const ids = values.map((value, index) => asString(value, `$.ids[${index}]`, { min: 1, max: 128 }));
+  return [...new Set(ids)];
+}
+
+function aggregateDeleteImpacts(impacts: readonly ReceiptDeleteImpact[]): ReceiptBulkDeleteImpact {
+  return impacts.reduce<ReceiptBulkDeleteImpact>((result, impact) => ({
+    ticketCount: result.ticketCount + 1,
+    itemCount: result.itemCount + impact.itemCount,
+    captures: result.captures + impact.captures,
+    extractions: result.extractions + impact.extractions,
+    corrections: result.corrections + impact.corrections,
+    externalEvidence: result.externalEvidence + impact.externalEvidence,
+    retainedPriceObservations: result.retainedPriceObservations + impact.retainedPriceObservations,
+    canDelete: true,
+  }), {
+    ticketCount: 0,
+    itemCount: 0,
+    captures: 0,
+    extractions: 0,
+    corrections: 0,
+    externalEvidence: 0,
+    retainedPriceObservations: 0,
+    canDelete: true,
+  });
+}
+
+function bulkReceiptDeleteImpact(databasePath: string, ids: readonly string[]): ReceiptBulkDeleteImpact {
+  return withDatabase(databasePath, database => aggregateDeleteImpacts(
+    ids.map(id => receiptDeleteImpactFromDatabase(database, id)),
+  ), true);
+}
+
+function bulkDeleteReceipts(databasePath: string, ids: readonly string[]): ReceiptBulkDeleteImpact {
+  return withDatabase(databasePath, (database) => {
+    database.exec('BEGIN IMMEDIATE');
+    try {
+      const impacts = ids.map(id => deleteReceiptFromDatabase(database, id));
+      database.exec('COMMIT');
+      return aggregateDeleteImpacts(impacts);
+    } catch (error) {
+      database.exec('ROLLBACK');
+      throw error;
+    }
+  });
+}
+
 export async function handleInventoryTicketManagementRequest(context: InventoryApiContext): Promise<boolean> {
+  if (context.pathname === '/api/v1/inventory/tickets/bulk-delete-impact' && context.method === 'POST') {
+    const ids = parseBulkReceiptIds(await context.readJson());
+    context.send(200, { impact: bulkReceiptDeleteImpact(context.databasePath, ids) });
+    return true;
+  }
+  if (context.pathname === '/api/v1/inventory/tickets/bulk-delete' && context.method === 'POST') {
+    const ids = parseBulkReceiptIds(await context.readJson());
+    const impact = bulkDeleteReceipts(context.databasePath, ids);
+    for (const id of ids) context.publish(id, 'receipt');
+    context.send(200, { deletedIds: ids, impact });
+    return true;
+  }
+
   const impactMatch = /^\/api\/v1\/inventory\/tickets\/([^/]+)\/delete-impact$/.exec(context.pathname);
   if (impactMatch?.[1] && context.method === 'GET') {
     context.send(200, { impact: receiptDeleteImpact(context.databasePath, decodePathSegment(impactMatch[1])) });
