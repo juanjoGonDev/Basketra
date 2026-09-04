@@ -697,7 +697,7 @@ function closeProductDetail() {
 function showProductEditor(visible) {
   const editor = $('#catalog-editor');
   if (editor) editor.hidden = !visible;
-  if (visible) editor.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  if (visible) editor.scrollIntoView({ block: 'start', behavior: 'auto' });
 }
 
 function populateCategoryForm(category) {
@@ -792,7 +792,7 @@ function closeCategoryDetail() {
 function showCategoryEditor(visible) {
   const editor = $('#category-editor');
   if (editor) editor.hidden = !visible;
-  if (visible) editor.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  if (visible) editor.scrollIntoView({ block: 'start', behavior: 'auto' });
 }
 
 async function loadCategoryMetadata({ force = false } = {}) {
