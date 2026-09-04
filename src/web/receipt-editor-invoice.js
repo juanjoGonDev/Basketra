@@ -65,11 +65,13 @@ export function createReceiptInvoiceLineDialog({
   slot.id = slotId;
   slot.dataset.editorSlot = 'true';
 
-  const state = document.createElement('p');
-  state.id = stateId;
-  state.className = 'inline-status';
-  state.setAttribute('role', 'alert');
-  state.setAttribute('aria-live', 'assertive');
+  const state = stateId ? document.createElement('p') : null;
+  if (state) {
+    state.id = stateId;
+    state.className = 'inline-status';
+    state.setAttribute('role', 'alert');
+    state.setAttribute('aria-live', 'assertive');
+  }
 
   const actionBar = document.createElement('div');
   actionBar.className = 'dialog-actions receipt-line-editor-actions';
@@ -89,7 +91,9 @@ export function createReceiptInvoiceLineDialog({
     actionBar.append(button);
   }
 
-  content.append(header, slot, state, actionBar);
+  content.append(header, slot);
+  if (state) content.append(state);
+  content.append(actionBar);
   dialog.append(content);
   hydrateIcons(dialog);
   return dialog;
