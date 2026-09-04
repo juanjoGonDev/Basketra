@@ -221,9 +221,8 @@ test('catalog residual branches cover rich history, nested categories and destru
     return json(route, { deletedIds: null });
   });
   await page.route('**/api/v1/categories/*/delete-impact', route => {
-    const id = new URL(route.request().url()).pathname.split('/').at(-2);
     if (categoryImpactMode === 'error') return json(route, { error: { message: 'Category impact failed' } }, 500);
-    if (id === 'category_unknown') return json(route, { impact: { productCount: 0, childCount: 0, descendantCategoryCount: 0, descendantProductCount: 0, protected: true, canDelete: false } });
+    if (categoryImpactMode === 'protected') return json(route, { impact: { productCount: 0, childCount: 0, descendantCategoryCount: 0, descendantProductCount: 0, protected: true, canDelete: false } });
     return json(route, { impact: { productCount: 1, childCount: 1, descendantCategoryCount: 1, descendantProductCount: 1, protected: false, canDelete: categoryImpactMode === 'allowed' } });
   });
   await page.route(/\/api\/v1\/categories\/([^/]+)$/, route => {
@@ -291,7 +290,12 @@ test('catalog residual branches cover rich history, nested categories and destru
   await page.locator('#category-cancel-edit').click();
 
   await page.goto('/inventory/categories/category_unknown');
-  await page.locator('#category-delete').dispatchEvent('click');
+  await expect(page.locator('#category-delete')).toBeDisabled();
+  await expect(page.locator('#category-detail-status')).toHaveText('Protegida');
+
+  categoryImpactMode = 'protected';
+  await page.goto('/inventory/categories/root');
+  await page.locator('#category-delete').click();
   await expect(page.locator('#category-delete-state')).toContainText('protegida');
   await page.locator('#category-delete-cancel').click();
 
