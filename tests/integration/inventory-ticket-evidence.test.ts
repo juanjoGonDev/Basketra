@@ -107,6 +107,7 @@ test('historical ticket edits preserve immutable receipt and price evidence', as
         declaredTotalMinor: 100,
         originalText: 'Leche entera 1 L 1,00',
         retailerName: 'Mercadona',
+        storeName: 'Mercadona Centro',
         items: [{
           description: 'Leche entera 1 L',
           quantity: 1,
