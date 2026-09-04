@@ -69,6 +69,7 @@ function ticketFromPatch(payload) {
 async function installRoutes(page) {
   let ticket = structuredClone(baseTicket);
   let patchPayload;
+  let deleted = false;
   const calculationRequests = [];
 
   await page.route('**/api/v1/categories', route => route.fulfill({
@@ -91,20 +92,25 @@ async function installRoutes(page) {
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({
-      tickets: [{ ...ticket, items: undefined }],
-      total: 1,
+      tickets: deleted ? [] : [{ ...ticket, items: undefined }],
+      total: deleted ? 0 : 1,
       offset: 0,
       limit: 12,
       hasMore: false,
       summary: {
-        ticketCount: 1,
-        totalSpentMinor: ticket.declaredTotalMinor,
-        itemCount: ticket.itemCount,
-        averageTicketMinor: ticket.declaredTotalMinor,
+        ticketCount: deleted ? 0 : 1,
+        totalSpentMinor: deleted ? 0 : ticket.declaredTotalMinor,
+        itemCount: deleted ? 0 : ticket.itemCount,
+        averageTicketMinor: deleted ? 0 : ticket.declaredTotalMinor,
       },
     }),
   }));
   await page.route(/\/api\/v1\/inventory\/tickets\/ticket_20260902$/, async route => {
+    if (route.request().method() === 'DELETE') {
+      deleted = true;
+      await route.fulfill({ status: 204, body: '' });
+      return;
+    }
     if (route.request().method() === 'PATCH') {
       patchPayload = route.request().postDataJSON();
       ticket = ticketFromPatch(patchPayload);
@@ -123,8 +129,8 @@ async function installRoutes(page) {
         corrections: 2,
         externalEvidence: 0,
         retainedPriceObservations: 1,
-        canDelete: false,
-        warning: 'Este ticket conserva evidencia histórica y no se puede eliminar.',
+        canDelete: true,
+        warning: 'Deleting this ticket permanently removes its receipt evidence.',
       },
     }),
   }));
@@ -137,6 +143,7 @@ async function installRoutes(page) {
   return {
     getPatch: () => patchPayload,
     getCalculations: () => calculationRequests,
+    wasDeleted: () => deleted,
   };
 }
 
@@ -234,9 +241,15 @@ test('ticket history supports mobile list, keyboard detail, canonical line calcu
   await page.getByRole('button', { name: 'Eliminar', exact: true }).click();
   const deleteDialog = page.locator('#ticket-history-delete-dialog');
   await expect(deleteDialog).toBeVisible();
-  await expect(deleteDialog.locator('#ticket-history-delete-impact')).toContainText('evidencia histórica');
-  await expect(deleteDialog.locator('#ticket-history-delete-state')).toContainText('Borrado bloqueado');
-  await expect(deleteDialog.getByRole('button', { name: 'Eliminar ticket' })).toBeDisabled();
+  await expect(deleteDialog.locator('#ticket-history-delete-impact')).toContainText('Se eliminarán permanentemente');
+  await expect(deleteDialog.locator('#ticket-history-delete-state')).toContainText('1 captura');
+  const confirmDelete = deleteDialog.getByRole('button', { name: 'Eliminar ticket y datos' });
+  await expect(confirmDelete).toBeEnabled();
+  await confirmDelete.click();
+  await expect(deleteDialog).toBeHidden();
+  await expect.poll(() => observed.wasDeleted()).toBe(true);
+  await expect(page).toHaveURL(/#ticket-history$/);
+  await expect(page.locator('#ticket-history-range')).toHaveText('0 resultados');
   await expectNoHorizontalOverflow(page);
   expect(runtimeErrors).toEqual([]);
 });
