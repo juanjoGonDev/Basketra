@@ -454,8 +454,8 @@ function receiptDeleteImpactFromDatabase(database: DatabaseSync, receiptId: stri
     retainedPriceObservations,
     canDelete,
     warning: captures + extractions + corrections + externalEvidence + retainedPriceObservations === 0
-      ? 'Deleting this ticket permanently removes the ticket and its line records.'
-      : 'Deleting this ticket permanently removes its receipt captures, extractions, line corrections, receipt evidence and retained receipt price observations.',
+      ? 'Al eliminar este ticket se eliminarán permanentemente el ticket y sus líneas.'
+      : 'Al eliminar este ticket se eliminarán permanentemente sus capturas, extracciones, correcciones, evidencias del ticket y precios históricos asociados.',
   };
 }
 
