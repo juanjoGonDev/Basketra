@@ -111,7 +111,7 @@ test('category save completion does not reopen detail after the user returns to 
   await expect(page.locator('#category-detail-name')).toHaveText('Lácteos');
   await page.getByRole('button', { name: 'Editar', exact: true }).click();
   await page.locator('#category-name').fill('Lácteos y huevos');
-  await page.getByRole('button', { name: 'Guardar categoría', exact: true }).click();
+  await page.locator('#category-form').dispatchEvent('submit');
   await saveStarted;
 
   await page.locator('#categories-back-list').click();

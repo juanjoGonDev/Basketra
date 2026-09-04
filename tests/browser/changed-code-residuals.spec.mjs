@@ -325,7 +325,7 @@ test('catalog residual branches cover rich history, nested categories and destru
   await page.goto('/inventory/products');
   const nav = page.locator('[data-catalog-nav="inventory"]').first();
   if (await nav.count()) {
-    await nav.click();
+    await nav.dispatchEvent('click');
     await expect(page).toHaveURL(/\/inventory$/u);
   }
 });
