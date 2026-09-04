@@ -842,7 +842,7 @@ async function saveProduct(button) {
       method: current ? 'PATCH' : 'POST',
       body: JSON.stringify(payload),
     });
-    const saved = productFromCanonicalRecord(result.product);
+    const saved = productFromCanonicalRecord(result.product, current?.priceHistory ?? []);
     state.productDetail = saved;
     $('#catalog-product-form-state').textContent = current ? 'Ficha guardada.' : 'Producto creado.';
     $('#catalog-product-status').textContent = 'Guardado';
