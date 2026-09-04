@@ -472,3 +472,159 @@ test('inventory residual branches cover overview routing, Store guards and non-e
     document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: 'settings', route: 'settings', searchParams: '' } }));
   });
 });
+
+test('catalog and inventory defensive residuals cover partial payloads and alternate route state', async ({ page }) => {
+  test.setTimeout(60_000);
+  let catalogMode = 'single';
+  let categoryMode = 'normal';
+  let overviewRequest = 0;
+  let releaseOverview;
+  let storesRequest = 0;
+  let releaseStores;
+  let statisticsRequest = 0;
+  let releaseStatistics;
+
+  const categories = [
+    { id: 'root', name: 'Raíz', color: '#118844', productCount: 1, childCount: 1 },
+    { id: 'child', name: 'Hija', parentId: 'root', parentName: 'Raíz', color: '#118844', productCount: 1, childCount: 0 },
+    { id: 'orphan', name: 'Huérfana', parentId: 'missing', color: '#118844', productCount: 0, childCount: 0 },
+  ];
+
+  await page.route('**/api/v1/meta', route => json(route, { units: {} }));
+  await page.route(/\/api\/v1\/categories(?:\?.*)?$/, async route => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get('mode') !== 'inventory') return json(route, { categories: {} });
+    if (categoryMode === 'missing-list') return json(route, { inventory: { total: 0, offset: 0, limit: 12, hasMore: false } });
+    return json(route, { inventory: { categories, total: categories.length, offset: 0, limit: 12, hasMore: false } });
+  });
+  await page.route('**/api/v1/catalog?*', route => {
+    const url = new URL(route.request().url());
+    const q = url.searchParams.get('q') || '';
+    if (q === 'missing-products') return json(route, { catalog: { total: 0, offset: 0, limit: 12, hasMore: false } });
+    if (q === 'null-products') return json(route, { catalog: { products: null, parents: null, total: 0, offset: 0, limit: 12, hasMore: false } });
+    const products = catalogMode === 'single'
+      ? [product('Único', { id: 'single', retailerNames: null, latestPrices: null })]
+      : [];
+    return json(route, { catalog: { products, total: products.length, offset: 0, limit: 12, hasMore: false } });
+  });
+  await page.route(/\/api\/v1\/products\/([^/]+)$/, route => {
+    const id = new URL(route.request().url()).pathname.split('/').at(-1);
+    return json(route, {
+      product: product('Único', { id, canonicalProductId: '', retailerNames: null, latestPrices: null }),
+      priceHistory: [{ id: 'price_single', observedAt: 'fecha-invalida', retailerName: '', storeName: '', priceMinor: 199 }],
+      ticketHistory: [{ receiptId: 'receipt_single', purchasedAt: 'fecha-invalida', retailerName: '', storeName: '', quantity: 1, unit: null, lineTotalMinor: 199 }],
+    });
+  });
+  await page.route('**/api/v1/catalog/products/*/retailer-name', route => json(route, {
+    retailerName: { retailerId: 'retailer_new', retailerName: 'Mercado', title: 'Nombre local' },
+  }));
+  await page.route('**/api/v1/categories/*/delete-impact', route => json(route, {
+    impact: { productCount: 0, childCount: 0, descendantCategoryCount: 0, descendantProductCount: 0, protected: false, canDelete: true },
+  }));
+
+  await page.route('**/api/v1/inventory/overview', async route => {
+    overviewRequest += 1;
+    if (overviewRequest === 1) {
+      await new Promise(resolve => { releaseOverview = resolve; });
+    }
+    return json(route, overviewRequest === 1 ? { overview: { productCount: 99 } } : { overview: null });
+  });
+  await page.route('**/api/v1/inventory/stores?*', async route => {
+    storesRequest += 1;
+    if (storesRequest === 1) {
+      await new Promise(resolve => { releaseStores = resolve; });
+    }
+    return json(route, storesRequest === 1
+      ? { stores: [{ id: 'stale', retailerName: 'Vieja', name: 'Vieja', productCount: 0, ticketCount: 0, priceObservationCount: 0 }], total: 1, offset: 0, limit: 12, hasMore: false }
+      : null);
+  });
+  await page.route('**/api/v1/inventory/statistics?*', async route => {
+    statisticsRequest += 1;
+    if (statisticsRequest === 1) {
+      await new Promise(resolve => { releaseStatistics = resolve; });
+    }
+    return json(route, statisticsRequest === 1 ? { statistics: { summary: { activeProducts: 99 } } } : { statistics: null });
+  });
+
+  await page.goto('/inventory/products/single?mode=edit');
+  await expect(page.locator('#catalog-price-history-count')).toHaveText('1');
+  await expect(page.locator('#catalog-ticket-history-count')).toHaveText('1');
+  await expect(page.locator('#catalog-price-history-body')).toContainText('fecha-invalida');
+  await expect(page.locator('#catalog-ticket-history-state')).toContainText('1 ticket confirmado');
+  await page.locator('#catalog-retailer-name').fill('Mercado');
+  await page.locator('#catalog-retailer-title').fill('Nombre local');
+  await page.locator('#catalog-save-retailer-name').click();
+  await expect(page.locator('#catalog-retailer-names')).toContainText('Nombre local');
+  await page.locator('#catalog-cancel-edit').click();
+
+  await page.goto('/inventory/products');
+  await page.locator('#catalog-search').fill('missing-products');
+  await expect(page.locator('#catalog-products')).toContainText('No hay productos');
+  await page.locator('#catalog-search').fill('null-products');
+  await expect(page.locator('#catalog-products')).toContainText('No hay productos');
+  await page.locator('#catalog-selection-delete').dispatchEvent('click');
+
+  await page.goto('/inventory/categories/child');
+  await expect(page.locator('#category-detail-parent')).toHaveText('Raíz');
+  await page.getByRole('button', { name: 'Editar', exact: true }).click();
+  await page.locator('#category-cancel-edit').click();
+
+  await page.goto('/inventory/categories/orphan');
+  await expect(page.locator('#category-detail-parent')).toHaveText('Categoría no disponible');
+  await expect(page.locator('#category-detail-hierarchy')).toContainText('Raíz');
+
+  await page.goto('/inventory/categories/missing');
+  await expect(page.locator('#category-list-screen')).toBeVisible();
+  await page.locator('#category-delete').dispatchEvent('click');
+  await page.locator('#category-delete-confirm').dispatchEvent('click');
+  await page.locator('#category-edit').dispatchEvent('click');
+  await page.locator('#category-add-child').dispatchEvent('click');
+  await page.locator('#category-cancel-edit').dispatchEvent('click');
+
+  categoryMode = 'missing-list';
+  await page.goto('/inventory/categories');
+  await expect(page.locator('#category-tree')).toContainText('No hay categorías');
+
+  await page.goto('/inventory');
+  await expect.poll(() => overviewRequest).toBeGreaterThanOrEqual(1);
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+    detail: { view: 'inventory', route: 'inventory', searchParams: new URLSearchParams() },
+  })));
+  await expect.poll(() => overviewRequest).toBeGreaterThanOrEqual(2);
+  releaseOverview();
+  await expect(page.locator('#inventory-overview-products')).toHaveText('0');
+
+  await page.goto('/inventory/stores');
+  await expect.poll(() => storesRequest).toBeGreaterThanOrEqual(1);
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+    detail: { view: 'stores', route: 'stores', searchParams: new URLSearchParams() },
+  })));
+  await expect.poll(() => storesRequest).toBeGreaterThanOrEqual(2);
+  releaseStores();
+  await expect(page.locator('#store-state')).toContainText('0 tiendas encontradas');
+  await page.locator('#store-select-page').check();
+  await page.locator('#store-selection-clear').click();
+  await page.locator('#store-prev').dispatchEvent('click');
+  await page.locator('#store-next').dispatchEvent('click');
+  await page.locator('#store-edit').dispatchEvent('click');
+  await page.locator('#store-cancel-edit').dispatchEvent('click');
+  await page.locator('#store-delete-confirm').dispatchEvent('click');
+
+  await page.goto('/inventory/statistics');
+  await expect.poll(() => statisticsRequest).toBeGreaterThanOrEqual(1);
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+    detail: { view: 'inventory-statistics', route: 'inventory-statistics', searchParams: new URLSearchParams() },
+  })));
+  await expect.poll(() => statisticsRequest).toBeGreaterThanOrEqual(2);
+  releaseStatistics();
+  await expect(page.locator('#statistics-categories-table')).toContainText('Sin actividad');
+
+  await page.evaluate(() => {
+    document.dispatchEvent(new CustomEvent('basketra:view-changed'));
+    document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: 'catalog' } }));
+    document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: 'categories' } }));
+    document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: 'stores' } }));
+    document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: 'inventory-statistics' } }));
+  });
+});
+
