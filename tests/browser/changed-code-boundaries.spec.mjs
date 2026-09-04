@@ -422,7 +422,7 @@ test('inventory Store CRUD, filters, validation and statistics exercise alternat
   await expect(page).toHaveURL(/\/inventory\/stores\/new/);
   await page.locator('#store-retailer').fill('Mercado');
   await page.locator('#store-name').fill('Nueva');
-  await page.locator('#store-editor details').getByRole('button').click();
+  await page.locator('#store-editor details > summary').click();
   await page.locator('#store-latitude').fill('37.1');
   await page.getByRole('button', { name: 'Guardar tienda' }).click();
   await expect(page.locator('#store-form-state')).toContainText('latitud y longitud juntas');

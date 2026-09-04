@@ -687,11 +687,11 @@ function startCreateProduct({ historyMode = 'push' } = {}) {
   requestAnimationFrame(() => $('#catalog-canonical-name')?.focus());
 }
 
-function closeProductDetail() {
+function closeProductDetail({ refresh = true } = {}) {
   showProductListScreen();
   writeProductRoute('catalog', { replace: true });
   window.scrollTo(0, 0);
-  void loadProducts();
+  if (refresh) void loadProducts();
 }
 
 function showProductEditor(visible) {
@@ -1228,7 +1228,8 @@ async function confirmProductDelete(button) {
     }
     await api(`/api/v1/catalog/products/${encodeURIComponent(product.id)}`, { method: 'DELETE' });
     $('#catalog-delete-dialog').close();
-    closeProductDetail();
+    closeProductDetail({ refresh: false });
+    await loadProducts();
     $('#catalog-state').textContent = 'Producto eliminado.';
   } catch (error) {
     $('#catalog-delete-state').textContent = error.message;
