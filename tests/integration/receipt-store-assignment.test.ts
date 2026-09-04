@@ -82,7 +82,12 @@ test('store projection migration repairs receipt-derived prices that predate sto
         WHERE receipt_items.receipt_id = ?
       )
     `).run(receiptId);
-    legacy.prepare('DELETE FROM schema_migrations WHERE version = 13').run();
+    legacy.exec(`
+      DROP TRIGGER IF EXISTS receipt_price_observation_write_store;
+      DROP TRIGGER IF EXISTS confirmed_receipt_store_required_insert;
+      DROP TRIGGER IF EXISTS confirmed_receipt_store_required_update;
+    `);
+    legacy.prepare('DELETE FROM schema_migrations WHERE version >= 13').run();
     const before = legacy.prepare(`
       SELECT receipts.store_id AS receiptStoreId, price_observations.store_id AS priceStoreId
       FROM receipt_items
@@ -112,8 +117,8 @@ test('store projection migration repairs receipt-derived prices that predate sto
       JOIN price_observations ON price_observations.id = 'price_receipt_' || receipt_items.id
       WHERE receipts.id = ?
     `).get(receiptId) as { receiptStoreId: string | null; priceStoreId: string | null };
-    assert.equal(CURRENT_SCHEMA_VERSION, 13);
-    assert.equal(Number(schema.version), 13);
+    assert.equal(CURRENT_SCHEMA_VERSION, 14);
+    assert.equal(Number(schema.version), 14);
     assert.equal(projection.receiptStoreId, store.id);
     assert.equal(projection.priceStoreId, store.id);
     const storeProductCount = repaired.prepare(`
