@@ -22,7 +22,7 @@ function walk(path) {
       continue;
     }
     if (stat.size >= 2_000_000 || file === 'scripts/security-scan.mjs') continue;
-    textFiles.push(file);
+    textFiles.push(file.replaceAll('\\', '/'));
   }
 }
 

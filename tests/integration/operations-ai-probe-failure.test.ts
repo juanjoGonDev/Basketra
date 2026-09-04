@@ -74,7 +74,7 @@ test('operations gateway returns a redacted stable failure when the real capabil
   });
   await new Promise<void>((resolve, reject) => {
     providerServer.once('error', reject);
-    providerServer.listen(0, '0.0.0', () => {
+    providerServer.listen(0, '127.0.0.1', () => {
       providerServer.off('error', reject);
       resolve();
     });
@@ -86,7 +86,7 @@ test('operations gateway returns a redacted stable failure when the real capabil
     await gateway.listen();
     const baseUrl = new URL(`http://127.0.0.1:${gateway.address().port}`);
     assert.equal(await putJson(new URL('/api/v1/settings/runtime', baseUrl), {
-      aiBaseUrl: `http://127.0.0.2:${(providerServer.address() as AddressInfo).port}/v1/`,
+      aiBaseUrl: `http://127.0.0.1:${(providerServer.address() as AddressInfo).port}/v1/`,
       aiModel: 'test-model',
       aiApiKey: null,
       aiMaxRetries: 0,
