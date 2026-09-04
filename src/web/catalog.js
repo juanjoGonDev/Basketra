@@ -191,13 +191,12 @@ function installCategoryView() {
   hydrateIcons(view);
 }
 
-function activateFeatureView(viewName, { dispatch = true } = {}) {
+function activateFeatureView(viewName) {
   const view = document.querySelector(`.view[data-view="${CSS.escape(viewName)}"]`);
   if (!view) return false;
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element === view));
   document.querySelectorAll('.bottom-nav [data-nav]').forEach(element => element.removeAttribute('aria-current'));
   document.querySelector('.bottom-nav [data-nav="inventory"]')?.setAttribute('aria-current', 'page');
-  if (dispatch) document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: viewName, route: viewName, searchParams: new URLSearchParams() } }));
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
   window.scrollTo(0, 0);
@@ -651,8 +650,7 @@ async function fetchProductDetail(productId) {
   return productFromCanonicalRecord(result.product, result.priceHistory, result.ticketHistory);
 }
 
-async function openProductDetail(productOrId, { edit = false, historyMode = 'push' } = {}) {
-  const productId = typeof productOrId === 'string' ? productOrId : productOrId?.id;
+async function openProductDetail(productId, { edit = false, historyMode = 'push' } = {}) {
   if (!productId) return;
   $('#catalog-list-screen').hidden = true;
   $('#catalog-detail').hidden = false;
@@ -890,14 +888,13 @@ function productQueryString() {
   return params.toString();
 }
 
-async function loadProducts({ resetPage = false } = {}) {
+async function loadProducts() {
   const generation = ++state.loadGeneration;
   state.loadController?.abort();
   const controller = new AbortController();
   state.loadController = controller;
   const searchInput = $('#catalog-search');
   if (searchInput) state.productQuery = searchInput.value.trim();
-  if (resetPage) state.productPage = 1;
   $('#catalog-state').textContent = 'Cargando productos…';
   try {
     await ensureMetadata();
@@ -924,12 +921,11 @@ function categoryQueryString() {
   }).toString();
 }
 
-async function loadCategoryInventory({ resetPage = false } = {}) {
+async function loadCategoryInventory() {
   const generation = ++state.categoryLoadGeneration;
   state.categoryLoadController?.abort();
   const controller = new AbortController();
   state.categoryLoadController = controller;
-  if (resetPage) state.categoryPage = 1;
   const searchInput = $('#category-search');
   if (searchInput) state.categoryQuery = searchInput.value.trim();
   $('#category-state').textContent = 'Cargando categorías…';
@@ -1437,15 +1433,10 @@ async function openRequestedProduct(requested, searchParams) {
     return;
   }
   if (!requested.startsWith('catalog:')) return;
-  const productId = requested.slice('catalog:'.length);
-  try {
-    await openProductDetail(productId, {
-      edit: searchParams.get('mode') === 'edit',
-      historyMode: 'none',
-    });
-  } catch (error) {
-    $('#catalog-state').textContent = `No se pudo abrir el producto: ${error.message}`;
-  }
+  await openProductDetail(requested.slice('catalog:'.length), {
+    edit: searchParams.get('mode') === 'edit',
+    historyMode: 'none',
+  });
 }
 
 async function openRequestedCategory(requested, searchParams) {
@@ -1455,18 +1446,14 @@ async function openRequestedCategory(requested, searchParams) {
     return;
   }
   if (!requested.startsWith('categories:')) return;
-  try {
-    await openCategoryDetail(requested.slice('categories:'.length), {
-      edit: searchParams.get('mode') === 'edit',
-      historyMode: 'none',
-    });
-  } catch (error) {
-    $('#category-state').textContent = `No se pudo abrir la categoría: ${error.message}`;
-  }
+  await openCategoryDetail(requested.slice('categories:'.length), {
+    edit: searchParams.get('mode') === 'edit',
+    historyMode: 'none',
+  });
 }
 
 async function activateCatalog(requested = 'catalog', searchParams = new URLSearchParams()) {
-  if (!activateFeatureView('catalog', { dispatch: false })) return;
+  if (!activateFeatureView('catalog')) return;
   applyProductRouteState(searchParams);
   showProductListScreen();
   await loadProducts();
@@ -1474,7 +1461,7 @@ async function activateCatalog(requested = 'catalog', searchParams = new URLSear
 }
 
 async function activateCategories(requested = 'categories', searchParams = new URLSearchParams()) {
-  if (!activateFeatureView('categories', { dispatch: false })) return;
+  if (!activateFeatureView('categories')) return;
   applyCategoryRouteState(searchParams);
   showCategoryListScreen();
   await loadCategoryInventory();

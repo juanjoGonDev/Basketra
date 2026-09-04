@@ -191,13 +191,12 @@ function installStatisticsView() {
   hydrateIcons(view);
 }
 
-function activateView(viewName, { dispatch = true } = {}) {
+function activateView(viewName) {
   const target = document.querySelector(`.view[data-view="${CSS.escape(viewName)}"]`);
   if (!target) return false;
   document.querySelectorAll('.view').forEach(view => view.classList.toggle('active', view === target));
   document.querySelectorAll('.bottom-nav [data-nav]').forEach(button => button.removeAttribute('aria-current'));
   document.querySelector('.bottom-nav [data-nav="inventory"]')?.setAttribute('aria-current', 'page');
-  if (dispatch) document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: viewName, route: viewName, searchParams: new URLSearchParams() } }));
   window.scrollTo(0, 0);
   $('#main')?.focus({ preventScroll: true });
   return true;
@@ -410,12 +409,11 @@ function renderStoreList() {
   syncStoreSelection();
 }
 
-async function loadStores({ resetPage = false } = {}) {
+async function loadStores() {
   const generation = ++state.storeLoadGeneration;
   state.storeLoadController?.abort();
   const controller = new AbortController();
   state.storeLoadController = controller;
-  if (resetPage) state.storePage = 1;
   state.storeQuery = $('#store-search')?.value.trim() || '';
   state.storeRetailer = $('#store-retailer-filter')?.value.trim() || '';
   $('#store-state').textContent = 'Cargando tiendas…';
@@ -515,9 +513,7 @@ function coordinateMicrodegrees(value, minimum, maximum, label) {
   if (!normalized) return null;
   const number = Number(normalized);
   if (!Number.isFinite(number) || number < minimum || number > maximum) throw new Error(`${label} no es válida.`);
-  const microdegrees = Math.round(number * 1_000_000);
-  if (!Number.isSafeInteger(microdegrees)) throw new Error(`${label} no es válida.`);
-  return microdegrees;
+  return Math.round(number * 1_000_000);
 }
 
 function storePayload() {
@@ -694,7 +690,7 @@ async function openRequestedStore(requested, { edit = false } = {}) {
 }
 
 async function activateStores(requested = 'stores', searchParams = new URLSearchParams()) {
-  activateView('stores', { dispatch: false });
+  activateView('stores');
   applyStoreRouteState(searchParams);
   $('#store-detail-screen').hidden = true;
   $('#store-list-screen').hidden = false;
@@ -703,7 +699,7 @@ async function activateStores(requested = 'stores', searchParams = new URLSearch
 }
 
 async function activateStatistics(searchParams = new URLSearchParams()) {
-  activateView('inventory-statistics', { dispatch: false });
+  activateView('inventory-statistics');
   state.statisticsPeriod = readRouteEnum(searchParams, 'period', STATISTICS_PERIODS, '30d');
   if ($('#statistics-period')) $('#statistics-period').value = state.statisticsPeriod;
   await loadStatistics();
