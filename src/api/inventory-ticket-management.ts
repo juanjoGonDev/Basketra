@@ -341,9 +341,12 @@ function updateReceipt(databasePath: string, receiptId: string, body: unknown): 
   const items = asArray(candidate['items'], '$.items', 500).map((value, index) => parseEditableLine(value, index));
   const purchasedAt = asString(candidate['purchasedAt'], '$.purchasedAt', { min: 10, max: 40 });
   if (Number.isNaN(Date.parse(purchasedAt))) throw new ApiError(400, 'VALIDATION_ERROR', 'Ticket date is invalid');
-  const storeId = candidate['storeId'] === undefined || candidate['storeId'] === null || candidate['storeId'] === ''
-    ? null
-    : asString(candidate['storeId'], '$.storeId', { min: 1, max: 128 });
+  const requestedStoreId = candidate['storeId'] === undefined
+    ? undefined
+    : candidate['storeId'] === null || candidate['storeId'] === ''
+      ? null
+      : asString(candidate['storeId'], '$.storeId', { min: 1, max: 128 });
+  if (requestedStoreId === null) throw new ApiError(400, 'VALIDATION_ERROR', 'Ticket Store is required');
   const paymentStatus = asEnum(candidate['paymentStatus'] ?? 'paid', '$.paymentStatus', PAYMENT_STATUSES);
   const paymentMethod = optionalString(candidate['paymentMethod'], '$.paymentMethod', 80);
   const notes = optionalString(candidate['notes'], '$.notes', 2000);
@@ -361,18 +364,45 @@ function updateReceipt(databasePath: string, receiptId: string, body: unknown): 
   const declaredTotalMinor = beforeDiscount - receiptDiscountMinor;
 
   return withDatabase(databasePath, (database) => {
-    const receipt = database.prepare('SELECT id, retailer_id AS retailerId FROM receipts WHERE id = ?').get(receiptId) as { id: string; retailerId: string | null } | undefined;
-    if (!receipt) throw new ApiError(404, 'RECEIPT_NOT_FOUND', 'Ticket was not found');
-    let retailerId = receipt.retailerId;
-    if (storeId) {
-      const store = database.prepare('SELECT retailer_id AS retailerId FROM stores WHERE id = ?').get(storeId) as { retailerId: string } | undefined;
-      if (!store) throw new ApiError(400, 'STORE_NOT_FOUND', 'Selected ticket store was not found');
-      retailerId = store.retailerId;
-    }
-
-    const timestamp = new Date().toISOString();
     database.exec('BEGIN IMMEDIATE');
     try {
+      const receipt = database.prepare(`
+        SELECT id, retailer_id AS retailerId, store_id AS storeId
+        FROM receipts
+        WHERE id = ?
+      `).get(receiptId) as { id: string; retailerId: string | null; storeId: string | null } | undefined;
+      if (!receipt) throw new ApiError(404, 'RECEIPT_NOT_FOUND', 'Ticket was not found');
+
+      const storeId = requestedStoreId ?? receipt.storeId;
+      if (!storeId) throw new ApiError(400, 'VALIDATION_ERROR', 'Ticket Store is required');
+      const store = database.prepare('SELECT retailer_id AS retailerId FROM stores WHERE id = ?')
+        .get(storeId) as { retailerId: string } | undefined;
+      if (!store) throw new ApiError(400, 'STORE_NOT_FOUND', 'Selected ticket store was not found');
+      if (receipt.retailerId && store.retailerId !== receipt.retailerId) {
+        throw new ApiError(400, 'VALIDATION_ERROR', 'Selected ticket Store belongs to another retailer');
+      }
+      const retailerId = receipt.retailerId ?? store.retailerId;
+      const timestamp = new Date().toISOString();
+
+      database.prepare(`
+        UPDATE receipts
+        SET retailer_id = ?, store_id = ?, declared_total_minor = ?, purchased_at = ?, payment_status = ?,
+          payment_method = ?, notes = ?, tax_minor = ?, receipt_discount_minor = ?, updated_at = ?
+        WHERE id = ?
+      `).run(
+        retailerId,
+        storeId,
+        declaredTotalMinor,
+        purchasedAt,
+        paymentStatus,
+        paymentMethod,
+        notes,
+        taxMinor,
+        receiptDiscountMinor,
+        timestamp,
+        receiptId,
+      );
+
       const existing = getReceiptItems(database, receiptId);
       const existingById = new Map(existing.map(item => [item.id, item]));
       const keptIds = new Set<string>();
@@ -394,23 +424,18 @@ function updateReceipt(databasePath: string, receiptId: string, body: unknown): 
       }
 
       database.prepare(`
-        UPDATE receipts
-        SET retailer_id = ?, store_id = ?, declared_total_minor = ?, purchased_at = ?, payment_status = ?,
-          payment_method = ?, notes = ?, tax_minor = ?, receipt_discount_minor = ?, updated_at = ?
-        WHERE id = ?
-      `).run(
-        retailerId,
-        storeId,
-        declaredTotalMinor,
-        purchasedAt,
-        paymentStatus,
-        paymentMethod,
-        notes,
-        taxMinor,
-        receiptDiscountMinor,
-        timestamp,
-        receiptId,
-      );
+        UPDATE price_observations
+        SET store_id = ?
+        WHERE evidence_id IN (
+          SELECT external_evidence.id
+          FROM external_evidence
+          JOIN receipt_items
+            ON external_evidence.source_type = 'receipt'
+           AND external_evidence.source_reference = 'receipt-item:' || receipt_items.id
+          WHERE receipt_items.receipt_id = ?
+        )
+      `).run(storeId, receiptId);
+
       database.exec('COMMIT');
     } catch (error) {
       database.exec('ROLLBACK');
