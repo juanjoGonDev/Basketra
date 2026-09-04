@@ -31,6 +31,7 @@ function statisticsFixture(period) {
     categoryStats: [{
       id: 'category_dairy',
       name: recent ? 'Lácteos 90d' : 'Lácteos 30d',
+      color: '#5D8BF4',
       productCount: 2 * multiplier,
       ticketCount: 2 * multiplier,
       spentMinor: 2100 * multiplier,
@@ -135,6 +136,37 @@ test('stores provide mobile list, editable detail and dependency-aware delete wa
   await expect(dialog.getByRole('button', { name: 'Eliminar tienda' })).toBeDisabled();
   await expectNoHorizontalOverflow(page);
   expect(runtimeErrors).toEqual([]);
+});
+
+test('category activity bars use each canonical category color and proportional fill', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.route('**/api/v1/inventory/statistics?*', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      statistics: {
+        summary: { latestCatalogValueMinor: 0, activeProducts: 2, ticketsProcessed: 1, entriesValueMinor: 300, lowStockUnavailableReason: 'No existe stock canónico.' },
+        categoryStats: [
+          { id: 'category_green', name: 'Verduras', color: '#118844', productCount: 1, ticketCount: 1, spentMinor: 300 },
+          { id: 'category_orange', name: 'Fruta', color: '#F59E0B', productCount: 1, ticketCount: 1, spentMinor: 150 },
+          { id: 'category_invalid', name: 'Sin color válido', color: 'url(javascript:alert(1))', productCount: 0, ticketCount: 0, spentMinor: 75 },
+        ],
+        storeStats: [{ id: 'store_central', retailerName: 'Mercado Central', name: 'Centro', productCount: 1, ticketCount: 1, spentMinor: 300 }],
+        ticketTrend: [],
+      },
+    }),
+  }));
+
+  await page.goto('/#inventory-statistics');
+  const fills = page.locator('#statistics-categories-bars .inventory-bar-fill');
+  await expect(fills).toHaveCount(3);
+  await expect(fills.nth(0)).toHaveCSS('--inventory-bar', '100%');
+  await expect(fills.nth(1)).toHaveCSS('--inventory-bar', '50%');
+  await expect(fills.nth(2)).toHaveCSS('--inventory-bar', '25%');
+  await expect(fills.nth(0)).toHaveCSS('background-color', 'rgb(17, 136, 68)');
+  await expect(fills.nth(1)).toHaveCSS('background-color', 'rgb(245, 158, 11)');
+  await expect(fills.nth(2)).not.toHaveAttribute('style', /inventory-bar-color/);
+  await expect(page.locator('#statistics-stores-bars .inventory-bar-fill')).not.toHaveAttribute('style', /inventory-bar-color/);
 });
 
 test('statistics discard an obsolete period response and expose accessible table equivalents', async ({ page }, testInfo) => {

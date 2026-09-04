@@ -180,6 +180,7 @@ test('inventory statistics derive ticket spend independently from store price jo
     const categoryStats = array(statistics['categoryStats']).map(record);
     const food = categoryStats.find(row => row['id'] === category['id']);
     assert.ok(food);
+    assert.equal(food['color'], '#336699');
     assert.equal(food['ticketCount'], 1);
     assert.equal(food['spentMinor'], 500);
   } finally {

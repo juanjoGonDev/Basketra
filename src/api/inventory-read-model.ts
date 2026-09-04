@@ -125,11 +125,11 @@ function statistics(databasePath: string, params: URLSearchParams): Readonly<Rec
     `).get(...periodValues) as { value: number }).value);
 
     const categoryRows = database.prepare(`
-      SELECT product_categories.id, product_categories.name,
+      SELECT product_categories.id, product_categories.name, product_categories.color,
         (SELECT COUNT(*) FROM canonical_products WHERE canonical_products.category_id = product_categories.id) AS productCount
       FROM product_categories
       ORDER BY product_categories.name COLLATE NOCASE, product_categories.id
-    `).all() as Array<{ id: string; name: string; productCount: number }>;
+    `).all() as Array<{ id: string; name: string; color: string | null; productCount: number }>;
     const categoryStats = categoryRows.map((category) => {
       const dateClause = start ? 'AND COALESCE(receipts.purchased_at, receipts.created_at) >= ?' : '';
       const values: SqlValue[] = [category.id, category.id, ...periodValues];
@@ -154,6 +154,7 @@ function statistics(databasePath: string, params: URLSearchParams): Readonly<Rec
       return {
         id: category.id,
         name: category.name,
+        color: category.color,
         productCount: Number(category.productCount),
         ticketCount: Number(row.ticketCount),
         spentMinor: Number(row.spentMinor),

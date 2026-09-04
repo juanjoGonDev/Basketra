@@ -516,15 +516,32 @@ function statisticsKpi(label, value, description) {
   return `<article class="surface inventory-kpi"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(description)}</small></article>`;
 }
 
-function renderBars(container, rows, label, value) {
+function categoryColor(value) {
+  return typeof value === 'string' && /^#[0-9A-F]{6}$/i.test(value) ? value.toUpperCase() : null;
+}
+
+function renderBars(container, rows, label, value, color = () => null) {
   if (!container) return;
   container.replaceChildren();
-  const maximum = Math.max(0, ...rows.map(value));
-  for (const row of rows.slice(0, 8)) {
-    const amount = value(row);
+  const entries = rows.slice(0, 8).map(row => ({ row, amount: Math.max(0, Number(value(row)) || 0) }));
+  const maximum = Math.max(0, ...entries.map(entry => entry.amount));
+  for (const { row, amount } of entries) {
+    const percentage = maximum ? Math.round((amount / maximum) * 100) : 0;
     const item = document.createElement('div');
     item.className = 'inventory-bar-row';
-    item.innerHTML = `<span>${escapeHtml(label(row))}</span><span class="inventory-bar-track"><span class="inventory-bar-fill" style="--inventory-bar:${maximum ? Math.max(3, Math.round((amount / maximum) * 100)) : 0}%"></span></span><strong>${escapeHtml(formatEuroMinor(Math.max(0, Number(amount) || 0)))}</strong>`;
+    const name = document.createElement('span');
+    name.textContent = label(row);
+    const track = document.createElement('span');
+    track.className = 'inventory-bar-track';
+    const fill = document.createElement('span');
+    fill.className = 'inventory-bar-fill';
+    fill.style.setProperty('--inventory-bar', `${percentage}%`);
+    const canonicalColor = categoryColor(color(row));
+    if (canonicalColor) fill.style.setProperty('--inventory-bar-color', canonicalColor);
+    track.append(fill);
+    const amountLabel = document.createElement('strong');
+    amountLabel.textContent = formatEuroMinor(amount);
+    item.append(name, track, amountLabel);
     container.append(item);
   }
 }
@@ -540,7 +557,7 @@ function renderStatistics(statistics) {
   ].join('');
 
   const categories = Array.isArray(statistics.categoryStats) ? statistics.categoryStats : [];
-  renderBars($('#statistics-categories-bars'), categories, row => row.name, row => Number(row.spentMinor || 0));
+  renderBars($('#statistics-categories-bars'), categories, row => row.name, row => Number(row.spentMinor || 0), row => row.color);
   $('#statistics-categories-table').innerHTML = categories.map(row => `<tr><th scope="row">${escapeHtml(row.name)}</th><td>${Number(row.productCount || 0)}</td><td>${Number(row.ticketCount || 0)}</td><td>${escapeHtml(formatEuroMinor(Math.max(0, Number(row.spentMinor || 0))))}</td></tr>`).join('') || '<tr><td colspan="4">Sin actividad de categorías en el periodo.</td></tr>';
 
   const stores = Array.isArray(statistics.storeStats) ? statistics.storeStats : [];
