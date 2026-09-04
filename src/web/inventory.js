@@ -1,6 +1,6 @@
 import { api, setBusy } from './api.js';
 import { breadcrumb, escapeHtml, formatEuroMinor, hydrateIcons } from './ui.js';
-import { createPagedSelection } from './entity-selection.js';
+import { createPagedSelection, syncPagedSelectionDom } from './entity-selection.js';
 import {
   readApplicationLocation,
   readRouteEnum,
@@ -347,21 +347,15 @@ function storeQueryString() {
 function syncStoreSelection() {
   const stores = state.stores.stores || [];
   const ids = stores.map(store => store.id);
-  const pageState = state.storeSelection.pageState(ids);
-  const pageCheckbox = $('#store-select-page');
-  if (pageCheckbox instanceof HTMLInputElement) {
-    pageCheckbox.checked = pageState.allSelected;
-    pageCheckbox.indeterminate = pageState.someSelected;
-    pageCheckbox.disabled = ids.length === 0;
-  }
+  const pageState = syncPagedSelectionDom(state.storeSelection, ids, {
+    root: $('#store-list'),
+    pageCheckbox: $('#store-select-page'),
+  });
   $('#store-selection-bar').hidden = state.storeSelection.size === 0;
   $('#store-selection-count').textContent = `${state.storeSelection.size} tiendas seleccionadas`;
   $('#store-selection-context').textContent = pageState.selectedOutsidePage
     ? `${pageState.selectedOnPage} en esta página · ${pageState.selectedOutsidePage} en otras páginas`
     : `${pageState.selectedOnPage} en esta página`;
-  $('#store-list')?.querySelectorAll('[data-selection-id]').forEach(row => {
-    row.dataset.selected = String(state.storeSelection.has(row.dataset.selectionId));
-  });
 }
 
 function storeSelectionCell(store) {

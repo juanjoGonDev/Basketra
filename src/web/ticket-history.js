@@ -13,7 +13,7 @@ import {
   refreshReceiptInvoiceEditor,
 } from './receipt-editor-invoice.js';
 import { localDateBoundaryIso, parsePercentageBasisPoints } from './ticket-history-values.js';
-import { createPagedSelection } from './entity-selection.js';
+import { createPagedSelection, syncPagedSelectionDom } from './entity-selection.js';
 import {
   readApplicationLocation,
   readRouteEnum,
@@ -318,21 +318,15 @@ function ticketSelectionRow(ticket) {
 function syncTicketSelection() {
   const tickets = Array.isArray(state.result.tickets) ? state.result.tickets : [];
   const ids = tickets.map(ticket => ticket.id);
-  const pageState = state.selection.pageState(ids);
-  const pageCheckbox = $('#ticket-history-select-page');
-  if (pageCheckbox instanceof HTMLInputElement) {
-    pageCheckbox.checked = pageState.allSelected;
-    pageCheckbox.indeterminate = pageState.someSelected;
-    pageCheckbox.disabled = ids.length === 0;
-  }
+  const pageState = syncPagedSelectionDom(state.selection, ids, {
+    root: $('#ticket-history-list'),
+    pageCheckbox: $('#ticket-history-select-page'),
+  });
   $('#ticket-history-selection-bar').hidden = state.selection.size === 0;
   $('#ticket-history-selection-count').textContent = `${state.selection.size} tickets seleccionados`;
   $('#ticket-history-selection-context').textContent = pageState.selectedOutsidePage
     ? `${pageState.selectedOnPage} en esta página · ${pageState.selectedOutsidePage} en otras páginas`
     : `${pageState.selectedOnPage} en esta página`;
-  $('#ticket-history-list')?.querySelectorAll('[data-selection-id]').forEach(row => {
-    row.dataset.selected = String(state.selection.has(row.dataset.selectionId));
-  });
 }
 
 function renderHistory() {

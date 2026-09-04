@@ -1,6 +1,6 @@
 import { api, setBusy } from './api.js';
 import { breadcrumb, escapeHtml, formatEuroMinor, hydrateIcons, setFieldFeedback } from './ui.js';
-import { createPagedSelection } from './entity-selection.js';
+import { createPagedSelection, syncPagedSelectionDom } from './entity-selection.js';
 import {
   readApplicationLocation,
   readRouteEnum,
@@ -328,12 +328,9 @@ function syncSelectionControls(selection, pageIds, {
   contextId,
   noun,
 }) {
-  const pageState = selection.pageState(pageIds);
-  const pageCheckbox = $(`#${pageCheckboxId}`);
-  if (pageCheckbox instanceof HTMLInputElement) {
-    pageCheckbox.checked = pageState.allSelected;
-    pageCheckbox.indeterminate = pageState.someSelected;
-  }
+  const pageState = syncPagedSelectionDom(selection, pageIds, {
+    pageCheckbox: $(`#${pageCheckboxId}`),
+  });
   const bar = $(`#${barId}`);
   if (bar) bar.hidden = selection.size === 0;
   const count = $(`#${countId}`);
@@ -368,9 +365,7 @@ function syncProductSelection() {
     contextId: 'catalog-selection-context',
     noun: 'productos seleccionados',
   });
-  $('#catalog-products')?.querySelectorAll('[data-selection-id]').forEach(row => {
-    row.dataset.selected = String(state.productSelection.has(row.dataset.selectionId));
-  });
+  syncPagedSelectionDom(state.productSelection, ids, { root: $('#catalog-products') });
 }
 
 function syncCategorySelection() {
@@ -382,9 +377,7 @@ function syncCategorySelection() {
     contextId: 'category-selection-context',
     noun: 'categorías seleccionadas',
   });
-  $('#category-tree')?.querySelectorAll('[data-selection-id]').forEach(row => {
-    row.dataset.selected = String(state.categorySelection.has(row.dataset.selectionId));
-  });
+  syncPagedSelectionDom(state.categorySelection, ids, { root: $('#category-tree') });
 }
 
 function renderProductList() {

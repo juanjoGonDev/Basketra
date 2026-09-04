@@ -60,3 +60,29 @@ export function createPagedSelection({ limit = DEFAULT_SELECTION_LIMIT } = {}) {
     },
   };
 }
+
+/**
+ * Applies the canonical selection model to the currently rendered page.
+ * Selection persists across pages, while controls only reflect visible rows.
+ */
+export function syncPagedSelectionDom(selection, pageIds, {
+  root,
+  pageCheckbox,
+  rowSelector = '[data-selection-id]',
+} = {}) {
+  const pageState = selection.pageState(pageIds);
+  if (pageCheckbox instanceof HTMLInputElement) {
+    pageCheckbox.checked = pageState.allSelected;
+    pageCheckbox.indeterminate = pageState.someSelected;
+    pageCheckbox.disabled = pageState.pageSize === 0;
+  }
+  if (!(root instanceof Element)) return pageState;
+  root.querySelectorAll(rowSelector).forEach(row => {
+    const selected = selection.has(row.dataset.selectionId);
+    row.dataset.selected = String(selected);
+    row.querySelectorAll('input[type="checkbox"]').forEach(input => {
+      input.checked = selected;
+    });
+  });
+  return pageState;
+}

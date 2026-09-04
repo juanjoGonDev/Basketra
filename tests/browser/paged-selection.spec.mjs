@@ -51,6 +51,39 @@ async function installCommonMetadataRoutes(page) {
   }));
 }
 
+async function installCategoryPaginationRoute(page) {
+  await page.route('**/api/v1/categories?*', route => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get('mode') !== 'inventory') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ categories: [] }) });
+    }
+    const secondPage = Number(url.searchParams.get('offset') || 0) >= 12;
+    const category = secondPage
+      ? { id: 'category_page_2', name: 'Categoría página 2', color: '#18715A', productCount: 0, childCount: 0 }
+      : { id: 'category_page_1', name: 'Categoría página 1', color: '#18715A', productCount: 0, childCount: 0 };
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ inventory: { categories: [category], total: 13, offset: secondPage ? 12 : 0, limit: 12, hasMore: !secondPage } }),
+    });
+  });
+}
+
+async function installStorePaginationRoute(page) {
+  await page.route('**/api/v1/inventory/stores?*', route => {
+    const url = new URL(route.request().url());
+    const secondPage = Number(url.searchParams.get('offset') || 0) >= 12;
+    const store = secondPage
+      ? { id: 'store_page_2', name: 'Tienda página 2', retailerName: 'Mercado', productCount: 0, ticketCount: 0, lastActivityAt: null }
+      : { id: 'store_page_1', name: 'Tienda página 1', retailerName: 'Mercado', productCount: 0, ticketCount: 0, lastActivityAt: null };
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ stores: [store], total: 13, offset: secondPage ? 12 : 0, limit: 12, hasMore: !secondPage }),
+    });
+  });
+}
+
 test('product selection survives pagination and bulk delete sends only explicit ids', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await installCommonMetadataRoutes(page);
@@ -104,16 +137,25 @@ test('product selection survives pagination and bulk delete sends only explicit 
 
   await page.goto('/inventory/products');
   await expect(page.getByRole('heading', { name: 'Productos', exact: true })).toBeVisible();
-  await page.getByRole('checkbox', { name: 'Seleccionar Producto página 1' }).check();
+  await page.getByRole('checkbox', { name: 'Seleccionar productos de esta página' }).check();
+  await expect(page.getByRole('checkbox', { name: 'Seleccionar Producto página 1' })).toBeChecked();
   await expect(page.locator('#catalog-selection-count')).toHaveText('1 productos seleccionados');
   await expect(page.locator('#catalog-selection-context')).toHaveText('1 en esta página');
 
   await page.locator('#catalog-next').click();
   await expect(page.locator('#catalog-page')).toHaveText('2 / 2');
   await expect(page.locator('#catalog-selection-context')).toHaveText('0 en esta página · 1 en otras páginas');
-  await page.getByRole('checkbox', { name: 'Seleccionar Producto página 2' }).check();
+  await page.getByRole('checkbox', { name: 'Seleccionar productos de esta página' }).check();
+  await expect(page.getByRole('checkbox', { name: 'Seleccionar Producto página 2' })).toBeChecked();
   await expect(page.locator('#catalog-selection-count')).toHaveText('2 productos seleccionados');
   await expect(page.locator('#catalog-selection-context')).toHaveText('1 en esta página · 1 en otras páginas');
+  await page.getByRole('button', { name: 'Limpiar selección' }).click();
+  await expect(page.getByRole('checkbox', { name: 'Seleccionar Producto página 2' })).not.toBeChecked();
+  await expect(page.locator('#catalog-selection-bar')).toBeHidden();
+  await page.getByRole('checkbox', { name: 'Seleccionar productos de esta página' }).check();
+  await page.locator('#catalog-prev').click();
+  await expect(page.getByRole('checkbox', { name: 'Seleccionar productos de esta página' })).not.toBeChecked();
+  await page.getByRole('checkbox', { name: 'Seleccionar productos de esta página' }).check();
 
   await page.locator('.view[data-view="catalog"]').screenshot({ path: testInfo.outputPath('product-selection-pagination.png') });
 
@@ -203,16 +245,25 @@ test('ticket selection survives pagination and one bulk transaction receives eve
 
   await page.goto('/tickets/history');
   await expect(page.getByRole('heading', { name: 'Historial de tickets' })).toBeVisible();
-  await page.getByRole('checkbox', { name: 'Seleccionar ticket ticket_page_1' }).check();
+  await page.getByRole('checkbox', { name: 'Seleccionar tickets de esta página' }).check();
+  await expect(page.getByRole('checkbox', { name: 'Seleccionar ticket ticket_page_1' })).toBeChecked();
   await expect(page.locator('#ticket-history-selection-count')).toHaveText('1 tickets seleccionados');
   await expect(page.locator('#ticket-history-selection-context')).toHaveText('1 en esta página');
 
   await page.locator('#ticket-history-next').click();
   await expect(page.locator('#ticket-history-page')).toHaveText('2 / 2');
   await expect(page.locator('#ticket-history-selection-context')).toHaveText('0 en esta página · 1 en otras páginas');
-  await page.getByRole('checkbox', { name: 'Seleccionar ticket ticket_page_2' }).check();
+  await page.getByRole('checkbox', { name: 'Seleccionar tickets de esta página' }).check();
+  await expect(page.getByRole('checkbox', { name: 'Seleccionar ticket ticket_page_2' })).toBeChecked();
   await expect(page.locator('#ticket-history-selection-count')).toHaveText('2 tickets seleccionados');
   await expect(page.locator('#ticket-history-selection-context')).toHaveText('1 en esta página · 1 en otras páginas');
+  await page.getByRole('button', { name: 'Limpiar selección' }).click();
+  await expect(page.getByRole('checkbox', { name: 'Seleccionar ticket ticket_page_2' })).not.toBeChecked();
+  await expect(page.locator('#ticket-history-selection-bar')).toBeHidden();
+  await page.getByRole('checkbox', { name: 'Seleccionar tickets de esta página' }).check();
+  await page.locator('#ticket-history-prev').click();
+  await expect(page.getByRole('checkbox', { name: 'Seleccionar tickets de esta página' })).not.toBeChecked();
+  await page.getByRole('checkbox', { name: 'Seleccionar tickets de esta página' }).check();
 
   await page.locator('.view[data-view="ticket-history"]').screenshot({ path: testInfo.outputPath('ticket-selection-pagination.png') });
 
@@ -228,4 +279,33 @@ test('ticket selection survives pagination and one bulk transaction receives eve
   await expect(page.locator('#ticket-history-selection-bar')).toBeHidden();
   await expect(page.locator('#ticket-history-state')).toHaveText('2 tickets eliminados.');
   expect(runtimeErrors).toEqual([]);
+});
+
+test('category and store page selection synchronize each visible checkbox across pagination and clearing', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installCommonMetadataRoutes(page);
+  await installCategoryPaginationRoute(page);
+  await installStorePaginationRoute(page);
+
+  await page.goto('/inventory/categories');
+  await expect(page.getByRole('heading', { name: 'Categorías', exact: true })).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Seleccionar categorías de esta página' }).check();
+  await expect(page.getByRole('checkbox', { name: 'Seleccionar categoría Categoría página 1' })).toBeChecked();
+  await page.locator('#category-next').click();
+  await expect(page.getByRole('checkbox', { name: 'Seleccionar categorías de esta página' })).not.toBeChecked();
+  await page.getByRole('checkbox', { name: 'Seleccionar categorías de esta página' }).check();
+  await expect(page.getByRole('checkbox', { name: 'Seleccionar categoría Categoría página 2' })).toBeChecked();
+  await page.getByRole('button', { name: 'Limpiar selección' }).click();
+  await expect(page.getByRole('checkbox', { name: 'Seleccionar categoría Categoría página 2' })).not.toBeChecked();
+
+  await page.goto('/inventory/stores');
+  await expect(page.getByRole('heading', { name: 'Tiendas', exact: true })).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Seleccionar tiendas de esta página' }).check();
+  await expect(page.getByRole('checkbox', { name: 'Seleccionar tienda Tienda página 1' })).toBeChecked();
+  await page.locator('#store-next').click();
+  await expect(page.getByRole('checkbox', { name: 'Seleccionar tiendas de esta página' })).not.toBeChecked();
+  await page.getByRole('checkbox', { name: 'Seleccionar tiendas de esta página' }).check();
+  await expect(page.getByRole('checkbox', { name: 'Seleccionar tienda Tienda página 2' })).toBeChecked();
+  await page.getByRole('button', { name: 'Limpiar selección' }).click();
+  await expect(page.getByRole('checkbox', { name: 'Seleccionar tienda Tienda página 2' })).not.toBeChecked();
 });
