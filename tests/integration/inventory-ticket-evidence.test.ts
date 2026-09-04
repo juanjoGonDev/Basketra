@@ -178,20 +178,66 @@ test('historical ticket edits preserve immutable receipt and price evidence', as
     assert.equal(tombstoned.status, 'deleted');
     assert.equal(tombstoned.originalDescription, 'Leche entera 1 L');
 
+    const productVariantId = string(queryOne<{ productVariantId: string }>(databasePath, `
+      SELECT product_variant_id AS productVariantId FROM receipt_items WHERE id = ?
+    `, itemId).productVariantId);
+
     const impactResponse = await request(baseUrl, `/api/v1/inventory/tickets/${encodeURIComponent(receiptId)}/delete-impact`);
     assert.equal(impactResponse.status, 200);
     const impact = record(impactResponse.body?.['impact']);
-    assert.equal(impact['canDelete'], false);
+    assert.equal(impact['canDelete'], true);
     assert.ok(Number(impact['externalEvidence']) >= 1);
     assert.ok(Number(impact['retainedPriceObservations']) >= 1);
     assert.ok(Number(impact['corrections']) >= 1);
+    assert.match(string(impact['warning']), /se eliminarán/i);
 
-    const blockedDelete = await request(baseUrl, `/api/v1/inventory/tickets/${encodeURIComponent(receiptId)}`, { method: 'DELETE' });
-    assert.equal(blockedDelete.status, 409);
-    assert.equal(record(blockedDelete.body?.['error'])['code'], 'RECEIPT_DELETE_BLOCKED');
+    const database = new DatabaseSync(databasePath);
+    database.exec(`
+      CREATE TRIGGER test_receipt_delete_rollback
+      BEFORE DELETE ON receipts
+      WHEN OLD.id = '${receiptId.replaceAll("'", "''")}'
+      BEGIN
+        SELECT RAISE(ABORT, 'forced receipt delete rollback');
+      END;
+    `);
+    database.close();
 
-    const stillPresent = await request(baseUrl, `/api/v1/inventory/tickets/${encodeURIComponent(receiptId)}`);
-    assert.equal(stillPresent.status, 200);
+    const failedDelete = await request(baseUrl, `/api/v1/inventory/tickets/${encodeURIComponent(receiptId)}`, { method: 'DELETE' });
+    assert.equal(failedDelete.status, 500);
+    assert.ok(Number(queryOne<{ count: number }>(databasePath, `
+      SELECT COUNT(*) AS count FROM external_evidence
+      WHERE source_type = 'receipt' AND source_reference = ?
+    `, `receipt-item:${itemId}`).count) >= 1);
+    assert.ok(Number(queryOne<{ count: number }>(databasePath, `
+      SELECT COUNT(*) AS count FROM price_observations
+      WHERE evidence_id IN (
+        SELECT id FROM external_evidence
+        WHERE source_type = 'receipt' AND source_reference = ?
+      )
+    `, `receipt-item:${itemId}`).count) >= 1);
+
+    const writable = new DatabaseSync(databasePath);
+    writable.exec('DROP TRIGGER test_receipt_delete_rollback');
+    writable.close();
+
+    const deleted = await request(baseUrl, `/api/v1/inventory/tickets/${encodeURIComponent(receiptId)}`, { method: 'DELETE' });
+    assert.equal(deleted.status, 204);
+
+    const missing = await request(baseUrl, `/api/v1/inventory/tickets/${encodeURIComponent(receiptId)}`);
+    assert.equal(missing.status, 404);
+    assert.equal(Number(queryOne<{ count: number }>(databasePath, 'SELECT COUNT(*) AS count FROM receipt_items WHERE receipt_id = ?', receiptId).count), 0);
+    assert.equal(Number(queryOne<{ count: number }>(databasePath, 'SELECT COUNT(*) AS count FROM receipt_captures WHERE receipt_id = ?', receiptId).count), 0);
+    assert.equal(Number(queryOne<{ count: number }>(databasePath, 'SELECT COUNT(*) AS count FROM receipt_extractions WHERE receipt_id = ?', receiptId).count), 0);
+    assert.equal(Number(queryOne<{ count: number }>(databasePath, `
+      SELECT COUNT(*) AS count FROM external_evidence
+      WHERE source_type = 'receipt' AND source_reference = ?
+    `, `receipt-item:${itemId}`).count), 0);
+    assert.equal(Number(queryOne<{ count: number }>(databasePath, `
+      SELECT COUNT(*) AS count FROM price_observations WHERE id = ?
+    `, `price_receipt_${itemId}`).count), 0);
+    assert.equal(Number(queryOne<{ count: number }>(databasePath, `
+      SELECT COUNT(*) AS count FROM product_variants WHERE id = ?
+    `, productVariantId).count), 1);
   } finally {
     await server.close();
     rmSync(root, { recursive: true, force: true });
