@@ -51,13 +51,13 @@ async function installInventoryRoutes(page) {
 }
 
 async function openInventory(page) {
-  await page.goto('/#home');
+  await page.goto('/');
   const primary = page.locator('.bottom-nav button');
   await expect(primary).toHaveCount(5);
   await expect(primary.nth(3)).toHaveText('Inventario');
   await expect(page.getByRole('button', { name: 'Planes', exact: true })).toHaveCount(0);
   await primary.nth(3).click();
-  await expect(page).toHaveURL(/#inventory$/);
+  await expect(page).toHaveURL(/\/inventory$/);
   await expect(page.getByRole('heading', { name: 'Inventario', exact: true })).toBeVisible();
   await expect(page.locator('#inventory-overview-state')).toHaveText('Resumen actualizado con datos persistidos.');
 }
@@ -88,25 +88,34 @@ test('Inventory replaces Plans with canonical overview metrics, search handoff a
   await inventory.screenshot({ path: testInfo.outputPath('inventory-mobile.png') });
 
   await inventory.getByRole('button', { name: 'Nuevo producto', exact: true }).click();
-  await expect(page).toHaveURL(/#catalog:new$/);
+  await expect(page).toHaveURL(/\/inventory\/products\/new$/);
   await expect(page.locator('#catalog-editor')).toBeVisible();
   await expect(page.locator('#catalog-canonical-name')).toBeFocused();
   await page.locator('.bottom-nav [data-nav="inventory"]').click();
-  await expect(page).toHaveURL(/#inventory$/);
+  await expect(page).toHaveURL(/\/inventory$/);
 
   const search = inventory.locator('#inventory-overview-search');
   await search.fill('leche');
   await search.press('Enter');
-  await expect(page).toHaveURL(/#catalog$/);
+  await expect(page).toHaveURL(/\/inventory\/products(?:\?.*)?$/);
   await expect(page.locator('#catalog-search')).toHaveValue('leche');
   await expect(page.locator('#catalog-sort')).toHaveValue('recent');
+  await expect.poll(() => new URL(page.url()).searchParams.get('q')).toBe('leche');
+  await expect.poll(() => new URL(page.url()).searchParams.get('sort')).toBe('recent');
   await expect(page.locator('.bottom-nav [data-nav="inventory"]')).toHaveAttribute('aria-current', 'page');
+
+  const catalogUrl = page.url();
+  await page.reload();
+  await expect(page).toHaveURL(catalogUrl);
+  await expect(page.locator('#catalog-search')).toHaveValue('leche');
+  await expect(page.locator('#catalog-sort')).toHaveValue('recent');
+  await expect(page.getByRole('heading', { name: 'Productos', exact: true })).toBeVisible();
 
   await page.locator('.bottom-nav [data-nav="inventory"]').click();
   await inventory.locator('[data-inventory-scope="categories"]').click();
   await search.fill('lácteos');
   await inventory.getByRole('button', { name: 'Abrir filtros' }).click();
-  await expect(page).toHaveURL(/#categories$/);
+  await expect(page).toHaveURL(/\/inventory\/categories(?:\?.*)?$/);
   await expect(page.locator('#category-search')).toHaveValue('lácteos');
   await expect(page.locator('#category-filter')).toBeFocused();
 
@@ -114,13 +123,13 @@ test('Inventory replaces Plans with canonical overview metrics, search handoff a
   await inventory.locator('[data-inventory-scope="stores"]').click();
   await search.fill('centro');
   await search.press('Enter');
-  await expect(page).toHaveURL(/#stores$/);
+  await expect(page).toHaveURL(/\/inventory\/stores(?:\?.*)?$/);
   await expect(page.locator('#store-search')).toHaveValue('centro');
   await expect(page.locator('#store-sort')).toHaveValue('name');
 
   await page.locator('.bottom-nav [data-nav="inventory"]').click();
   await inventory.getByRole('button', { name: 'Estadísticas', exact: true }).first().click();
-  await expect(page).toHaveURL(/#inventory-statistics$/);
+  await expect(page).toHaveURL(/\/inventory\/statistics$/);
   await expect(page.getByRole('heading', { name: 'Estadísticas', exact: true })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   expect(runtimeErrors).toEqual([]);
@@ -130,7 +139,7 @@ test('Inventory overview preserves the approved desktop hierarchy without horizo
   await page.setViewportSize({ width: 1280, height: 900 });
   await installInventoryRoutes(page);
 
-  await page.goto('/#inventory');
+  await page.goto('/inventory');
   await expect(page.getByRole('heading', { name: 'Inventario', exact: true })).toBeVisible();
   await expect(page.locator('#inventory-overview-state')).toHaveText('Resumen actualizado con datos persistidos.');
   await expect(page.locator('.inventory-overview-kpis .inventory-kpi')).toHaveCount(4);

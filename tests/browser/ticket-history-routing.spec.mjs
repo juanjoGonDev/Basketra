@@ -58,19 +58,19 @@ test('ticket history supports direct deep links and browser back to capture', as
   await page.setViewportSize({ width: 390, height: 844 });
   await installHistoryRoutes(page);
 
-  await page.goto('/#ticket-history');
-  await expect(page).toHaveURL(/#ticket-history$/);
+  await page.goto('/tickets/history');
+  await expect(page).toHaveURL(/\/tickets\/history$/);
   await expect(page.getByRole('heading', { name: 'Historial de tickets' })).toBeVisible();
   await expect(page.locator('.bottom-nav [data-nav="scan"]')).toHaveAttribute('aria-current', 'page');
 
   await page.getByRole('button', { name: 'Captura', exact: true }).first().click();
-  await expect(page).toHaveURL(/#scan$/);
+  await expect(page).toHaveURL(/\/tickets$/);
   await expect(page.getByRole('heading', { name: 'Captura y revisa' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Historial', exact: true }).click();
-  await expect(page).toHaveURL(/#ticket-history$/);
+  await expect(page).toHaveURL(/\/tickets\/history$/);
   await page.goBack();
-  await expect(page).toHaveURL(/#scan$/);
+  await expect(page).toHaveURL(/\/tickets$/);
   await expect(page.getByRole('heading', { name: 'Captura y revisa' })).toBeVisible();
 });
 
@@ -78,10 +78,15 @@ test('ticket detail deep link preserves the entity route through app bootstrap',
   await page.setViewportSize({ width: 390, height: 844 });
   await installHistoryRoutes(page);
 
-  await page.goto('/#ticket-history:ticket_direct');
-  await expect(page).toHaveURL(/#ticket-history:ticket_direct$/);
+  await page.goto('/tickets/history/ticket_direct');
+  await expect(page).toHaveURL(/\/tickets\/history\/ticket_direct$/);
   await expect(page.locator('#ticket-history-detail-screen')).toBeVisible();
   await expect(page.locator('#ticket-editor-title')).toContainText('ticket_direct');
   await expect(page.locator('#ticket-editor-total')).toContainText('2,50');
   await expect(page.locator('.bottom-nav [data-nav="scan"]')).toHaveAttribute('aria-current', 'page');
+
+  await page.reload();
+  await expect(page).toHaveURL(/\/tickets\/history\/ticket_direct$/);
+  await expect(page.locator('#ticket-history-detail-screen')).toBeVisible();
+  await expect(page.locator('#ticket-editor-title')).toContainText('ticket_direct');
 });

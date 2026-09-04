@@ -87,19 +87,19 @@ test('inventory products use a separate paginated list and editable detail on mo
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ retailerName }) });
   });
 
-  await page.goto('/#home');
+  await page.goto('/');
   await page.getByRole('button', { name: /Inventario/i }).first().click();
-  await expect(page).toHaveURL(/#inventory$/);
+  await expect(page).toHaveURL(/\/inventory$/);
   await page.locator('.view[data-view="inventory"]').getByRole('button', { name: 'Productos', exact: true }).first().click();
 
-  await expect(page).toHaveURL(/#catalog$/);
+  await expect(page).toHaveURL(/\/inventory\/products$/);
   await expect(page.getByRole('heading', { name: 'Productos', exact: true })).toBeVisible();
   await expect(page.locator('#catalog-range')).toHaveText('1-1 de 1');
   const catalogRow = page.locator('[data-catalog-product-id="variant_milk"]');
   await expect(catalogRow).toContainText('1,19');
   await catalogRow.click();
 
-  await expect(page).toHaveURL(/#catalog:variant_milk$/);
+  await expect(page).toHaveURL(/\/inventory\/products\/variant_milk$/);
   await expect(page.locator('#catalog-list-screen')).toBeHidden();
   await expect(page.locator('#catalog-detail')).toBeVisible();
   await expect(page.locator('#catalog-back-list')).toBeVisible();
@@ -178,7 +178,7 @@ test('receipt line total is read-only, backend-derived and ignores stale calcula
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ lineTotalMinor: 777 }) });
   });
 
-  await page.goto('/#home');
+  await page.goto('/');
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
   await page.evaluate(() => import('/receipt-review.js').then(({ addBlankLine }) => addBlankLine()));
   await expect(page.locator('.receipt-item')).toHaveCount(1);

@@ -75,22 +75,22 @@ test('hierarchical categories use separate list, detail and editor flows on mobi
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ category }) });
   });
 
-  await page.goto('/#home');
+  await page.goto('/');
   await page.getByRole('button', { name: /Inventario/i }).first().click();
   await page.locator('.view[data-view="inventory"]').getByRole('button', { name: 'Categorías', exact: true }).first().click();
 
-  await expect(page).toHaveURL(/#categories$/);
+  await expect(page).toHaveURL(/\/inventory\/categories$/);
   await expect(page.getByRole('heading', { name: 'Categorías', exact: true })).toBeVisible();
   await expect(page.locator('#category-range')).toHaveText('1-2 de 2');
 
   const foodRow = page.locator('[data-category-id="category_food"]');
   await foodRow.focus();
   await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(/#categories:category_food$/);
+  await expect(page).toHaveURL(/\/inventory\/categories\/category_food$/);
   await expect(page.locator('#category-form-title')).toHaveText('Alimentación');
   await page.getByRole('button', { name: 'Editar', exact: true }).click();
   await page.getByRole('button', { name: 'Añadir subcategoría' }).click();
-  await expect(page).toHaveURL(/#categories:new$/);
+  await expect(page).toHaveURL(/\/inventory\/categories\/new$/);
   await expect(page.locator('#category-parent')).toHaveValue('category_food');
 
   await page.locator('#category-name').fill('Lácteos');
@@ -99,7 +99,7 @@ test('hierarchical categories use separate list, detail and editor flows on mobi
   await page.getByRole('button', { name: 'Guardar categoría' }).click();
 
   await expect.poll(() => createPayload).toEqual({ name: 'Lácteos', parentId: 'category_food', color: '#33AAFF', description: 'Leche, yogur y derivados' });
-  await expect(page).toHaveURL(/#categories:category_dairy$/);
+  await expect(page).toHaveURL(/\/inventory\/categories\/category_dairy$/);
   await expect(page.locator('#category-detail-name')).toHaveText('Lácteos');
 
   await page.getByRole('button', { name: 'Editar', exact: true }).click();

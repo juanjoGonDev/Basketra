@@ -8,7 +8,7 @@ async function openNewProduct(page) {
     contentType: 'application/json',
     body: JSON.stringify({ catalog: emptyCatalog }),
   }));
-  await page.goto('/#inventory');
+  await page.goto('/inventory');
   await page.getByRole('button', { name: 'Productos', exact: true }).first().click();
   await page.getByRole('button', { name: 'Nuevo producto', exact: true }).click();
   await expect(page.locator('#catalog-editor')).toBeVisible();
@@ -51,13 +51,13 @@ test('catalog details expose a navigable breadcrumb and the application shell ha
   await openNewProduct(page);
   const breadcrumb = page.getByRole('navigation', { name: 'Ruta de navegación' });
   await expect(breadcrumb).toBeVisible();
-  await expect(breadcrumb.getByRole('link', { name: 'Inventario', exact: true })).toHaveAttribute('href', '#inventory');
-  await expect(breadcrumb.getByRole('link', { name: 'Productos', exact: true })).toHaveAttribute('href', '#catalog');
+  await expect(breadcrumb.getByRole('link', { name: 'Inventario', exact: true })).toHaveAttribute('href', '/inventory');
+  await expect(breadcrumb.getByRole('link', { name: 'Productos', exact: true })).toHaveAttribute('href', '/inventory/products');
   await expect(breadcrumb.locator('.icon')).toHaveCount(3);
   await expect(page.getByRole('button', { name: 'Limpiar filtros', exact: true }).locator('.icon')).toHaveCount(1);
   await breadcrumb.getByRole('link', { name: 'Inventario', exact: true }).focus();
   await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(/#inventory$/);
+  await expect(page).toHaveURL(/\/inventory$/);
   const pseudoFooter = await page.evaluate(() => getComputedStyle(document.body, '::after').content);
   expect(pseudoFooter).toBe('none');
 });

@@ -12,10 +12,10 @@ test('Tickets initializes even when shopping-list bootstrap fails', async ({ pag
     body: JSON.stringify({ configured: false }),
   }));
 
-  await page.goto('/#home');
+  await page.goto('/');
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
 
-  await expect(page).toHaveURL(/#scan$/);
+  await expect(page).toHaveURL(/\/tickets$/);
   await expect(page.locator('#receipt-analysis-options')).toBeVisible();
   await expect(page.locator('#receipt-progress')).toBeAttached();
   await expect(page.locator('#receipt-review-panel')).toBeAttached();
@@ -37,7 +37,7 @@ test('primary navigation stays disabled until application bootstrap is ready', a
     body: JSON.stringify({ configured: false }),
   }));
 
-  await page.goto('/#home');
+  await page.goto('/');
   const tickets = page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true });
   await expect(page.locator('#main')).toHaveAttribute('aria-busy', 'true');
   await expect(tickets).toBeDisabled();
@@ -47,5 +47,5 @@ test('primary navigation stays disabled until application bootstrap is ready', a
   await expect(page.locator('#main')).toHaveAttribute('aria-busy', 'false');
   await expect(tickets).toBeEnabled();
   await tickets.click();
-  await expect(page).toHaveURL(/#scan$/);
+  await expect(page).toHaveURL(/\/tickets$/);
 });

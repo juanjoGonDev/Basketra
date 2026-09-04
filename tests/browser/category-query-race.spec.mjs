@@ -48,7 +48,7 @@ test('category search ignores a stale response that finishes after the latest qu
     });
   });
 
-  await page.goto('/#categories');
+  await page.goto('/inventory/categories');
   await firstRequestStarted;
   await page.locator('#category-search').fill('nueva');
   await expect.poll(() => inventoryQueries).toContain('nueva');
@@ -107,7 +107,7 @@ test('category save completion does not reopen detail after the user returns to 
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ categories: [category] }) });
   });
 
-  await page.goto('/#categories:category_dairy');
+  await page.goto('/inventory/categories/category_dairy');
   await expect(page.locator('#category-detail-name')).toHaveText('Lácteos');
   await page.getByRole('button', { name: 'Editar', exact: true }).click();
   await page.locator('#category-name').fill('Lácteos y huevos');
@@ -115,12 +115,12 @@ test('category save completion does not reopen detail after the user returns to 
   await saveStarted;
 
   await page.getByRole('button', { name: 'Categorías', exact: true }).click();
-  await expect(page).toHaveURL(/#categories$/u);
+  await expect(page).toHaveURL(/\/inventory\/categories$/u);
   await expect(page.locator('#category-list-screen')).toBeVisible();
 
   releaseSave();
   await expect(page.locator('#category-save')).toBeEnabled();
-  await expect(page).toHaveURL(/#categories$/u);
+  await expect(page).toHaveURL(/\/inventory\/categories$/u);
   await expect(page.locator('#category-list-screen')).toBeVisible();
   await expect(page.locator('#category-detail')).toBeHidden();
 });
