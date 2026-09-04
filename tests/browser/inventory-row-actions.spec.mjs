@@ -109,7 +109,10 @@ async function openAccessibleActions(wrapper) {
   await expect(toggle).toBeVisible();
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-  await expect(wrapper.locator('[data-swipe-actions]')).toHaveAttribute('aria-hidden', 'false');
+  const actions = wrapper.locator('[data-swipe-actions]');
+  await expect(actions).toHaveAttribute('aria-hidden', 'false');
+  await expect(actions.getByRole('button', { name: /Editar/u })).toHaveAttribute('tabindex', '0');
+  await expect(actions.getByRole('button', { name: /Eliminar/u })).toHaveAttribute('tabindex', '0');
 }
 
 test('inventory entity rows share accessible swipe actions and preserve canonical delete preflights', async ({ page }, testInfo) => {

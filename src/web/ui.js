@@ -117,6 +117,10 @@ function swipeContent(row) {
   return row.querySelector('[data-swipe-content]');
 }
 
+function isGenericSwipeRow(row) {
+  return row instanceof Element && !row.classList.contains('inventory-entity-swipe');
+}
+
 function swipeActions(row) {
   return row.querySelector('[data-swipe-actions]');
 }
@@ -146,7 +150,7 @@ function closeSwipeRow(row) {
 
 function closeSwipeRows(root, except) {
   root.querySelectorAll('[data-swipe-row]').forEach(row => {
-    if (row !== except) closeSwipeRow(row);
+    if (row !== except && isGenericSwipeRow(row)) closeSwipeRow(row);
   });
 }
 
@@ -181,12 +185,14 @@ function dispatchSwipeAction(root, row, action) {
 export function bindSwipeActions(root = document) {
   let gesture;
 
-  root.querySelectorAll('[data-swipe-row]').forEach(closeSwipeRow);
+  root.querySelectorAll('[data-swipe-row]').forEach(row => {
+    if (isGenericSwipeRow(row)) closeSwipeRow(row);
+  });
 
   root.addEventListener('pointerdown', event => {
     if (event.button !== 0 || event.clientX < 24 || event.target.closest('button,input,select,textarea,a,summary')) return;
     const row = event.target.closest('[data-swipe-row]');
-    if (!row || !swipeContent(row)) return;
+    if (!isGenericSwipeRow(row) || !swipeContent(row)) return;
     closeSwipeRows(root, row);
     const width = Math.max(row.clientWidth, 1);
     gesture = {
@@ -281,12 +287,13 @@ export function bindSwipeActions(root = document) {
     const toggle = event.target.closest('[data-swipe-toggle]');
     if (toggle) {
       const row = toggle.closest('[data-swipe-row]');
-      if (!row) return;
+      if (!isGenericSwipeRow(row)) return;
       if (row.dataset.swipeOpen === 'true') closeSwipeRow(row);
       else openSwipeRow(root, row);
       return;
     }
     const row = event.target.closest('[data-swipe-row]');
+    if (row && !isGenericSwipeRow(row)) return;
     if (!row) {
       closeSwipeRows(root);
       return;
@@ -297,7 +304,7 @@ export function bindSwipeActions(root = document) {
   root.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
     const row = event.target.closest('[data-swipe-row]');
-    if (row) closeSwipeRow(row);
+    if (isGenericSwipeRow(row)) closeSwipeRow(row);
   });
 }
 
