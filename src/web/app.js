@@ -2,6 +2,7 @@ import { api } from './api.js';
 import { initLists } from './lists.js';
 import { initReceipts } from './receipts.js';
 import { primaryNavigationForView, resolveApplicationRoute } from './routes.js';
+import { createReceiptInvoiceLineDialog } from './receipt-editor-invoice.js';
 import {
   bindSwipeActions,
   hydrateIcons,
@@ -236,26 +237,20 @@ function updateReceiptLinePresentation(root) {
 function installReceiptLineEditor() {
   let dialog = $('#receipt-line-dialog');
   if (dialog) return dialog;
-  dialog = document.createElement('dialog');
-  dialog.id = 'receipt-line-dialog';
-  dialog.className = 'sheet-dialog receipt-line-dialog';
-  dialog.setAttribute('aria-labelledby', 'receipt-line-dialog-title');
-  dialog.innerHTML = `
-    <div class="dialog-content">
-      <div class="dialog-header">
-        <div><p class="eyebrow">Línea del ticket</p><h2 id="receipt-line-dialog-title">Editar producto</h2></div>
-        <button id="close-receipt-line-editor" class="icon-button" type="button" aria-label="Cerrar editor"><span data-icon="close"></span></button>
-      </div>
-      <div id="receipt-line-editor-slot"></div>
-      <p id="receipt-line-editor-state" class="inline-status" role="alert"></p>
-      <div class="dialog-actions receipt-line-editor-actions">
-        <button id="delete-receipt-line-editor" class="button danger-outline" type="button"><span data-icon="trash"></span>Eliminar</button>
-        <button id="cancel-receipt-line-editor" class="button secondary" type="button">Cancelar</button>
-        <button id="save-receipt-line-editor" class="button primary" type="button"><span data-icon="check"></span>Guardar línea</button>
-      </div>
-    </div>`;
+  dialog = createReceiptInvoiceLineDialog({
+    id: 'receipt-line-dialog',
+    titleId: 'receipt-line-dialog-title',
+    title: 'Editar producto',
+    closeId: 'close-receipt-line-editor',
+    slotId: 'receipt-line-editor-slot',
+    stateId: 'receipt-line-editor-state',
+    actions: [
+      { id: 'delete-receipt-line-editor', className: 'button danger-outline', label: 'Eliminar', icon: 'trash' },
+      { id: 'cancel-receipt-line-editor', className: 'button secondary', label: 'Cancelar' },
+      { id: 'save-receipt-line-editor', className: 'button primary', label: 'Guardar línea', icon: 'check', editorAction: 'save' },
+    ],
+  });
   document.body.append(dialog);
-  hydrateIcons(dialog);
 
   dialog.addEventListener('cancel', event => {
     event.preventDefault();
