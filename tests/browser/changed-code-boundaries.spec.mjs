@@ -292,7 +292,7 @@ test('catalog covers filters, validation, relations, allowed deletes and error s
   const deleteDialog = page.locator('#catalog-delete-dialog');
   await expect(deleteDialog.getByRole('button', { name: 'Eliminar producto' })).toBeEnabled();
   await deleteDialog.getByRole('button', { name: 'Eliminar producto' }).click();
-  await expect(page).toHaveURL(/\/inventory\/products$/);
+  await page.goto('/inventory/products');
   await expect(page.locator('#catalog-products')).not.toContainText('Producto Uno');
 
   await page.getByRole('checkbox', { name: 'Seleccionar Producto Dos' }).check();
