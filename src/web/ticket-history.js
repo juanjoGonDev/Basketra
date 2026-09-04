@@ -8,6 +8,7 @@ import {
   minorToEuroInput,
 } from './ui.js';
 import {
+  createReceiptInvoiceLineDialog,
   enhanceReceiptInvoiceEditor,
   refreshReceiptInvoiceEditor,
 } from './receipt-editor-invoice.js';
@@ -146,24 +147,29 @@ function installHistoryView() {
     </section>`;
   main.append(view);
 
-  const lineDialog = document.createElement('dialog');
-  lineDialog.id = 'historical-ticket-line-dialog';
-  lineDialog.className = 'sheet-dialog receipt-invoice-dialog ticket-line-dialog';
-  lineDialog.setAttribute('aria-labelledby', 'historical-ticket-line-title');
-  lineDialog.innerHTML = `
-    <form id="historical-ticket-line-form" class="dialog-content receipt-invoice-dialog__content">
-      <div class="dialog-header receipt-invoice-dialog__header"><div><p class="eyebrow">Línea del ticket</p><h2 id="historical-ticket-line-title">Editar artículo</h2></div><button id="historical-ticket-line-close" data-editor-action="close" class="icon-button" type="button" aria-label="Cerrar"><span data-icon="close"></span></button></div>
-      <div class="receipt-invoice-dialog__slot" data-editor-slot>
-        <fieldset class="receipt-item receipt-item--editing" data-receipt-line-editor data-editor-validation="review">
-          <legend>Línea del ticket</legend>
-          <label class="field"><span>Producto</span><input id="historical-ticket-line-description" data-field="description" maxlength="240" required autocomplete="off"></label>
-          <label class="field receipt-editor-category-field"><span>Categoría</span><select id="historical-ticket-line-category"><option value="">Sin categoría</option></select></label>
-          <div class="quantity-row"><label class="field"><span>Cantidad</span><input id="historical-ticket-line-quantity" data-field="quantity" type="number" min="1" max="100000" step="1" required></label><label class="field"><span>Unidad</span><select id="historical-ticket-line-unit"></select></label><label class="field"><span>Precio unitario (€)</span><input id="historical-ticket-line-unit-price" data-field="unitPriceEuro" inputmode="decimal" required></label></div>
-          <div class="quantity-row"><label class="field receipt-discount-type-field"><span>Descuento</span><select id="historical-ticket-line-discount-type" data-field="discountType"><option value="none">Sin descuento</option><option value="amount">Importe (€)</option><option value="percentage">Porcentaje</option></select></label><label id="historical-ticket-line-discount-field" class="field receipt-discount-value-field"><span id="historical-ticket-line-discount-label">Valor</span><input id="historical-ticket-line-discount-value" data-field="discountValue" inputmode="decimal"></label><label id="historical-ticket-line-discount-quantity-field" class="field receipt-discount-quantity-field"><span>Unidades con descuento</span><input id="historical-ticket-line-discount-quantity" data-field="discountQuantity" type="number" min="1" step="1"></label><output id="historical-ticket-line-total" class="receipt-line-result" data-field="lineTotalEuro" aria-label="Total calculado (€)">0.00</output><p id="historical-ticket-line-state" class="inline-status receipt-line-derived-state" role="status" aria-live="polite"></p></div>
-        </fieldset>
-      </div>
-      <div class="dialog-actions receipt-line-editor-actions receipt-invoice-dialog__actions" data-editor-actions><button id="historical-ticket-line-cancel" class="button secondary" type="button">Cancelar</button><button id="historical-ticket-line-save" data-editor-action="save" class="button primary" type="submit"><span data-icon="check"></span>Guardar línea</button></div>
-    </form>`;
+  const lineDialog = createReceiptInvoiceLineDialog({
+    id: 'historical-ticket-line-dialog',
+    titleId: 'historical-ticket-line-title',
+    title: 'Editar artículo',
+    closeId: 'historical-ticket-line-close',
+    slotId: 'historical-ticket-line-slot',
+    stateId: '',
+    contentId: 'historical-ticket-line-form',
+    contentTag: 'form',
+    className: 'ticket-line-dialog',
+    actions: [
+      { id: 'historical-ticket-line-cancel', className: 'button secondary', label: 'Cancelar' },
+      { id: 'historical-ticket-line-save', className: 'button primary', label: 'Guardar línea', icon: 'check', type: 'submit', editorAction: 'save' },
+    ],
+  });
+  lineDialog.querySelector('[data-editor-slot]').innerHTML = `
+    <fieldset class="receipt-item receipt-item--editing" data-receipt-line-editor data-editor-validation="review">
+      <legend>Línea del ticket</legend>
+      <label class="field"><span>Producto</span><input id="historical-ticket-line-description" data-field="description" maxlength="240" required autocomplete="off"></label>
+      <label class="field receipt-editor-category-field"><span>Categoría</span><select id="historical-ticket-line-category"><option value="">Sin categoría</option></select></label>
+      <div class="quantity-row"><label class="field"><span>Cantidad</span><input id="historical-ticket-line-quantity" data-field="quantity" type="number" min="1" max="100000" step="1" required></label><label class="field"><span>Unidad</span><select id="historical-ticket-line-unit"></select></label><label class="field"><span>Precio unitario (€)</span><input id="historical-ticket-line-unit-price" data-field="unitPriceEuro" inputmode="decimal" required></label></div>
+      <div class="quantity-row"><label class="field receipt-discount-type-field"><span>Descuento</span><select id="historical-ticket-line-discount-type" data-field="discountType"><option value="none">Sin descuento</option><option value="amount">Importe (€)</option><option value="percentage">Porcentaje</option></select></label><label id="historical-ticket-line-discount-field" class="field receipt-discount-value-field"><span id="historical-ticket-line-discount-label">Valor</span><input id="historical-ticket-line-discount-value" data-field="discountValue" inputmode="decimal"></label><label id="historical-ticket-line-discount-quantity-field" class="field receipt-discount-quantity-field"><span>Unidades con descuento</span><input id="historical-ticket-line-discount-quantity" data-field="discountQuantity" type="number" min="1" step="1"></label><output id="historical-ticket-line-total" class="receipt-line-result" data-field="lineTotalEuro" aria-label="Total calculado (€)">0.00</output><p id="historical-ticket-line-state" class="inline-status receipt-line-derived-state" role="status" aria-live="polite"></p></div>
+    </fieldset>`;
   document.body.append(lineDialog);
   enhanceReceiptInvoiceEditor(lineDialog);
   const deleteDialog = document.createElement('dialog');
