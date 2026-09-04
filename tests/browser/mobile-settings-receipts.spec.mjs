@@ -82,7 +82,7 @@ test('settings remain readable and unobscured across light and dark responsive l
   }
 });
 
-test('automatic AI analysis uses one durable whole-ticket job and retailer autofill', async ({ page }, testInfo) => {
+test('automatic AI analysis uses one durable whole-ticket job and receipt Store autofill', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
@@ -142,7 +142,8 @@ test('automatic AI analysis uses one durable whole-ticket job and retailer autof
   expect(createdAiJobs).toBe(1);
   await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.receiptExtractionJobId'))).toBe(jobId);
   await expect(page.locator('#receipt-state')).toContainText('88 artículos');
-  await expect(page.getByLabel('Comercio (opcional)', { exact: true })).toHaveValue('ALCAMPO ALMERIA');
+  await expect(page.getByLabel('Comercio', { exact: true })).toHaveValue('ALCAMPO');
+  await expect(page.getByLabel('Tienda', { exact: true })).toHaveValue('ALCAMPO ALMERIA');
   await expect(page.locator('#receipt-total')).toHaveValue('202.26');
   await expect(page.locator('.receipt-item')).toHaveCount(4);
   await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
@@ -153,7 +154,8 @@ test('automatic AI analysis uses one durable whole-ticket job and retailer autof
   const confirmationRequest = page.waitForRequest(request => new URL(request.url()).pathname === '/api/v1/receipts/confirm');
   await page.locator('#confirm-receipt').click();
   const payload = (await confirmationRequest).postDataJSON();
-  expect(payload.retailerName).toBe('ALCAMPO ALMERIA');
+  expect(payload.retailerName).toBe('ALCAMPO');
+  expect(payload.storeName).toBe('ALCAMPO ALMERIA');
   expect(payload.declaredTotalMinor).toBe(20_226);
   expect(payload.ai.pages).toHaveLength(3);
   expect(payload.originalText).toContain('ALCAMPO ALMERIA');
@@ -278,14 +280,16 @@ function assembledExtraction() {
     })),
     originalText: 'ALCAMPO ALMERIA\nC.LADRON MANZAN;6;89;534;A\nPAN;1;150;150;B\nLECHE;1;120;120;B\nRESTO TICKET;1;19422;19422;B\nTOTAL 202.26\nNUM. TOTAL ART. VENDIDOS = 88',
     deterministic: {
-      retailerName: 'ALCAMPO ALMERIA',
+      retailerName: 'ALCAMPO',
+      storeName: 'ALCAMPO ALMERIA',
       declaredTotalMinor: 20_226,
       articleCount: 88,
       items,
     },
     ai: {
       interpretation: {
-        retailerName: 'ALCAMPO ALMERIA',
+        retailerName: 'ALCAMPO',
+        storeName: 'ALCAMPO ALMERIA',
         declaredTotalMinor: 20_226,
         articleCount: 88,
         currency: 'EUR',
@@ -306,7 +310,8 @@ function assembledExtraction() {
       })),
     },
     final: {
-      retailerName: 'ALCAMPO ALMERIA',
+      retailerName: 'ALCAMPO',
+      storeName: 'ALCAMPO ALMERIA',
       declaredTotalMinor: 20_226,
       articleCount: 88,
       items,
