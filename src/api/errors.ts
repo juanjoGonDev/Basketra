@@ -146,6 +146,11 @@ export function mapError(error: unknown): ApiError {
       case 'PRODUCT_CATEGORY_NOT_FOUND': return new ApiError(404, 'PRODUCT_CATEGORY_NOT_FOUND', 'Product category was not found');
       case 'PRODUCT_VARIANT_NOT_FOUND': return new ApiError(404, 'PRODUCT_VARIANT_NOT_FOUND', 'Product variant was not found');
       case 'STORE_NOT_FOUND': return new ApiError(404, 'STORE_NOT_FOUND', 'Store was not found');
+      case 'RECEIPT_STORE_REQUIRED': return new ApiError(400, 'VALIDATION_ERROR', 'A Store is required to confirm the receipt');
+      case 'RECEIPT_STORE_NOT_FOUND': return new ApiError(400, 'VALIDATION_ERROR', 'Selected receipt Store was not found');
+      case 'RECEIPT_STORE_RETAILER_REQUIRED': return new ApiError(400, 'VALIDATION_ERROR', 'A retailer is required when confirming a Store by name');
+      case 'RECEIPT_STORE_RETAILER_MISMATCH': return new ApiError(400, 'VALIDATION_ERROR', 'Selected receipt Store belongs to another retailer');
+      case 'RECEIPT_STORE_NAME_MISMATCH': return new ApiError(400, 'VALIDATION_ERROR', 'Selected receipt Store name does not match the saved Store');
       case 'REALTIME_CLIENT_LIMIT_REACHED': return new ApiError(503, 'REALTIME_CLIENT_LIMIT_REACHED', 'Realtime connection limit is temporarily reached');
       case 'OVERPASS_UNAVAILABLE': return new ApiError(502, 'NEARBY_STORE_PROVIDER_UNAVAILABLE', 'No se pudo consultar OpenStreetMap en este momento');
       case 'OVERPASS_RESPONSE_TOO_LARGE': return new ApiError(502, 'NEARBY_STORE_PROVIDER_RESPONSE_TOO_LARGE', 'La respuesta de OpenStreetMap superó el límite permitido');
