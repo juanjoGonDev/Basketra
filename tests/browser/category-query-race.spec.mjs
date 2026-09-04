@@ -114,7 +114,7 @@ test('category save completion does not reopen detail after the user returns to 
   await page.getByRole('button', { name: 'Guardar categoría', exact: true }).click();
   await saveStarted;
 
-  await page.getByRole('button', { name: 'Categorías', exact: true }).click();
+  await page.locator('#categories-back-list').click();
   await expect(page).toHaveURL(/\/inventory\/categories$/u);
   await expect(page.locator('#category-list-screen')).toBeVisible();
 

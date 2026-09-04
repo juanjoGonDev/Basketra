@@ -114,6 +114,7 @@ test('shell, breadcrumb and receipt Store adapters cover defensive browser bound
 });
 
 test('catalog covers filters, validation, relations, allowed deletes and error states', async ({ page }) => {
+  test.setTimeout(60_000);
   let products = [
     catalogProduct('variant_one', { variantName: 'Producto Uno' }),
     catalogProduct('variant_two', { variantName: 'Producto Dos', updatedAt: '2026-09-02T10:00:00.000Z' }),

@@ -136,6 +136,7 @@ test('inventory entity rows share accessible swipe actions and preserve canonica
   await expect(page.locator('#catalog-editor')).toBeVisible();
   await page.locator('.view[data-view="catalog"]').screenshot({ path: testInfo.outputPath('inventory-product-editor-mobile.png') });
   await page.locator('#catalog-back-list').click();
+  await expect(page.locator('#catalog-state')).toHaveText('1 productos encontrados.');
 
   await openAccessibleActions(productWrapper);
   await productWrapper.locator('[data-inventory-row-action="delete"]').click();
@@ -164,6 +165,7 @@ test('inventory entity rows share accessible swipe actions and preserve canonica
   await expect(page).toHaveURL(/\/inventory\/categories\/category_food\?mode=edit$/);
   await expect(page.locator('#category-editor')).toBeVisible();
   await page.locator('#categories-back-list').click();
+  await expect(page.locator('#category-state')).toHaveText('2 categorías encontradas.');
 
   await openAccessibleActions(categoryWrapper);
   await categoryWrapper.locator('[data-inventory-row-action="delete"]').click();
@@ -186,6 +188,7 @@ test('inventory entity rows share accessible swipe actions and preserve canonica
   await expect(page).toHaveURL(/\/inventory\/stores\/store_central\?mode=edit$/);
   await expect(page.locator('#store-editor')).toBeVisible();
   await page.locator('#stores-back-list').click();
+  await expect(page.locator('#store-state')).toHaveText('1 tiendas encontradas.');
 
   await openAccessibleActions(storeWrapper);
   await storeWrapper.locator('[data-inventory-row-action="delete"]').click();
