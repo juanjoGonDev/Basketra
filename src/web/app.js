@@ -651,7 +651,7 @@ function setNavigationReady(ready) {
   const main = $('#main');
   main.setAttribute('aria-busy', String(!ready));
   main.toggleAttribute('inert', !ready);
-  $('.bottom-nav [data-nav]').forEach(element => {
+  document.querySelectorAll('.bottom-nav [data-nav]').forEach(element => {
     if (element instanceof HTMLButtonElement) element.disabled = !ready;
   });
 }
