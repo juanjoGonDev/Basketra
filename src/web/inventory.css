@@ -395,7 +395,7 @@
 @media (min-width: 70.001rem) {
   body {
     --inventory-shell-rail: 11.75rem;
-    --inventory-shell-topbar: 4.25rem;
+    --inventory-shell-topbar: var(--header);
     --inventory-shell-footer: 0px;
     min-height: 100vh;
     background:
