@@ -252,6 +252,11 @@ export function installReceiptEnhancements() {
         <span>Comercio (opcional)</span>
         <input id="receipt-retailer" maxlength="120" autocomplete="organization" placeholder="Ej. Mercadona" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="retailer-suggestions">
       </label>
+      <div id="receipt-detected-store" class="field" hidden>
+        <span>Tienda detectada (opcional)</span>
+        <input id="receipt-store" readonly aria-describedby="receipt-store-help">
+        <small id="receipt-store-help">Se aplicará al ticket y a los precios nuevos al confirmar.</small>
+      </div>
       <div id="retailer-suggestions" class="retailer-suggestions" role="listbox" aria-label="Comercios guardados o detectados" hidden></div>`;
     manualBody.prepend(retailer);
   }

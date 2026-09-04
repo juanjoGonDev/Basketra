@@ -509,6 +509,7 @@ export function applyExtraction(extraction, originalText = extraction.originalTe
     $('#receipt-total').value = minorToEuroInput(extraction.final.declaredTotalMinor);
   }
   applyRetailerCandidate(extraction.final.retailerName || extraction.ai?.interpretation?.retailerName);
+  applyStoreCandidate(extraction.final);
   renderReview(extraction.final.review.lines, extraction.final.review.total);
 }
 
@@ -748,6 +749,31 @@ export function setRetailerValue(value) {
   state.settingRetailerValue = false;
 }
 
+function clearIncompatibleDetectedStore() {
+  if (!state.detectedStoreId && !state.detectedStoreName) return;
+  const retailer = normalizeRetailerName($('#receipt-retailer').value).toLocaleLowerCase('es-ES');
+  const detectedRetailer = normalizeRetailerName(state.detectedStoreRetailerName).toLocaleLowerCase('es-ES');
+  if (!retailer || !detectedRetailer || retailer === detectedRetailer) return;
+  state.detectedStoreId = '';
+  state.detectedStoreName = '';
+  state.detectedStoreRetailerName = '';
+  $('#receipt-detected-store').hidden = true;
+  $('#receipt-store').value = '';
+  $('#receipt-state').textContent = 'La tienda detectada no pertenece al comercio seleccionado y se ha quitado.';
+}
+
+function applyStoreCandidate(extraction) {
+  const id = typeof extraction.storeId === 'string' ? extraction.storeId : '';
+  const name = normalizeRetailerName(extraction.storeName);
+  if (!id && !name) return;
+  state.detectedStoreId = id;
+  state.detectedStoreName = name;
+  state.detectedStoreRetailerName = normalizeRetailerName(extraction.retailerName);
+  $('#receipt-detected-store').hidden = false;
+  $('#receipt-store').value = name || 'Tienda guardada detectada';
+  clearIncompatibleDetectedStore();
+}
+
 export function applyRetailerCandidate(name) {
   const normalized = normalizeRetailerName(name);
   if (!normalized) return;
@@ -812,6 +838,7 @@ export function appendRetailerOption(container, retailerName, detail) {
 
 export function scheduleRetailerSuggestions() {
   if (!state.settingRetailerValue) state.retailerManuallyEdited = true;
+  clearIncompatibleDetectedStore();
   clearTimeout(state.retailerSuggestionTimer);
   state.retailerSuggestionController?.abort();
   const query = $('#receipt-retailer').value.trim();
@@ -840,6 +867,7 @@ export function selectRetailerSuggestion(event) {
   if (!option) return;
   setRetailerValue(option.dataset.retailerName);
   state.retailerManuallyEdited = true;
+  clearIncompatibleDetectedStore();
   hideRetailerSuggestions();
   $('#receipt-retailer').focus();
 }
@@ -902,6 +930,8 @@ export async function confirmReceipt() {
         declaredTotalMinor,
         provider: providerLabel(),
         ...(retailerName ? { retailerName } : {}),
+        ...(state.detectedStoreId ? { storeId: state.detectedStoreId } : {}),
+        ...(state.detectedStoreName ? { storeName: state.detectedStoreName } : {}),
         deterministic: state.extraction?.deterministic || { items },
         ...(aiPages.length > 0 ? { ai: { pages: aiPages } } : {}),
         captures: state.captures.map(capture => ({
@@ -939,6 +969,11 @@ export async function confirmReceipt() {
     setRetailerValue('');
     state.retailerManuallyEdited = false;
     state.retailerCandidates.clear();
+    state.detectedStoreId = '';
+    state.detectedStoreName = '';
+    state.detectedStoreRetailerName = '';
+    $('#receipt-detected-store').hidden = true;
+    $('#receipt-store').value = '';
     hideRetailerSuggestions();
   } catch (error) {
     $('#receipt-state').textContent = `Revisa el ticket: ${error.message}. El borrador se conserva.`;
