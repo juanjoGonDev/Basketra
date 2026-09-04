@@ -116,6 +116,14 @@ test('store projection migration repairs receipt-derived prices that predate sto
     assert.equal(Number(schema.version), 13);
     assert.equal(projection.receiptStoreId, store.id);
     assert.equal(projection.priceStoreId, store.id);
+    const storeProductCount = repaired.prepare(`
+      SELECT COUNT(DISTINCT retailer_listings.product_variant_id) AS count
+      FROM price_observations
+      JOIN retailer_listings ON retailer_listings.id = price_observations.retailer_listing_id
+      WHERE price_observations.store_id = ?
+        AND retailer_listings.product_variant_id IS NOT NULL
+    `).get(store.id) as { count: number };
+    assert.equal(Number(storeProductCount.count), 1);
   } finally {
     repaired.close();
     rmSync(root, { recursive: true, force: true });
