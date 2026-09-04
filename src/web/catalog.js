@@ -1165,11 +1165,27 @@ function bindInteractions() {
     state.productSort = 'name';
     void loadProducts({ resetPage: true });
   });
+  $('#catalog-select-page').addEventListener('change', event => {
+    state.productSelection.setPage((state.catalog.products || []).map(product => product.id), event.currentTarget.checked);
+    syncProductSelection();
+  });
+  $('#catalog-selection-clear').addEventListener('click', () => {
+    state.productSelection.clear();
+    syncProductSelection();
+  });
   $('#catalog-prev').addEventListener('click', () => { if (state.productPage > 1) state.productPage -= 1; void loadProducts(); window.scrollTo(0, 0); });
   $('#catalog-next').addEventListener('click', () => { if (state.catalog.hasMore) state.productPage += 1; void loadProducts(); window.scrollTo(0, 0); });
   $('#category-search').addEventListener('input', () => { clearTimeout(state.categorySearchTimer); state.categorySearchTimer = setTimeout(() => void loadCategoryInventory({ resetPage: true }), SEARCH_DELAY_MS); });
   $('#category-filter').addEventListener('change', event => { state.categoryFilter = event.currentTarget.value; void loadCategoryInventory({ resetPage: true }); });
   $('#category-clear-filters').addEventListener('click', () => { $('#category-search').value = ''; $('#category-filter').value = 'all'; state.categoryQuery = ''; state.categoryFilter = 'all'; void loadCategoryInventory({ resetPage: true }); });
+  $('#category-select-page').addEventListener('change', event => {
+    state.categorySelection.setPage((state.categoryInventory.categories || []).map(category => category.id), event.currentTarget.checked);
+    syncCategorySelection();
+  });
+  $('#category-selection-clear').addEventListener('click', () => {
+    state.categorySelection.clear();
+    syncCategorySelection();
+  });
   $('#category-prev').addEventListener('click', () => { if (state.categoryPage > 1) state.categoryPage -= 1; void loadCategoryInventory(); window.scrollTo(0, 0); });
   $('#category-next').addEventListener('click', () => { if (state.categoryInventory.hasMore) state.categoryPage += 1; void loadCategoryInventory(); window.scrollTo(0, 0); });
 }
