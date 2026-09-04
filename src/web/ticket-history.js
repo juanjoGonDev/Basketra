@@ -13,6 +13,7 @@ import {
   refreshReceiptInvoiceEditor,
 } from './receipt-editor-invoice.js';
 import { localDateBoundaryIso, parsePercentageBasisPoints } from './ticket-history-values.js';
+import { createPagedSelection } from './entity-selection.js';
 
 const PAGE_SIZE = 12;
 const SEARCH_DELAY_MS = 250;
@@ -46,6 +47,8 @@ const state = {
   lineCalculationTimer: null,
   lineCalculationController: null,
   lineCalculationGeneration: 0,
+  selection: createPagedSelection({ limit: 100 }),
+  bulkDeleteIds: [],
 };
 
 function injectStylesheet() {
@@ -101,6 +104,7 @@ function installHistoryView() {
         <button id="ticket-history-clear" class="button secondary" type="button">Limpiar filtros</button>
       </section>
       <p id="ticket-history-state" class="inline-status" role="status" aria-live="polite"></p>
+      <div id="ticket-history-selection-bar" class="entity-selection-bar" hidden><span class="entity-selection-bar__copy"><strong id="ticket-history-selection-count">0 tickets seleccionados</strong><small id="ticket-history-selection-context">Selección explícita</small></span><button id="ticket-history-selection-clear" class="button secondary" type="button">Limpiar selección</button><button id="ticket-history-selection-delete" class="button danger" type="button"><span data-icon="trash"></span>Eliminar seleccionados</button></div>
       <section class="ticket-history-summary" aria-label="Resumen del periodo">
         <article class="surface"><span>Tickets</span><strong id="ticket-summary-count">0</strong></article>
         <article class="surface"><span>Gasto</span><strong id="ticket-summary-spent">0,00 €</strong></article>
@@ -108,7 +112,7 @@ function installHistoryView() {
         <article class="surface"><span>Ticket medio</span><strong id="ticket-summary-average">0,00 €</strong></article>
       </section>
       <section class="surface ticket-history-list-surface" aria-label="Tickets históricos">
-        <div class="ticket-history-list-heading ticket-history-grid" aria-hidden="true"><span>Fecha</span><span>Tienda</span><span>Importe</span><span>Artículos</span><span>Estado</span><span>Pago</span><span>Notas</span><span></span></div>
+        <div class="entity-selection-heading"><label class="entity-selection-cell"><input id="ticket-history-select-page" type="checkbox" aria-label="Seleccionar tickets de esta página"></label><div class="ticket-history-list-heading ticket-history-grid" aria-hidden="true"><span>Fecha</span><span>Tienda</span><span>Importe</span><span>Artículos</span><span>Estado</span><span>Pago</span><span>Notas</span><span></span></div></div>
         <div id="ticket-history-list" class="ticket-history-list" aria-live="polite"></div>
         <footer class="inventory-pagination"><span id="ticket-history-range">0 resultados</span><div><button id="ticket-history-prev" class="button secondary" type="button">Anterior</button><span id="ticket-history-page" class="count-badge">1</span><button id="ticket-history-next" class="button secondary" type="button">Siguiente</button></div></footer>
       </section>
@@ -264,11 +268,37 @@ function renderSummary() {
   $('#ticket-summary-average').textContent = formatEuroMinor(Number(summary.averageTicketMinor || 0));
 }
 
+function ticketSelectionRow(ticket) {
+  const id = escapeHtml(ticket.id);
+  const checked = state.selection.has(ticket.id) ? ' checked' : '';
+  return `<div class="entity-selection-row ticket-selection-row" data-selection-id="${id}"><label class="entity-selection-cell"><input type="checkbox" data-ticket-selection-id="${id}" aria-label="Seleccionar ticket ${id}"${checked}></label>${ticketRow(ticket)}</div>`;
+}
+
+function syncTicketSelection() {
+  const tickets = Array.isArray(state.result.tickets) ? state.result.tickets : [];
+  const ids = tickets.map(ticket => ticket.id);
+  const pageState = state.selection.pageState(ids);
+  const pageCheckbox = $('#ticket-history-select-page');
+  if (pageCheckbox instanceof HTMLInputElement) {
+    pageCheckbox.checked = pageState.allSelected;
+    pageCheckbox.indeterminate = pageState.someSelected;
+    pageCheckbox.disabled = ids.length === 0;
+  }
+  $('#ticket-history-selection-bar').hidden = state.selection.size === 0;
+  $('#ticket-history-selection-count').textContent = `${state.selection.size} tickets seleccionados`;
+  $('#ticket-history-selection-context').textContent = pageState.selectedOutsidePage
+    ? `${pageState.selectedOnPage} en esta página · ${pageState.selectedOutsidePage} en otras páginas`
+    : `${pageState.selectedOnPage} en esta página`;
+  $('#ticket-history-list')?.querySelectorAll('[data-selection-id]').forEach(row => {
+    row.dataset.selected = String(state.selection.has(row.dataset.selectionId));
+  });
+}
+
 function renderHistory() {
   const container = $('#ticket-history-list');
   const tickets = Array.isArray(state.result.tickets) ? state.result.tickets : [];
   container.innerHTML = tickets.length
-    ? tickets.map(ticketRow).join('')
+    ? tickets.map(ticketSelectionRow).join('')
     : '<div class="catalog-empty"><strong>No hay tickets para estos filtros.</strong><span>Prueba otro periodo, tienda, categoría o estado.</span></div>';
 
   const total = Number(state.result.total || 0);
@@ -281,6 +311,7 @@ function renderHistory() {
   $('#ticket-history-prev').disabled = state.page <= 1;
   $('#ticket-history-next').disabled = !state.result.hasMore;
   renderSummary();
+  syncTicketSelection();
 }
 
 async function loadStoreOptions() {
