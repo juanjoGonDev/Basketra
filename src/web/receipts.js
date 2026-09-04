@@ -272,7 +272,7 @@ async function refreshReceiptStoreOptions() {
   options.replaceChildren();
   if (!retailer) return;
   try {
-    const result = await api(`/api/v1/inventory/stores?q=${encodeURIComponent(retailer)}&sort=name&limit=100&offset=0`);
+    const result = await api(`/api/v1/inventory/stores?retailer=${encodeURIComponent(retailer)}&sort=name&limit=100&offset=0`);
     if (($('#receipt-retailer')?.value.trim() || '') !== retailer) return;
     for (const store of result.stores || []) {
       if (store.retailerName?.toLocaleLowerCase('es-ES') !== retailer.toLocaleLowerCase('es-ES')) continue;
