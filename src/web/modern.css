@@ -1443,6 +1443,12 @@ summary {
     max-width: none;
   }
 
+  @media (min-width: 86rem) {
+    .view[data-view="home"] {
+      grid-template-columns: minmax(44rem, 1.55fr) minmax(20rem, .65fr);
+    }
+  }
+
   .list-overview-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
