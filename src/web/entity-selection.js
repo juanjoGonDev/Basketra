@@ -32,7 +32,7 @@ export function createPagedSelection({ limit = DEFAULT_SELECTION_LIMIT } = {}) {
       selected.clear();
     },
     values() {
-      return [...selected];
+      return [...selected].sort((left, right) => left.localeCompare(right));
     },
     get size() {
       return selected.size;
