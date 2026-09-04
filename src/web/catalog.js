@@ -205,8 +205,7 @@ function activateFeatureView(viewName) {
 }
 
 function goInventory() {
-  const button = document.querySelector('.bottom-nav [data-nav="inventory"]');
-  if (button instanceof HTMLButtonElement) button.click();
+  document.dispatchEvent(new CustomEvent('basketra:navigate', { detail: { route: 'inventory' } }));
 }
 
 function selectedCategory() {
