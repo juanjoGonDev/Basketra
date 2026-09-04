@@ -94,6 +94,26 @@ function installCatalogView() {
           <section class="surface"><div class="section-header"><div><p class="eyebrow">Comercios</p><h2>Nombres asociados</h2></div></div><div id="catalog-retailer-names" class="catalog-retailer-names" aria-live="polite"></div></section>
         </aside>
       </div>
+      <section class="surface catalog-price-history" aria-labelledby="catalog-price-history-title">
+        <div class="section-header"><div><p class="eyebrow">Evolución</p><h2 id="catalog-price-history-title">Histórico de precios</h2></div><span id="catalog-price-history-count" class="count-badge">0</span></div>
+        <p id="catalog-price-history-state" class="inline-status" role="status" aria-live="polite">Sin observaciones.</p>
+        <div id="catalog-price-history-content" class="catalog-price-history__content" hidden>
+          <figure class="catalog-price-chart">
+            <svg id="catalog-price-history-chart" viewBox="0 0 720 220" role="img" aria-label="Histórico de precios">
+              <line class="catalog-price-chart__axis" x1="28" y1="190" x2="700" y2="190"></line>
+              <line class="catalog-price-chart__axis" x1="28" y1="18" x2="28" y2="190"></line>
+              <polyline id="catalog-price-history-line" class="catalog-price-chart__line" points=""></polyline>
+            </svg>
+            <figcaption>La gráfica representa las observaciones cronológicas; la tabla ofrece los mismos datos.</figcaption>
+          </figure>
+          <div class="catalog-price-history__table-wrap">
+            <table id="catalog-price-history-table">
+              <thead><tr><th scope="col">Fecha</th><th scope="col">Comercio / tienda</th><th scope="col">Precio</th></tr></thead>
+              <tbody id="catalog-price-history-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
       <section id="catalog-editor" class="surface inventory-editor" aria-labelledby="catalog-editor-title" hidden>
         <div class="section-header"><div><p class="eyebrow">Edición</p><h2 id="catalog-editor-title">Editar producto</h2></div><span id="catalog-product-status" class="status-pill">Guardado</span></div>
         <form id="catalog-product-form" class="catalog-form" novalidate>
@@ -306,7 +326,7 @@ function renderProductList() {
     const retailers = product.retailerNames?.length || product.latestPrices?.length || 0;
     const updated = Number.isNaN(Date.parse(product.updatedAt)) ? product.updatedAt : DATE_FORMATTER.format(new Date(product.updatedAt));
     row.innerHTML = `<span class="inventory-product-cell inventory-product-cell--name"><strong>${escapeHtml(product.variantName)}</strong><small>${escapeHtml(product.canonicalName)}</small></span><span>${escapeHtml(product.categoryName || 'Sin categoría')}</span><span>${retailers}</span><strong>${price ? escapeHtml(formatEuroMinor(price.priceMinor)) : '—'}</strong><span>${escapeHtml(updated)}</span><span class="inventory-row-action">Ver ficha</span>`;
-    row.addEventListener('click', () => openProductDetail(product));
+    row.addEventListener('click', () => void openProductDetail(product.id));
     container.append(row);
   }
   const total = Number(state.catalog.total || 0);
@@ -366,6 +386,52 @@ function renderLatestPrices(product) {
     row.innerHTML = `<span><strong>${escapeHtml(location)}</strong><small>${escapeHtml(date)}</small></span><strong>${escapeHtml(formatEuroMinor(entry.priceMinor))}</strong>`;
     container.append(row);
   }
+}
+
+function renderPriceHistory(product) {
+  const history = Array.isArray(product?.priceHistory) ? product.priceHistory : [];
+  const stateElement = $('#catalog-price-history-state');
+  const content = $('#catalog-price-history-content');
+  const tableBody = $('#catalog-price-history-body');
+  const chart = $('#catalog-price-history-chart');
+  const line = $('#catalog-price-history-line');
+  $('#catalog-price-history-count').textContent = String(history.length);
+  tableBody?.replaceChildren();
+
+  if (!history.length) {
+    stateElement.textContent = 'Todavía no hay observaciones históricas para este producto.';
+    content.hidden = true;
+    if (line) line.setAttribute('points', '');
+    return;
+  }
+
+  const chronological = [...history].sort((left, right) => Date.parse(left.observedAt) - Date.parse(right.observedAt) || String(left.id).localeCompare(String(right.id)));
+  const values = chronological.map(entry => Number(entry.priceMinor));
+  const minimum = Math.min(...values);
+  const maximum = Math.max(...values);
+  const span = Math.max(1, maximum - minimum);
+  const width = 672;
+  const height = 160;
+  const points = chronological.map((entry, index) => {
+    const x = chronological.length === 1 ? 364 : 28 + (index / (chronological.length - 1)) * width;
+    const y = 18 + ((maximum - Number(entry.priceMinor)) / span) * height;
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  }).join(' ');
+  line?.setAttribute('points', points);
+  chart?.setAttribute('aria-label', `Histórico de ${history.length} precios, de ${formatEuroMinor(minimum)} a ${formatEuroMinor(maximum)}`);
+
+  for (const entry of history) {
+    const row = document.createElement('tr');
+    const observed = Number.isNaN(Date.parse(entry.observedAt)) ? entry.observedAt : DATE_FORMATTER.format(new Date(entry.observedAt));
+    const location = entry.storeName
+      ? `${entry.retailerName} · ${entry.storeName}`
+      : (entry.retailerName || 'Comercio sin nombre');
+    row.innerHTML = `<td>${escapeHtml(observed)}</td><td>${escapeHtml(location)}</td><td><strong>${escapeHtml(formatEuroMinor(entry.priceMinor))}</strong></td>`;
+    tableBody?.append(row);
+  }
+
+  stateElement.textContent = `${history.length} observaciones, de la más reciente a la más antigua.`;
+  content.hidden = false;
 }
 
 function renderRetailerNames(product) {
@@ -434,32 +500,49 @@ function renderProductDetail(product, { creating = false } = {}) {
   $('#catalog-detail-description').textContent = product?.description || 'Sin descripción.';
   $('#catalog-parent-name').textContent = product?.canonicalName || 'Pendiente';
   renderLatestPrices(product);
+  renderPriceHistory(product);
   renderRetailerNames(product);
   populateProductForm(product, { creating });
   $('#catalog-edit-product').hidden = creating;
   $('#catalog-delete-product').hidden = creating;
 }
 
-function productFromCanonicalRecord(record) {
-  return { ...record, retailerNames: record.retailerNames || [], latestPrices: record.latestPrices || [] };
+function productFromCanonicalRecord(record, priceHistory = []) {
+  return {
+    ...record,
+    retailerNames: record.retailerNames || [],
+    latestPrices: record.latestPrices || [],
+    priceHistory: Array.isArray(priceHistory) ? priceHistory : [],
+  };
 }
 
 async function fetchProductDetail(productId) {
-  const current = state.catalog.products.find(product => product.id === productId);
-  if (current) return current;
   const result = await api(`/api/v1/products/${encodeURIComponent(productId)}`);
-  return productFromCanonicalRecord(result.product);
+  return productFromCanonicalRecord(result.product, result.priceHistory);
 }
 
 async function openProductDetail(productOrId, { edit = false } = {}) {
-  const product = typeof productOrId === 'string' ? await fetchProductDetail(productOrId) : productOrId;
-  if (!product) return;
+  const productId = typeof productOrId === 'string' ? productOrId : productOrId?.id;
+  if (!productId) return;
   $('#catalog-list-screen').hidden = true;
   $('#catalog-detail').hidden = false;
-  renderProductDetail(product);
-  showProductEditor(edit);
-  history.replaceState(null, '', `#catalog:${encodeURIComponent(product.id)}`);
+  $('#catalog-detail-title').textContent = 'Cargando producto…';
+  $('#catalog-detail-meta').textContent = 'Consultando ficha e histórico.';
+  $('#catalog-price-history-state').textContent = 'Cargando histórico…';
+  $('#catalog-price-history-content').hidden = true;
+  history.replaceState(null, '', `#catalog:${encodeURIComponent(productId)}`);
   window.scrollTo(0, 0);
+  try {
+    const product = await fetchProductDetail(productId);
+    renderProductDetail(product);
+    showProductEditor(edit);
+  } catch (error) {
+    state.productDetail = null;
+    $('#catalog-detail-title').textContent = 'No se pudo abrir el producto';
+    $('#catalog-detail-meta').textContent = error.message;
+    $('#catalog-price-history-state').textContent = `No se pudo cargar el histórico: ${error.message}`;
+    showProductEditor(false);
+  }
 }
 
 function startCreateProduct() {
