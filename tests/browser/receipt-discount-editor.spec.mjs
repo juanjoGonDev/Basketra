@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { fillRequiredReceiptStore } from './helpers/receipt-store.mjs';
 
 function navigate(page, name) {
   return page.locator('.bottom-nav').getByRole('button', { name, exact: true }).click();
@@ -73,6 +74,7 @@ async function makeConfirmable(page, storageKey = 'file_typed_discount') {
     state.captures = [capture];
     state.pageStates.set(capture.storageKey, { status: 'completed' });
   }), storageKey);
+  await fillRequiredReceiptStore(page);
 }
 
 test('percentage discounts use the backend calculation and render the total as semantic output', async ({ page }, testInfo) => {

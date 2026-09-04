@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { fillRequiredReceiptStore } from './helpers/receipt-store.mjs';
 
 const validPng = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8//8/AwMDEwMDAwMDAwAkBgMB/DXemwAAAABJRU5ErkJggg==',
@@ -380,6 +381,7 @@ test('desktop review keeps evidence and total summary sticky and preserves confi
   expect(geometry.summaryPosition).toBe('sticky');
   expect(geometry.evidenceTop).toBeGreaterThanOrEqual(0);
   expect(geometry.summaryTop).toBeGreaterThanOrEqual(0);
+  await fillRequiredReceiptStore(page);
 
   await page.getByRole('button', { name: 'Confirmar e importar', exact: true }).click();
   await expect(page.locator('#receipt-state')).toContainText('Ticket importado: sticky-desktop');
@@ -398,6 +400,11 @@ test('receipt review requires an editable Store before confirmation', async ({ p
     const { installReceiptEnhancements } = await import('/receipts.js');
     installReceiptEnhancements();
   });
+  await page.evaluate(async currentExtraction => {
+    const { applyExtraction } = await import('/receipt-review.js');
+    applyExtraction(currentExtraction);
+  }, extraction());
+  await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
 
   const retailer = page.locator('#receipt-retailer');
   const store = page.locator('#receipt-store');

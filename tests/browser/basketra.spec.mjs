@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { fillRequiredReceiptStore } from './helpers/receipt-store.mjs';
 
 const validPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8//8/AwMDEwMDAwMDAwAkBgMB/DXemwAAAABJRU5ErkJggg==', 'base64');
 
@@ -341,6 +342,7 @@ test('automatic local OCR creates editable euro rows with source context and imp
   await page.getByLabel('Total declarado (€)').fill('1.40');
   await page.getByRole('button', { name: 'Validar líneas e importes', exact: true }).click();
   await expect(page.locator('#receipt-state')).toContainText('Líneas y total validados');
+  await fillRequiredReceiptStore(page);
 
   await page.locator('#confirm-receipt').click();
   await expect(page.locator('#receipt-state')).toContainText('Ticket importado');

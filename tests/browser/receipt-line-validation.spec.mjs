@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { fillRequiredReceiptStore } from './helpers/receipt-store.mjs';
 
 function navigate(page, name) {
   return page.locator('.bottom-nav').getByRole('button', { name, exact: true }).click();
@@ -60,6 +61,7 @@ async function makeReviewConfirmable(page, storageKey = 'file_receipt_validation
       state.pageStates.set(capture.storageKey, { status: 'completed' });
     });
   }, storageKey);
+  await fillRequiredReceiptStore(page);
 }
 
 async function openLineEditor(page, index = 0) {

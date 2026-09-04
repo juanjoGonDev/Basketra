@@ -142,7 +142,7 @@ test('automatic AI analysis uses one durable whole-ticket job and receipt Store 
   expect(createdAiJobs).toBe(1);
   await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.receiptExtractionJobId'))).toBe(jobId);
   await expect(page.locator('#receipt-state')).toContainText('88 artículos');
-  await expect(page.getByLabel('Comercio', { exact: true })).toHaveValue('ALCAMPO');
+  await expect(page.locator('#receipt-retailer')).toHaveValue('ALCAMPO');
   await expect(page.locator('#receipt-store')).toHaveValue('ALCAMPO ALMERIA');
   await expect(page.locator('#receipt-store')).toHaveAttribute('required', '');
   await expect(page.locator('#receipt-total')).toHaveValue('202.26');
