@@ -13,7 +13,7 @@ const ENTITY_CONFIG = {
     row: '.inventory-product-row',
     id: row => row.dataset.catalogProductId,
     detail: '#catalog-detail',
-    ready: '#catalog-detail-name',
+    ready: '#catalog-detail-title',
     edit: '#catalog-edit-product',
     delete: '#catalog-delete-product',
     status: '#catalog-state',
