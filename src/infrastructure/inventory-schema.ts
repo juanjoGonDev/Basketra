@@ -83,4 +83,84 @@ export const INVENTORY_MIGRATIONS: readonly MigrationDefinition[] = [
         );
     `,
   },
+  {
+    version: 14,
+    kind: 'safe',
+    sql: `
+      CREATE TRIGGER receipt_price_observation_write_store
+      BEFORE INSERT ON price_observations
+      WHEN NEW.store_id IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM external_evidence
+          JOIN receipt_items
+            ON external_evidence.source_type = 'receipt'
+           AND external_evidence.source_reference = 'receipt-item:' || receipt_items.id
+          WHERE external_evidence.id = NEW.evidence_id
+        )
+      BEGIN
+        SELECT RAISE(ABORT, 'RECEIPT_STORE_REQUIRED')
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM external_evidence
+          JOIN receipt_items
+            ON external_evidence.source_type = 'receipt'
+           AND external_evidence.source_reference = 'receipt-item:' || receipt_items.id
+          JOIN receipts ON receipts.id = receipt_items.receipt_id
+          WHERE external_evidence.id = NEW.evidence_id
+            AND receipts.store_id IS NOT NULL
+        );
+
+        INSERT INTO price_observations(
+          id, retailer_listing_id, retailer_id, store_id, price_minor,
+          package_numerator, package_denominator, package_unit,
+          normalized_price_numerator, normalized_price_denominator,
+          currency, stock_state, shipping_minor, promotion_json, conditions_json,
+          evidence_id, observed_at, confidence, created_at
+        )
+        SELECT
+          NEW.id,
+          NEW.retailer_listing_id,
+          NEW.retailer_id,
+          receipts.store_id,
+          NEW.price_minor,
+          NEW.package_numerator,
+          NEW.package_denominator,
+          NEW.package_unit,
+          NEW.normalized_price_numerator,
+          NEW.normalized_price_denominator,
+          NEW.currency,
+          NEW.stock_state,
+          NEW.shipping_minor,
+          NEW.promotion_json,
+          NEW.conditions_json,
+          NEW.evidence_id,
+          NEW.observed_at,
+          NEW.confidence,
+          NEW.created_at
+        FROM external_evidence
+        JOIN receipt_items
+          ON external_evidence.source_type = 'receipt'
+         AND external_evidence.source_reference = 'receipt-item:' || receipt_items.id
+        JOIN receipts ON receipts.id = receipt_items.receipt_id
+        WHERE external_evidence.id = NEW.evidence_id;
+
+        SELECT RAISE(IGNORE);
+      END;
+
+      CREATE TRIGGER confirmed_receipt_store_required_insert
+      BEFORE INSERT ON receipts
+      WHEN NEW.status = 'confirmed' AND NEW.store_id IS NULL
+      BEGIN
+        SELECT RAISE(ABORT, 'RECEIPT_STORE_REQUIRED');
+      END;
+
+      CREATE TRIGGER confirmed_receipt_store_required_update
+      BEFORE UPDATE OF status, store_id ON receipts
+      WHEN NEW.status = 'confirmed' AND NEW.store_id IS NULL
+      BEGIN
+        SELECT RAISE(ABORT, 'RECEIPT_STORE_REQUIRED');
+      END;
+    `,
+  },
 ] as const;
