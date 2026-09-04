@@ -749,7 +749,6 @@ async function initialize() {
     historyMode: 'replace',
     searchParams: initial.searchParams,
   });
-  document.documentElement.removeAttribute('data-route-pending');
   try {
     const metadata = await api('/api/v1/meta');
     const aiConfigured = await loadAiConfiguration();
@@ -761,6 +760,7 @@ async function initialize() {
     toast(error.message);
   } finally {
     setNavigationReady(true);
+    document.documentElement.removeAttribute('data-route-pending');
     const ready = pendingRoute;
     pendingRoute = null;
     if (ready) {
