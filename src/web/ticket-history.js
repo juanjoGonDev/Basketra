@@ -170,7 +170,7 @@ function installHistoryView() {
   deleteDialog.id = 'ticket-history-delete-dialog';
   deleteDialog.className = 'confirm-dialog';
   deleteDialog.setAttribute('aria-labelledby', 'ticket-history-delete-title');
-  deleteDialog.innerHTML = `<div class="dialog-content"><span class="dialog-icon" data-icon="alert"></span><h2 id="ticket-history-delete-title">Eliminar ticket</h2><p id="ticket-history-delete-identity"></p><p id="ticket-history-delete-impact">Comprobando evidencia histórica…</p><p id="ticket-history-delete-state" class="inline-status" role="status"></p><div class="dialog-actions"><button id="ticket-history-delete-cancel" class="button secondary" type="button">Cancelar</button><button id="ticket-history-delete-confirm" class="button danger" type="button" disabled>Eliminar ticket</button></div></div>`;
+  deleteDialog.innerHTML = `<div class="dialog-content"><span class="dialog-icon" data-icon="alert"></span><h2 id="ticket-history-delete-title">Eliminar ticket</h2><p id="ticket-history-delete-identity"></p><p id="ticket-history-delete-impact">Comprobando evidencia histórica…</p><p id="ticket-history-delete-state" class="inline-status" role="status"></p><div class="dialog-actions"><button id="ticket-history-delete-cancel" class="button secondary" type="button">Cancelar</button><button id="ticket-history-delete-confirm" class="button danger" type="button" disabled>Eliminar ticket y datos</button></div></div>`;
   document.body.append(deleteDialog);
 
   hydrateIcons(view);
@@ -672,11 +672,9 @@ async function openDeleteDialog(ticketId) {
   try {
     const result = await api(`/api/v1/inventory/tickets/${encodeURIComponent(ticketId)}/delete-impact`);
     const impact = result.impact;
-    $('#ticket-history-delete-impact').textContent = impact.warning;
-    $('#ticket-history-delete-state').textContent = impact.canDelete
-      ? 'No existe evidencia inmutable asociada; el ticket se puede eliminar.'
-      : `Borrado bloqueado: ${impact.captures} capturas, ${impact.extractions} extracciones, ${impact.corrections} correcciones, ${impact.externalEvidence} evidencias externas y ${impact.retainedPriceObservations} precios históricos.`;
-    confirm.disabled = !impact.canDelete;
+    $('#ticket-history-delete-impact').textContent = `Se eliminarán permanentemente: ${impact.itemCount} líneas, ${impact.captures} capturas, ${impact.extractions} extracciones, ${impact.corrections} correcciones, ${impact.externalEvidence} evidencias externas y ${impact.retainedPriceObservations} precios históricos asociados a este ticket.`;
+    $('#ticket-history-delete-state').textContent = 'Esta acción no se puede deshacer. Productos, categorías, tiendas y otras entidades compartidas se conservarán.';
+    confirm.disabled = false;
   } catch (error) {
     $('#ticket-history-delete-state').textContent = error.message;
   }
