@@ -2257,3 +2257,25 @@ summary {
     grid-template-columns: auto minmax(5rem, .55fr) minmax(6rem, .75fr) minmax(10rem, 1.2fr) auto;
   }
 }
+
+
+.ticket-item__move {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, var(--touch));
+  gap: var(--space-1);
+}
+
+.ticket-item__move .icon-button {
+  width: var(--touch);
+  min-width: var(--touch);
+  min-height: var(--touch);
+  background: var(--color-surface-container-low);
+}
+
+@media (max-width: 31rem) {
+  .ticket-item__move {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+}

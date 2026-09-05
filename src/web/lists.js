@@ -249,6 +249,10 @@ function ticketItem(item, index, total) {
         <label class="ticket-control"><span class="sr-only">Unidad de ${name}</span><select data-item-control="unit" data-item-id="${id}">${metadata.units.map(unit => `<option value="${escapeHtml(unit)}"${unit === item.unit ? ' selected' : ''}>${escapeHtml(UNIT_LABELS[unit] || unit)}</option>`).join('')}</select></label>
         <label class="ticket-control"><span class="sr-only">Peso o tamaño de ${name}</span><select data-item-control="variant" data-item-id="${id}" ${line?.productVariantId ? '' : 'disabled'}>${variantSelectOptions(line)}</select></label>
         <label class="ticket-control ticket-control--store"><span class="sr-only">Tienda de ${name}</span><select data-item-control="store" data-item-id="${id}">${itemStoreOptions(item.storeOverrideId || '')}</select></label>
+        <div class="ticket-item__move" aria-label="Orden de ${name}">
+          <button type="button" class="icon-button" data-item-action="move" data-item-id="${id}" data-direction="-1" ${index === 0 ? 'disabled' : ''} aria-label="Subir ${name}"><span data-icon="chevronUp"></span></button>
+          <button type="button" class="icon-button" data-item-action="move" data-item-id="${id}" data-direction="1" ${index === total - 1 ? 'disabled' : ''} aria-label="Bajar ${name}"><span data-icon="chevronDown"></span></button>
+        </div>
         <button type="button" class="icon-button ticket-item__more" data-swipe-toggle aria-expanded="false" aria-label="Mostrar acciones de ${name}"><span data-icon="more"></span></button>
       </div>
       <span class="ticket-item__position sr-only">${index + 1} de ${total}</span>
