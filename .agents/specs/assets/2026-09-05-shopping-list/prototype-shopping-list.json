@@ -112,5 +112,17 @@
     "mobile": "Single continuous ticket. Primary product/price line first; quantity, unit, size and store remain editable in a compact secondary control grid without horizontal page overflow.",
     "desktop": "Preserve ticket semantics in a denser table-like receipt; controls may align into columns and the estimate summary may sit beside the ticket only when space permits.",
     "narrow": "At 320-390 px, controls wrap into multiple rows rather than shrinking below touch/legibility requirements."
+  },
+  "multiSelect": {
+    "trigger": "Visible Seleccionar button in the shopping-ticket header.",
+    "rowMode": "Pending and completed rows switch from edit/swipe controls to explicit selection controls.",
+    "selection": "Individual items or all items in the loaded list.",
+    "actions": [
+      "mark selected items bought",
+      "return selected items to pending",
+      "set a Store override or inherit the list reference Store",
+      "delete selected items after confirmation"
+    ],
+    "consistency": "Each bulk mutation is atomic and optimistic-version checked; no partial success."
   }
 }

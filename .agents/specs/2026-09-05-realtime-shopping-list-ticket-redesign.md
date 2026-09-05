@@ -210,7 +210,11 @@ An external nearby candidate is not persisted until explicit confirmation. Locat
 - estimate footer with known total, coverage and oldest contributing price age;
 - completed products remain visually secondary/collapsible;
 - `Crear ítem` and `Escanear` are distinct high-priority actions;
-- realtime state stays compact and non-blocking.
+- realtime state stays compact and non-blocking;
+- an explicit `Seleccionar` button switches the list into multi-select mode;
+- multi-select rows replace edit/swipe affordances with selection controls and a bulk action bar;
+- bulk actions include select all, mark bought, return to pending, change/inherit Store and delete;
+- bulk mutations are transactional and version-checked so a conflict cannot partially update the selected set.
 
 ### Item editor
 
@@ -303,6 +307,7 @@ Untrusted request values are runtime validated.
 17. Existing shopping conflict handling, swipe accessibility, routes, Inventory, Tickets and receipt workflows remain regression-green.
 18. No horizontal page overflow, hidden CTA, duplicate submit or stale-response overwrite occurs in supported viewports.
 19. Completing an item is reversible: the immediate success feedback exposes “Deshacer”, and every completed row exposes a visible “Volver a pendientes” action so accidental completion never strands an item outside the active list.
+20. A visible `Seleccionar` control enters multi-select mode across pending and completed items; the user can select individual items or all loaded items, then atomically mark them bought/pending, change their Store override or delete them with confirmation.
 
 ## Tests planned
 
@@ -339,7 +344,8 @@ Untrusted request values are runtime validated.
 - keyboard/focus/screen-reader equivalents;
 - no horizontal overflow and no action obstruction;
 - conflict/recovery state for stale item/Store edits;
-- accidental completion -> immediate undo -> completed row visible return-to-pending action.
+- accidental completion -> immediate undo -> completed row visible return-to-pending action;
+- multi-select mode -> individual/select-all -> bulk complete/pending/Store/delete -> realtime convergence and conflict atomicity.
 
 ## Rollback
 
