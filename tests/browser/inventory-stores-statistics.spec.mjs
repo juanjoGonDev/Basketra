@@ -75,7 +75,7 @@ async function installStoreRoutes(page) {
   await page.route('**/api/v1/inventory/stores/store_central/delete-impact', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
-    body: JSON.stringify({ impact: { linkedProducts: 4, priceObservations: 6, historicalTickets: 2, canDelete: false } }),
+    body: JSON.stringify({ impact: { linkedProducts: 4, priceObservations: 6, historicalTickets: 2, shoppingLists: 1, canDelete: false } }),
   }));
 
   return { getPatch: () => patchPayload };
@@ -132,6 +132,7 @@ test('stores provide mobile list, editable detail and dependency-aware delete wa
   await expect(dialog.locator('#store-delete-impact')).toContainText('4 productos vinculados');
   await expect(dialog.locator('#store-delete-impact')).toContainText('6 observaciones de precio');
   await expect(dialog.locator('#store-delete-impact')).toContainText('2 tickets históricos');
+  await expect(dialog.locator('#store-delete-impact')).toContainText('1 listas de la compra activas');
   await expect(dialog.locator('#store-delete-state')).toContainText('borrado está bloqueado');
   await expect(dialog.getByRole('button', { name: 'Eliminar tienda' })).toBeDisabled();
   await expectNoHorizontalOverflow(page);
