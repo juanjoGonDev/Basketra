@@ -4,23 +4,32 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { BasketraServer } from '../../src/api/server.ts';
-import { BasketraDatabase } from '../../src/infrastructure/database.ts';
-import { FileStore } from '../../src/infrastructure/files.ts';
+import type { AppConfig } from '../../src/infrastructure/config.ts';
+
+function createConfig(root: string): AppConfig {
+  return {
+    host: '127.0.0.1',
+    port: 0,
+    dataDir: join(root, 'data'),
+    tempDir: join(root, 'tmp'),
+    maxBodyBytes: 1024 * 1024,
+    aiMaxRetries: 0,
+    aiImageCapability: true,
+    aiPdfCapability: false,
+    overpassBaseUrl: 'http://127.0.0.1:9/api/',
+    idleHibernateAfterMs: 0,
+    idleExitAfterMs: 0,
+  };
+}
 
 test('product price normalization returns server-owned display units', async () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-price-normalization-'));
-  const database = new BasketraDatabase(join(root, 'basketra.db'));
-  const server = new BasketraServer({
-    database,
-    fileStore: new FileStore(join(root, 'files'), join(root, 'tmp'), 1024 * 1024),
-    port: 0,
-  });
-  try {
-    await server.listen();
-    const address = server.address();
-    assert.ok(address);
-    const baseUrl = `http://127.0.0.1:${address.port}`;
+  const server = new BasketraServer(createConfig(root));
+  await server.listen();
+  const address = server.address();
+  const baseUrl = `http://${address.host}:${address.port}`;
 
+  try {
     const response = await fetch(`${baseUrl}/api/v1/products/price-normalization`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
