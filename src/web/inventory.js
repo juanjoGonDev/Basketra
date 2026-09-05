@@ -263,7 +263,7 @@ function transferOverviewQuery({ focusFilters = false } = {}) {
   const params = new URLSearchParams();
   if (query) params.set('q', query);
   if (scope === 'catalog' && requestedSort !== 'name') params.set('sort', requestedSort);
-  if (scope === 'stores' && requestedSort !== 'name') params.set('sort', requestedSort === 'recent' ? 'recent' : 'name');
+  if (scope === 'stores' && requestedSort !== 'name') params.set('sort', requestedSort);
   navigate(scope, params);
   requestAnimationFrame(() => {
     if (focusFilters) $(target.filter)?.focus({ preventScroll: false });

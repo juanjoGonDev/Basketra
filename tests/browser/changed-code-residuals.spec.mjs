@@ -635,3 +635,455 @@ test('catalog and inventory defensive residuals cover partial payloads and alter
     document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: 'inventory-statistics' } }));
   });
 });
+
+test('catalog final changed-code branches cover DOM guards, stale loads and bounded validation', async ({ page }) => {
+  test.setTimeout(60_000);
+  const categories = [
+    { id: 'root', name: 'Raíz', color: '#118844', productCount: 1, childCount: 1 },
+    { id: 'child', name: 'Hija', parentId: 'root', parentName: 'Raíz', color: '#118844', productCount: 0, childCount: 0 },
+  ];
+  const catalogProduct = product('Producto ramas', { id: 'branch_product', canonicalName: 'Producto ramas' });
+  let categoryMode = 'normal';
+  let categoryInventoryRequests = 0;
+  let holdNextCategoryInventory = false;
+  let releaseCategoryInventory;
+  let holdRootImpact = false;
+  let rootImpactStarted = false;
+  let releaseRootImpact;
+  let bulkImpactBlocked = false;
+
+  await page.route('**/api/v1/meta', route => json(route, { units: ['unit'] }));
+  await page.route(/\/api\/v1\/categories(?:\?.*)?$/, async route => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get('mode') !== 'inventory') return json(route, { categories });
+    categoryInventoryRequests += 1;
+    if (holdNextCategoryInventory) {
+      holdNextCategoryInventory = false;
+      await new Promise(resolve => { releaseCategoryInventory = resolve; });
+    }
+    if (categoryMode === 'missing-list') {
+      return json(route, { inventory: { total: 0, offset: 0, limit: 12, hasMore: false } });
+    }
+    return json(route, { inventory: { categories, total: categories.length, offset: 0, limit: 12, hasMore: false } });
+  });
+  await page.route('**/api/v1/catalog?*', route => {
+    const q = new URL(route.request().url()).searchParams.get('q') || '';
+    if (q === 'missing-products') {
+      return json(route, { catalog: { total: 0, offset: 0, limit: 12, hasMore: false } });
+    }
+    return json(route, {
+      catalog: {
+        products: [catalogProduct],
+        parents: [],
+        total: 1,
+        offset: 0,
+        limit: 12,
+        hasMore: false,
+      },
+    });
+  });
+  await page.route(/\/api\/v1\/products\/([^/]+)$/, route => json(route, {
+    product: catalogProduct,
+    priceHistory: [],
+    ticketHistory: [],
+  }));
+  await page.route(/\/api\/v1\/products$/, route => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    const payload = route.request().postDataJSON();
+    return json(route, {
+      product: product('branch_saved', {
+        id: 'branch_saved',
+        canonicalProductId: 'branch_saved_parent',
+        canonicalName: payload.canonicalName,
+        variantName: payload.variantName,
+        categoryId: payload.categoryId,
+        categoryName: payload.categoryId ? 'Raíz' : null,
+        packageMinor: payload.packageMinor,
+        packageUnit: payload.packageUnit,
+      }),
+    }, 201);
+  });
+  await page.route('**/api/v1/catalog/products/bulk-delete-impact', route => json(route, {
+    impact: bulkImpactBlocked ? { canDelete: false } : { canDelete: true, blocked: [] },
+  }));
+  await page.route('**/api/v1/categories/*/delete-impact', async route => {
+    const id = new URL(route.request().url()).pathname.split('/').at(-2);
+    if (id === 'root' && holdRootImpact) {
+      holdRootImpact = false;
+      rootImpactStarted = true;
+      await new Promise(resolve => { releaseRootImpact = resolve; });
+    }
+    return json(route, {
+      impact: { productCount: 0, childCount: 0, descendantCategoryCount: 0, descendantProductCount: 0, protected: false, canDelete: true },
+    });
+  });
+
+  await page.goto('/inventory/products');
+  await page.evaluate(() => {
+    document.querySelector('#catalog-latest-prices')?.remove();
+    document.querySelector('#catalog-parent-select')?.remove();
+    document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+      detail: { view: 'catalog', route: 'catalog:branch_product', searchParams: new URLSearchParams() },
+    }));
+  });
+  await expect(page.locator('#catalog-detail-title')).toHaveText('Producto ramas');
+
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+    detail: { view: 'catalog', route: 'catalog:', searchParams: new URLSearchParams() },
+  })));
+  await expect(page.locator('#catalog-list-screen')).toBeVisible();
+
+  await page.goto('/inventory/products/new');
+  await page.locator('#catalog-canonical-name').fill('Producto validado');
+  await page.locator('#catalog-variant-name').fill('Variante validada');
+  await page.locator('#catalog-package-minor').fill('1.5');
+  await page.locator('#catalog-product-form').dispatchEvent('submit');
+  await expect(page.locator('#catalog-product-form-state')).toContainText('Revisa los campos');
+
+  await page.locator('#catalog-package-minor').fill('');
+  await page.locator('#catalog-package-unit').selectOption('unit');
+  await page.locator('#catalog-product-form').dispatchEvent('submit');
+  await expect(page.locator('#catalog-product-form-state')).toContainText('Revisa los campos');
+
+  await page.locator('#catalog-package-unit').selectOption('');
+  await page.locator('#catalog-product-form').dispatchEvent('submit');
+  await expect(page).toHaveURL(/\/inventory\/products\/branch_saved$/u);
+
+  await page.goto('/inventory/products');
+  await page.locator('#catalog-delete-product').dispatchEvent('click');
+  bulkImpactBlocked = true;
+  await page.getByRole('checkbox', { name: 'Seleccionar Producto ramas' }).check();
+  await page.locator('#catalog-selection-delete').click();
+  await expect(page.locator('#catalog-delete-impact')).toContainText('0 de 1 productos');
+  await page.locator('#catalog-delete-cancel').click();
+
+  await page.locator('#catalog-search').fill('missing-products');
+  await expect(page.locator('#catalog-state')).toContainText('0 productos encontrados');
+  await page.locator('#catalog-select-page').evaluate(element => {
+    element.checked = true;
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+
+  categoryMode = 'normal';
+  await page.goto('/inventory/categories');
+  const categoryBaseline = categoryInventoryRequests;
+  await page.evaluate(() => {
+    const NativeAbortController = window.AbortController;
+    window.__basketraNativeAbortController = NativeAbortController;
+    window.AbortController = class NoopAbortController {
+      constructor() {
+        this.controller = new NativeAbortController();
+        this.signal = this.controller.signal;
+      }
+      abort() {}
+    };
+  });
+  holdNextCategoryInventory = true;
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+    detail: { view: 'categories', route: 'categories', searchParams: new URLSearchParams() },
+  })));
+  await expect.poll(() => categoryInventoryRequests).toBeGreaterThanOrEqual(categoryBaseline + 1);
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+    detail: { view: 'categories', route: 'categories', searchParams: new URLSearchParams() },
+  })));
+  await expect.poll(() => categoryInventoryRequests).toBeGreaterThanOrEqual(categoryBaseline + 2);
+  releaseCategoryInventory();
+  await expect(page.locator('#category-tree')).toContainText('Raíz');
+  await page.evaluate(() => {
+    window.AbortController = window.__basketraNativeAbortController;
+    delete window.__basketraNativeAbortController;
+  });
+
+  holdRootImpact = true;
+  rootImpactStarted = false;
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+    detail: { view: 'categories', route: 'categories:root', searchParams: new URLSearchParams() },
+  })));
+  await expect.poll(() => rootImpactStarted).toBe(true);
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+    detail: { view: 'categories', route: 'categories:child', searchParams: new URLSearchParams() },
+  })));
+  await expect(page.locator('#category-detail-name')).toHaveText('Hija');
+  releaseRootImpact();
+  await expect(page.locator('#category-detail-name')).toHaveText('Hija');
+
+  categoryMode = 'missing-list';
+  await page.goto('/inventory/categories');
+  await expect(page.locator('#category-tree')).toContainText('No hay categorías');
+  await page.locator('#category-select-page').evaluate(element => {
+    element.checked = true;
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.locator('#category-prev').dispatchEvent('click');
+  await page.locator('#category-next').dispatchEvent('click');
+
+  await page.evaluate(() => {
+    document.querySelector('.view[data-view="catalog"]')?.remove();
+    document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+      detail: { view: 'catalog', route: 'catalog', searchParams: new URLSearchParams() },
+    }));
+    document.querySelector('.view[data-view="categories"]')?.remove();
+    document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+      detail: { view: 'categories', route: 'categories', searchParams: new URLSearchParams() },
+    }));
+  });
+});
+
+test('inventory final changed-code branches cover missing controls, stale loads and Store actions', async ({ page }) => {
+  test.setTimeout(60_000);
+  let overviewRequests = 0;
+  let storeRequests = 0;
+  let statisticsRequests = 0;
+  let holdNextOverview = false;
+  let holdNextStores = false;
+  let holdNextStatistics = false;
+  let releaseOverview;
+  let releaseStores;
+  let releaseStatistics;
+  const store = {
+    id: 'store_one',
+    retailerName: 'Mercado',
+    name: 'Centro',
+    region: '',
+    address: '',
+    productCount: 1,
+    ticketCount: 1,
+    priceObservationCount: 1,
+    createdAt: '2026-09-01T10:00:00.000Z',
+    lastActivityAt: '2026-09-02T10:00:00.000Z',
+  };
+
+  await page.route('**/api/v1/inventory/overview', async route => {
+    overviewRequests += 1;
+    const stale = holdNextOverview;
+    if (holdNextOverview) {
+      holdNextOverview = false;
+      await new Promise(resolve => { releaseOverview = resolve; });
+    }
+    try {
+      return await json(route, { overview: { productCount: stale ? 99 : 2, categoryCount: 1, storeCount: 1, latestCatalogValueMinor: 100 } });
+    } catch {
+      return undefined;
+    }
+  });
+  await page.route('**/api/v1/inventory/stores?*', async route => {
+    storeRequests += 1;
+    const url = new URL(route.request().url());
+    const stale = holdNextStores;
+    if (holdNextStores) {
+      holdNextStores = false;
+      await new Promise(resolve => { releaseStores = resolve; });
+    }
+    try {
+      if (url.searchParams.get('q') === 'missing-stores') {
+        return await json(route, { total: 0, offset: 0, limit: 12, hasMore: false });
+      }
+      return await json(route, { stores: [store], total: 1, offset: 0, limit: 12, hasMore: false, stale });
+    } catch {
+      return undefined;
+    }
+  });
+  await page.route(/\/api\/v1\/inventory\/stores\/store_one$/, route => json(route, { store }));
+  await page.route('**/api/v1/inventory/stores/*/delete-impact', route => json(route, {
+    impact: { linkedProducts: 1, priceObservations: 1, historicalTickets: 1, canDelete: true },
+  }));
+  await page.route('**/api/v1/inventory/statistics?*', async route => {
+    statisticsRequests += 1;
+    const stale = holdNextStatistics;
+    if (holdNextStatistics) {
+      holdNextStatistics = false;
+      await new Promise(resolve => { releaseStatistics = resolve; });
+    }
+    try {
+      return await json(route, {
+        statistics: {
+          summary: { latestCatalogValueMinor: stale ? 9900 : 100, activeProducts: stale ? 99 : 2, ticketsProcessed: 1, entriesValueMinor: 100 },
+          categoryStats: [{ name: 'Raíz', color: '#118844', productCount: 1, ticketCount: 1, spentMinor: 100 }],
+          storeStats: [{ retailerName: 'Mercado', name: 'Centro', productCount: 1, ticketCount: 1, spentMinor: 100 }],
+          ticketTrend: [{ date: '2026-09-01', ticketCount: 1, spentMinor: 100 }],
+        },
+      });
+    } catch {
+      return undefined;
+    }
+  });
+
+  await page.goto('/inventory');
+  await page.locator('#inventory-overview-sort').evaluate(element => element.remove());
+  await page.locator('#inventory-overview-search').fill('branch');
+  await expect(page).toHaveURL(/\/inventory\?q=branch$/u);
+
+  await page.goto('/inventory');
+  await page.locator('#inventory-overview-search').evaluate(element => element.remove());
+  await page.locator('#inventory-overview-open-filters').click();
+  await expect(page).toHaveURL(/\/inventory\/products\?sort=recent$/u);
+
+  await page.goto('/inventory');
+  const destination = page.locator('[data-inventory-destination]').first();
+  await destination.evaluate(element => { delete element.dataset.inventoryDestination; });
+  await destination.dispatchEvent('click');
+  await expect(page).toHaveURL(/\/inventory$/u);
+
+  await page.goto('/inventory');
+  const overviewBaseline = overviewRequests;
+  await page.evaluate(() => {
+    const NativeAbortController = window.AbortController;
+    window.__basketraNativeAbortController = NativeAbortController;
+    window.AbortController = class NoopAbortController {
+      constructor() {
+        this.controller = new NativeAbortController();
+        this.signal = this.controller.signal;
+      }
+      abort() {}
+    };
+  });
+  holdNextOverview = true;
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+    detail: { view: 'inventory', route: 'inventory', searchParams: new URLSearchParams() },
+  })));
+  await expect.poll(() => overviewRequests).toBeGreaterThanOrEqual(overviewBaseline + 1);
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+    detail: { view: 'inventory', route: 'inventory', searchParams: new URLSearchParams() },
+  })));
+  await expect.poll(() => overviewRequests).toBeGreaterThanOrEqual(overviewBaseline + 2);
+  releaseOverview();
+  await expect(page.locator('#inventory-overview-products')).toHaveText('2');
+  await page.evaluate(() => {
+    window.AbortController = window.__basketraNativeAbortController;
+    delete window.__basketraNativeAbortController;
+  });
+
+  await page.goto('/inventory/stores');
+  const storeBaseline = storeRequests;
+  await page.evaluate(() => {
+    const NativeAbortController = window.AbortController;
+    window.__basketraNativeAbortController = NativeAbortController;
+    window.AbortController = class NoopAbortController {
+      constructor() {
+        this.controller = new NativeAbortController();
+        this.signal = this.controller.signal;
+      }
+      abort() {}
+    };
+  });
+  holdNextStores = true;
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+    detail: { view: 'stores', route: 'stores', searchParams: new URLSearchParams() },
+  })));
+  await expect.poll(() => storeRequests).toBeGreaterThanOrEqual(storeBaseline + 1);
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+    detail: { view: 'stores', route: 'stores', searchParams: new URLSearchParams() },
+  })));
+  await expect.poll(() => storeRequests).toBeGreaterThanOrEqual(storeBaseline + 2);
+  releaseStores();
+  await expect(page.locator('#store-state')).toContainText('1 tiendas encontradas');
+  await page.evaluate(() => {
+    window.AbortController = window.__basketraNativeAbortController;
+    delete window.__basketraNativeAbortController;
+  });
+
+  const beforeMissingContainer = storeRequests;
+  await page.locator('#store-list').evaluate(element => element.remove());
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+    detail: { view: 'stores', route: 'stores', searchParams: new URLSearchParams() },
+  })));
+  await expect.poll(() => storeRequests).toBeGreaterThan(beforeMissingContainer);
+
+  await page.goto('/inventory/stores');
+  await page.locator('#store-delete').dispatchEvent('click');
+
+  await page.goto('/inventory/stores/store_one?mode=edit');
+  await expect(page.locator('#store-editor')).toBeVisible();
+  await page.locator('#store-cancel-edit').click();
+  await expect(page).toHaveURL(/\/inventory\/stores$/u);
+
+  await page.goto('/inventory/stores/store_one');
+  await page.locator('#store-delete').click();
+  await expect(page.locator('#store-delete-dialog')).toBeVisible();
+  await page.locator('#store-delete-cancel').click();
+
+  await page.goto('/inventory/stores');
+  await page.locator('#store-retailer-filter').fill('Mercado');
+  await expect(page).toHaveURL(/retailer=Mercado/u);
+  await page.locator('#store-search').fill('missing-stores');
+  await expect(page.locator('#store-state')).toContainText('0 tiendas encontradas');
+  await page.locator('#store-select-page').evaluate(element => {
+    element.checked = true;
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+
+  await page.goto('/inventory/statistics');
+  const statisticsBaseline = statisticsRequests;
+  await page.evaluate(() => {
+    const NativeAbortController = window.AbortController;
+    window.__basketraNativeAbortController = NativeAbortController;
+    window.AbortController = class NoopAbortController {
+      constructor() {
+        this.controller = new NativeAbortController();
+        this.signal = this.controller.signal;
+      }
+      abort() {}
+    };
+  });
+  holdNextStatistics = true;
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+    detail: { view: 'inventory-statistics', route: 'inventory-statistics', searchParams: new URLSearchParams() },
+  })));
+  await expect.poll(() => statisticsRequests).toBeGreaterThanOrEqual(statisticsBaseline + 1);
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+    detail: { view: 'inventory-statistics', route: 'inventory-statistics', searchParams: new URLSearchParams() },
+  })));
+  await expect.poll(() => statisticsRequests).toBeGreaterThanOrEqual(statisticsBaseline + 2);
+  releaseStatistics();
+  await expect(page.locator('#statistics-kpis')).toContainText('2');
+  await page.evaluate(() => {
+    window.AbortController = window.__basketraNativeAbortController;
+    delete window.__basketraNativeAbortController;
+  });
+
+  await page.locator('#statistics-categories-bars').evaluate(element => element.remove());
+  const beforeMissingBars = statisticsRequests;
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+    detail: { view: 'inventory-statistics', route: 'inventory-statistics', searchParams: new URLSearchParams() },
+  })));
+  await expect.poll(() => statisticsRequests).toBeGreaterThan(beforeMissingBars);
+
+  holdNextStatistics = true;
+  const beforeAbort = statisticsRequests;
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+    detail: { view: 'inventory-statistics', route: 'inventory-statistics', searchParams: new URLSearchParams() },
+  })));
+  await expect.poll(() => statisticsRequests).toBeGreaterThan(beforeAbort);
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+    detail: { view: 'settings', route: 'settings', searchParams: new URLSearchParams() },
+  })));
+  releaseStatistics();
+
+  await page.evaluate(() => {
+    document.querySelector('.view[data-view="stores"]')?.remove();
+    document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+      detail: { view: 'stores', route: 'stores', searchParams: new URLSearchParams() },
+    }));
+  });
+});
+
+test('generic swipe initialization closes supported rows while Inventory-owned rows remain untouched', async ({ page }) => {
+  await page.goto('/settings');
+  const result = await page.evaluate(async () => {
+    const { bindSwipeActions } = await import('/ui.js');
+    const root = document.createElement('div');
+    root.innerHTML = [
+      '<div data-swipe-row data-swipe-id="generic" data-swipe-kind="generic" data-swipe-open="true"><div data-swipe-content></div><div data-swipe-actions><button type="button">Action</button></div></div>',
+      '<div class="inventory-entity-swipe" data-swipe-row data-swipe-id="owned" data-swipe-kind="owned" data-swipe-open="true"></div>',
+    ].join('');
+    document.body.append(root);
+    bindSwipeActions(root);
+    const generic = root.querySelector('[data-swipe-id="generic"]');
+    const owned = root.querySelector('[data-swipe-id="owned"]');
+    const snapshot = { genericOpen: generic.dataset.swipeOpen, ownedOpen: owned.dataset.swipeOpen };
+    root.remove();
+    return snapshot;
+  });
+  expect(result).toEqual({ genericOpen: 'false', ownedOpen: 'true' });
+});
+

@@ -278,7 +278,7 @@ function descendantCategoryIds(categoryId) {
   const pending = [...(children.get(categoryId) || [])];
   while (pending.length) {
     const category = pending.pop();
-    if (!category || result.has(category.id)) continue;
+    if (result.has(category.id)) continue;
     result.add(category.id);
     pending.push(...(children.get(category.id) || []));
   }
@@ -1037,7 +1037,7 @@ async function saveProduct(button) {
   } catch (error) {
     const fieldId = catalogFieldIdFromValidationDetails(error?.details);
     if (fieldId) {
-      setFieldFeedback(fieldId, error.message || 'Revisa este campo.');
+      setFieldFeedback(fieldId, error.message);
       $(`#${fieldId}`)?.focus();
       $('#catalog-product-form-state').textContent = 'Revisa el campo marcado antes de guardar.';
     } else {
@@ -1140,7 +1140,7 @@ async function saveRetailerName(button) {
   setBusy(button, true);
   try {
     const result = await api(`/api/v1/catalog/products/${encodeURIComponent(product.id)}/retailer-name`, { method: 'PUT', body: JSON.stringify({ retailerName, title }) });
-    const existing = (product.retailerNames || []).filter(entry => entry.retailerId !== result.retailerName.retailerId);
+    const existing = product.retailerNames.filter(entry => entry.retailerId !== result.retailerName.retailerId);
     state.productDetail = { ...product, retailerNames: [...existing, result.retailerName] };
     $('#catalog-retailer-state').textContent = 'Nombre del comercio guardado.';
     renderRetailerNames(state.productDetail);
