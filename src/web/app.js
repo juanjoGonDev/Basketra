@@ -142,12 +142,6 @@ hydrateIcons();
 bindSwipeActions(document);
 document.addEventListener('basketra:hydrate-icons', event => hydrateIcons(event.detail?.root || document));
 
-document.addEventListener('basketra:swipe-action', event => {
-  if (event.detail?.kind !== 'shopping-item' || event.detail?.action !== 'complete') return;
-  const itemId = CSS.escape(String(event.detail.id || ''));
-  document.querySelector(`[data-item-action="complete"][data-item-id="${itemId}"]`)?.click();
-});
-
 function receiptInput(item, field) {
   return item.querySelector(`[data-field="${field}"]`);
 }

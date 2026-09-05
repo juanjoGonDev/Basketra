@@ -180,7 +180,7 @@ test('scan choice routes tickets separately and product photo AI hydrates the ca
         unit: 'unit',
         priceMinor: 119,
         retailerName: 'Mercado',
-        storeName: 'Mercado Centro',
+        storeName: 'Mercado Foto Centro',
         confidence: 0.92,
         warnings: [],
       },
@@ -191,7 +191,7 @@ test('scan choice routes tickets separately and product photo AI hydrates the ca
   await Promise.all(Array.from({ length: 13 }, (_, index) =>
     createStore(request, 'Auxiliar', `A Tienda ${String(index).padStart(2, '0')}`)
   ));
-  const store = await createStore(request, 'Mercado', 'Mercado Centro');
+  const store = await createStore(request, 'Mercado', 'Mercado Foto Centro');
   const listResponse = await request.post('/api/v1/shopping-lists', { data: { name: 'Compra foto' } });
   const list = (await listResponse.json()).list;
 
