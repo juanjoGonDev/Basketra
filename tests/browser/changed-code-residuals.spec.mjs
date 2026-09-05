@@ -478,6 +478,7 @@ test('catalog and inventory defensive residuals cover partial payloads and alter
   let catalogMode = 'single';
   let categoryMode = 'normal';
   let categoryMetadataMode = 'normal';
+  let retailerNames = null;
   let overviewRequest = 0;
   let releaseOverview;
   let storesRequest = 0;
@@ -504,21 +505,22 @@ test('catalog and inventory defensive residuals cover partial payloads and alter
     if (q === 'missing-products') return json(route, { catalog: { total: 0, offset: 0, limit: 12, hasMore: false } });
     if (q === 'null-products') return json(route, { catalog: { products: null, parents: null, total: 0, offset: 0, limit: 12, hasMore: false } });
     const products = catalogMode === 'single'
-      ? [product('Único', { id: 'single', retailerNames: null, latestPrices: null })]
+      ? [product('Único', { id: 'single', retailerNames, latestPrices: null })]
       : [];
     return json(route, { catalog: { products, total: products.length, offset: 0, limit: 12, hasMore: false } });
   });
   await page.route(/\/api\/v1\/products\/([^/]+)$/, route => {
     const id = new URL(route.request().url()).pathname.split('/').at(-1);
     return json(route, {
-      product: product('Único', { id, canonicalProductId: '', retailerNames: null, latestPrices: null }),
+      product: product('Único', { id, canonicalProductId: '', retailerNames, latestPrices: null }),
       priceHistory: [{ id: 'price_single', observedAt: 'fecha-invalida', retailerName: '', storeName: '', priceMinor: 199 }],
       ticketHistory: [{ receiptId: 'receipt_single', purchasedAt: 'fecha-invalida', retailerName: '', storeName: '', quantity: 1, unit: null, lineTotalMinor: 199 }],
     });
   });
-  await page.route('**/api/v1/catalog/products/*/retailer-name', route => json(route, {
-    retailerName: { retailerId: 'retailer_new', retailerName: 'Mercado', title: 'Nombre local' },
-  }));
+  await page.route('**/api/v1/catalog/products/*/retailer-name', route => {
+    retailerNames = [{ retailerId: 'retailer_new', retailerName: 'Mercado', title: 'Nombre local' }];
+    return json(route, { retailerName: retailerNames[0] });
+  });
   await page.route('**/api/v1/categories/*/delete-impact', route => json(route, {
     impact: { productCount: 0, childCount: 0, descendantCategoryCount: 0, descendantProductCount: 0, protected: false, canDelete: true },
   }));
@@ -633,4 +635,3 @@ test('catalog and inventory defensive residuals cover partial payloads and alter
     document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: 'inventory-statistics' } }));
   });
 });
-
