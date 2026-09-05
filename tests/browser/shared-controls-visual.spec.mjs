@@ -28,6 +28,10 @@ test('shared controls align helper fields and retain rounded navigation at every
       await page.screenshot({ path: testInfo.outputPath(`${route.replaceAll('/', '-')}-${width}.png`), fullPage: true });
     }
     await page.goto('/inventory');
+    const dashboardChevron = await page.locator('.inventory-overview-cards .dashboard-card').first().evaluate(
+      element => getComputedStyle(element, '::after').content,
+    );
+    expect(dashboardChevron).toBe('"›"');
     await expect(page.locator('.inventory-overview-tabs')).toBeVisible();
     await page.evaluate(() => {
       const panel = document.createElement('div');
