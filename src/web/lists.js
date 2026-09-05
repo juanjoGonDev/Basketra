@@ -1211,7 +1211,7 @@ async function submitItemForm(event) {
   }
 }
 
-function conflictField(function conflictField(label, mine, latest) {
+function conflictField(label, mine, latest) {
   if (String(mine) === String(latest)) return '';
   return `<div class="conflict-field"><strong>${escapeHtml(label)}</strong><div><span>Tu cambio</span><b>${escapeHtml(String(mine))}</b></div><div><span>Última versión</span><b>${escapeHtml(String(latest))}</b></div></div>`;
 }
@@ -1284,7 +1284,7 @@ async function updateItem(itemId, payload, status) {
   }
 }
 
-async function moveItem(async function moveItem(itemId, direction) {
+async function moveItem(itemId, direction) {
   if (!model.list) return;
   const item = model.items.find(candidate => candidate.id === itemId);
   if (!item) return;
@@ -1748,7 +1748,7 @@ async function handleTicketControl(event) {
   }
 }
 
-function bindListOverviewActions() {function bindListOverviewActions() {
+function bindListOverviewActions() {
   $('#list-cards').addEventListener('click', event => {
     const action = event.target.closest('[data-list-action]');
     if (!action) return;
