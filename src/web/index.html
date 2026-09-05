@@ -56,26 +56,42 @@
           <button id="list-menu" class="icon-button" type="button" aria-label="Gestionar lista" aria-expanded="false"><span data-icon="more"></span></button>
           <div id="list-menu-panel" class="popover-menu" hidden>
             <button id="rename-list" type="button"><span data-icon="edit"></span>Renombrar</button>
+            <button id="open-ai-assistant" type="button"><span data-icon="sparkles"></span>Añadir varios con IA</button>
             <button id="delete-list" class="danger-text" type="button"><span data-icon="trash"></span>Eliminar lista</button>
           </div>
         </header>
 
-        <div class="list-primary-actions">
-          <button id="open-item-dialog" class="button primary" type="button"><span data-icon="plus"></span>Añadir producto</button>
+        <section class="surface list-store-panel" aria-labelledby="list-store-title">
+          <div class="list-store-panel__copy">
+            <span class="list-store-panel__icon" data-icon="store" aria-hidden="true"></span>
+            <div><p class="eyebrow">Tienda de referencia</p><h2 id="list-store-title">Elige dónde comprar</h2><small id="list-store-coverage">La estimación usa el último precio guardado.</small></div>
+          </div>
+          <label class="field list-store-panel__select"><span class="sr-only">Tienda de referencia</span><select id="list-store-select"><option value="">Sin tienda de referencia</option></select></label>
+          <button id="apply-list-store-all" class="button secondary" type="button">Usar en todos</button>
+        </section>
+
+        <section class="shopping-ticket" aria-labelledby="pending-title">
+          <header class="shopping-ticket__header">
+            <div><p class="eyebrow">Pendientes</p><h2 id="pending-title">Por comprar</h2><small>Estimación · últimos precios guardados</small></div>
+            <span id="pending-count" class="count-badge">0</span>
+          </header>
+          <div id="pending-items" class="shopping-ticket__items" aria-live="polite"></div>
+          <footer id="shopping-estimate" class="shopping-ticket__total">
+            <div><strong>Estimación</strong><small id="estimate-coverage">Sin precios disponibles</small><small id="estimate-oldest"></small></div>
+            <strong id="estimate-total">0,00 €</strong>
+          </footer>
+        </section>
+
+        <div class="list-primary-actions list-primary-actions--split">
+          <button id="open-item-dialog" class="button primary list-entry-action" type="button"><span data-icon="edit"></span><span><strong>Crear ítem</strong><small>Escribe o busca</small></span></button>
+          <button id="scan-list-item" class="button secondary list-entry-action" type="button"><span data-icon="camera"></span><span><strong>Escanear</strong><small>Producto</small></span></button>
           <span id="item-state" class="inline-status" role="status"></span>
         </div>
-
-        <section class="content-section" aria-labelledby="pending-title">
-          <div class="section-header"><div><p class="eyebrow">Pendientes</p><h2 id="pending-title">Por comprar</h2></div><span id="pending-count" class="count-badge">0</span></div>
-          <div id="pending-items" class="category-groups" aria-live="polite"></div>
-        </section>
 
         <section id="completed-section" class="content-section completed-section" aria-labelledby="completed-title" hidden>
           <div class="section-header"><div><p class="eyebrow">Completados</p><h2 id="completed-title">Ya en la cesta</h2></div><span id="completed-count" class="count-badge">0</span></div>
           <div id="completed-items" class="category-groups" aria-live="polite"></div>
         </section>
-
-        <button id="open-ai-assistant" class="floating-ai-action" type="button"><span data-icon="sparkles"></span><span>IA</span></button>
       </div>
     </section>
 
@@ -169,74 +185,130 @@
   </dialog>
 
   <dialog id="item-dialog" class="sheet-dialog item-sheet" aria-labelledby="item-form-title">
-    <form id="item-form" class="dialog-content">
-      <div class="dialog-header"><div><p class="eyebrow">Producto</p><h2 id="item-form-title">Añadir producto</h2></div><button id="close-item-dialog" class="icon-button" type="button" aria-label="Cerrar"><span data-icon="close"></span></button></div>
-      <label class="field"><span>Producto</span><input id="item-text" autocomplete="off" maxlength="240" placeholder="Leche" required></label>
+    <form id="item-form" class="dialog-content item-editor">
+      <div class="dialog-header"><div><p class="eyebrow">Lista de la compra</p><h2 id="item-form-title">Nuevo ítem</h2></div><button id="close-item-dialog" class="icon-button" type="button" aria-label="Cerrar"><span data-icon="close"></span></button></div>
+
+      <div class="entry-mode-switch" role="group" aria-label="Cómo añadir el producto">
+        <button id="item-mode-create" class="entry-mode is-selected" type="button" aria-pressed="true"><span data-icon="edit"></span><span><strong>Crear</strong><small>Escribe o busca</small></span></button>
+        <button id="item-mode-scan" class="entry-mode" type="button" aria-pressed="false"><span data-icon="camera"></span><span><strong>Escanear</strong><small>Autocompletar</small></span></button>
+      </div>
+      <input id="product-camera" class="visually-hidden-file" type="file" accept="image/jpeg,image/png" capture="environment">
+      <input id="product-gallery" class="visually-hidden-file" type="file" accept="image/jpeg,image/png">
+
+      <label class="field"><span>Producto</span><input id="item-text" autocomplete="off" maxlength="240" placeholder="Buscar o escribir producto" required></label>
       <div id="suggestions" class="suggestions" role="listbox" aria-label="Productos guardados"></div>
-      <div id="linked-product" class="linked-product" hidden><span><strong id="linked-product-name"></strong><small>Producto global reutilizable</small></span><button id="edit-global-product" class="button secondary" type="button">Editar ficha</button></div>
-      <div class="quantity-row">
-        <label class="field"><span>Cantidad</span><input id="item-quantity" type="number" min="1" max="100000" value="1" inputmode="numeric" required></label>
+      <div id="linked-product" class="linked-product" hidden><span><strong id="linked-product-name"></strong><small>Producto guardado seleccionado</small></span><button id="edit-global-product" class="button secondary" type="button">Editar ficha y precio</button></div>
+
+      <div class="item-core-fields">
+        <label class="field"><span>Cantidad</span><div class="quantity-stepper"><button id="item-quantity-minus" type="button" aria-label="Reducir cantidad">−</button><input id="item-quantity" type="number" min="1" max="100000" value="1" inputmode="numeric" required><button id="item-quantity-plus" type="button" aria-label="Aumentar cantidad">+</button></div></label>
         <label class="field"><span>Unidad</span><select id="item-unit"><option value="">Cargando…</option></select></label>
+        <label class="field"><span>Peso / tamaño</span><select id="item-size" disabled><option value="">Sin producto seleccionado</option></select></label>
       </div>
 
+      <label class="field"><span>Tienda</span><select id="store-select"><option value="">Usar tienda de la lista</option></select></label>
+      <section id="item-line-estimate" class="line-estimate" aria-live="polite">
+        <div><strong>Estimación para esta línea</strong><small id="item-line-estimate-context">Selecciona producto y tienda para calcularla.</small></div>
+        <strong id="item-line-estimate-total">—</strong>
+      </section>
+
       <details id="item-advanced" class="progressive-options">
-        <summary>Más opciones</summary>
+        <summary>Preferencias y tienda</summary>
         <div class="details-body">
           <div class="preference-list">
             <label class="switch-row"><span><strong>Producto exacto</strong><small>No cambiar marca o formato.</small></span><input id="exact-required" type="checkbox" aria-label="Producto exacto"><span class="switch"></span></label>
             <label class="switch-row"><span><strong>Permitir alternativas</strong><small>Aceptar sustituciones equivalentes.</small></span><input id="substitution-allowed" type="checkbox" aria-label="Permitir sustituciones" checked><span class="switch"></span></label>
           </div>
-
-          <fieldset class="flow-group">
-            <legend>Foto de producto o precio</legend>
-            <p class="field-help">La IA sólo propone lo que detecta. Revisas todo antes de guardar.</p>
-            <div class="capture-actions compact-captures">
-              <label class="capture-action"><span data-icon="camera"></span><strong>Hacer foto</strong><input id="product-camera" type="file" accept="image/jpeg,image/png" capture="environment"></label>
-              <label class="capture-action"><span data-icon="image"></span><strong>Galería</strong><input id="product-gallery" type="file" accept="image/jpeg,image/png"></label>
-            </div>
-            <p id="product-photo-state" class="inline-status" role="status"></p>
-          </fieldset>
-
-          <section id="product-proposal" class="proposal-editor" hidden aria-labelledby="product-proposal-title">
-            <div class="section-header"><div><p class="eyebrow">Propuesta editable</p><h3 id="product-proposal-title">Datos detectados</h3></div><span id="product-confidence" class="status-pill"></span></div>
-            <label class="field"><span>Nombre global</span><input id="proposal-canonical-name" maxlength="160"></label>
-            <label class="field"><span>Formato / variante</span><input id="proposal-variant-name" maxlength="160"></label>
-            <div class="quantity-row"><label class="field"><span>Marca</span><input id="proposal-brand" maxlength="120"></label><label class="field"><span>EAN/GTIN</span><input id="proposal-ean" maxlength="14" inputmode="numeric"></label></div>
-            <label class="field"><span>Categoría</span><select id="proposal-category"><option value="">Sin categoría</option></select></label>
-            <label class="field"><span>Descripción</span><textarea id="proposal-description" maxlength="500" rows="2"></textarea></label>
-            <div class="quantity-row"><label class="field"><span>Precio (€)</span><input id="proposal-price" inputmode="decimal" placeholder="0,00"></label><label class="field"><span>Comercio</span><input id="proposal-retailer" maxlength="160" autocomplete="off"></label></div>
-            <div id="proposal-warnings" class="warning-list" role="status"></div>
-          </section>
-
-          <fieldset class="flow-group">
-            <legend>Tienda física opcional</legend>
-            <p class="field-help">Puedes elegir una tienda guardada sin compartir tu posición.</p>
-            <label class="field"><span>Tienda</span><select id="store-select"><option value="">Sin tienda física</option></select></label>
-            <button id="use-current-location" class="button secondary full" type="button"><span data-icon="location"></span>Usar mi ubicación para sugerir tienda</button>
-            <button id="find-nearby-stores" class="button secondary full" type="button" hidden>Buscar tiendas cercanas con OpenStreetMap</button>
-            <p id="location-state" class="inline-status" role="status"></p>
-            <div id="nearby-stores" class="suggestions" aria-live="polite"></div>
-            <small id="osm-attribution" hidden>© OpenStreetMap contributors</small>
-          </fieldset>
+          <div class="item-store-tools">
+            <button id="use-current-location" class="button secondary full" type="button"><span data-icon="location"></span>Sugerir por ubicación</button>
+            <button id="find-nearby-stores" class="button secondary full" type="button" hidden>Buscar tiendas cercanas</button>
+            <button id="create-store-from-item" class="button secondary full" type="button"><span data-icon="plus"></span>Crear tienda</button>
+          </div>
+          <p id="location-state" class="inline-status" role="status"></p>
+          <div id="nearby-stores" class="suggestions" aria-live="polite"></div>
+          <small id="osm-attribution" hidden>© OpenStreetMap contributors</small>
         </div>
       </details>
 
-      <div class="form-actions"><button id="cancel-item-edit" class="button secondary" type="button">Cancelar</button><button id="add-item" class="button primary" type="submit"><span data-icon="plus"></span><span id="item-submit-label">Añadir</span></button></div>
+      <div class="item-editor-actions">
+        <button id="open-product-photo" class="button secondary" type="button"><span data-icon="camera"></span>Foto / IA</button>
+        <button id="add-item" class="button primary" type="submit"><span data-icon="plus"></span><span id="item-submit-label">Añadir</span></button>
+      </div>
+      <button id="cancel-item-edit" class="button tertiary full" type="button">Cancelar</button>
+      <p id="product-photo-state" class="inline-status" role="status"></p>
       <p id="item-dialog-state" class="inline-status" role="status"></p>
     </form>
   </dialog>
 
-  <dialog id="global-product-dialog" class="sheet-dialog" aria-labelledby="global-product-title">
-    <form id="global-product-form" class="dialog-content">
-      <div class="dialog-header"><div><p class="eyebrow">Catálogo global</p><h2 id="global-product-title">Editar producto reutilizable</h2></div><button class="icon-button" type="button" data-close-dialog="global-product-dialog" aria-label="Cerrar"><span data-icon="close"></span></button></div>
-      <label class="field"><span>Nombre canónico</span><input id="global-canonical-name" maxlength="160" required></label>
-      <label class="field"><span>Variante</span><input id="global-variant-name" maxlength="160" required></label>
-      <div class="quantity-row"><label class="field"><span>Marca</span><input id="global-brand" maxlength="120"></label><label class="field"><span>EAN/GTIN</span><input id="global-ean" maxlength="14" inputmode="numeric"></label></div>
-      <label class="field"><span>Categoría</span><select id="global-category"><option value="">Sin categoría</option></select></label>
-      <label class="field"><span>Descripción</span><textarea id="global-description" maxlength="500" rows="3"></textarea></label>
-      <label class="field"><span>Alias, uno por línea</span><textarea id="global-aliases" rows="3" maxlength="1000"></textarea></label>
+  <dialog id="global-product-dialog" class="sheet-dialog product-sheet" aria-labelledby="global-product-title">
+    <form id="global-product-form" class="dialog-content product-editor">
+      <div class="dialog-header"><div><p class="eyebrow">Catálogo</p><h2 id="global-product-title">Crear producto</h2><small>Completa los datos o escanea</small></div><button class="icon-button" type="button" data-close-dialog="global-product-dialog" aria-label="Cerrar"><span data-icon="close"></span></button></div>
+
+      <div class="entry-mode-switch" role="group" aria-label="Cómo completar el producto">
+        <button id="global-mode-scan" class="entry-mode" type="button" aria-pressed="false"><span data-icon="camera"></span><span><strong>Escanear</strong><small>Autocompletar</small></span></button>
+        <button id="global-mode-manual" class="entry-mode is-selected" type="button" aria-pressed="true"><span data-icon="edit"></span><span><strong>Manual</strong><small>Editar datos</small></span></button>
+      </div>
+      <input id="global-product-camera" class="visually-hidden-file" type="file" accept="image/jpeg,image/png" capture="environment">
+      <input id="global-product-gallery" class="visually-hidden-file" type="file" accept="image/jpeg,image/png">
+
+      <section class="product-editor-section" aria-labelledby="global-parent-label">
+        <div class="section-header"><h3 id="global-parent-label">Producto base</h3><button id="global-parent-create" class="text-button" type="button">Crear nuevo</button></div>
+        <label class="field"><span class="sr-only">Buscar producto base</span><input id="global-parent-search" maxlength="160" autocomplete="off" placeholder="Buscar base (ej. Leche)"></label>
+        <div id="global-parent-suggestions" class="suggestions" role="listbox" aria-label="Productos base guardados"></div>
+        <div id="global-parent-selected" class="linked-product" hidden><span><strong id="global-parent-selected-name"></strong><small id="global-parent-selected-meta"></small></span><button id="global-parent-clear" class="icon-button" type="button" aria-label="Cambiar producto base"><span data-icon="close"></span></button></div>
+        <label id="global-canonical-field" class="field"><span>Nombre del producto base</span><input id="global-canonical-name" maxlength="160"></label>
+      </section>
+
+      <section class="product-editor-section">
+        <h3>Variante</h3>
+        <label class="field"><span>Nombre de la variante</span><input id="global-variant-name" maxlength="160" required></label>
+      </section>
+
+      <section class="product-editor-section">
+        <h3>Detalles</h3>
+        <div class="product-detail-grid">
+          <label class="field"><span>Cantidad</span><div class="quantity-stepper"><button id="global-item-quantity-minus" type="button" aria-label="Reducir cantidad">−</button><input id="global-item-quantity" type="number" min="1" max="100000" value="1" inputmode="numeric"><button id="global-item-quantity-plus" type="button" aria-label="Aumentar cantidad">+</button></div></label>
+          <label class="field"><span>Unidad</span><select id="global-item-unit"><option value="">Cargando…</option></select></label>
+          <label class="field"><span>Tamaño</span><input id="global-package-minor" type="number" min="1" max="100000000" inputmode="numeric" placeholder="1"></label>
+          <label class="field"><span>Contenido envase</span><select id="global-package-unit"><option value="">Sin especificar</option></select></label>
+        </div>
+      </section>
+
+      <section class="product-editor-section">
+        <h3>Extra</h3>
+        <div class="product-extra-grid">
+          <label class="field"><span>Marca</span><input id="global-brand" maxlength="120"></label>
+          <label class="field"><span>EAN / GTIN</span><input id="global-ean" maxlength="14" inputmode="numeric" placeholder="Ej. 8480000123456"></label>
+          <label class="field"><span>Categoría</span><select id="global-category"><option value="">Sin categoría</option></select></label>
+        </div>
+        <label class="field"><span>Nueva categoría opcional</span><input id="global-category-new" maxlength="120" placeholder="Ej. Lácteos"></label>
+        <details class="progressive-options"><summary>Descripción y alias</summary><div class="details-body">
+          <label class="field"><span>Descripción</span><textarea id="global-description" maxlength="500" rows="3"></textarea></label>
+          <label class="field"><span>Alias, uno por línea</span><textarea id="global-aliases" rows="3" maxlength="1000"></textarea></label>
+        </div></details>
+      </section>
+
+      <section class="product-editor-section">
+        <h3>Precio y tienda</h3>
+        <div class="product-price-grid">
+          <label class="field"><span>Tienda</span><select id="global-store-select"><option value="">Sin tienda física</option></select></label>
+          <label class="field"><span>Precio (€)</span><input id="global-price" inputmode="decimal" placeholder="0,00"></label>
+        </div>
+        <p id="global-normalized-price" class="normalized-price"></p>
+        <div class="item-store-tools">
+          <button id="global-use-current-location" class="button secondary" type="button"><span data-icon="location"></span>Sugerir por ubicación</button>
+          <button id="global-find-nearby-stores" class="button secondary" type="button" hidden>Buscar tiendas cercanas</button>
+        </div>
+        <div id="global-nearby-stores" class="suggestions" aria-live="polite"></div>
+        <small id="global-osm-attribution" hidden>© OpenStreetMap contributors</small>
+      </section>
+
+      <div id="global-ai-feedback" class="product-ai-feedback" hidden>
+        <div class="section-header"><strong>Datos detectados</strong><span id="global-product-confidence" class="status-pill"></span></div>
+        <div id="global-product-warnings" class="warning-list" role="status"></div>
+      </div>
+
       <p id="global-product-state" class="inline-status" role="status"></p>
-      <div class="dialog-actions"><button class="button secondary" type="button" data-close-dialog="global-product-dialog">Cancelar</button><button class="button primary" type="submit">Guardar ficha global</button></div>
+      <div class="dialog-actions"><button class="button secondary" type="button" data-close-dialog="global-product-dialog">Cancelar</button><button id="global-product-submit" class="button primary" type="submit"><span id="global-product-submit-label">Crear y añadir</span></button></div>
     </form>
   </dialog>
 
