@@ -40,7 +40,9 @@ test('file storage publishes atomically when temporary and persistent directorie
     assert.equal(first.storageKey, duplicate.storageKey);
     assert.equal(first.bytes, validPng.byteLength);
     assert.deepEqual(readdirSync(permanentDir), [first.storageKey]);
-    assert.equal(statSync(store.resolveKey(first.storageKey)).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') {
+      assert.equal(statSync(store.resolveKey(first.storageKey)).mode & 0o777, 0o600);
+    }
     assert.deepEqual(Buffer.from(store.read(first.storageKey).bytes), validPng);
   } finally {
     temporary.remove();

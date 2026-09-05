@@ -13,6 +13,7 @@ function confirmedReceipt(importKey: string, unitPriceMinor: number) {
     originalText: `BEBIDA COCO ${unitPriceMinor}`,
     provider: 'manual-or-embedded',
     retailerName: 'Alcampo',
+    storeName: 'Alcampo Store',
     deterministic: { items: [{ description: 'Bebida coco 0% A', unitPriceMinor }] },
     items: [{
       description: 'Bebida coco 0% A',
@@ -42,13 +43,17 @@ test('catalog snapshot exposes bounded latest confirmed receipt prices per retai
     assert.deepEqual(product.retailerNames.map(({ retailerName, title }) => ({ retailerName, title })), [
       { retailerName: 'Alcampo', title: 'Bebida coco 0% A' },
     ]);
-    assert.deepEqual(product.latestPrices, [{
+    assert.equal(product.latestPrices.length, 1);
+    assert.deepEqual(product.latestPrices[0], {
       retailerId: product.retailerNames[0]!.retailerId,
       retailerName: 'Alcampo',
+      storeId: product.latestPrices[0]!.storeId,
+      storeName: 'Alcampo Store',
       priceMinor: 92,
       observedAt: '2026-09-02T10:00:00.000Z',
       confidence: 1,
-    }]);
+    });
+    assert.match(product.latestPrices[0]!.storeId ?? '', /^store_/u);
   } finally {
     database.close();
     rmSync(root, { recursive: true, force: true });

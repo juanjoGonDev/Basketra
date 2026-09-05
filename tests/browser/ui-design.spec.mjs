@@ -33,9 +33,26 @@ async function expectSettingsTabsInsideViewport(page) {
   expect(geometry.tabs.every(tab => tab.left >= -1 && tab.right <= geometry.viewportWidth + 1)).toBeTruthy();
 }
 
+async function expectCategoryRowActionsDoNotOverlap(page) {
+  const geometry = await page.locator('.entity-selection-row .category-row').evaluateAll(rows => rows.map(row => {
+    const name = row.querySelector('.category-name-cell')?.getBoundingClientRect();
+    const action = row.querySelector('.inventory-row-action')?.getBoundingClientRect();
+    return name && action ? {
+      nameBottom: name.bottom,
+      actionTop: action.top,
+      nameRight: name.right,
+      actionLeft: action.left,
+    } : undefined;
+  }).filter(Boolean));
+  expect(geometry.length).toBeGreaterThan(0);
+  expect(geometry.every(({ nameBottom, actionTop, nameRight, actionLeft }) => (
+    actionTop >= nameBottom || actionLeft >= nameRight
+  ))).toBeTruthy();
+}
+
 test('adaptive Android scaffold uses a navigation bar on compact screens and a rail on expanded screens', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/#home');
+  await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Organiza la compra sin perder tiempo.' })).toBeVisible();
 
   const mobileGeometry = await page.evaluate(() => {
@@ -73,20 +90,21 @@ test('adaptive Android scaffold uses a navigation bar on compact screens and a r
   expect(desktopGeometry.navigationLeft).toBeLessThanOrEqual(1);
   expect(desktopGeometry.navigationTop).toBeGreaterThanOrEqual(desktopGeometry.headerBottom - 1);
   expect(desktopGeometry.navigationBottom).toBeGreaterThanOrEqual(899);
-  expect(desktopGeometry.navigationWidth).toBeLessThanOrEqual(100);
+  expect(desktopGeometry.navigationWidth).toBeGreaterThanOrEqual(180);
+  expect(desktopGeometry.navigationWidth).toBeLessThanOrEqual(200);
   expect(desktopGeometry.mainLeft).toBeGreaterThanOrEqual(desktopGeometry.navigationWidth);
   await screenshotView(page, testInfo, 'home-desktop-1280');
 });
 
 test('all primary destinations share touch-safe controls, reflow and the same visual language', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/#home');
+  await page.goto('/');
 
   const destinations = [
     ['Inicio', 'home'],
     ['Listas', 'lists'],
     ['Tickets', 'tickets'],
-    ['Planes', 'plans'],
+    ['Inventario', 'inventory'],
     ['Ajustes', 'settings'],
   ];
 
@@ -111,9 +129,30 @@ test('all primary destinations share touch-safe controls, reflow and the same vi
   await screenshotView(page, testInfo, 'settings-mobile-320');
 });
 
+test('settings tabs persist in the clean URL across refresh and browser history', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/settings');
+
+  const aiTab = page.getByRole('tab', { name: 'IA', exact: true });
+  await aiTab.click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/settings');
+  await expect.poll(() => new URL(page.url()).searchParams.get('tab')).toBe('ai');
+
+  await page.reload();
+  await expect(aiTab).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#ai-config-title')).toHaveText('Conexiones y límites locales');
+
+  await page.getByRole('tab', { name: 'Diagnóstico', exact: true }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.get('tab')).toBe('diagnostics');
+  await page.goBack();
+  await expect.poll(() => new URL(page.url()).searchParams.get('tab')).toBe('ai');
+  await expect(aiTab).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#ai-config-title')).toHaveText('Conexiones y límites locales');
+});
+
 test('keyboard focus stays visibly exposed on primary and visually hidden controls', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/#home');
+  await page.goto('/');
   await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
 
@@ -150,4 +189,53 @@ test('keyboard focus stays visibly exposed on primary and visually hidden contro
   });
   expect(hiddenControlFocus.outlineStyle).not.toBe('none');
   expect(hiddenControlFocus.outlineWidth).toBeGreaterThanOrEqual(2);
+});
+
+test('home keeps its title in one deliberate desktop line when the content column has room', async ({ page }) => {
+  for (const width of [1440, 1672]) {
+    await page.setViewportSize({ width, height: 960 });
+    await page.goto('/');
+    const title = await page.getByRole('heading', { name: 'Organiza la compra sin perder tiempo.' }).evaluate(element => {
+      const style = getComputedStyle(element);
+      const lineHeight = Number.parseFloat(style.lineHeight);
+      return { height: element.getBoundingClientRect().height, lineHeight };
+    });
+    expect(title.height).toBeLessThanOrEqual(title.lineHeight + 1);
+  }
+});
+
+test('category rows keep their detail action separate from their name at 320px', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 });
+  await page.goto('/inventory/categories');
+  await expect(page.locator('.entity-selection-row .category-row').first()).toBeVisible();
+  await expectCategoryRowActionsDoNotOverlap(page);
+  await expectNoHorizontalOverflow(page);
+});
+
+test('settings tabs use a deliberate compact grid and retain roving-tab keyboard semantics at 320px', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 });
+  await page.goto('/settings');
+  await expectSettingsTabsInsideViewport(page);
+
+  const layout = await page.getByRole('tablist', { name: 'Secciones de ajustes' }).evaluate(tablist => {
+    const tabs = [...tablist.querySelectorAll('[role="tab"]')].map(tab => {
+      const rect = tab.getBoundingClientRect();
+      return { label: tab.textContent, left: rect.left, right: rect.right, top: rect.top, width: rect.width };
+    });
+    return { width: tablist.getBoundingClientRect().width, tabs };
+  });
+  const advanced = layout.tabs.at(-1);
+  expect(advanced.left).toBeCloseTo(layout.tabs[0].left, 0);
+  expect(advanced.right).toBeCloseTo(layout.tabs[1].right, 0);
+  expect(advanced.width).toBeGreaterThan(layout.width * .8);
+
+  const general = page.getByRole('tab', { name: 'General', exact: true });
+  await general.focus();
+  await page.keyboard.press('End');
+  const advancedTab = page.getByRole('tab', { name: 'Avanzado', exact: true });
+  await expect(advancedTab).toBeFocused();
+  await expect(advancedTab).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('Home');
+  await expect(general).toBeFocused();
+  await expect(general).toHaveAttribute('aria-selected', 'true');
 });

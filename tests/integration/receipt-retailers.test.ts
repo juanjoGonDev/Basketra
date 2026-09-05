@@ -14,7 +14,7 @@ function receiptInput(importKey: string, retailerName?: string): ReceiptImportIn
     declaredTotalMinor: 120,
     originalText: 'Leche 1 120 120',
     provider: 'local-tesseract',
-    ...(retailerName ? { retailerName } : {}),
+    ...(retailerName ? { retailerName, storeName: `${retailerName} Centro` } : {}),
     deterministic: { items: [{ description: 'Leche', lineTotalMinor: 120 }] },
     items: [{
       description: 'Leche',
@@ -38,7 +38,7 @@ test('receipt retailers are reused case-insensitively and ranked from saved rece
   try {
     database.importReceipt(receiptInput('retailer-receipt-0001', 'Mercadona'));
     database.importReceipt(receiptInput('retailer-receipt-0002', 'mercadona'));
-    database.importReceipt(receiptInput('retailer-receipt-0003'));
+    assert.throws(() => database.importReceipt(receiptInput('retailer-receipt-0003')), /RECEIPT_STORE_REQUIRED/);
 
     assert.deepEqual(database.searchRetailers('mer', 8).map(({ name, receiptCount }) => ({ name, receiptCount })), [
       { name: 'Mercadona', receiptCount: 2 },
@@ -49,7 +49,7 @@ test('receipt retailers are reused case-insensitively and ranked from saved rece
     try {
       assert.equal((readOnly.prepare('SELECT COUNT(*) AS count FROM retailers').get() as { count: number }).count, 1);
       assert.equal((readOnly.prepare('SELECT COUNT(*) AS count FROM receipts WHERE retailer_id IS NOT NULL').get() as { count: number }).count, 2);
-      assert.equal((readOnly.prepare('SELECT COUNT(*) AS count FROM receipts WHERE retailer_id IS NULL').get() as { count: number }).count, 1);
+      assert.equal((readOnly.prepare('SELECT COUNT(*) AS count FROM receipts WHERE retailer_id IS NULL').get() as { count: number }).count, 0);
     } finally {
       readOnly.close();
     }
@@ -59,7 +59,7 @@ test('receipt retailers are reused case-insensitively and ranked from saved rece
   }
 });
 
-test('HTTP confirmation persists an optional retailer and exposes bounded suggestions', async () => {
+test('HTTP confirmation persists retailer and required Store and exposes bounded retailer suggestions', async () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-retailer-api-'));
   const config: AppConfig = {
     host: '127.0.0.1',
@@ -85,6 +85,7 @@ test('HTTP confirmation persists an optional retailer and exposes bounded sugges
       body: JSON.stringify({
         importKey: 'retailer-api-receipt-0001',
         retailerName: 'Carrefour',
+        storeName: 'Carrefour Centro',
         originalText: 'Pan',
         declaredTotalMinor: 150,
         items: [{ description: 'Pan', quantity: 1, unitPriceMinor: 150, lineTotalMinor: 150 }],

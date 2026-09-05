@@ -1,12 +1,17 @@
-import { api, setBusy } from './api.js';
+import { api } from './api.js';
 import { initLists } from './lists.js';
 import { initReceipts } from './receipts.js';
 import {
+  readApplicationLocation,
+  readRouteEnum,
+  primaryNavigationForView,
+  resolveApplicationRoute,
+  writeApplicationLocation,
+} from './routes.js';
+import { createReceiptInvoiceLineDialog } from './receipt-editor-invoice.js';
+import {
   bindSwipeActions,
-  escapeHtml,
-  formatEuroMinor,
   hydrateIcons,
-  optimizationPlan,
 } from './ui.js';
 
 const toastState = {
@@ -18,6 +23,10 @@ const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 
 let receiptEditorSession = null;
+let applicationReady = false;
+let pendingRoute = null;
+
+const SETTINGS_TAB_VALUES = ['general', 'ai', 'diagnostics', 'data', 'advanced'];
 
 function createTabGroup(name, label, tabs) {
   const root = document.createElement('section');
@@ -60,7 +69,7 @@ function createTabGroup(name, label, tabs) {
   return { root, tablist, panels };
 }
 
-function selectTab(tab, { focus = false } = {}) {
+function selectTab(tab, { focus = false, syncUrl = true } = {}) {
   const group = tab?.closest('[data-tab-group]');
   if (!(group instanceof HTMLElement)) return false;
   const panelId = tab.getAttribute('aria-controls');
@@ -74,7 +83,16 @@ function selectTab(tab, { focus = false } = {}) {
   for (const panel of group.querySelectorAll('[role="tabpanel"]')) {
     panel.hidden = panel.id !== panelId;
   }
-  group.dataset.activeTab = tab.dataset.tabValue || panelId;
+  const value = tab.dataset.tabValue || panelId;
+  group.dataset.activeTab = value;
+  if (syncUrl && group.dataset.tabGroup === 'settings') {
+    const current = readApplicationLocation();
+    if (current.route === 'settings') {
+      if (value === 'general') current.searchParams.delete('tab');
+      else current.searchParams.set('tab', value);
+      writeApplicationLocation('settings', current.searchParams);
+    }
+  }
   if (focus) tab.focus();
   return true;
 }
@@ -164,6 +182,7 @@ function syncReceiptCompactSummary(item) {
       <span class="receipt-line-compact__copy">
         <strong data-receipt-summary-description></strong>
         <small data-receipt-summary-meta></small>
+        <small class="receipt-line-compact__category" data-receipt-summary-category hidden></small>
       </span>
       <strong class="receipt-line-compact__total" data-receipt-summary-total></strong>`;
     item.querySelector('legend')?.insertAdjacentElement('afterend', summary);
@@ -178,11 +197,17 @@ function syncReceiptCompactSummary(item) {
   const quantityValue = quantity?.value || '0';
   const unitPriceValue = unitPrice?.value || '0.00';
   const totalValue = lineTotal?.value || '0.00';
-  const accessibleLabel = `Editar línea ${index + 1}: ${descriptionValue}`;
+  const categoryName = item.querySelector('[data-receipt-category-label]')?.textContent?.trim() || '';
+  const accessibleLabel = `Editar línea ${index + 1}: ${descriptionValue}${categoryName ? `. Categoría: ${categoryName}` : ''}`;
 
   if (summary.getAttribute('aria-label') !== accessibleLabel) summary.setAttribute('aria-label', accessibleLabel);
   setTextIfChanged(summary.querySelector('[data-receipt-summary-description]'), descriptionValue);
   setTextIfChanged(summary.querySelector('[data-receipt-summary-meta]'), `${quantityValue} × ${unitPriceValue} €`);
+  const category = summary.querySelector('[data-receipt-summary-category]');
+  if (category) {
+    setTextIfChanged(category, categoryName ? `Categoría · ${categoryName}` : '');
+    category.hidden = !categoryName;
+  }
   setTextIfChanged(summary.querySelector('[data-receipt-summary-total]'), `${totalValue} €`);
 }
 
@@ -229,26 +254,20 @@ function updateReceiptLinePresentation(root) {
 function installReceiptLineEditor() {
   let dialog = $('#receipt-line-dialog');
   if (dialog) return dialog;
-  dialog = document.createElement('dialog');
-  dialog.id = 'receipt-line-dialog';
-  dialog.className = 'sheet-dialog receipt-line-dialog';
-  dialog.setAttribute('aria-labelledby', 'receipt-line-dialog-title');
-  dialog.innerHTML = `
-    <div class="dialog-content">
-      <div class="dialog-header">
-        <div><p class="eyebrow">Línea del ticket</p><h2 id="receipt-line-dialog-title">Editar producto</h2></div>
-        <button id="close-receipt-line-editor" class="icon-button" type="button" aria-label="Cerrar editor"><span data-icon="close"></span></button>
-      </div>
-      <div id="receipt-line-editor-slot"></div>
-      <p id="receipt-line-editor-state" class="inline-status" role="alert"></p>
-      <div class="dialog-actions receipt-line-editor-actions">
-        <button id="delete-receipt-line-editor" class="button danger-outline" type="button"><span data-icon="trash"></span>Eliminar</button>
-        <button id="cancel-receipt-line-editor" class="button secondary" type="button">Cancelar</button>
-        <button id="save-receipt-line-editor" class="button primary" type="button"><span data-icon="check"></span>Guardar línea</button>
-      </div>
-    </div>`;
+  dialog = createReceiptInvoiceLineDialog({
+    id: 'receipt-line-dialog',
+    titleId: 'receipt-line-dialog-title',
+    title: 'Editar producto',
+    closeId: 'close-receipt-line-editor',
+    slotId: 'receipt-line-editor-slot',
+    stateId: 'receipt-line-editor-state',
+    actions: [
+      { id: 'delete-receipt-line-editor', className: 'button danger-outline', label: 'Eliminar', icon: 'trash' },
+      { id: 'cancel-receipt-line-editor', className: 'button secondary', label: 'Cancelar' },
+      { id: 'save-receipt-line-editor', className: 'button primary', label: 'Guardar línea', icon: 'check', editorAction: 'save' },
+    ],
+  });
   document.body.append(dialog);
-  hydrateIcons(dialog);
 
   dialog.addEventListener('cancel', event => {
     event.preventDefault();
@@ -558,6 +577,11 @@ function organizeSettingsOperations() {
   }
 
   stack.replaceWith(root);
+  const current = readApplicationLocation();
+  if (current.route === 'settings') {
+    const tab = readRouteEnum(current.searchParams, 'tab', SETTINGS_TAB_VALUES, 'general');
+    selectTabValue('settings', tab, { syncUrl: false });
+  }
   return true;
 }
 
@@ -571,49 +595,14 @@ function installSettingsDisclosureWatcher() {
   observer.observe(settings, { childList: true, subtree: true });
 }
 
-function planPresentation(kind) {
-  return {
-    'single-retailer': 'Un solo comercio',
-    balanced: 'Equilibrio recomendado',
-    'maximum-saving': 'Máximo ahorro',
-  }[kind] || String(kind || 'Plan');
-}
-
-function renderPlanTabs(plans) {
-  const container = $('#plans');
-  const recommended = plans.find(plan => plan.kind === 'balanced') || plans[0];
-  if (!recommended) {
-    container.replaceChildren();
-    return;
-  }
-
-  const { root, panels } = createTabGroup('plans', 'Vistas de comparación', [
-    { value: 'best', label: 'Mejor opción', panelClass: 'plans-tab-panel' },
-    { value: 'compare', label: 'Comparativa', panelClass: 'plans-tab-panel' },
-    { value: 'detail', label: 'Detalle', panelClass: 'plans-tab-panel' },
-  ]);
-  root.classList.add('plans-task-tabs');
-  panels.get('best').innerHTML = `<div class="plan-featured">${optimizationPlan(recommended)}</div>`;
-
-  const comparison = document.createElement('div');
-  comparison.className = 'plan-comparison-list';
-  comparison.innerHTML = plans.map(plan => `
-    <article class="plan-comparison-row${plan === recommended ? ' is-recommended' : ''}">
-      <div><strong>${escapeHtml(planPresentation(plan.kind))}</strong><small>${plan.retailerIds.length} comercios · ${plan.missingItemIds.length} faltantes · ${Math.round(plan.confidence * 100)}% confianza</small></div>
-      <strong>${formatEuroMinor(plan.effectiveTotalMinor)}</strong>
-    </article>`).join('');
-  panels.get('compare').append(comparison);
-
-  const details = document.createElement('div');
-  details.className = 'plan-detail-disclosures';
-  details.innerHTML = plans.map((plan, index) => `
-    <details class="plan-detail-disclosure" ${index === 0 ? 'open' : ''}>
-      <summary>${escapeHtml(planPresentation(plan.kind))}</summary>
-      ${optimizationPlan(plan)}
-    </details>`).join('');
-  panels.get('detail').append(details);
-  container.replaceChildren(root);
-}
+document.addEventListener('basketra:view-changed', event => {
+  if (event.detail?.view !== 'settings') return;
+  const searchParams = event.detail?.searchParams instanceof URLSearchParams
+    ? event.detail.searchParams
+    : new URLSearchParams(event.detail?.searchParams || '');
+  const tab = readRouteEnum(searchParams, 'tab', SETTINGS_TAB_VALUES, 'general');
+  selectTabValue('settings', tab, { syncUrl: false });
+});
 
 installReceiptReviewPresentation();
 installTicketContinuousWorkflow();
@@ -657,52 +646,93 @@ function resetDocumentScroll() {
   window.scrollTo(0, 0);
 }
 
-function navigate(requestedView) {
-  const view = $(`.view[data-view="${CSS.escape(requestedView)}"]`) ? requestedView : 'home';
+function setNavigationReady(ready) {
+  applicationReady = ready;
+  const main = $('#main');
+  main.setAttribute('aria-busy', String(!ready));
+  main.toggleAttribute('inert', !ready);
+  document.querySelectorAll('.bottom-nav [data-nav]').forEach(element => {
+    if (element instanceof HTMLButtonElement) element.disabled = !ready;
+  });
+}
+
+function closeTransientOverlays() {
+  closeReceiptLineEditor({ revert: true, focus: false });
+  document.querySelectorAll('dialog[open]').forEach(dialog => {
+    if (dialog instanceof HTMLDialogElement) dialog.close();
+    else dialog.removeAttribute('open');
+  });
+}
+
+function navigate(requestedRoute, {
+  allowBeforeReady = false,
+  historyMode = 'push',
+  searchParams = new URLSearchParams(),
+} = {}) {
+  const requestedSearchParams = searchParams instanceof URLSearchParams
+    ? new URLSearchParams(searchParams)
+    : new URLSearchParams(searchParams || '');
+  if (!applicationReady && !allowBeforeReady) {
+    pendingRoute = { route: requestedRoute, historyMode, searchParams: requestedSearchParams };
+    return;
+  }
+  closeTransientOverlays();
+  const availableViews = new Set($$('.view').map(element => element.dataset.view).filter(Boolean));
+  const { view, route } = resolveApplicationRoute(requestedRoute, availableViews);
+  const primaryNavigation = primaryNavigationForView(view);
   $$('.view').forEach(element => element.classList.toggle('active', element.dataset.view === view));
   $$('.bottom-nav [data-nav]').forEach(element => {
-    if (element.dataset.nav === view) element.setAttribute('aria-current', 'page');
+    if (element.dataset.nav === primaryNavigation) element.setAttribute('aria-current', 'page');
     else element.removeAttribute('aria-current');
   });
-  history.replaceState(null, '', `#${view}`);
-  document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view } }));
+  if (historyMode !== 'none') {
+    writeApplicationLocation(route, requestedSearchParams, { replace: historyMode === 'replace' });
+  }
+  document.dispatchEvent(new CustomEvent('basketra:view-changed', {
+    detail: { view, route, searchParams: requestedSearchParams },
+  }));
   resetDocumentScroll();
   $('#main').focus({ preventScroll: true });
   requestAnimationFrame(resetDocumentScroll);
 }
 
+setNavigationReady(false);
+
+document.addEventListener('basketra:navigate', event => {
+  const requestedRoute = String(event.detail?.route || '');
+  if (!requestedRoute) return;
+  navigate(requestedRoute, {
+    historyMode: event.detail?.historyMode || (event.detail?.replace === true ? 'replace' : 'push'),
+    searchParams: event.detail?.searchParams || new URLSearchParams(),
+  });
+});
+
+window.addEventListener('popstate', () => {
+  const current = readApplicationLocation();
+  navigate(current.route, {
+    allowBeforeReady: true,
+    historyMode: 'none',
+    searchParams: current.searchParams,
+  });
+});
+
+document.addEventListener('click', event => {
+  const skip = event.target.closest('[data-skip-to-main]');
+  if (skip) {
+    event.preventDefault();
+    $('#main')?.focus({ preventScroll: false });
+    return;
+  }
+  const link = event.target.closest('[data-app-route]');
+  if (!(link instanceof HTMLAnchorElement)) return;
+  event.preventDefault();
+  navigate(link.dataset.appRoute);
+});
+
 $$('[data-nav]').forEach(element => element.addEventListener('click', event => {
   event.preventDefault();
   navigate(element.dataset.nav);
 }));
-
-async function runDemoComparison(button) {
-  setBusy(button, true);
-  try {
-    const now = new Date().toISOString();
-    const result = await api('/api/v1/optimization-runs', {
-      method: 'POST',
-      body: JSON.stringify({
-        requirements: [
-          { itemId: 'milk', label: 'Leche entera 1 L', exactRequired: false, substitutionAllowed: true },
-          { itemId: 'rice', label: 'Arroz 1 kg', exactRequired: true, substitutionAllowed: false },
-        ],
-        retailerPenaltyMinor: 100,
-        offers: [
-          { id: 'a-milk', itemId: 'milk', retailerId: 'market-a', title: 'Leche entera 1 L', priceMinor: 105, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'l' }, stock: 'in-stock', observedAt: now, confidence: 0.95, evidence: 'manual fixture', exact: true, substitutionQuality: 1 },
-          { id: 'a-rice', itemId: 'rice', retailerId: 'market-a', title: 'Arroz 1 kg', priceMinor: 210, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'kg' }, stock: 'in-stock', observedAt: now, confidence: 0.9, evidence: 'manual fixture', exact: true, substitutionQuality: 1 },
-          { id: 'b-milk', itemId: 'milk', retailerId: 'market-b', title: 'Leche alternativa 1 L', priceMinor: 90, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'l' }, stock: 'in-stock', observedAt: now, confidence: 0.88, evidence: 'manual fixture', exact: false, substitutionQuality: 0.85 },
-          { id: 'b-rice', itemId: 'rice', retailerId: 'market-b', title: 'Arroz 1 kg', priceMinor: 180, shippingMinor: 0, quantity: { amount: { numerator: 1, denominator: 1 }, unit: 'kg' }, stock: 'in-stock', observedAt: now, confidence: 0.92, evidence: 'manual fixture', exact: true, substitutionQuality: 1 },
-        ],
-      }),
-    });
-    renderPlanTabs(result.plans || []);
-  } catch (error) {
-    toast(error.message);
-  } finally {
-    setBusy(button, false);
-  }
-}
 
 async function loadAiConfiguration() {
   try {
@@ -713,17 +743,33 @@ async function loadAiConfiguration() {
 }
 
 async function initialize() {
-  navigate(location.hash.slice(1) || 'home');
-  $('#run-demo-comparison').addEventListener('click', event => void runDemoComparison(event.currentTarget));
+  const initial = readApplicationLocation();
+  navigate(initial.route, {
+    allowBeforeReady: true,
+    historyMode: 'replace',
+    searchParams: initial.searchParams,
+  });
   try {
     const metadata = await api('/api/v1/meta');
     const aiConfigured = await loadAiConfiguration();
-    await initLists({ metadata, toast, aiConfigured });
     initReceipts({ metadata, toast, aiConfigured });
+    await initLists({ metadata, toast, aiConfigured });
   } catch (error) {
     $('#list-state').textContent = error.message;
     $('#upload-state').textContent = error.message;
     toast(error.message);
+  } finally {
+    setNavigationReady(true);
+    document.documentElement.removeAttribute('data-route-pending');
+    const ready = pendingRoute;
+    pendingRoute = null;
+    if (ready) {
+      navigate(ready.route, {
+        allowBeforeReady: true,
+        historyMode: ready.historyMode,
+        searchParams: ready.searchParams,
+      });
+    }
   }
 }
 

@@ -56,7 +56,9 @@ export type PriceObservationRecord = Readonly<{
   id: string;
   productVariantId: string;
   retailerId: string;
+  retailerName: string;
   storeId?: string;
+  storeName?: string;
   priceMinor: number;
   packageNumerator: number;
   packageDenominator: number;
@@ -66,6 +68,16 @@ export type PriceObservationRecord = Readonly<{
   evidenceId: string;
   observedAt: string;
   confidence: number;
+}>;
+
+export type ProductTicketHistoryRecord = Readonly<{
+  receiptId: string;
+  purchasedAt: string;
+  retailerName?: string;
+  storeName?: string;
+  quantity: number;
+  unit: string;
+  lineTotalMinor: number;
 }>;
 
 type CategoryRow = Readonly<{
@@ -489,10 +501,12 @@ export class CatalogRepository {
     this.#database.exec('BEGIN IMMEDIATE');
     try {
       const retailerId = this.resolveRetailer(input.retailerName);
+      let storeName: string | undefined;
       if (input.storeId) {
-        const store = this.#database.prepare('SELECT retailer_id AS retailerId FROM stores WHERE id = ?').get(input.storeId) as { retailerId: string } | undefined;
+        const store = this.#database.prepare('SELECT retailer_id AS retailerId, name FROM stores WHERE id = ?').get(input.storeId) as { retailerId: string; name: string } | undefined;
         if (!store) throw new Error('STORE_NOT_FOUND');
         if (store.retailerId !== retailerId) throw new RangeError('Store does not belong to the selected retailer');
+        storeName = store.name;
       }
       let listing = this.#database.prepare(`
         SELECT id FROM retailer_listings
@@ -549,7 +563,8 @@ export class CatalogRepository {
         id: observationId,
         productVariantId: input.productVariantId,
         retailerId,
-        ...(input.storeId ? { storeId: input.storeId } : {}),
+        retailerName: input.retailerName,
+        ...(input.storeId ? { storeId: input.storeId, ...(storeName ? { storeName } : {}) } : {}),
         priceMinor: input.priceMinor,
         packageNumerator: packageAmount.numerator,
         packageDenominator: packageAmount.denominator,
@@ -566,13 +581,18 @@ export class CatalogRepository {
     }
   }
 
-  listPriceObservations(productVariantId: string): PriceObservationRecord[] {
+  listPriceObservations(productVariantId: string, limit = 180): PriceObservationRecord[] {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 180) {
+      throw new RangeError('Price history limit must be between 1 and 180');
+    }
     return this.#database.prepare(`
       SELECT
         price_observations.id,
         retailer_listings.product_variant_id AS productVariantId,
         price_observations.retailer_id AS retailerId,
+        retailers.name AS retailerName,
         price_observations.store_id AS storeId,
+        stores.name AS storeName,
         price_observations.price_minor AS priceMinor,
         price_observations.package_numerator AS packageNumerator,
         price_observations.package_denominator AS packageDenominator,
@@ -584,15 +604,55 @@ export class CatalogRepository {
         price_observations.confidence
       FROM price_observations
       JOIN retailer_listings ON retailer_listings.id = price_observations.retailer_listing_id
+      JOIN retailers ON retailers.id = price_observations.retailer_id
+      LEFT JOIN stores ON stores.id = price_observations.store_id
       WHERE retailer_listings.product_variant_id = ?
       ORDER BY price_observations.observed_at DESC, price_observations.id DESC
-    `).all(productVariantId).map((row) => {
-      const value = row as PriceObservationRecord & { storeId: string | null };
+      LIMIT ?
+    `).all(productVariantId, limit).map((row) => {
+      const value = row as Omit<PriceObservationRecord, 'storeId' | 'storeName'> & {
+        storeId: string | null;
+        storeName: string | null;
+      };
+      const { storeId, storeName, ...base } = value;
       return {
-        ...value,
-        ...(value.storeId ? { storeId: value.storeId } : {}),
+        ...base,
+        ...(storeId ? { storeId } : {}),
+        ...(storeName ? { storeName } : {}),
       };
     }) as PriceObservationRecord[];
+  }
+
+  listProductTicketHistory(productVariantId: string, limit = 90): ProductTicketHistoryRecord[] {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 90) {
+      throw new RangeError('Product ticket history limit must be between 1 and 90');
+    }
+    return this.#database.prepare(`
+      SELECT
+        receipt_items.receipt_id AS receiptId,
+        COALESCE(receipts.purchased_at, receipts.created_at) AS purchasedAt,
+        retailers.name AS retailerName,
+        stores.name AS storeName,
+        receipt_items.quantity,
+        receipt_items.unit,
+        receipt_items.line_total_minor AS lineTotalMinor
+      FROM receipt_items
+      JOIN receipts ON receipts.id = receipt_items.receipt_id
+      LEFT JOIN retailers ON retailers.id = receipts.retailer_id
+      LEFT JOIN stores ON stores.id = receipts.store_id
+      WHERE receipt_items.product_variant_id = ?
+        AND receipt_items.status = 'confirmed'
+      ORDER BY COALESCE(receipts.purchased_at, receipts.created_at) DESC, receipts.id DESC, receipt_items.id DESC
+      LIMIT ?
+    `).all(productVariantId, limit).map((row) => {
+      const value = row as ProductTicketHistoryRecord & { retailerName: string | null; storeName: string | null };
+      const { retailerName, storeName, ...base } = value;
+      return {
+        ...base,
+        ...(retailerName ? { retailerName } : {}),
+        ...(storeName ? { storeName } : {}),
+      };
+    }) as ProductTicketHistoryRecord[];
   }
 
   private categoryById(id: string): ProductCategoryRecord | undefined {

@@ -4,12 +4,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
-import { BasketraDatabase, CURRENT_SCHEMA_VERSION } from '../../src/infrastructure/database.ts';
 import { COLLABORATION_MIGRATIONS } from '../../src/infrastructure/collaboration-schema.ts';
+import { BasketraDatabase, CURRENT_SCHEMA_VERSION } from '../../src/infrastructure/database.ts';
 
 const RECEIPT_CATALOG_MIGRATION_VERSION = 7;
-const RECEIPT_CATALOG_MIGRATION = COLLABORATION_MIGRATIONS.find((migration) => migration.version === RECEIPT_CATALOG_MIGRATION_VERSION);
-if (!RECEIPT_CATALOG_MIGRATION) throw new Error('Receipt catalog migration is missing');
 
 function receiptInput(importKey: string, description: string, unitPriceMinor: number, retailerName?: string) {
   return {
@@ -17,7 +15,7 @@ function receiptInput(importKey: string, description: string, unitPriceMinor: nu
     declaredTotalMinor: unitPriceMinor,
     originalText: `${description} 1 ${unitPriceMinor}`,
     provider: 'manual-or-embedded',
-    ...(retailerName ? { retailerName } : {}),
+    ...(retailerName ? { retailerName, storeName: `${retailerName} Store` } : {}),
     deterministic: { items: [{ description, unitPriceMinor }] },
     items: [{
       description,
@@ -74,6 +72,28 @@ function insertLegacyReceipt(database: DatabaseSync, input: Readonly<{
     input.unitPriceMinor,
     input.createdAt,
   );
+}
+
+function prepareHistoricalReceiptBackfill(database: DatabaseSync): void {
+  database.exec(`
+    DROP TRIGGER IF EXISTS receipt_items_project_catalog;
+    DROP TRIGGER IF EXISTS receipt_price_observation_write_store;
+    DROP TRIGGER IF EXISTS confirmed_receipt_store_required_insert;
+    DROP TRIGGER IF EXISTS confirmed_receipt_store_required_update;
+  `);
+}
+
+function runReceiptCatalogMigration(database: DatabaseSync): void {
+  const migration = COLLABORATION_MIGRATIONS.find(entry => entry.version === RECEIPT_CATALOG_MIGRATION_VERSION);
+  assert.ok(migration);
+  database.exec('BEGIN IMMEDIATE;');
+  try {
+    database.exec(migration.sql);
+    database.exec('COMMIT;');
+  } catch (error) {
+    database.exec('ROLLBACK;');
+    throw error;
+  }
 }
 
 function readProjection(path: string, receiptId: string) {
@@ -143,11 +163,11 @@ test('confirmed receipt lines become reusable catalog variants with retailer nam
     assert.equal(database.searchProducts('bebida', 8).length, 1);
     assert.deepEqual(database.listPriceObservations(variantId).map((entry) => entry.priceMinor), [92, 88]);
 
-    const noRetailerReceiptId = database.importReceipt(receiptInput('receipt-catalog-0003', 'Pan rústico', 145));
-    const bread = database.searchProducts('rústico', 8);
-    assert.equal(bread.length, 1);
-    assert.equal(database.listPriceObservations(bread[0]!.id).length, 0);
-    assert.equal(readProjection(databasePath, noRetailerReceiptId).item.productVariantId, bread[0]!.id);
+    assert.throws(
+      () => database.importReceipt(receiptInput('receipt-catalog-0003', 'Pan rústico', 145)),
+      /RECEIPT_STORE_REQUIRED/,
+    );
+    assert.equal(database.searchProducts('rústico', 8).length, 0);
   } finally {
     database.close();
     rmSync(root, { recursive: true, force: true });
@@ -160,12 +180,12 @@ test('migration reconciles historical confirmed receipt rows without overwriting
   const migrationBackupDir = join(root, 'migration-backups');
   const initial = new BasketraDatabase(databasePath, { migrationBackupDir });
   initial.close();
-  assert.ok(CURRENT_SCHEMA_VERSION > RECEIPT_CATALOG_MIGRATION_VERSION);
+  assert.ok(CURRENT_SCHEMA_VERSION >= RECEIPT_CATALOG_MIGRATION_VERSION);
 
   const legacy = new DatabaseSync(databasePath);
   try {
     legacy.exec('PRAGMA foreign_keys = ON;');
-    legacy.exec('DROP TRIGGER IF EXISTS receipt_items_project_catalog;');
+    prepareHistoricalReceiptBackfill(legacy);
     legacy.prepare('INSERT INTO retailers(id, name, created_at) VALUES (?, ?, ?)').run('retailer_legacy', 'Mercadona', '2026-08-01T10:00:00.000Z');
     insertLegacyReceipt(legacy, {
       receiptId: 'receipt_legacy',
@@ -176,7 +196,7 @@ test('migration reconciles historical confirmed receipt rows without overwriting
       importKey: 'receipt-legacy-0001',
       createdAt: '2026-08-01T10:00:00.000Z',
     });
-    legacy.exec(RECEIPT_CATALOG_MIGRATION.sql);
+    runReceiptCatalogMigration(legacy);
   } finally {
     legacy.close();
   }
@@ -213,7 +233,7 @@ test('migration reuses one catalog variant for matching historical receipts from
   const legacy = new DatabaseSync(databasePath);
   try {
     legacy.exec('PRAGMA foreign_keys = ON;');
-    legacy.exec('DROP TRIGGER IF EXISTS receipt_items_project_catalog;');
+    prepareHistoricalReceiptBackfill(legacy);
     legacy.prepare('INSERT INTO retailers(id, name, created_at) VALUES (?, ?, ?)').run('retailer_history', 'Alcampo', '2026-08-01T10:00:00.000Z');
     insertLegacyReceipt(legacy, {
       receiptId: 'receipt_history_1',
@@ -233,7 +253,7 @@ test('migration reuses one catalog variant for matching historical receipts from
       importKey: 'receipt-history-0002',
       createdAt: '2026-08-02T10:00:00.000Z',
     });
-    legacy.exec(RECEIPT_CATALOG_MIGRATION.sql);
+    runReceiptCatalogMigration(legacy);
   } finally {
     legacy.close();
   }

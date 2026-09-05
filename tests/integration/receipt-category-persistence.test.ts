@@ -13,6 +13,8 @@ function receiptInput(importKey: string, categoryId?: string) {
     declaredTotalMinor: 120,
     originalText: 'LECHE 1,20',
     provider: 'test',
+    retailerName: 'Mercado',
+    storeName: 'Mercado Centro',
     deterministic: {},
     items: [{
       description: 'LECHE',

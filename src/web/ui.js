@@ -1,3 +1,5 @@
+import { applicationPathForRoute } from './routes.js';
+
 const EURO_FORMATTER = new Intl.NumberFormat('es-ES', {
   style: 'currency',
   currency: 'EUR',
@@ -35,6 +37,7 @@ const ICONS = {
   backup: '<path d="M4 7v5h5"/><path d="M5.5 12a7 7 0 1 0 2-5"/><path d="m4 7 3.5-3.5"/>',
   chevronUp: '<path d="m18 15-6-6-6 6"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  chevronRight: '<path d="m9 6 6 6-6 6"/>',
   trash: '<path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6"/>',
   check: '<path d="m5 12 4 4L19 6"/>',
   wifi: '<path d="M5 9a10 10 0 0 1 14 0M8 12a6 6 0 0 1 8 0M11 15a2 2 0 0 1 2 0"/><circle cx="12" cy="18" r=".7" fill="currentColor" stroke="none"/>',
@@ -45,6 +48,7 @@ const ICONS = {
   balance: '<path d="M12 4v16M5 7h14M7 7l-4 7h8ZM17 7l-4 7h8Z"/>',
   savings: '<path d="M5 8.5C5 6 7.7 4 11 4s6 2 6 4.5S14.3 13 11 13 5 11 5 8.5Z"/><path d="M17 8.5V15c0 2.5-2.7 4.5-6 4.5S5 17.5 5 15V8.5"/>',
   alert: '<path d="M12 4 3 20h18Z"/><path d="M12 9v5M12 17h.01"/>',
+  tag: '<path d="M20 13 13 20l-9-9V4h7Z"/><circle cx="8.5" cy="8.5" r="1"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',
 };
 
@@ -70,6 +74,26 @@ export function hydrateIcons(root = document) {
   });
 }
 
+export function breadcrumb(items) {
+  const entries = Array.isArray(items) ? items.filter(entry => entry?.label) : [];
+  if (entries.length === 0) return '';
+  return `<nav class="breadcrumb" aria-label="Ruta de navegación">${entries.map((entry, index) => {
+    const separator = index === 0 ? '' : `<span class="breadcrumb__separator" data-icon="chevronRight" aria-hidden="true"></span>`;
+    const label = escapeHtml(entry.label);
+    if (!entry.route) return `${separator}<span aria-current="page">${label}</span>`;
+    const leadingIcon = index === 0 ? `<span data-icon="home"></span>` : '';
+    const href = escapeHtml(applicationPathForRoute(entry.route));
+    return `${separator}<a href="${href}" data-app-route="${escapeHtml(entry.route)}">${leadingIcon}${label}</a>`;
+  }).join('')}</nav>`;
+}
+
+export function setFieldFeedback(fieldId, message, root = document) {
+  const input = root.querySelector(`#${fieldId}`);
+  const feedback = root.querySelector(`#${fieldId}-error`);
+  if (input) input.setAttribute('aria-invalid', String(Boolean(message)));
+  if (feedback) feedback.textContent = message || '';
+}
+
 export function formatEuroMinor(value) {
   if (!Number.isSafeInteger(value) || value < 0) throw new RangeError('El importe debe ser válido');
   return EURO_FORMATTER.format(value / 100);
@@ -91,6 +115,10 @@ export function euroInputToMinor(input) {
 
 function swipeContent(row) {
   return row.querySelector('[data-swipe-content]');
+}
+
+function isGenericSwipeRow(row) {
+  return row instanceof Element && !row.classList.contains('inventory-entity-swipe');
 }
 
 function swipeActions(row) {
@@ -122,7 +150,7 @@ function closeSwipeRow(row) {
 
 function closeSwipeRows(root, except) {
   root.querySelectorAll('[data-swipe-row]').forEach(row => {
-    if (row !== except) closeSwipeRow(row);
+    if (row !== except && isGenericSwipeRow(row)) closeSwipeRow(row);
   });
 }
 
@@ -157,12 +185,14 @@ function dispatchSwipeAction(root, row, action) {
 export function bindSwipeActions(root = document) {
   let gesture;
 
-  root.querySelectorAll('[data-swipe-row]').forEach(closeSwipeRow);
+  root.querySelectorAll('[data-swipe-row]').forEach(row => {
+    if (isGenericSwipeRow(row)) closeSwipeRow(row);
+  });
 
   root.addEventListener('pointerdown', event => {
     if (event.button !== 0 || event.clientX < 24 || event.target.closest('button,input,select,textarea,a,summary')) return;
     const row = event.target.closest('[data-swipe-row]');
-    if (!row || !swipeContent(row)) return;
+    if (!isGenericSwipeRow(row) || !swipeContent(row)) return;
     closeSwipeRows(root, row);
     const width = Math.max(row.clientWidth, 1);
     gesture = {
@@ -257,12 +287,13 @@ export function bindSwipeActions(root = document) {
     const toggle = event.target.closest('[data-swipe-toggle]');
     if (toggle) {
       const row = toggle.closest('[data-swipe-row]');
-      if (!row) return;
+      if (!isGenericSwipeRow(row)) return;
       if (row.dataset.swipeOpen === 'true') closeSwipeRow(row);
       else openSwipeRow(root, row);
       return;
     }
     const row = event.target.closest('[data-swipe-row]');
+    if (row && !isGenericSwipeRow(row)) return;
     if (!row) {
       closeSwipeRows(root);
       return;
@@ -273,7 +304,7 @@ export function bindSwipeActions(root = document) {
   root.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
     const row = event.target.closest('[data-swipe-row]');
-    if (row) closeSwipeRow(row);
+    if (isGenericSwipeRow(row)) closeSwipeRow(row);
   });
 }
 
@@ -343,22 +374,26 @@ export function proposalPanel(proposal) {
   return `<ul class="proposal-list">${proposal.items.map(item => `<li><strong>${escapeHtml(item.text)}</strong><span>${item.quantityMinor} ${escapeHtml(item.unit)}</span></li>`).join('')}</ul>`;
 }
 
-export function receiptReview(items, lines, total) {
+export function receiptReview(items, lines, total, categories = []) {
   const expected = total?.expectedMinor ?? items.reduce((sum, item) => sum + item.lineTotalMinor, 0);
   const status = total?.valid === false ? 'warning' : 'success';
   const label = total?.valid === false ? 'Revisar total' : 'Total validado';
-  return `<div class="review-summary"><div><p class="eyebrow">Revisión</p><h2>Comprueba cada línea</h2></div><span class="status-pill ${status}">${label}</span></div><div class="review-total"><span>Total calculado</span><strong>${formatEuroMinor(expected)}</strong></div><div class="receipt-items">${items.map((item, index) => receiptLine(item, index, lines[index])).join('')}</div><button type="button" class="button secondary full" data-receipt-action="add-line">${icon('plus')}Añadir línea</button>`;
+  const categoryNames = new Map(categories.map(category => [category.id, category.name]));
+  return `<div class="review-summary"><div><p class="eyebrow">Revisión</p><h2>Comprueba cada línea</h2></div><span class="status-pill ${status}">${label}</span></div><div class="review-total"><span>Total calculado</span><strong>${formatEuroMinor(expected)}</strong></div><div class="receipt-items">${items.map((item, index) => receiptLine(item, index, lines[index], categoryNames.get(item.categoryId))).join('')}</div><button type="button" class="button secondary full" data-receipt-action="add-line">${icon('plus')}Añadir línea</button>`;
 }
 
-function receiptLine(item, index, validation = {}) {
+function receiptLine(item, index, validation = {}, categoryName = '') {
   const confirmed = validation.status === 'confirmed';
   const editAttributes = `data-receipt-action="edit" data-receipt-index="${index}" aria-label="Editar línea ${index + 1}"`;
   const deleteAttributes = `data-receipt-action="delete" data-receipt-index="${index}" aria-label="Eliminar línea ${index + 1}"`;
+  const category = categoryName
+    ? `<small class="receipt-line-category" data-receipt-category>${icon('tag')}<span>Categoría</span><strong data-receipt-category-label>${escapeHtml(categoryName)}</strong></small>`
+    : '';
   return `<div class="swipe-shell" data-swipe-row data-swipe-kind="receipt-line" data-swipe-id="${index}" data-swipe-end-action="delete" data-swipe-open="false">
     ${swipeActionRail('Editar', 'Eliminar', editAttributes, deleteAttributes)}
     <fieldset class="receipt-item swipe-content" data-swipe-content data-item-index="${index}">
       <legend><span>Línea ${index + 1}</span><span class="receipt-item__legend-actions"><span class="status-pill ${confirmed ? 'success' : 'warning'}">${escapeHtml(validation.status || 'needs-review')}</span><button type="button" class="icon-button" data-swipe-toggle aria-expanded="false" aria-label="Mostrar acciones de la línea ${index + 1}">${icon('more')}</button></span></legend>
-      <label class="field"><span>Producto</span><input data-field="description" maxlength="240" value="${escapeHtml(item.description)}" autocomplete="off"></label>
+      <label class="field"><span>Producto</span><input data-field="description" maxlength="240" value="${escapeHtml(item.description)}" autocomplete="off">${category}</label>
       <div class="quantity-row"><label class="field"><span>Cantidad</span><input data-field="quantity" type="number" min="0" step="1" inputmode="numeric" value="${item.quantity}"></label><label class="field"><span>Precio unitario (€)</span><input data-field="unitPriceEuro" inputmode="decimal" value="${minorToEuroInput(item.unitPriceMinor)}"></label><label class="field"><span>Total (€)</span><input data-field="lineTotalEuro" inputmode="decimal" value="${minorToEuroInput(item.lineTotalMinor)}"></label></div>
     </fieldset>
   </div>`;

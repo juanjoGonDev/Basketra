@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es">
+<html lang="es" data-route-pending="true">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -13,9 +13,9 @@
   <title>Basketra</title>
 </head>
 <body>
-  <a class="skip-link" href="#main">Saltar al contenido</a>
+  <a class="skip-link" href="/" data-skip-to-main>Saltar al contenido</a>
   <header class="app-header">
-    <a class="brand" href="#home" data-nav="home" aria-label="Ir al inicio">
+    <a class="brand" href="/" data-nav="home" aria-label="Ir al inicio">
       <span class="brand__mark" data-icon="cart" aria-hidden="true"></span>
       <span class="brand__copy"><strong>Basketra</strong><small>Compra privada y práctica</small></span>
     </a>
@@ -34,7 +34,7 @@
       </div>
       <div class="dashboard-grid" aria-label="Acciones rápidas">
         <button class="dashboard-card" data-nav="scan"><span data-icon="receipt"></span><strong>Importar ticket</strong><small>Cámara, galería o PDF</small></button>
-        <button class="dashboard-card" data-nav="prices"><span data-icon="prices"></span><strong>Comparar planes</strong><small>Compara opciones con evidencia</small></button>
+        <button class="dashboard-card" data-nav="inventory"><span data-icon="prices"></span><strong>Inventario</strong><small>Productos, categorías, tiendas y estadísticas</small></button>
       </div>
     </section>
 
@@ -107,10 +107,42 @@
       <button id="confirm-receipt" class="button primary full sticky-action" type="button" hidden><span data-icon="check"></span>Confirmar e importar</button>
     </section>
 
-    <section class="view" data-view="prices">
-      <div class="page-header"><div><p class="eyebrow">Comparación</p><h1>Planes de compra</h1><p>Compara coste, confianza, faltantes y número de comercios.</p></div></div>
-      <div class="surface comparison-intro"><span data-icon="prices"></span><div><strong>Compara tres estrategias</strong><p>Genera un ejemplo verificable para revisar el resultado.</p></div><button id="run-demo-comparison" class="button primary full" type="button">Generar ejemplo verificable</button></div>
-      <div id="plans" class="plans" aria-live="polite"></div>
+    <section class="view" data-view="inventory">
+      <div class="page-header">
+        <div><p class="eyebrow">Inventario</p><h1>Inventario</h1><p>Gestiona productos, categorías y tiendas, y revisa estadísticas de tu inventario.</p></div>
+        <button class="button primary" type="button" data-nav="catalog"><span data-icon="plus"></span>Nuevo producto</button>
+      </div>
+      <nav class="task-tablist" aria-label="Secciones de inventario">
+        <button class="task-tab" type="button" data-nav="catalog">Productos</button>
+        <button class="task-tab" type="button" data-nav="categories">Categorías</button>
+        <button class="task-tab" type="button" data-nav="stores">Tiendas</button>
+        <button class="task-tab" type="button" data-nav="inventory-statistics">Estadísticas</button>
+      </nav>
+      <div class="dashboard-grid" aria-label="Resumen del inventario">
+        <article class="surface"><p class="eyebrow">Productos</p><h2>Catálogo</h2><p>Variantes, precios y relaciones reutilizables.</p></article>
+        <article class="surface"><p class="eyebrow">Categorías</p><h2>Jerarquía</h2><p>Niveles, colores y clasificación asistida.</p></article>
+        <article class="surface"><p class="eyebrow">Tiendas</p><h2>Ubicaciones</h2><p>Datos de tienda, actividad y relaciones.</p></article>
+        <article class="surface"><p class="eyebrow">Estadísticas</p><h2>Actividad</h2><p>KPIs y tendencias derivadas de datos persistidos.</p></article>
+      </div>
+      <section class="surface" aria-labelledby="inventory-sections-title">
+        <div class="section-header"><div><p class="eyebrow">Gestión</p><h2 id="inventory-sections-title">Explora el inventario</h2></div></div>
+        <div class="dashboard-grid">
+          <button class="dashboard-card" type="button" data-nav="catalog"><span data-icon="store"></span><strong>Productos</strong><small>Buscar, filtrar y abrir fichas</small></button>
+          <button class="dashboard-card" type="button" data-nav="categories"><span data-icon="list"></span><strong>Categorías</strong><small>Jerarquía, detalle y nuevas categorías</small></button>
+          <button class="dashboard-card" type="button" data-nav="stores"><span data-icon="store"></span><strong>Tiendas</strong><small>Listado, detalle y actividad</small></button>
+          <button class="dashboard-card" type="button" data-nav="inventory-statistics"><span data-icon="prices"></span><strong>Estadísticas</strong><small>KPIs, categorías y tiendas</small></button>
+        </div>
+      </section>
+    </section>
+
+    <section class="view" data-view="stores">
+      <div class="page-header"><div><p class="eyebrow">Inventario · Tiendas</p><h1>Tiendas</h1><p>La gestión profesional de tiendas se construirá sobre este destino de Inventario.</p></div><button class="button secondary" type="button" data-nav="inventory">Volver a Inventario</button></div>
+      <section class="surface"><p>Listado, filtros, detalle, edición y borrado seguro se implementarán en este destino.</p></section>
+    </section>
+
+    <section class="view" data-view="inventory-statistics">
+      <div class="page-header"><div><p class="eyebrow">Inventario · Estadísticas</p><h1>Estadísticas</h1><p>KPIs y tendencias se derivarán de las fuentes canónicas de productos, categorías, tiendas y tickets.</p></div><button class="button secondary" type="button" data-nav="inventory">Volver a Inventario</button></div>
+      <section class="surface"><p>Las visualizaciones incluirán equivalentes textuales y tablas accesibles.</p></section>
     </section>
 
     <section class="view" data-view="settings">
@@ -258,12 +290,15 @@
     <button data-nav="home" aria-current="page"><span data-icon="home"></span><span>Inicio</span></button>
     <button data-nav="lists"><span data-icon="list"></span><span>Listas</span></button>
     <button data-nav="scan"><span data-icon="camera"></span><span>Tickets</span></button>
-    <button data-nav="prices"><span data-icon="prices"></span><span>Planes</span></button>
+    <button data-nav="inventory"><span data-icon="prices"></span><span>Inventario</span></button>
     <button data-nav="settings"><span data-icon="settings"></span><span>Ajustes</span></button>
   </nav>
   <div id="toast" role="status" aria-live="polite"><span id="toast-message"></span><button id="toast-action" type="button" hidden></button></div>
+  <script type="module" src="/ticket-history.js"></script>
   <script type="module" src="/app.js"></script>
   <script type="module" src="/catalog.js"></script>
+  <script type="module" src="/inventory.js"></script>
+  <script type="module" src="/inventory-swipe.js"></script>
   <script type="module" src="/receipt-editor-invoice.js"></script>
 </body>
 </html>

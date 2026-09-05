@@ -36,3 +36,15 @@ test('receipt confirmation rejects oversized category ids at the API boundary', 
     /Expected at most 128 characters/,
   );
 });
+
+test('receipt confirmation preserves storeId and evidence-backed storeName', () => {
+  const parsed = parseReceiptConfirmation({
+    ...confirmation(),
+    retailerName: 'Mercadona',
+    storeId: 'store_centro',
+    storeName: 'Mercadona Centro',
+  });
+  assert.equal(parsed.input.storeId, 'store_centro');
+  assert.equal(parsed.input.storeName, 'Mercadona Centro');
+  assert.throws(() => parseReceiptConfirmation({ ...confirmation(), storeID: 'store_centro' }), /storeID/);
+});

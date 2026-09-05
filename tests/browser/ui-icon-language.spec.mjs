@@ -33,15 +33,15 @@ test('settings runtime metrics and operational actions expose canonical icons', 
   expect(bodyWidth).toBeLessThanOrEqual(390);
 });
 
-test('remaining primary destination CTA keeps text and gains a canonical icon', async ({ page }) => {
+test('Inventory primary destination CTA keeps text and a canonical icon', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
-  await navigate(page, 'Planes');
+  await navigate(page, 'Inventario');
 
-  const generate = page.getByRole('button', { name: 'Generar ejemplo verificable', exact: true });
-  await expect(generate).toBeVisible();
-  await expect(generate).toContainText('Generar ejemplo verificable');
-  await expect(generate.locator('.icon')).toBeVisible();
+  const createProduct = page.getByRole('button', { name: 'Nuevo producto', exact: true });
+  await expect(createProduct).toBeVisible();
+  await expect(createProduct).toContainText('Nuevo producto');
+  await expect(createProduct.locator('.icon')).toBeVisible();
 });
 
 test('desktop settings keeps icon metrics readable without changing the two-column runtime grid', async ({ page }) => {

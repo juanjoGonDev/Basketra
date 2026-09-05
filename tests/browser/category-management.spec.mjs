@@ -1,10 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 async function expectNoHorizontalOverflow(page) {
-  const dimensions = await page.evaluate(() => ({
-    viewport: document.documentElement.clientWidth,
-    page: document.documentElement.scrollWidth,
-  }));
+  const dimensions = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, page: document.documentElement.scrollWidth }));
   expect(dimensions.page).toBeLessThanOrEqual(dimensions.viewport);
 }
 
@@ -16,37 +13,25 @@ async function setCategoryColor(locator, value) {
   }, value);
 }
 
-test('hierarchical categories can be created, reparented and reviewed on mobile and desktop', async ({ page }, testInfo) => {
+test('hierarchical categories use separate list, detail and editor flows on mobile and desktop', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const browserErrors = [];
   page.on('pageerror', error => browserErrors.push(error.message));
-  page.on('console', message => {
-    if (message.type() === 'error') browserErrors.push(message.text());
-  });
+  page.on('console', message => { if (message.type() === 'error') browserErrors.push(message.text()); });
 
   const categories = [
-    {
-      id: 'category_unknown',
-      name: 'desconocido',
-      color: '#64748B',
-      createdAt: '2026-09-02T00:00:00.000Z',
-      updatedAt: '2026-09-02T00:00:00.000Z',
-    },
-    {
-      id: 'category_food',
-      name: 'Alimentación',
-      color: '#118844',
-      description: 'Productos alimentarios',
-      createdAt: '2026-09-02T00:00:00.000Z',
-      updatedAt: '2026-09-02T00:00:00.000Z',
-    },
+    { id: 'category_unknown', name: 'desconocido', color: '#64748B', createdAt: '2026-09-02T00:00:00.000Z', updatedAt: '2026-09-02T00:00:00.000Z' },
+    { id: 'category_food', name: 'Alimentación', color: '#118844', description: 'Productos alimentarios', createdAt: '2026-09-02T00:00:00.000Z', updatedAt: '2026-09-02T00:00:00.000Z' },
   ];
   let createPayload;
   let updatePayload;
 
-  await page.route('**/api/v1/categories', async route => {
-    if (route.request().method() === 'POST') {
-      createPayload = route.request().postDataJSON();
+  await page.route('**/api/v1/catalog?*', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ catalog: { products: [], parents: [], total: 0, offset: 0, limit: 100, hasMore: false } }) }));
+  await page.route('**/api/v1/categories**', async route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() === 'POST') {
+      createPayload = request.postDataJSON();
       const created = {
         id: 'category_dairy',
         name: createPayload.name,
@@ -58,6 +43,20 @@ test('hierarchical categories can be created, reparented and reviewed on mobile 
       };
       categories.push(created);
       await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ category: created }) });
+      return;
+    }
+    if (url.searchParams.get('mode') === 'inventory') {
+      const inventoryCategories = categories.map(category => ({
+        ...category,
+        parentName: category.parentId ? categories.find(candidate => candidate.id === category.parentId)?.name : undefined,
+        productCount: 0,
+        childCount: categories.filter(candidate => candidate.parentId === category.id).length,
+      }));
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ inventory: { categories: inventoryCategories, total: inventoryCategories.length, offset: 0, limit: 12, hasMore: false } }),
+      });
       return;
     }
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ categories }) });
@@ -76,20 +75,26 @@ test('hierarchical categories can be created, reparented and reviewed on mobile 
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ category }) });
   });
 
-  await page.goto('/#home');
-  const categoriesEntry = page.getByRole('button', { name: /Categorías/i });
-  await expect(categoriesEntry).toBeVisible();
-  await categoriesEntry.click();
+  await page.goto('/');
+  await page.getByRole('button', { name: /Inventario/i }).first().click();
+  await page.locator('.view[data-view="inventory"]').getByRole('button', { name: 'Categorías', exact: true }).first().click();
 
-  await expect(page).toHaveURL(/#categories$/);
+  await expect(page).toHaveURL(/\/inventory\/categories$/);
   await expect(page.getByRole('heading', { name: 'Categorías', exact: true })).toBeVisible();
-  await expect(page.locator('#category-count')).toHaveText('2');
+  await expect(page.locator('#category-range')).toHaveText('1-2 de 2');
 
-  const foodRow = page.getByRole('button', { name: /Alimentación/ });
+  const foodRow = page.locator('[data-category-id="category_food"]');
   await foodRow.focus();
   await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/inventory\/categories\/category_food$/);
   await expect(page.locator('#category-form-title')).toHaveText('Alimentación');
+  await page.getByRole('button', { name: 'Editar', exact: true }).click();
   await page.getByRole('button', { name: 'Añadir subcategoría' }).click();
+  await expect(page).toHaveURL(/\/inventory\/categories\/new\?parent=category_food$/);
+  await expect(page.locator('#category-parent')).toHaveValue('category_food');
+  await page.reload();
+  await expect(page).toHaveURL(/\/inventory\/categories\/new\?parent=category_food$/);
+  await expect(page.locator('#category-editor')).toBeVisible();
   await expect(page.locator('#category-parent')).toHaveValue('category_food');
 
   await page.locator('#category-name').fill('Lácteos');
@@ -97,37 +102,29 @@ test('hierarchical categories can be created, reparented and reviewed on mobile 
   await page.locator('#category-description').fill('Leche, yogur y derivados');
   await page.getByRole('button', { name: 'Guardar categoría' }).click();
 
-  await expect.poll(() => createPayload).toEqual({
-    name: 'Lácteos',
-    parentId: 'category_food',
-    color: '#33AAFF',
-    description: 'Leche, yogur y derivados',
-  });
-  await expect(page.locator('#category-count')).toHaveText('3');
-  const dairyRow = page.getByRole('button', { name: /Lácteos/ });
-  await expect(dairyRow).toBeVisible();
-  await expect.poll(() => dairyRow.evaluate(element => element.style.getPropertyValue('--category-indent'))).toBe('1.1rem');
+  await expect.poll(() => createPayload).toEqual({ name: 'Lácteos', parentId: 'category_food', color: '#33AAFF', description: 'Leche, yogur y derivados' });
+  await expect(page).toHaveURL(/\/inventory\/categories\/category_dairy$/);
+  await expect(page.locator('#category-detail-name')).toHaveText('Lácteos');
 
-  await dairyRow.click();
+  await page.getByRole('button', { name: 'Editar', exact: true }).click();
   await page.locator('#category-name').fill('Lácteos y huevos');
   await page.locator('#category-parent').selectOption('');
   await setCategoryColor(page.locator('#category-color'), '#445566');
   await page.getByRole('button', { name: 'Guardar categoría' }).click();
 
-  await expect.poll(() => updatePayload).toEqual({
-    name: 'Lácteos y huevos',
-    parentId: null,
-    color: '#445566',
-    description: 'Leche, yogur y derivados',
-  });
-  const movedRow = page.getByRole('button', { name: /Lácteos y huevos/ });
-  await expect.poll(() => movedRow.evaluate(element => element.style.getPropertyValue('--category-indent'))).toBe('0rem');
+  await expect.poll(() => updatePayload).toEqual({ name: 'Lácteos y huevos', parentId: null, color: '#445566', description: 'Leche, yogur y derivados' });
+  await page.getByRole('button', { name: 'Categorías', exact: true }).click();
+  const movedRow = page.locator('[data-category-id="category_dairy"]');
+  await expect(movedRow).toBeVisible();
+  await expect(movedRow.locator('.category-indent-step')).toHaveCount(0);
 
-  const unknownRow = page.getByRole('button', { name: /desconocido/ });
+  const unknownRow = page.locator('[data-category-id="category_unknown"]');
   await unknownRow.click();
+  await expect(page.locator('#category-protected-note')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Eliminar', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Editar', exact: true }).click();
   await expect(page.locator('#category-name')).toBeDisabled();
   await expect(page.locator('#category-parent')).toBeDisabled();
-  await expect(page.locator('#category-protected-note')).toBeVisible();
 
   await expectNoHorizontalOverflow(page);
   const categoryView = page.locator('.view[data-view="categories"]');
@@ -138,16 +135,9 @@ test('hierarchical categories can be created, reparented and reviewed on mobile 
     await categoryView.screenshot({ path: testInfo.outputPath('categories-mobile.png') });
     await page.setViewportSize({ width: 1280, height: 900 });
     await expectNoHorizontalOverflow(page);
-    const browserBox = await page.locator('.category-browser').boundingBox();
-    const detailBox = await page.locator('.category-detail').boundingBox();
-    expect(browserBox).not.toBeNull();
-    expect(detailBox).not.toBeNull();
-    expect(detailBox.x).toBeGreaterThan(browserBox.x + browserBox.width / 2);
     await categoryView.screenshot({ path: testInfo.outputPath('categories-desktop.png') });
   } finally {
-    await shell.evaluateAll((elements, hiddenState) => {
-      elements.forEach((element, index) => { element.hidden = hiddenState[index]; });
-    }, shellHiddenState);
+    await shell.evaluateAll((elements, hiddenState) => { elements.forEach((element, index) => { element.hidden = hiddenState[index]; }); }, shellHiddenState);
   }
 
   expect(browserErrors).toEqual([]);

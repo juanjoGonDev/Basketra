@@ -34,6 +34,17 @@ Suposiciones explícitas: una única instalación personal compartida por los di
 - Cualquier actor con conectividad HTTP a Basketra se considera plenamente autorizado para listas, tickets, diagnósticos, logs, backups y restore.
 - La aplicación completa debe seguir funcionando sobre HTTP privado. Las capacidades de navegador que requieran secure context, como geolocalización en navegadores móviles normales, se degradan de forma localizada sin bloquear el resto del producto.
 
+## Navegación web y estado de vista
+
+- Las vistas navegables usan rutas same-origin limpias y canónicas; la navegación normal no depende de fragmentos `#`.
+- El detalle de entidades se expresa en segmentos de path y el estado recuperable de la vista —pestaña, subvista de edición, página, búsqueda, filtros, orden y periodo— se expresa mediante query params acotados. Los valores por defecto se omiten de las URLs generadas.
+- La selección explícita para acciones masivas, los formularios sin guardar y los diálogos de confirmación son estado transitorio y no se restauran desde la URL para evitar repetir acciones peligrosas o revivir borradores obsoletos.
+- Un GET directo de cualquier ruta de aplicación conocida sirve el shell; rutas desconocidas, assets no permitidos y rutas API conservan su resolución explícita y fallan cerradas cuando no existen.
+- El bootstrap aplica la ruta solicitada antes de revelar el contenido principal, de modo que una recarga profunda no muestra primero Inicio ni otra vista por defecto.
+- Atrás/Adelante rehidrata la ruta y sus query params mediante `popstate` sin crear otra entrada. La búsqueda incremental usa `replaceState`; navegación comprometida, pestañas, paginación, filtros y detalles usan `pushState`.
+- Los hashes de versiones anteriores sólo se aceptan como entrada de compatibilidad y se reemplazan inmediatamente por la URL limpia equivalente.
+- Páginas, enums y texto procedentes de la URL se validan y acotan antes de alcanzar las consultas remotas; valores inválidos degradan al estado canónico por defecto.
+
 ## Flujos verificables
 
 ### Listas de compra
@@ -66,7 +77,7 @@ Suposiciones explícitas: una única instalación personal compartida por los di
 4. Un match exacto y una categoría confirmados se reutilizan antes de solicitar IA.
 5. Una observación de precio sólo nace de evidencia confirmada: foto, ticket, entrada manual u otra fuente soportada explícitamente.
 6. Un precio confirmado requiere retailer. La tienda física es opcional; si falta retailer, el producto/list item puede guardarse pero el precio no entra en historial.
-7. Confirmar un precio resuelve/crea variante, retailer, listing, tienda opcional, evidencia y observación inmutable.
+7. Confirmar un precio resuelve/crea variante, retailer, listing, tienda opcional, evidencia y observación inmutable. Si la evidencia procede de un ticket confirmado con Store, la observación derivada conserva ese `store_id`; la relación Producto↔Store se deriva de esas observaciones, no de una tabla paralela.
 8. Corregir un precio crea una observación nueva y nunca sobrescribe evidencia histórica.
 9. La ubicación es opt-in, nunca se solicita en carga ni al abrir el sheet de producto.
 10. La selección de tienda usa primero retailers/stores guardados, observaciones previas y distancia determinista a stores conocidos.
@@ -135,7 +146,7 @@ Suposiciones explícitas: una única instalación personal compartida por los di
 
 La migración inicial crea retailers, stores, canonical_products, product_variants, product_aliases, retailer_listings, price_observations, external_evidence, receipts, receipt_captures, receipt_extractions, receipt_items, receipt_corrections, shopping_lists, shopping_list_items, optimization_runs, optimization_plans, optimization_plan_items, ai_provider_configurations, ai_executions y ocr_executions.
 
-La migración 2 registra backups previos a migraciones. La migración 3 añade `completed` y `completed_at` a productos de listas. Las migraciones posteriores para la colaboración realtime son aditivas: versiones optimistas, categorías reutilizables, referencia opcional de variante desde ítems, metadata global necesaria y localización opcional de stores. La migración 8 persiste la configuración runtime de la aplicación. La migración 9 extiende categorías con `parent_id` y `color`, persiste `receipt_items.category_id` y crea el fallback cuando no existe. La migración 10 normaliza cualquier `desconocido` legacy al id estable `category_unknown` y retargeta en la misma transacción las referencias de categorías hijas, productos canónicos e ítems de ticket. Las migraciones aplicadas no se reescriben. Se habilitan claves foráneas, WAL, busy timeout, índices y FTS5.
+La migración 2 registra backups previos a migraciones. La migración 3 añade `completed` y `completed_at` a productos de listas. La migración 4 añade el versionado colaborativo, la relación opcional con variantes, la base persistida de categorías reutilizables y la localización opcional de stores. Las migraciones 5 y 6 añaden el estado durable de extracción de tickets; la migración 7 proyecta líneas confirmadas al catálogo y a observaciones de precio sin reescribir evidencia. La migración 8 crea `runtime_settings` para la configuración persistida de la instancia. La migración 9 extiende categorías con `parent_id` y `color`, persiste `receipt_items.category_id` y materializa el fallback desconocido cuando falta. La migración 10 normaliza cualquier `desconocido` legacy al id estable `category_unknown` y retargeta en la misma transacción las referencias de categorías hijas, productos canónicos e ítems de ticket. La migración 11 añade a los tickets históricos la relación con Store, estado/método de pago, notas, impuestos y descuento de ticket, y añade unidad y descuento tipado a sus líneas junto con los índices de consulta de Inventario. La migración 12 asigna el Store del ticket a nuevas observaciones de precio proyectadas desde sus líneas. La migración 13 reconcilia bases ya migradas y rellena `price_observations.store_id` para evidencia histórica de ticket cuyo `receipts.store_id` ya era conocido. La migración 14 corrige hacia delante el write boundary de tickets confirmados: exige Store no nulo en `receipts` confirmados y hace que las observaciones derivadas de evidencia de ticket nazcan con el mismo `store_id`, manteniendo la migración 12 como fallback de compatibilidad y la 13 como reparación histórica. Las migraciones aplicadas no se reescriben. Se habilitan claves foráneas, WAL, busy timeout, índices y FTS5.
 
 ## Persistencia, archivos y recuperación
 
@@ -299,11 +310,13 @@ Los diagnósticos IA diferencian `AI_NOT_CONFIGURED`, `AI_LOOPBACK_CONTAINER`, `
 - No existe `BASKETRA_AUTH_TOKEN` en runtime, navegador, Compose, `.env.example` o documentación operativa.
 - La API funcional responde sin `Authorization` dentro del perímetro privado.
 - Gestión de listas y detalle de lista son vistas separadas; el contenido de compra domina el detalle y Add Product ya no ocupa permanentemente gran altura.
+- Tabs, subvistas, detalle de entidad, paginación, búsqueda, filtros, orden y periodos recuperables quedan reflejados en una URL limpia; recarga y Atrás/Adelante restauran ese estado sin flash de Inicio.
 - Dos dispositivos visibles convergen mediante SSE+REST sin polling/manual refresh; ocultar el documento suspende el stream y volver a mostrarlo re-sincroniza.
 - Simultaneous explicit edits y reorders no sobrescriben silenciosamente; producen conflicto resoluble y retry intencional.
 - Ítems pueden enlazar a variantes globales y los legacy siguen válidos.
 - Categorías son reutilizables, jerárquicas, coloreables y acíclicas; `category_unknown` permanece protegido y la clasificación de tickets reutiliza el inventario persistido antes de proponer categorías nuevas.
 - Historial de precio contiene sólo observaciones reales confirmadas e inmutables.
+- Un Store detectado o confirmado en un ticket queda reflejado tanto en el ticket como en sus observaciones de precio derivadas, por lo que los Productos asociados cuentan correctamente en la vista de la tienda incluso tras upgrades históricos.
 - Foto/galería produce propuesta estructurada editable y cancelar no persiste.
 - Ubicación es opt-in, local-first y degradable sobre HTTP; nearby lookup sólo es explícito, OSM/Overpass y sin servicios de pago.
 - Swipe móvil progresivo conserva Undo y alternativas accesibles sin una segunda implementación.

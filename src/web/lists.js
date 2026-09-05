@@ -13,6 +13,7 @@ import {
   minorToEuroInput,
   shoppingListItem,
 } from './ui.js';
+import { readApplicationLocation, writeApplicationLocation } from './routes.js';
 
 const UNIT_LABELS = Object.freeze({
   g: 'g',
@@ -64,6 +65,16 @@ let toast = () => {};
 let aiConfigured = false;
 
 const $ = selector => document.querySelector(selector);
+
+function listIdFromRoute(route) {
+  const value = String(route || '');
+  return value.startsWith('lists:') ? value.slice('lists:'.length) : '';
+}
+
+function writeListRoute(listId = '', { replace = false } = {}) {
+  const route = listId ? `lists:${listId}` : 'lists';
+  writeApplicationLocation(route, new URLSearchParams(), { replace });
+}
 
 function openDialog(dialog, focusSelector) {
   if (!dialog) return;
@@ -209,9 +220,10 @@ async function loadActiveList() {
   renderDetail();
 }
 
-async function openList(listId) {
+async function openList(listId, { syncUrl = true, replace = false } = {}) {
   model.activeListId = listId;
   saveActiveListId(listId);
+  if (syncUrl) writeListRoute(listId, { replace });
   setOverviewVisible(false);
   $('#item-state').textContent = 'Sincronizando lista…';
   try {
@@ -1114,6 +1126,7 @@ async function confirmDeleteList() {
       model.items = [];
       stopRealtime();
       setOverviewVisible(true);
+      writeListRoute('', { replace: true });
     }
     model.activeListId = '';
     saveActiveListId('');
@@ -1321,6 +1334,7 @@ function bindEvents() {
   bindListOverviewActions();
   bindDialogs();
   $('#back-to-lists').addEventListener('click', async () => {
+    writeListRoute();
     setOverviewVisible(true);
     await loadLists();
   });
@@ -1400,7 +1414,18 @@ function bindEvents() {
     void deleteItemFromSwipe(String(event.detail.id || ''));
   });
   document.addEventListener('basketra:view-changed', event => {
-    if (event.detail?.view === 'lists' && aiConfigured) void refreshImageLimitHelp();
+    if (event.detail?.view !== 'lists') {
+      stopRealtime();
+      return;
+    }
+    if (aiConfigured) void refreshImageLimitHelp();
+    const listId = listIdFromRoute(event.detail?.route);
+    if (!listId) {
+      setOverviewVisible(true);
+      return;
+    }
+    if (model.list?.id === listId && !$('#list-detail').hidden) return;
+    void openList(listId, { syncUrl: false });
   });
 }
 
@@ -1412,7 +1437,22 @@ export async function initLists(options) {
   ensureProgressiveFields();
   restoreItemDraft();
   bindEvents();
-  setOverviewVisible(true);
+  const current = readApplicationLocation();
+  const requestedListId = current.route === 'lists' ? '' : listIdFromRoute(current.route);
+  if (requestedListId) {
+    model.activeListId = requestedListId;
+    saveActiveListId(requestedListId);
+    setOverviewVisible(false);
+  } else {
+    setOverviewVisible(true);
+  }
   if (aiConfigured) void refreshImageLimitHelp();
   await Promise.all([loadLists(), loadCategories(), loadStores()]);
+  if (!requestedListId) return;
+  if (model.lists.some(list => list.id === requestedListId)) {
+    await openList(requestedListId, { syncUrl: false });
+    return;
+  }
+  writeListRoute('', { replace: true });
+  setOverviewVisible(true);
 }

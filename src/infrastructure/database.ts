@@ -11,6 +11,7 @@ import { ShoppingRepository } from './shopping-repository.ts';
 
 export type {
   PriceObservationRecord,
+  ProductTicketHistoryRecord,
   ProductCategoryRecord,
   ProductSuggestionRecord,
   ProductVariantRecord,
@@ -50,6 +51,8 @@ export type ReceiptImportInput = Readonly<{
   originalText: string;
   provider: string;
   retailerName?: string;
+  storeId?: string;
+  storeName?: string;
   deterministic: unknown;
   ai?: unknown;
   captures?: readonly Readonly<{ storageKey: string; contentHash?: string; mimeType: string; originalName?: string }>[];
@@ -573,6 +576,10 @@ export class BasketraDatabase {
     return this.#catalog.listPriceObservations(productVariantId);
   }
 
+  listProductTicketHistory(productVariantId: string) {
+    return this.#catalog.listProductTicketHistory(productVariantId);
+  }
+
   searchRetailers(query: string, limit: number): RetailerSuggestion[] {
     const normalized = query.trim();
     if (!normalized) return [];
@@ -724,7 +731,31 @@ export class BasketraDatabase {
           this.#database.prepare('INSERT INTO retailers(id, name, created_at) VALUES (?, ?, ?)').run(retailerId, input.retailerName, timestamp);
         }
       }
-      this.#database.prepare('INSERT INTO receipts(id, retailer_id, status, currency, declared_total_minor, import_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(receiptId, retailerId, 'confirmed', 'EUR', input.declaredTotalMinor, input.importKey, timestamp, timestamp);
+      let storeId: string | null = null;
+      if (input.storeId) {
+        const store = this.#database.prepare(`
+          SELECT id, retailer_id AS retailerId, name FROM stores WHERE id = ?
+        `).get(input.storeId) as { id: string; retailerId: string; name: string } | undefined;
+        if (!store) throw new Error('RECEIPT_STORE_NOT_FOUND');
+        if (retailerId && retailerId !== store.retailerId) throw new Error('RECEIPT_STORE_RETAILER_MISMATCH');
+        if (input.storeName && input.storeName.localeCompare(store.name, 'es', { sensitivity: 'accent' }) !== 0) {
+          throw new Error('RECEIPT_STORE_NAME_MISMATCH');
+        }
+        retailerId = store.retailerId;
+        storeId = store.id;
+      } else if (input.storeName) {
+        if (!retailerId) throw new Error('RECEIPT_STORE_RETAILER_REQUIRED');
+        const existingStore = this.#database.prepare(`
+          SELECT id FROM stores WHERE retailer_id = ? AND name = ? COLLATE NOCASE ORDER BY id LIMIT 1
+        `).get(retailerId, input.storeName) as { id: string } | undefined;
+        storeId = existingStore?.id ?? createId('store');
+        if (!existingStore) {
+          this.#database.prepare('INSERT INTO stores(id, retailer_id, name, created_at) VALUES (?, ?, ?, ?)')
+            .run(storeId, retailerId, input.storeName, timestamp);
+        }
+      }
+      if (!storeId) throw new Error('RECEIPT_STORE_REQUIRED');
+      this.#database.prepare('INSERT INTO receipts(id, retailer_id, store_id, status, currency, declared_total_minor, import_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(receiptId, retailerId, storeId, 'confirmed', 'EUR', input.declaredTotalMinor, input.importKey, timestamp, timestamp);
       for (const [position, capture] of (input.captures ?? []).entries()) {
         this.#database.prepare('INSERT INTO receipt_captures(id, receipt_id, position, storage_key, content_hash, mime_type, original_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(createId('capture'), receiptId, position, capture.storageKey, capture.contentHash ?? null, capture.mimeType, capture.originalName ?? null, timestamp);
       }

@@ -194,3 +194,29 @@ test('receipt line calculation endpoint returns the domain-derived total and rej
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('product creation accepts omitted optional strings but rejects null optional strings', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-catalog-optional-contract-'));
+  const server = new BasketraServer(createConfig(root));
+  await server.listen();
+  const address = server.address();
+  const baseUrl = `http://${address.host}:${address.port}`;
+
+  try {
+    const omitted = await jsonRequest(baseUrl, '/api/v1/products', {
+      method: 'POST',
+      body: { canonicalName: 'Arroz', variantName: 'Arroz largo' },
+    });
+    assert.equal(omitted.status, 201);
+
+    const nullOptional = await jsonRequest(baseUrl, '/api/v1/products', {
+      method: 'POST',
+      body: { canonicalName: 'Arroz', variantName: 'Arroz largo', brand: null },
+    });
+    assert.equal(nullOptional.status, 400);
+    assert.equal(expectRecord(nullOptional.body?.['error'])['code'], 'VALIDATION_ERROR');
+  } finally {
+    await server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

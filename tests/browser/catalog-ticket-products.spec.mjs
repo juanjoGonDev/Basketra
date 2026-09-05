@@ -8,6 +8,29 @@ async function expectNoHorizontalOverflow(page) {
   expect(dimensions.page).toBeLessThanOrEqual(dimensions.viewport);
 }
 
+const catalogProduct = {
+  id: 'variant_receipt_demo',
+  canonicalProductId: 'product_receipt_demo',
+  canonicalName: 'Bebida coco 0% A',
+  variantName: 'Bebida coco 0% A',
+  aliases: [],
+  retailerNames: [{
+    listingId: 'listing_receipt_demo',
+    retailerId: 'retailer_alcampo',
+    retailerName: 'Alcampo',
+    title: 'BEBIDA COCO 0% A',
+  }],
+  latestPrices: [{
+    retailerId: 'retailer_alcampo',
+    retailerName: 'Alcampo',
+    priceMinor: 88,
+    observedAt: '2026-09-01T12:00:00.000Z',
+    confidence: 1,
+  }],
+  createdAt: '2026-09-01T12:00:00.000Z',
+  updatedAt: '2026-09-01T12:00:00.000Z',
+};
+
 test('ticket-derived catalog shows retailer prices on desktop', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.route('**/api/v1/catalog?*', route => route.fulfill({
@@ -15,29 +38,9 @@ test('ticket-derived catalog shows retailer prices on desktop', async ({ page },
     contentType: 'application/json',
     body: JSON.stringify({
       catalog: {
-        products: [{
-          id: 'variant_receipt_demo',
-          canonicalProductId: 'product_receipt_demo',
-          canonicalName: 'Bebida coco 0% A',
-          variantName: 'Bebida coco 0% A',
-          aliases: [],
-          retailerNames: [{
-            listingId: 'listing_receipt_demo',
-            retailerId: 'retailer_alcampo',
-            retailerName: 'Alcampo',
-            title: 'BEBIDA COCO 0% A',
-          }],
-          latestPrices: [{
-            retailerId: 'retailer_alcampo',
-            retailerName: 'Alcampo',
-            priceMinor: 88,
-            observedAt: '2026-09-01T12:00:00.000Z',
-            confidence: 1,
-          }],
-          createdAt: '2026-09-01T12:00:00.000Z',
-          updatedAt: '2026-09-01T12:00:00.000Z',
-        }],
+        products: [catalogProduct],
         parents: [{ id: 'product_receipt_demo', name: 'Bebida coco 0% A', variantCount: 1 }],
+        total: 1,
         offset: 0,
         limit: 50,
         hasMore: false,
@@ -45,11 +48,18 @@ test('ticket-derived catalog shows retailer prices on desktop', async ({ page },
     }),
   }));
 
-  await page.goto('/#home');
-  await page.getByRole('button', { name: /Catálogo de productos/i }).click();
-  await expect(page.getByRole('heading', { name: 'Catálogo de productos', exact: true })).toBeVisible();
-  const row = page.getByRole('button', { name: /Bebida coco 0% A/ });
-  await expect(row).toContainText('Alcampo: 0,88');
+  await page.route('**/api/v1/products/variant_receipt_demo', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ product: catalogProduct, priceHistory: [] }),
+  }));
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Inventario', exact: true }).first().click();
+  await page.locator('.view[data-view="inventory"]').getByRole('button', { name: 'Productos', exact: true }).first().click();
+  await expect(page.getByRole('heading', { name: 'Productos', exact: true })).toBeVisible();
+  const row = page.locator('[data-catalog-product-id="variant_receipt_demo"]');
+  await expect(row).toContainText('0,88');
   await row.click();
   await expect(page.locator('#catalog-latest-prices')).toContainText('Alcampo');
   await expect(page.locator('#catalog-latest-prices')).toContainText('0,88');

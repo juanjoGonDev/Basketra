@@ -29,6 +29,7 @@ export function parseReceiptConfirmation(value: unknown): Readonly<{
   total: ReturnType<typeof validateReceiptTotal>;
 }> {
   const root = asRecord(value);
+  if (root['storeID'] !== undefined) throw new RangeError('$.storeID is invalid; use $.storeId');
   const declaredTotalMinor = asSafeInteger(root['declaredTotalMinor'], '$.declaredTotalMinor', { min: 0 });
   const items = asArray(root['items'], '$.items', 500).map((entry, index) => {
     const path = `$.items[${index}]`;
@@ -92,6 +93,12 @@ export function parseReceiptConfirmation(value: unknown): Readonly<{
   const retailerName = root['retailerName'] === undefined || root['retailerName'] === null || root['retailerName'] === ''
     ? undefined
     : asString(root['retailerName'], '$.retailerName', { min: 1, max: 120 });
+  const storeId = root['storeId'] === undefined || root['storeId'] === null || root['storeId'] === ''
+    ? undefined
+    : asString(root['storeId'], '$.storeId', { min: 1, max: 128 });
+  const storeName = root['storeName'] === undefined || root['storeName'] === null || root['storeName'] === ''
+    ? undefined
+    : asString(root['storeName'], '$.storeName', { min: 1, max: 160 });
   return {
     input: {
       importKey: asString(root['importKey'], '$.importKey', { min: 8, max: 128 }),
@@ -99,6 +106,8 @@ export function parseReceiptConfirmation(value: unknown): Readonly<{
       originalText: asString(root['originalText'], '$.originalText', { min: 1, max: 500_000 }),
       provider,
       ...(retailerName ? { retailerName } : {}),
+      ...(storeId ? { storeId } : {}),
+      ...(storeName ? { storeName } : {}),
       deterministic: root['deterministic'] ?? items,
       ...(root['ai'] === undefined ? {} : { ai: root['ai'] }),
       ...(captures ? { captures } : {}),

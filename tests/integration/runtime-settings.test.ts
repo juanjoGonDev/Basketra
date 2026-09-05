@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BasketraDatabase } from '../../src/infrastructure/database.ts';
+import { BasketraDatabase, CURRENT_SCHEMA_VERSION } from '../../src/infrastructure/database.ts';
 import {
   DEFAULT_RUNTIME_SETTINGS,
   RuntimeSettingsStore,
@@ -11,6 +11,7 @@ import {
 } from '../../src/infrastructure/runtime-settings.ts';
 
 const TEST_API_CREDENTIAL = ['fixture', 'credential', '1234'].join('-');
+const RUNTIME_SETTINGS_MIGRATION_VERSION = 8;
 
 test('runtime settings migrate with the main database and expose deterministic defaults', () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-runtime-settings-'));
@@ -19,6 +20,7 @@ test('runtime settings migrate with the main database and expose deterministic d
   database.close();
   const store = new RuntimeSettingsStore(databasePath);
   try {
+    assert.ok(CURRENT_SCHEMA_VERSION >= RUNTIME_SETTINGS_MIGRATION_VERSION);
     assert.deepEqual(
       { ...store.read(), updatedAt: '<timestamp>' },
       {

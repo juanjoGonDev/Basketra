@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { fillRequiredReceiptStore } from './helpers/receipt-store.mjs';
 
 const validPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8//8/AwMDEwMDAwMDAwAkBgMB/DXemwAAAABJRU5ErkJggg==', 'base64');
 
@@ -162,7 +163,7 @@ test('mobile PWA loads with private-network messaging and touch-safe navigation'
   await expect(page.locator('.bottom-nav button')).toHaveCount(5);
   const heights = await page.locator('button:visible').evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().height));
   expect(heights.every(height => height >= 44)).toBeTruthy();
-  for (const destination of ['Inicio', 'Listas', 'Tickets', 'Planes', 'Ajustes']) {
+  for (const destination of ['Inicio', 'Listas', 'Tickets', 'Inventario', 'Ajustes']) {
     await navigate(page, destination);
     await expectNoHorizontalOverflow(page);
   }
@@ -229,9 +230,10 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await page.locator('#delete-item-dialog').getByRole('button', { name: 'Eliminar producto', exact: true }).click();
   await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
 
+  const listPath = new URL(page.url()).pathname;
+  expect(listPath).toMatch(/^\/lists\/[^/]+$/u);
   await page.reload();
-  await navigate(page, 'Listas');
-  await page.locator('[data-list-action="open"]').filter({ hasText: 'Compra completa' }).click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe(listPath);
   await expect(page.locator('#active-list-title')).toHaveText('Compra completa');
   await expect(page.locator('#pending-items')).toContainText('Leche semidesnatada 1 L');
   await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
@@ -239,6 +241,7 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await page.locator('#list-menu').click();
   await page.getByRole('button', { name: 'Eliminar lista', exact: true }).click();
   await page.locator('#delete-list-dialog').getByRole('button', { name: 'Eliminar lista', exact: true }).click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/lists');
   await expect(page.locator('#list-cards')).toContainText('Tu primera lista empieza aquí');
   await expectNoHorizontalOverflow(page);
   expect(failures).toEqual([]);
@@ -339,6 +342,7 @@ test('automatic local OCR creates editable euro rows with source context and imp
   await page.getByLabel('Total declarado (€)').fill('1.40');
   await page.getByRole('button', { name: 'Validar líneas e importes', exact: true }).click();
   await expect(page.locator('#receipt-state')).toContainText('Líneas y total validados');
+  await fillRequiredReceiptStore(page);
 
   await page.locator('#confirm-receipt').click();
   await expect(page.locator('#receipt-state')).toContainText('Ticket importado');
@@ -373,22 +377,6 @@ test('automatic local OCR failure preserves captures and supports per-image retr
   await expect(page.locator('#receipt-state')).toContainText('Todas las imágenes están combinadas');
   await expect(page.locator('.receipt-item')).toHaveCount(1);
   await expect(page.locator('#capture-list li')).toHaveCount(1);
-  expect(failures).toEqual([]);
-});
-
-test('comparison renders all deterministic plans in euros', async ({ page }) => {
-  const failures = await gotoApp(page);
-  await navigate(page, 'Planes');
-  await page.getByRole('button', { name: 'Generar ejemplo verificable', exact: true }).click();
-  await page.getByRole('tab', { name: 'Comparativa', exact: true }).click();
-  const rows = page.locator('.plan-comparison-row');
-  await expect(rows).toHaveCount(3);
-  await expect(rows.filter({ hasText: 'Un solo comercio' })).toBeVisible();
-  await expect(rows.filter({ hasText: 'Equilibrio recomendado' })).toBeVisible();
-  await expect(rows.filter({ hasText: 'Máximo ahorro' })).toBeVisible();
-  await expect(rows.first()).toContainText('€');
-  await expect(page.getByText(/cént\./i)).toHaveCount(0);
-  await expectNoHorizontalOverflow(page);
   expect(failures).toEqual([]);
 });
 

@@ -21,6 +21,8 @@ import { parseReceiptLineDiscount, validateReceiptLine, validateReceiptTotal, ty
 import { ApiError, mapError } from './errors.ts';
 import { handleCatalogManagementRequest } from './catalog-management.ts';
 import { handleReceiptCalculationRequest } from './receipt-calculation.ts';
+import { STATIC_ASSETS } from './static-assets.ts';
+import { isApplicationPath } from '../web/routes.js';
 import { OpenAiCompatibleProvider } from '../ai/provider.ts';
 import { StructuredAiExecutor, type RuntimeSchema } from '../ai/structured-executor.ts';
 import { ReceiptDurableJobStore } from '../receipts/durable-job-store.ts';
@@ -40,33 +42,6 @@ import { OverpassClient } from '../stores/overpass.ts';
 const STOCK_VALUES = ['in-stock', 'out-of-stock', 'unknown'] as const;
 const OSM_TYPES = ['node', 'way', 'relation'] as const;
 const PRICE_EVIDENCE_TYPES = ['manual', 'product-photo'] as const;
-const STATIC_ASSETS = new Set([
-  'index.html',
-  'app.js',
-  'api.js',
-  'catalog.js',
-  'catalog.css',
-  'operations.js',
-  'operations.css',
-  'state.js',
-  'lists.js',
-  'receipts.js',
-  'receipt-state.js',
-  'receipt-capture.js',
-  'receipt-lifecycle.js',
-  'receipt-processing.js',
-  'receipt-review.js',
-  'receipt-review.css',
-  'receipt-editor-invoice.js',
-  'receipt-editor-invoice.css',
-  'receipt-ai-recovery.js',
-  'ui.js',
-  'styles.css',
-  'modern.css',
-  'manifest.webmanifest',
-  'sw.js',
-  'icon.svg',
-]);
 const RECEIPT_EXTRACTION_JOB_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 export type AppDiagnostics = Readonly<{
@@ -685,7 +660,11 @@ export class BasketraServer {
   private getProduct(response: ServerResponse, variantId: string): void {
     const product = this.#database.getProductVariant(variantId);
     if (!product) throw new ApiError(404, 'PRODUCT_VARIANT_NOT_FOUND', 'Product variant was not found');
-    this.json(response, 200, { product, priceHistory: this.#database.listPriceObservations(variantId) });
+    this.json(response, 200, {
+      product,
+      priceHistory: this.#database.listPriceObservations(variantId),
+      ticketHistory: this.#database.listProductTicketHistory(variantId),
+    });
   }
 
   private async updateProduct(request: IncomingMessage, response: ServerResponse, variantId: string): Promise<void> {
@@ -1151,7 +1130,7 @@ export class BasketraServer {
   }
 
   private serveStatic(response: ServerResponse, pathname: string): void {
-    const requested = pathname === '/' ? 'index.html' : pathname.slice(1);
+    const requested = isApplicationPath(pathname) ? 'index.html' : pathname.slice(1);
     if (!STATIC_ASSETS.has(requested)) throw new ApiError(404, 'NOT_FOUND', 'Resource was not found');
     const file = join(this.#publicDir, requested);
     if (!existsSync(file)) throw new ApiError(404, 'NOT_FOUND', 'Resource was not found');

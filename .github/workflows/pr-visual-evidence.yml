@@ -189,6 +189,32 @@ jobs:
               "evidence-assets/$slug.gif"
           }
 
+          find_unique_capture() {
+            source=$1
+            mapfile -t matches < <(find downloaded/test-results -type f -name "$source" -print)
+            if [ "${#matches[@]}" -ne 1 ]; then
+              echo "Expected exactly one Playwright capture named '$source', found ${#matches[@]}:" >&2
+              printf '  %s\n' "${matches[@]}" >&2
+              exit 1
+            fi
+            printf '%s\n' "${matches[0]}"
+          }
+
+          prepare_unique_flow() {
+            screenshot=$1
+            slug=$2
+            capture=$(find_unique_capture "$screenshot")
+            directory=$(dirname "$capture")
+            test -f "$directory/video.webm"
+
+            cp "$capture" "evidence-assets/$slug.png"
+            cp "$directory/video.webm" "evidence-assets/$slug.webm"
+            ffmpeg -hide_banner -loglevel error -y -t 12 \
+              -i "$directory/video.webm" \
+              -vf "fps=6,scale=360:-2:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=96[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5" \
+              "evidence-assets/$slug.gif"
+          }
+
           copy_flow_capture() {
             needle=$1
             source=$2
@@ -198,18 +224,24 @@ jobs:
             cp "$directory/$source" "evidence-assets/$target"
           }
 
+          copy_unique_capture() {
+            source=$1
+            target=$2
+            capture=$(find_unique_capture "$source")
+            cp "$capture" "evidence-assets/$target"
+          }
+
           prepare_flow mobile-PWA-loads 01-mobile-navigation
           prepare_flow shopping-lists-su 02-shopping-list-lifecycle swipe-reveal.png
           prepare_flow local-suggestions 03-stale-suggestions
           prepare_flow imports-without-AI 04-local-ocr-editable-rows swipe-reveal.png
           prepare_flow supports-per-image-retry 05-local-ocr-manual-recovery
-          prepare_flow comparison-renders 06-comparison-plans
           prepare_flow AI-unavailability 07-ai-unavailable-recovery
           prepare_flow offline-shell 08-offline-keyboard
           prepare_flow operations-settings-show-l 09-runtime-operations runtime-backups-logs.png
           prepare_flow operations-network-heartbe 10-vpn-recovery vpn-reconnected.png
           prepare_flow mobile-settings-receipts-s 11-responsive-settings settings-dark-430.png
-          prepare_flow retailer-autofill 12-ocr-retailer retailer-confirmed.png
+          prepare_unique_flow retailer-confirmed.png 12-ocr-retailer
 
           copy_flow_capture shopping-lists-su swipe-delete.png 02-shopping-list-full-delete.png
           copy_flow_capture imports-without-AI swipe-delete.png 04-local-ocr-full-delete.png
@@ -218,7 +250,7 @@ jobs:
           copy_flow_capture mobile-settings-receipts-s settings-light-390.png 11-settings-light-390.png
           copy_flow_capture mobile-settings-receipts-s settings-light-768.png 11-settings-light-768.png
           copy_flow_capture receipt-auto-review-flow-r test-finished-1.png 12-auto-ocr-review.png
-          copy_flow_capture catalog-management-saved-c catalog-mobile.png 13-catalog-management.png
+          copy_unique_capture catalog-mobile.png 13-catalog-management.png
           copy_flow_capture semantic-output percentage-editor.png 14-discount-percentage.png
           copy_flow_capture latest-result-is-valid calculation-error.png 14-discount-error.png
           copy_flow_capture visible-for-manual-review ambiguous-discount.png 14-discount-ambiguous.png
@@ -231,9 +263,23 @@ jobs:
           copy_flow_capture invoice-editor-mobile invoice-editor-mobile.png 15-invoice-editor-mobile.png
           copy_flow_capture invoice-editor-error invoice-editor-calculation-error.png 15-invoice-editor-error.png
 
-          test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 31
-          test "$(find evidence-assets -maxdepth 1 -type f -name '*.gif' | wc -l)" -eq 12
-          test "$(find evidence-assets -maxdepth 1 -type f -name '*.webm' | wc -l)" -eq 12
+          copy_unique_capture inventory-mobile.png 20-inventory-overview-mobile.png
+          copy_unique_capture inventory-desktop.png 20-inventory-overview-desktop.png
+          copy_unique_capture catalog-product-list-desktop.png 21-product-list-desktop.png
+          copy_unique_capture catalog-product-detail-desktop.png 22-product-detail-desktop.png
+          copy_unique_capture inventory-product-editor-mobile.png 22-product-editor-mobile.png
+          copy_unique_capture inventory-product-delete-mobile.png 22-product-delete-mobile.png
+          copy_unique_capture categories-mobile.png 23-categories-mobile.png
+          copy_unique_capture categories-desktop.png 23-categories-desktop.png
+          copy_unique_capture stores-mobile.png 24-stores-mobile.png
+          copy_unique_capture inventory-statistics-desktop.png 24-statistics-desktop.png
+          copy_unique_capture ticket-history-mobile.png 25-ticket-history-mobile.png
+          copy_unique_capture ticket-history-desktop.png 25-ticket-history-desktop.png
+          copy_unique_capture ticket-editor-desktop.png 25-ticket-editor-desktop.png
+
+          test "$(find evidence-assets -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 43
+          test "$(find evidence-assets -maxdepth 1 -type f -name '*.gif' | wc -l)" -eq 11
+          test "$(find evidence-assets -maxdepth 1 -type f -name '*.webm' | wc -l)" -eq 11
 
           while IFS= read -r file; do
             test "$(stat -c %s "$file")" -le 25000000
@@ -280,6 +326,7 @@ jobs:
           fi
 
           base="https://github.com/$REPOSITORY/releases/download/$EVIDENCE_TAG"
+          reference_base="https://raw.githubusercontent.com/$REPOSITORY/$HEAD_SHA/.agents/specs/assets/2026-09-02-professional-inventory"
           run_url="https://github.com/$REPOSITORY/actions/runs/$RUN_ID"
 
           cat > comment.md <<EOF
@@ -287,6 +334,41 @@ jobs:
           ## Visual evidence
 
           Generated from final head \`$HEAD_SHA\` after the [successful browser workflow]($run_url). The media is temporary, directly viewable and is not committed to the repository.
+
+          ### Professional Inventory and Ticket History parity
+
+          The left column is the approved normative reference committed in this exact head. The right column is Browser E2E evidence generated from the same head. References are not regenerated or modified by this workflow.
+
+          <table>
+          <tr>
+          <th>Approved reference</th>
+          <th>Validated implementation</th>
+          </tr>
+          <tr>
+          <td><strong>01 · Inventory overview</strong><br><img src="$reference_base/01-inventory-overview.png" width="420" alt="Approved Inventory overview reference"></td>
+          <td><strong>Desktop</strong><br><img src="$base/20-inventory-overview-desktop.png" width="420" alt="Validated Inventory overview desktop"><br><strong>Mobile</strong><br><img src="$base/20-inventory-overview-mobile.png" width="240" alt="Validated Inventory overview mobile"></td>
+          </tr>
+          <tr>
+          <td><strong>02 · Product list</strong><br><img src="$reference_base/02-product-list.png" width="420" alt="Approved product list reference"></td>
+          <td><img src="$base/21-product-list-desktop.png" width="420" alt="Validated product list desktop"></td>
+          </tr>
+          <tr>
+          <td><strong>03 · Product detail, editor and delete</strong><br><img src="$reference_base/03-product-detail-editor-delete.png" width="420" alt="Approved product detail editor and delete reference"></td>
+          <td><strong>Full detail + price history · desktop</strong><br><img src="$base/22-product-detail-desktop.png" width="420" alt="Validated full-page product detail with accessible price history"><br><strong>Editor · mobile</strong><br><img src="$base/22-product-editor-mobile.png" width="240" alt="Validated product editor mobile"><br><strong>Dependency-aware delete</strong><br><img src="$base/22-product-delete-mobile.png" width="240" alt="Validated product delete impact mobile"></td>
+          </tr>
+          <tr>
+          <td><strong>04 · Category management</strong><br><img src="$reference_base/04-category-management.png" width="420" alt="Approved category management reference"></td>
+          <td><strong>Desktop</strong><br><img src="$base/23-categories-desktop.png" width="420" alt="Validated categories desktop"><br><strong>Mobile</strong><br><img src="$base/23-categories-mobile.png" width="240" alt="Validated categories mobile"></td>
+          </tr>
+          <tr>
+          <td><strong>05 · Stores and Statistics</strong><br><img src="$reference_base/05-stores-statistics.png" width="420" alt="Approved stores and statistics reference"></td>
+          <td><strong>Stores · mobile</strong><br><img src="$base/24-stores-mobile.png" width="240" alt="Validated stores mobile"><br><strong>Statistics · desktop</strong><br><img src="$base/24-statistics-desktop.png" width="420" alt="Validated statistics desktop"></td>
+          </tr>
+          <tr>
+          <td><strong>06 · Ticket history and editor</strong><br><img src="$reference_base/06-ticket-history-editor.png" width="420" alt="Approved ticket history and editor reference"></td>
+          <td><strong>History · desktop</strong><br><img src="$base/25-ticket-history-desktop.png" width="420" alt="Validated ticket history desktop"><br><strong>Editor · desktop</strong><br><img src="$base/25-ticket-editor-desktop.png" width="420" alt="Validated historical ticket editor desktop"><br><strong>History · mobile</strong><br><img src="$base/25-ticket-history-mobile.png" width="240" alt="Validated ticket history mobile"></td>
+          </tr>
+          </table>
 
           ### Catalog management
 
@@ -398,11 +480,10 @@ jobs:
           </tr>
           <tr>
           <td><strong>OCR failure and manual recovery</strong><br><img src="$base/05-local-ocr-manual-recovery.png" width="280" alt="Basketra OCR failure and manual euro-row recovery"></td>
-          <td><strong>Comparison plans</strong><br><img src="$base/06-comparison-plans.png" width="280" alt="Basketra comparison plans"></td>
+          <td><strong>AI unavailable</strong><br><img src="$base/07-ai-unavailable-recovery.png" width="280" alt="Basketra AI unavailable recovery"></td>
           </tr>
           <tr>
-          <td><strong>AI unavailable</strong><br><img src="$base/07-ai-unavailable-recovery.png" width="280" alt="Basketra AI unavailable recovery"></td>
-          <td><strong>Offline and keyboard</strong><br><img src="$base/08-offline-keyboard.png" width="280" alt="Basketra offline and keyboard behavior"></td>
+          <td colspan="2"><strong>Offline and keyboard</strong><br><img src="$base/08-offline-keyboard.png" width="280" alt="Basketra offline and keyboard behavior"></td>
           </tr>
           </table>
 

@@ -12,6 +12,10 @@ const COVERAGE_DIRECTORY = resolve('.coverage/browser');
 const SOURCE_BY_PATHNAME = new Map([
   ['/operations.js', 'src/web/operations.js'],
   ['/receipts.js', 'src/web/receipts.js'],
+  ['/app.js', 'src/web/app.js'],
+  ['/catalog.js', 'src/web/catalog.js'],
+  ['/inventory.js', 'src/web/inventory.js'],
+  ['/ui.js', 'src/web/ui.js'],
 ]);
 const includes = [...SOURCE_BY_PATHNAME.values()];
 

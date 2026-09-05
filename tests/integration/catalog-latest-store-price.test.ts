@@ -45,3 +45,38 @@ test('catalog latest prices preserve physical store identity when the observatio
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+
+test('product price history is bounded, chronological and includes readable store identity', () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-catalog-price-history-'));
+  const database = new BasketraDatabase(join(root, 'basketra.db'));
+  try {
+    const product = database.createProduct({ canonicalName: 'Yogur', variantName: 'Yogur natural' });
+    const store = database.saveStore({ retailerName: 'Mercado', name: 'Mercado Centro' });
+    for (let index = 0; index < 185; index += 1) {
+      database.confirmPriceObservation({
+        productVariantId: product.id,
+        retailerName: 'Mercado',
+        storeId: store.id,
+        priceMinor: 100 + index,
+        packageNumerator: 1,
+        packageDenominator: 1,
+        packageUnit: 'unit',
+        observedAt: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(),
+        confidence: 1,
+        evidence: { sourceType: 'manual', sourceReference: `history-${index}` },
+      });
+    }
+
+    const history = database.listPriceObservations(product.id);
+    assert.equal(history.length, 180);
+    assert.equal(history[0]?.priceMinor, 284);
+    assert.equal(history.at(-1)?.priceMinor, 105);
+    assert.equal(history[0]?.retailerName, 'Mercado');
+    assert.equal(history[0]?.storeName, 'Mercado Centro');
+    assert.ok(new Date(history[0]!.observedAt).getTime() > new Date(history.at(-1)!.observedAt).getTime());
+  } finally {
+    database.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

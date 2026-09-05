@@ -18,8 +18,97 @@ function ensureInvoiceEditorStylesheet() {
   document.head.append(link);
 }
 
+export function createReceiptInvoiceLineDialog({
+  id,
+  titleId,
+  title,
+  closeId,
+  slotId,
+  stateId,
+  contentId = '',
+  contentTag = 'div',
+  className = '',
+  actions = [],
+}) {
+  const dialog = document.createElement('dialog');
+  dialog.id = id;
+  dialog.className = ['sheet-dialog', 'receipt-line-dialog', className].filter(Boolean).join(' ');
+  dialog.setAttribute('aria-labelledby', titleId);
+
+  const content = document.createElement(contentTag);
+  content.className = 'dialog-content';
+  if (contentId) content.id = contentId;
+
+  const header = document.createElement('div');
+  header.className = 'dialog-header';
+  const copy = document.createElement('div');
+  const eyebrow = document.createElement('p');
+  eyebrow.className = 'eyebrow';
+  eyebrow.textContent = 'Línea del ticket';
+  const heading = document.createElement('h2');
+  heading.id = titleId;
+  heading.textContent = title;
+  copy.append(eyebrow, heading);
+
+  const close = document.createElement('button');
+  close.id = closeId;
+  close.className = 'icon-button';
+  close.type = 'button';
+  close.dataset.editorAction = 'close';
+  close.setAttribute('aria-label', 'Cerrar editor');
+  const closeIcon = document.createElement('span');
+  closeIcon.dataset.icon = 'close';
+  close.append(closeIcon);
+  header.append(copy, close);
+
+  const slot = document.createElement('div');
+  slot.id = slotId;
+  slot.dataset.editorSlot = 'true';
+
+  const state = stateId ? document.createElement('p') : null;
+  if (state) {
+    state.id = stateId;
+    state.className = 'inline-status';
+    state.setAttribute('role', 'alert');
+    state.setAttribute('aria-live', 'assertive');
+  }
+
+  const actionBar = document.createElement('div');
+  actionBar.className = 'dialog-actions receipt-line-editor-actions';
+  actionBar.dataset.editorActions = 'true';
+  for (const action of actions) {
+    const button = document.createElement('button');
+    button.id = action.id;
+    button.className = action.className;
+    button.type = action.type ?? 'button';
+    if (action.editorAction) button.dataset.editorAction = action.editorAction;
+    if (action.icon) {
+      const icon = document.createElement('span');
+      icon.dataset.icon = action.icon;
+      button.append(icon);
+    }
+    button.append(document.createTextNode(action.label));
+    actionBar.append(button);
+  }
+
+  content.append(header, slot);
+  if (state) content.append(state);
+  content.append(actionBar);
+  dialog.append(content);
+  hydrateIcons(dialog);
+  return dialog;
+}
+
 function editorItem(dialog) {
-  return dialog?.querySelector('.receipt-item--editing, #receipt-line-editor-slot .receipt-item') || null;
+  return dialog?.querySelector('[data-receipt-line-editor], .receipt-item--editing, #receipt-line-editor-slot .receipt-item') || null;
+}
+
+function editorSlot(dialog) {
+  return dialog?.querySelector('[data-editor-slot], #receipt-line-editor-slot') || null;
+}
+
+function editorAction(dialog, name) {
+  return dialog?.querySelector(`[data-editor-action="${name}"], #${name}-receipt-line-editor`) || null;
 }
 
 function sectionHeading(step, title, iconName) {
@@ -96,13 +185,14 @@ function createSummaryStatus() {
   return slot;
 }
 
-function createSummary() {
+function createSummary(item) {
+  const summaryTitleId = `${item.closest('dialog')?.id || DIALOG_ID}-summary-title`;
   const summary = document.createElement('aside');
   summary.className = 'receipt-line-editor-summary';
-  summary.setAttribute('aria-labelledby', 'receipt-line-editor-summary-title');
+  summary.setAttribute('aria-labelledby', summaryTitleId);
 
   const heading = document.createElement('h3');
-  heading.id = 'receipt-line-editor-summary-title';
+  heading.id = summaryTitleId;
   heading.textContent = 'Resumen';
 
   const values = document.createElement('dl');
@@ -126,13 +216,15 @@ function editorHeaderValidation(dialog) {
   status.className = 'status-pill receipt-line-dialog__validation';
   status.dataset.editorValidation = 'true';
   status.setAttribute('role', 'status');
-  const closeButton = header.querySelector('#close-receipt-line-editor');
+  const closeButton = editorAction(dialog, 'close');
   if (closeButton) header.insertBefore(status, closeButton);
   else header.append(status);
   return status;
 }
 
 function validationState(item) {
+  if (item.dataset.editorValidation === 'confirmed') return true;
+  if (item.dataset.editorValidation === 'review') return false;
   const canonical = item.querySelector('.receipt-item__legend-actions .status-pill');
   return canonical?.classList.contains('success') || canonical?.dataset.receiptValidation === 'confirmed';
 }
@@ -324,7 +416,7 @@ function syncSummary(item) {
   const discount = summary.querySelector('[data-editor-summary-discount]');
   const total = summary.querySelector('[data-editor-summary-total]');
   const validation = summary.querySelector('[data-editor-summary-validation]');
-  const dialog = item.closest(`#${DIALOG_ID}`);
+  const dialog = item.closest('dialog.receipt-invoice-dialog');
   copyValidationState(item, validation, true);
   copyValidationState(item, editorHeaderValidation(dialog));
   syncPresentationControls(item);
@@ -361,7 +453,7 @@ function syncCalculationSummaryState(dialog, item) {
     return;
   }
 
-  const save = dialog.querySelector('#save-receipt-line-editor');
+  const save = editorAction(dialog, 'save');
   if (save?.dataset.receiptCalculationDisabled === 'true') {
     setSummaryState(summary, 'error');
     return;
@@ -401,12 +493,14 @@ function ensureItemLayout(item) {
   }
 
   const description = item.querySelector('[data-field="description"]');
-  const quantityRow = item.querySelector('.quantity-row');
   const quantity = item.querySelector('[data-field="quantity"]');
   const unitPrice = item.querySelector('[data-field="unitPriceEuro"]');
   const discountType = item.querySelector('[data-field="discountType"]');
+  const detailRow = quantity?.closest('.quantity-row');
+  const discountRow = discountType?.closest('.quantity-row');
   if (!(description instanceof HTMLInputElement)
-    || !(quantityRow instanceof HTMLElement)
+    || !(detailRow instanceof HTMLElement)
+    || !(discountRow instanceof HTMLElement)
     || !(quantity instanceof HTMLInputElement)
     || !(unitPrice instanceof HTMLInputElement)
     || !(discountType instanceof HTMLSelectElement)) return;
@@ -416,9 +510,9 @@ function ensureItemLayout(item) {
   if (!descriptionLabel || !discountTypeLabel) return;
 
   descriptionLabel.before(sectionHeading(1, 'Producto', 'package'));
-  quantityRow.insertBefore(sectionHeading(2, 'Detalle de compra', 'cart'), quantityRow.firstChild);
-  quantityRow.insertBefore(sectionHeading(3, 'Descuento', 'tag'), discountTypeLabel);
-  quantityRow.insertAdjacentElement('afterend', createSummary());
+  detailRow.insertBefore(sectionHeading(2, 'Detalle de compra', 'cart'), detailRow.firstChild);
+  discountRow.insertBefore(sectionHeading(3, 'Descuento', 'tag'), discountTypeLabel);
+  detailRow.insertAdjacentElement('afterend', createSummary(item));
   item.classList.add('receipt-line-editor-layout');
   item.dataset.invoiceEditorLayout = 'true';
   syncPresentationControls(item);
@@ -440,18 +534,26 @@ function schedulePresentationSync(dialog) {
   });
 }
 
-function enhanceDialog(dialog) {
+export function refreshReceiptInvoiceEditor(dialog) {
+  const item = prepareEditorItem(dialog);
+  if (item) syncCalculationSummaryState(dialog, item);
+}
+
+export function enhanceReceiptInvoiceEditor(dialog) {
   if (!(dialog instanceof HTMLDialogElement)) return;
-  if (dialog.dataset.invoiceEditorUi === 'true') return;
+  if (dialog.dataset.invoiceEditorUi === 'true') {
+    refreshReceiptInvoiceEditor(dialog);
+    return;
+  }
   dialog.dataset.invoiceEditorUi = 'true';
   dialog.classList.add('receipt-invoice-dialog');
   dialog.querySelector('.dialog-content')?.classList.add('receipt-invoice-dialog__content');
   dialog.querySelector('.dialog-header')?.classList.add('receipt-invoice-dialog__header');
-  dialog.querySelector('#receipt-line-editor-slot')?.classList.add('receipt-invoice-dialog__slot');
-  dialog.querySelector('.receipt-line-editor-actions')?.classList.add('receipt-invoice-dialog__actions');
+  editorSlot(dialog)?.classList.add('receipt-invoice-dialog__slot');
+  dialog.querySelector('[data-editor-actions], .receipt-line-editor-actions')?.classList.add('receipt-invoice-dialog__actions');
   editorHeaderValidation(dialog);
 
-  const slot = dialog.querySelector('#receipt-line-editor-slot');
+  const slot = editorSlot(dialog);
   if (slot) {
     new MutationObserver(() => prepareEditorItem(dialog)).observe(slot, { childList: true });
   }
@@ -473,23 +575,23 @@ function enhanceDialog(dialog) {
     if (item && event.target?.matches?.(EDITOR_CALCULATION_FIELD_SELECTOR)) markSummaryPending(item);
   });
 
-  prepareEditorItem(dialog);
+  refreshReceiptInvoiceEditor(dialog);
 }
 
 function installInvoiceEditor() {
   ensureInvoiceEditorStylesheet();
   const current = document.getElementById(DIALOG_ID);
-  if (current) enhanceDialog(current);
+  if (current) enhanceReceiptInvoiceEditor(current);
   new MutationObserver(records => {
     for (const record of records) {
       for (const node of record.addedNodes) {
         if (!(node instanceof Element)) continue;
         if (node.id === DIALOG_ID) {
-          enhanceDialog(node);
+          enhanceReceiptInvoiceEditor(node);
           continue;
         }
         const nestedDialog = node.querySelector?.(`#${DIALOG_ID}`);
-        if (nestedDialog) enhanceDialog(nestedDialog);
+        if (nestedDialog) enhanceReceiptInvoiceEditor(nestedDialog);
       }
     }
   }).observe(document.body, { childList: true, subtree: true });

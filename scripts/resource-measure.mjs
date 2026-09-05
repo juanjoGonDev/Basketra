@@ -43,6 +43,8 @@ async function exerciseRound(base, round) {
     const body = {
       importKey: `resource-receipt-${index}`,
       originalText: 'Milk',
+      retailerName: 'Resource Retailer',
+      storeName: 'Resource Store',
       declaredTotalMinor: 120,
       items: [{ description: 'Milk', quantity: 1, unitPriceMinor: 120, lineTotalMinor: 120 }],
     };

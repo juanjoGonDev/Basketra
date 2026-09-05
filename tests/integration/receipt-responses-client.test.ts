@@ -19,7 +19,7 @@ const interpretation = {
   warnings: [],
 };
 
-test('durable receipt responses send binary multipart with category context and parse terminal output', async () => {
+test('durable receipt responses send binary multipart and parse terminal output', async () => {
   const requests: Array<Readonly<{
     method: string;
     url: string;
@@ -92,11 +92,6 @@ test('durable receipt responses send binary multipart with category context and 
       attachment,
       pageCount: 1,
       pagePosition: 0,
-      categoryInventory: [{
-        id: 'category_food',
-        name: 'Alimentación',
-        color: '#22AA44',
-      }],
     });
     assert.equal(created.id, 'resp_1234567');
     assert.equal(created.status, 'queued');
@@ -133,10 +128,7 @@ test('durable receipt responses send binary multipart with category context and 
     assert.match(String(body['instructions']), /Keep each warning and unassigned-discount reason within 240 characters/u);
     const input = body['input'] as Array<{ role: string; content: Array<Record<string, unknown>> }>;
     assert.equal(input[0]?.role, 'user');
-    const inputText = String(input[0]?.content[0]?.['text']);
-    assert.match(inputText, /1: ALCAMPO/u);
-    assert.match(inputText, /category_food/u);
-    assert.match(inputText, /Alimentación/u);
+    assert.match(String(input[0]?.content[0]?.['text']), /1: ALCAMPO/u);
     assert.equal(input[0]?.content.length, 1);
     const file = form.get('files');
     assert.ok(file instanceof File);
