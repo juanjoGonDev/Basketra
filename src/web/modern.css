@@ -2320,3 +2320,36 @@ summary {
     grid-template-columns: 1fr;
   }
 }
+
+
+.ticket-item__identity {
+  grid-template-columns: 2.5rem minmax(0, 1fr);
+  align-items: center;
+}
+
+.ticket-item__product-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-container-low);
+  color: var(--color-primary);
+}
+
+.ticket-item__product-icon .icon {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.ticket-item__identity-copy {
+  min-width: 0;
+  display: grid;
+  gap: .1rem;
+}
+
+.ticket-item__identity-copy > strong,
+.ticket-item__identity-copy > small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

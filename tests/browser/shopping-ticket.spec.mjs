@@ -97,6 +97,7 @@ test('shopping ticket estimates by effective Store and converges between devices
   await page.locator('#list-store-select').selectOption(referenceStore.id);
   await expect(page.locator('#estimate-total')).toHaveText(/1,19/);
   const row = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Leche entera 1 L' });
+  await expect(row.locator('.ticket-item__product-icon')).toBeVisible();
   await expect(row).toContainText('Mercado Centro');
 
   await row.locator('[data-item-control="store"]').selectOption(overrideStore.id);
@@ -122,6 +123,10 @@ test('shopping ticket estimates by effective Store and converges between devices
   await page.screenshot({ path: testInfo.outputPath('shopping-ticket-mobile-390.png'), fullPage: true });
   await second.screenshot({ path: testInfo.outputPath('shopping-ticket-mobile-320.png'), fullPage: true });
   await expectNoHorizontalOverflow(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect(page.locator('.shopping-ticket')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({ path: testInfo.outputPath('shopping-ticket-desktop-1280.png'), fullPage: true });
   expect(errors).toEqual([]);
   expect(secondErrors).toEqual([]);
   await second.close();
@@ -203,6 +208,15 @@ test('scan choice routes tickets separately and product photo AI hydrates the ca
   await expect(productDialog.locator('#global-ai-feedback')).toBeVisible();
   await expect(productDialog.locator('#global-product-confidence')).toHaveText('92%');
   await productDialog.screenshot({ path: testInfo.outputPath('product-photo-autofill-form.png') });
+
+  await productDialog.locator('#global-brand').fill('Borrador manual');
+  await productDialog.locator('#global-product-camera').setInputFiles({
+    name: 'milk-again.png',
+    mimeType: 'image/png',
+    buffer: validPng,
+  });
+  await expect(productDialog.locator('#global-product-state')).toContainText('Datos detectados');
+  await expect(productDialog).toBeVisible();
 
   await productDialog.getByRole('button', { name: 'Cancelar', exact: true }).click();
   await expect(page.locator('#item-dialog')).toBeVisible();

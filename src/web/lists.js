@@ -240,7 +240,7 @@ function ticketItem(item, index, total) {
     </div>
     <article class="ticket-item swipe-content" data-swipe-content>
       <button type="button" class="completion-button" data-item-action="complete" data-item-id="${id}" aria-label="Marcar ${name} como comprado" aria-pressed="false"><span data-icon="check"></span></button>
-      <div class="ticket-item__identity list-row__content"><strong>${name}</strong>${category}<small class="${priced ? '' : 'ticket-item__warning'}">${priceContext}</small></div>
+      <div class="ticket-item__identity list-row__content"><span class="ticket-item__product-icon" data-icon="cart" aria-hidden="true"></span><span class="ticket-item__identity-copy"><strong>${name}</strong>${category}<small class="${priced ? '' : 'ticket-item__warning'}">${priceContext}</small></span></div>
       <strong class="ticket-item__total">${totalText}</strong>
       <div class="ticket-item__controls">
         <div class="quantity-stepper quantity-stepper--compact" aria-label="Cantidad de ${name}">
@@ -1153,18 +1153,22 @@ async function applyPhotoProposal(proposal, storageKey) {
 }
 
 async function handleProductPhoto(file, source = 'item') {
-  const state = source === 'ai' ? $('#ai-state') : $('#product-photo-state');
+  const state = source === 'ai'
+    ? $('#ai-state')
+    : source === 'global'
+      ? $('#global-product-state')
+      : $('#product-photo-state');
   state.textContent = 'Preparando imagen…';
   try {
     const storageKey = await uploadProductImage(file);
     state.textContent = aiConfigured
       ? 'Analizando imagen…'
       : 'Imagen guardada. La IA no está configurada; completa los datos manualmente.';
-    if (!$('#item-dialog').open) openItemCreate();
+    if (source !== 'global' && !$('#item-dialog').open) openItemCreate();
     if (!aiConfigured) {
       model.photoStorageKey = storageKey;
       if (source === 'ai') closeDialog($('#ai-assistant-dialog'));
-      await openGlobalProductEditor(true);
+      if (!$('#global-product-dialog').open) await openGlobalProductEditor(true);
       return;
     }
     const result = await api('/api/v1/products/photo-proposal', {
@@ -1984,11 +1988,18 @@ function bindEvents() {
     $('#global-item-quantity').value = String(Math.min(100000, Number($('#global-item-quantity').value) + 1));
   });
 
-  for (const selector of ['#product-camera', '#product-gallery', '#global-product-camera', '#global-product-gallery']) {
+  for (const selector of ['#product-camera', '#product-gallery']) {
     $(selector).addEventListener('change', event => {
       const file = event.target.files?.[0];
       event.target.value = '';
       if (file) void handleProductPhoto(file, 'item');
+    });
+  }
+  for (const selector of ['#global-product-camera', '#global-product-gallery']) {
+    $(selector).addEventListener('change', event => {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      if (file) void handleProductPhoto(file, 'global');
     });
   }
   for (const selector of ['#ai-product-camera', '#ai-product-gallery']) {
