@@ -687,6 +687,14 @@ function scheduleSuggestions() {
   }, 180);
 }
 
+function setGlobalEntryMode(mode) {
+  const scanning = mode === 'scan';
+  $('#global-mode-scan').classList.toggle('is-selected', scanning);
+  $('#global-mode-scan').setAttribute('aria-pressed', String(scanning));
+  $('#global-mode-manual').classList.toggle('is-selected', !scanning);
+  $('#global-mode-manual').setAttribute('aria-pressed', String(!scanning));
+}
+
 function clearGlobalParent({ keepName = false } = {}) {
   model.globalParentId = '';
   model.globalParentName = '';
@@ -731,6 +739,7 @@ function resetGlobalProductFields() {
 async function openGlobalProductEditor(createNew = false) {
   model.globalProductEditingId = createNew ? '' : model.selectedProductVariantId;
   model.globalProductAddToList = createNew;
+  setGlobalEntryMode('manual');
   resetGlobalProductFields();
   $('#global-item-quantity').value = $('#item-quantity').value || '1';
   $('#global-item-unit').value = $('#item-unit').value || 'unit';
@@ -1075,6 +1084,7 @@ async function applyPhotoProposal(proposal, storageKey) {
   );
   if (storeMatches.length === 1) $('#global-store-select').value = storeMatches[0].id;
 
+  setGlobalEntryMode('manual');
   $('#global-product-confidence').textContent = `${Math.round(Number(proposal.confidence || 0) * 100)}%`;
   $('#global-product-confidence').className = `status-pill ${Number(proposal.confidence || 0) >= .8 ? 'success' : 'warning'}`;
   $('#global-product-warnings').innerHTML = (proposal.warnings || []).map(warning => `<p>${escapeHtml(warning)}</p>`).join('');
@@ -1881,7 +1891,11 @@ function bindEvents() {
     $('#global-canonical-name').focus();
   });
   $('#global-parent-clear').addEventListener('click', () => clearGlobalParent({ keepName: true }));
-  $('#global-mode-scan').addEventListener('click', () => $('#global-product-camera').click());
+  $('#global-mode-manual').addEventListener('click', () => setGlobalEntryMode('manual'));
+  $('#global-mode-scan').addEventListener('click', () => {
+    setGlobalEntryMode('scan');
+    $('#global-product-camera').click();
+  });
   $('#global-item-quantity-minus').addEventListener('click', () => {
     $('#global-item-quantity').value = String(Math.max(1, Number($('#global-item-quantity').value) - 1));
   });
