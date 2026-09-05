@@ -460,6 +460,17 @@ export class BasketraDatabase {
     return this.#shoppingEstimate.estimateList(id);
   }
 
+  getShoppingListDraftEstimate(input: Readonly<{
+    listId: string;
+    text: string;
+    quantityMinor: number;
+    unit: Unit;
+    productVariantId: string;
+    storeOverrideId?: string | null;
+  }>) {
+    return this.#shoppingEstimate.estimateDraft(input);
+  }
+
   deleteShoppingList(id: string, expectedVersion: number): boolean {
     return this.#shopping.deleteList(id, expectedVersion);
   }

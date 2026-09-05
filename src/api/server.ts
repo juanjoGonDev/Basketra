@@ -245,6 +245,10 @@ export class BasketraServer {
       if (request.method === 'GET' && listEstimateMatch?.[1]) {
         return this.getShoppingListEstimate(response, decodePathSegment(listEstimateMatch[1]));
       }
+      const itemEstimateMatch = /^\/api\/v1\/shopping-lists\/([^/]+)\/estimate-item$/.exec(url.pathname);
+      if (request.method === 'POST' && itemEstimateMatch?.[1]) {
+        return await this.estimateShoppingListItem(request, response, decodePathSegment(itemEstimateMatch[1]));
+      }
 
       const listStoreSelectionMatch = /^\/api\/v1\/shopping-lists\/([^/]+)\/store-selection$/.exec(url.pathname);
       if (request.method === 'PUT' && listStoreSelectionMatch?.[1]) {
@@ -546,6 +550,22 @@ export class BasketraServer {
     const estimate = this.#database.getShoppingListEstimate(id);
     if (!estimate) throw new ApiError(404, 'SHOPPING_LIST_NOT_FOUND', 'Shopping list was not found');
     this.json(response, 200, { estimate });
+  }
+
+  private async estimateShoppingListItem(request: IncomingMessage, response: ServerResponse, listId: string): Promise<void> {
+    const body = asRecord(await this.readJson(request));
+    const line = this.#database.getShoppingListDraftEstimate({
+      listId,
+      text: asString(body['text'] ?? 'Producto', '$.text', { min: 1, max: 240 }),
+      quantityMinor: asSafeInteger(body['quantityMinor'] ?? 1, '$.quantityMinor', { min: 1, max: 100_000 }),
+      unit: asEnum(body['unit'] ?? 'unit', '$.unit', UNIT_VALUES),
+      productVariantId: asString(body['productVariantId'], '$.productVariantId', { min: 1, max: 128 }),
+      ...(body['storeOverrideId'] === undefined
+        ? {}
+        : { storeOverrideId: body['storeOverrideId'] === null ? null : asString(body['storeOverrideId'], '$.storeOverrideId', { min: 1, max: 128 }) }),
+    });
+    if (!line) throw new ApiError(404, 'SHOPPING_LIST_NOT_FOUND', 'Shopping list was not found');
+    this.json(response, 200, { line });
   }
 
   private async updateShoppingListStoreSelection(request: IncomingMessage, response: ServerResponse, id: string): Promise<void> {

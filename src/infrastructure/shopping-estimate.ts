@@ -196,6 +196,64 @@ export class ShoppingEstimateReadModel {
     this.#database = database;
   }
 
+  estimateDraft(input: Readonly<{
+    listId: string;
+    text: string;
+    quantityMinor: number;
+    unit: Unit;
+    productVariantId: string;
+    storeOverrideId?: string | null;
+  }>): ShoppingEstimateLine | undefined {
+    const row = this.#database.prepare(`
+      SELECT
+        'draft' AS itemId,
+        ? AS text,
+        ? AS quantityMinor,
+        ? AS itemUnit,
+        product_variants.id AS productVariantId,
+        product_variants.canonical_product_id AS canonicalProductId,
+        canonical_products.name AS canonicalName,
+        product_variants.name AS variantName,
+        product_variants.package_minor AS variantPackageMinor,
+        product_variants.package_unit AS variantPackageUnit,
+        effective_store.id AS effectiveStoreId,
+        effective_store.name AS effectiveStoreName,
+        effective_retailer.name AS effectiveRetailerName,
+        price_observations.price_minor AS priceMinor,
+        price_observations.package_numerator AS packageNumerator,
+        price_observations.package_denominator AS packageDenominator,
+        price_observations.package_unit AS packageUnit,
+        price_observations.observed_at AS observedAt,
+        price_observations.confidence
+      FROM shopping_lists
+      LEFT JOIN product_variants ON product_variants.id = ?
+      LEFT JOIN canonical_products ON canonical_products.id = product_variants.canonical_product_id
+      LEFT JOIN stores AS effective_store
+        ON effective_store.id = COALESCE(?, shopping_lists.reference_store_id)
+      LEFT JOIN retailers AS effective_retailer ON effective_retailer.id = effective_store.retailer_id
+      LEFT JOIN price_observations ON price_observations.id = (
+        SELECT candidate.id
+        FROM price_observations AS candidate
+        JOIN retailer_listings AS candidate_listing
+          ON candidate_listing.id = candidate.retailer_listing_id
+        WHERE candidate_listing.product_variant_id = product_variants.id
+          AND candidate.store_id = effective_store.id
+        ORDER BY candidate.observed_at DESC, candidate.id DESC
+        LIMIT 1
+      )
+      WHERE shopping_lists.id = ?
+    `).get(
+      input.text,
+      input.quantityMinor,
+      input.unit,
+      input.productVariantId,
+      input.storeOverrideId ?? null,
+      input.listId,
+    ) as EstimateRow | undefined;
+    if (!row) return undefined;
+    return estimateLine(row, input.unit);
+  }
+
   estimateList(listId: string): ShoppingListEstimate | undefined {
     const list = this.#database.prepare(`
       SELECT
