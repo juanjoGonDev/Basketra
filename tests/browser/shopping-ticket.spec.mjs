@@ -197,6 +197,8 @@ test('scan choice routes tickets separately and product photo AI hydrates the ca
   await expect(productDialog.locator('#global-brand')).toHaveValue('Hacendado');
   await expect(productDialog.locator('#global-ean')).toHaveValue('8480000123456');
   await expect(productDialog.locator('#global-price')).toHaveValue(/1[,.]19/);
+  await expect(productDialog.locator('#global-normalized-price')).toContainText('1,19');
+  await expect(productDialog.locator('#global-normalized-price')).toContainText('/L');
   await expect(productDialog.locator('#global-store-select')).toHaveValue(store.id);
   await expect(productDialog.locator('#global-ai-feedback')).toBeVisible();
   await expect(productDialog.locator('#global-product-confidence')).toHaveText('92%');
