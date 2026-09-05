@@ -2353,3 +2353,24 @@ summary {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+
+.completed-return-action {
+  min-height: var(--touch);
+  gap: var(--space-2);
+  padding-inline: var(--space-3);
+  white-space: nowrap;
+}
+
+.completed-return-action .icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+@media (max-width: 31rem) {
+  .completed-return-action {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: center;
+  }
+}

@@ -1494,6 +1494,17 @@ async function confirmDeleteItem() {
   }
 }
 
+async function undoCompletedItem(itemId) {
+  const current = model.items.find(candidate => candidate.id === itemId);
+  if (!current?.completed) return;
+  try {
+    await updateItem(itemId, { completed: false }, 'Producto devuelto a pendientes');
+    toast('Producto devuelto a pendientes');
+  } catch (error) {
+    toast(`No se pudo deshacer: ${error.message}`);
+  }
+}
+
 async function handleItemAction(event) {
   const button = event.target.closest('[data-item-action]');
   if (!button) return;
@@ -1503,7 +1514,17 @@ async function handleItemAction(event) {
     if (button.dataset.itemAction === 'delete') showDeleteItemDialog(itemId);
     if (button.dataset.itemAction === 'complete') {
       const item = model.items.find(candidate => candidate.id === itemId);
-      if (item) await updateItem(itemId, { completed: !item.completed }, item.completed ? 'Producto devuelto a pendientes' : 'Producto completado');
+      if (item) {
+        const wasCompleted = item.completed;
+        await updateItem(itemId, { completed: !wasCompleted }, wasCompleted ? 'Producto devuelto a pendientes' : 'Producto completado');
+        if (!wasCompleted) {
+          toast('Producto marcado como comprado', {
+            actionLabel: 'Deshacer',
+            duration: 5200,
+            onAction: () => undoCompletedItem(itemId),
+          });
+        }
+      }
     }
     if (button.dataset.itemAction === 'quantity') await updateItem(itemId, { quantityDelta: Number(button.dataset.delta) }, 'Cantidad actualizada');
     if (button.dataset.itemAction === 'move') await moveItem(itemId, Number(button.dataset.direction));

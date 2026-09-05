@@ -338,6 +338,7 @@ export function shoppingListItem(item, index, total) {
       <button type="button" class="completion-button" data-item-action="complete" data-item-id="${id}" aria-label="${completionLabel}" aria-pressed="${String(item.completed)}">${icon('check')}</button>
       <div class="list-row__content"><strong>${name}</strong><span>${details}</span></div>
       <div class="list-row__actions">
+        ${item.completed ? `<button type="button" class="button secondary completed-return-action" data-item-action="complete" data-item-id="${id}">${icon('refresh')}<span>Volver a pendientes</span></button>` : ''}
         <button type="button" class="icon-button" data-item-action="quantity" data-item-id="${id}" data-delta="-1" ${item.quantityMinor <= 1 ? 'disabled' : ''} aria-label="Reducir cantidad de ${name}">${icon('minus')}</button>
         <span class="quantity-chip" aria-label="Cantidad actual">${item.quantityMinor}</span>
         <button type="button" class="icon-button" data-item-action="quantity" data-item-id="${id}" data-delta="1" aria-label="Aumentar cantidad de ${name}">${icon('plus')}</button>

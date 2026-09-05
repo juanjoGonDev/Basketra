@@ -115,6 +115,15 @@ test('shopping ticket estimates by effective Store and converges between devices
   await expect(second.locator('.quantity-chip')).toHaveText('2');
   await expect(second.locator('#estimate-total')).toHaveText(/2,18/);
 
+  await page.getByRole('button', { name: 'Marcar Leche entera 1 L como comprado', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Deshacer', exact: true })).toBeVisible();
+  const completedSection = page.locator('#completed-section');
+  await expect(completedSection).toBeVisible();
+  await expect(completedSection.getByRole('button', { name: 'Volver a pendientes', exact: true })).toBeVisible();
+  await completedSection.getByRole('button', { name: 'Volver a pendientes', exact: true }).click();
+  await expect(page.locator('#pending-items')).toContainText('Leche entera 1 L');
+  await expect(second.locator('#pending-items')).toContainText('Leche entera 1 L');
+
   await page.locator('#apply-list-store-all').click();
   await expect(row.locator('[data-item-control="store"]')).toHaveValue('');
   await expect(page.locator('#estimate-total')).toHaveText(/2,38/);

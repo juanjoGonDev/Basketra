@@ -302,6 +302,7 @@ Untrusted request values are runtime validated.
 16. Ticket scanning continues through the existing multi-line ticket flow.
 17. Existing shopping conflict handling, swipe accessibility, routes, Inventory, Tickets and receipt workflows remain regression-green.
 18. No horizontal page overflow, hidden CTA, duplicate submit or stale-response overwrite occurs in supported viewports.
+19. Completing an item is reversible: the immediate success feedback exposes “Deshacer”, and every completed row exposes a visible “Volver a pendientes” action so accidental completion never strands an item outside the active list.
 
 ## Tests planned
 
@@ -337,7 +338,8 @@ Untrusted request values are runtime validated.
 - opt-in location and nearby Store confirmation;
 - keyboard/focus/screen-reader equivalents;
 - no horizontal overflow and no action obstruction;
-- conflict/recovery state for stale item/Store edits.
+- conflict/recovery state for stale item/Store edits;
+- accidental completion -> immediate undo -> completed row visible return-to-pending action.
 
 ## Rollback
 

@@ -83,7 +83,12 @@
         "secondary": "Producto o ticket",
         "intent": "open-camera-flow"
       }
-    ]
+    ],
+    "completedItems": {
+      "presentation": "Secondary completed section below the active ticket.",
+      "recoveryAction": "Volver a pendientes",
+      "immediateUndo": "After marking an item bought, show a short-lived Deshacer action so accidental completion can be reverted immediately."
+    }
   },
   "itemRowContract": [
     "completion control",
@@ -95,7 +100,8 @@
     "unit selector",
     "size/package selector",
     "effective store selector",
-    "edit/delete actions with existing Basketra swipe/button/keyboard equivalents"
+    "edit/delete actions with existing Basketra swipe/button/keyboard equivalents",
+    "completed items expose a visible return-to-pending action in addition to the accessible completion toggle"
   ],
   "storeSelection": {
     "listWide": "Changing the reference store affects inherited items.",
