@@ -726,9 +726,9 @@
     min-width: 0;
     min-height: var(--touch);
     padding-inline: .15rem;
-    overflow-wrap: anywhere;
-    font-size: .7rem;
-    white-space: normal;
+    overflow-wrap: normal;
+    font-size: .68rem;
+    white-space: nowrap;
   }
 
   @media (max-width: 22rem) {

@@ -165,6 +165,8 @@ test('inventory entity rows share accessible swipe actions and preserve canonica
   await expect(page).toHaveURL(/\/inventory\/categories\/category_food\?mode=edit$/);
   await expect(page.locator('#category-editor')).toBeVisible();
   await page.locator('#categories-back-list').click();
+  await expect(page).toHaveURL(/\/inventory\/categories$/);
+  await expect(page.locator('#category-list-screen')).toBeVisible();
   await expect(page.locator('#category-state')).toHaveText('2 categorías encontradas.');
 
   await openAccessibleActions(categoryWrapper);

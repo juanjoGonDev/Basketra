@@ -548,7 +548,7 @@ select:focus-visible,
   grid-row: 1 / -1;
   align-self: center;
   color: var(--color-primary);
-  content: "\\203A";
+  content: "\203A";
   font-size: 1.7rem;
   line-height: 1;
 }

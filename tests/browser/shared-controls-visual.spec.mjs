@@ -22,10 +22,14 @@ test('shared controls align helper fields and retain rounded navigation at every
             const verticallyAligned = name.top < action.bottom && name.bottom > action.top;
             return verticallyAligned && name.right > action.left;
           }),
+          inventoryTabsOverflow: [...document.querySelectorAll('.inventory-overview-tabs .task-tab')].filter(visible).some(tab => (
+            getComputedStyle(tab).whiteSpace !== 'nowrap' || tab.scrollWidth > tab.clientWidth + 1
+          )),
         };
       });
       expect(geometry.overflow, route).toBe(false);
       expect(geometry.productRowOverlap, route).toBe(false);
+      expect(geometry.inventoryTabsOverflow, route).toBe(false);
       for (const radius of geometry.tabs) expect(radius, route).toBeGreaterThanOrEqual(12);
       for (const control of geometry.selects) {
         expect(control.radius, route).toBe(24);
