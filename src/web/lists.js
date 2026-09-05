@@ -238,13 +238,13 @@ function ticketItem(item, index, total) {
     </div>
     <article class="ticket-item swipe-content" data-swipe-content>
       <button type="button" class="completion-button" data-item-action="complete" data-item-id="${id}" aria-label="Marcar ${name} como comprado" aria-pressed="false"><span data-icon="check"></span></button>
-      <div class="ticket-item__identity"><strong>${name}</strong>${category}<small class="${priced ? '' : 'ticket-item__warning'}">${priceContext}</small></div>
+      <div class="ticket-item__identity list-row__content"><strong>${name}</strong>${category}<small class="${priced ? '' : 'ticket-item__warning'}">${priceContext}</small></div>
       <strong class="ticket-item__total">${totalText}</strong>
       <div class="ticket-item__controls">
         <div class="quantity-stepper quantity-stepper--compact" aria-label="Cantidad de ${name}">
-          <button type="button" data-item-action="quantity" data-item-id="${id}" data-delta="-1" ${item.quantityMinor <= 1 ? 'disabled' : ''} aria-label="Reducir cantidad">−</button>
-          <span aria-label="Cantidad actual">${item.quantityMinor}</span>
-          <button type="button" data-item-action="quantity" data-item-id="${id}" data-delta="1" aria-label="Aumentar cantidad">+</button>
+          <button type="button" data-item-action="quantity" data-item-id="${id}" data-delta="-1" ${item.quantityMinor <= 1 ? 'disabled' : ''} aria-label="Reducir cantidad de ${name}">−</button>
+          <span class="quantity-chip" aria-label="Cantidad actual">${item.quantityMinor}</span>
+          <button type="button" data-item-action="quantity" data-item-id="${id}" data-delta="1" aria-label="Aumentar cantidad de ${name}">+</button>
         </div>
         <label class="ticket-control"><span class="sr-only">Unidad de ${name}</span><select data-item-control="unit" data-item-id="${id}">${metadata.units.map(unit => `<option value="${escapeHtml(unit)}"${unit === item.unit ? ' selected' : ''}>${escapeHtml(UNIT_LABELS[unit] || unit)}</option>`).join('')}</select></label>
         <label class="ticket-control"><span class="sr-only">Peso o tamaño de ${name}</span><select data-item-control="variant" data-item-id="${id}" ${line?.productVariantId ? '' : 'disabled'}>${variantSelectOptions(line)}</select></label>
@@ -585,8 +585,18 @@ function setLinkedProduct(id, name, product) {
   void hydrateItemProduct(id, product);
 }
 
+function setItemEntryMode(mode) {
+  const scanning = mode === 'scan';
+  $('#item-mode-create').classList.toggle('is-selected', !scanning);
+  $('#item-mode-create').setAttribute('aria-pressed', String(!scanning));
+  $('#item-mode-scan').classList.toggle('is-selected', scanning);
+  $('#item-mode-scan').setAttribute('aria-pressed', String(scanning));
+  $('#item-scan-options').hidden = !scanning;
+}
+
 function resetItemForm() {
   model.editingItemId = '';
+  setItemEntryMode('create');
   clearLinkedProduct();
   resetProductProposal();
   $('#item-form-title').textContent = 'Nuevo ítem';
@@ -1769,7 +1779,7 @@ function bindDialogs() {
   $('#open-item-dialog').addEventListener('click', openItemCreate);
   $('#scan-list-item').addEventListener('click', () => {
     openItemCreate();
-    requestAnimationFrame(() => $('#product-camera').click());
+    setItemEntryMode('scan');
   });
   $('#close-item-dialog').addEventListener('click', () => { closeDialog($('#item-dialog')); resetItemForm(); });
   $('#cancel-item-edit').addEventListener('click', () => { closeDialog($('#item-dialog')); resetItemForm(); });
@@ -1839,7 +1849,14 @@ function bindEvents() {
     if (event.target.closest('[data-create-global-product]')) void openGlobalProductEditor(true);
   });
   $('#edit-global-product').addEventListener('click', () => void openGlobalProductEditor(false));
-  $('#item-mode-scan').addEventListener('click', () => $('#product-camera').click());
+  $('#item-mode-create').addEventListener('click', () => setItemEntryMode('create'));
+  $('#item-mode-scan').addEventListener('click', () => setItemEntryMode('scan'));
+  $('#scan-product-photo').addEventListener('click', () => $('#product-camera').click());
+  $('#scan-ticket').addEventListener('click', () => {
+    persistItemDraft();
+    closeDialog($('#item-dialog'));
+    document.dispatchEvent(new CustomEvent('basketra:navigate', { detail: { route: 'tickets' } }));
+  });
   $('#open-product-photo').addEventListener('click', () => $('#product-camera').click());
 
   $('#global-product-form').addEventListener('submit', submitGlobalProduct);
