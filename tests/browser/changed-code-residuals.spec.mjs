@@ -920,7 +920,7 @@ test('inventory final changed-code branches cover missing controls, stale loads 
 
   await page.goto('/inventory');
   const destination = page.locator('[data-inventory-destination]').first();
-  await destination.evaluate(element => { delete element.dataset.inventoryDestination; });
+  await destination.evaluate(element => { element.dataset.inventoryDestination = 'invalid'; });
   await destination.dispatchEvent('click');
   await expect(page).toHaveURL(/\/inventory$/u);
 
