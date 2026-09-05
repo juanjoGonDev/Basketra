@@ -295,7 +295,15 @@ export class CatalogRepository {
         ...(row.packageUnit ? { packageUnit: row.packageUnit } : {}),
         ...(row.categoryId ? { categoryId: row.categoryId } : {}),
         ...(row.categoryName ? { categoryName: row.categoryName } : {}),
-        ...(price ? { latestStorePrice: price } : {}),
+        ...(price ? {
+          latestStorePrice: {
+            storeId: price.storeId,
+            storeName: price.storeName,
+            retailerName: price.retailerName,
+            priceMinor: price.priceMinor,
+            observedAt: price.observedAt,
+          },
+        } : {}),
       };
     });
   }
