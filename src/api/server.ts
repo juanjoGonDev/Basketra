@@ -278,6 +278,7 @@ export class BasketraServer {
       }
 
       if (request.method === 'GET' && url.pathname === '/api/v1/products/suggestions') return this.suggestProducts(response, url.searchParams);
+      if (request.method === 'GET' && url.pathname === '/api/v1/products/parents') return this.suggestProductParents(response, url.searchParams);
       if (request.method === 'POST' && url.pathname === '/api/v1/products/photo-proposal') return await this.proposeProductPhoto(request, response);
       if (request.method === 'POST' && url.pathname === '/api/v1/products') return await this.createProduct(request, response);
       const productPriceMatch = /^\/api\/v1\/products\/([^/]+)\/prices$/.exec(url.pathname);
@@ -663,6 +664,15 @@ export class BasketraServer {
     this.json(response, 200, { suggestions: this.#database.searchProducts(query, limit) });
   }
 
+  private suggestProductParents(response: ServerResponse, params: URLSearchParams): void {
+    const query = asString(params.get('q') ?? '', '$.q', { min: 1, max: 100 });
+    const limit = Math.min(20, Number(params.get('limit') ?? 8));
+    if (!Number.isSafeInteger(limit) || limit < 1) {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'Parent suggestion limit is invalid');
+    }
+    this.json(response, 200, { parents: this.#database.searchCanonicalProducts(query, limit) });
+  }
+
   private async createCategory(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const body = asRecord(await this.readJson(request));
     const category = this.#database.getOrCreateCategory(
@@ -688,8 +698,18 @@ export class BasketraServer {
 
   private async createProduct(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const body = asRecord(await this.readJson(request));
+    const canonicalProductId = body['canonicalProductId'] === undefined
+      ? undefined
+      : asString(body['canonicalProductId'], '$.canonicalProductId', { min: 1, max: 128 });
+    const canonicalName = body['canonicalName'] === undefined
+      ? undefined
+      : asString(body['canonicalName'], '$.canonicalName', { min: 1, max: 160 });
+    if (!canonicalProductId && !canonicalName) {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'canonicalName or canonicalProductId is required');
+    }
     const product = this.#database.createProduct({
-      canonicalName: asString(body['canonicalName'], '$.canonicalName', { min: 1, max: 160 }),
+      ...(canonicalProductId ? { canonicalProductId } : {}),
+      ...(canonicalName ? { canonicalName } : {}),
       ...(body['variantName'] === undefined ? {} : { variantName: asString(body['variantName'], '$.variantName', { min: 1, max: 160 }) }),
       ...(body['categoryId'] === undefined ? {} : { categoryId: asString(body['categoryId'], '$.categoryId', { min: 1, max: 128 }) }),
       ...(body['description'] === undefined ? {} : { description: asString(body['description'], '$.description', { max: 500 }) }),

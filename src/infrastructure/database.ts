@@ -14,6 +14,7 @@ export type {
   PriceObservationRecord,
   ProductTicketHistoryRecord,
   ProductCategoryRecord,
+  ProductParentSuggestionRecord,
   ProductSuggestionRecord,
   ProductVariantRecord,
   StoreRecord,
@@ -525,8 +526,13 @@ export class BasketraDatabase {
     return this.#catalog.getProductVariant(id);
   }
 
+  searchCanonicalProducts(query: string, limit: number) {
+    return this.#catalog.searchCanonicalProducts(query, limit);
+  }
+
   createProduct(input: Readonly<{
-    canonicalName: string;
+    canonicalProductId?: string;
+    canonicalName?: string;
     variantName?: string;
     categoryId?: string;
     description?: string;

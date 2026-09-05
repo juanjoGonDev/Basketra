@@ -11,6 +11,15 @@ export type ProductCategoryRecord = Readonly<{
   updatedAt: string;
 }>;
 
+export type ProductParentSuggestionRecord = Readonly<{
+  id: string;
+  name: string;
+  categoryId?: string;
+  categoryName?: string;
+  description?: string;
+  variantCount: number;
+}>;
+
 export type ProductSuggestionRecord = Readonly<{
   id: string;
   name: string;
@@ -243,6 +252,46 @@ export class CatalogRepository {
     }));
   }
 
+  searchCanonicalProducts(query: string, limit: number): ProductParentSuggestionRecord[] {
+    const normalized = query.trim();
+    if (!normalized) return [];
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 20) {
+      throw new RangeError('Canonical product suggestion limit is invalid');
+    }
+    const escaped = normalized.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
+    const rows = this.#database.prepare(`
+      SELECT
+        canonical_products.id,
+        canonical_products.name,
+        product_categories.id AS categoryId,
+        product_categories.name AS categoryName,
+        canonical_products.description,
+        COUNT(product_variants.id) AS variantCount
+      FROM canonical_products
+      LEFT JOIN product_categories ON product_categories.id = canonical_products.category_id
+      LEFT JOIN product_variants ON product_variants.canonical_product_id = canonical_products.id
+      WHERE canonical_products.name LIKE ? ESCAPE '\\' COLLATE NOCASE
+      GROUP BY canonical_products.id, product_categories.id
+      ORDER BY canonical_products.name COLLATE NOCASE, canonical_products.id
+      LIMIT ?
+    `).all(`%${escaped}%`, limit) as Array<Readonly<{
+      id: string;
+      name: string;
+      categoryId: string | null;
+      categoryName: string | null;
+      description: string | null;
+      variantCount: number;
+    }>>;
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      ...(row.categoryId ? { categoryId: row.categoryId } : {}),
+      ...(row.categoryName ? { categoryName: row.categoryName } : {}),
+      ...(row.description ? { description: row.description } : {}),
+      variantCount: Number(row.variantCount),
+    }));
+  }
+
   getProductVariant(id: string): ProductVariantRecord | undefined {
     const row = this.#database.prepare(`
       SELECT
@@ -287,7 +336,8 @@ export class CatalogRepository {
   }
 
   createProduct(input: Readonly<{
-    canonicalName: string;
+    canonicalProductId?: string;
+    canonicalName?: string;
     variantName?: string;
     categoryId?: string;
     description?: string;
@@ -297,20 +347,43 @@ export class CatalogRepository {
     packageUnit?: string;
     aliases?: readonly string[];
   }>): ProductVariantRecord {
-    const canonicalName = input.canonicalName.trim();
-    const variantName = input.variantName?.trim() || canonicalName;
-    if (!canonicalName || !variantName) throw new RangeError('Product name is required');
-    const category = input.categoryId ? this.categoryById(input.categoryId) : undefined;
-    if (input.categoryId && !category) throw new Error('PRODUCT_CATEGORY_NOT_FOUND');
-    const productId = createId('product');
+    const parentId = input.canonicalProductId?.trim();
+    const canonicalName = input.canonicalName?.trim();
+    if (parentId && (canonicalName || input.categoryId || input.description)) {
+      throw new RangeError('Existing canonical product creation accepts variant fields only');
+    }
+    if (!parentId && !canonicalName) throw new RangeError('Canonical product name is required');
+
+    const existingParent = parentId
+      ? this.#database.prepare('SELECT id, name FROM canonical_products WHERE id = ?').get(parentId) as { id: string; name: string } | undefined
+      : undefined;
+    if (parentId && !existingParent) throw new Error('CANONICAL_PRODUCT_NOT_FOUND');
+
+    const resolvedCanonicalName = existingParent?.name ?? canonicalName!;
+    const variantName = input.variantName?.trim() || resolvedCanonicalName;
+    if (!variantName) throw new RangeError('Product variant name is required');
+    const category = !parentId && input.categoryId ? this.categoryById(input.categoryId) : undefined;
+    if (!parentId && input.categoryId && !category) throw new Error('PRODUCT_CATEGORY_NOT_FOUND');
+
+    const productId = existingParent?.id ?? createId('product');
     const variantId = createId('variant');
     const timestamp = this.#clock().toISOString();
     this.#database.exec('BEGIN IMMEDIATE');
     try {
-      this.#database.prepare(`
-        INSERT INTO canonical_products(id, name, category, category_id, description, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(productId, canonicalName, category?.name ?? null, category?.id ?? null, input.description?.trim() || null, timestamp, timestamp);
+      if (!existingParent) {
+        this.#database.prepare(`
+          INSERT INTO canonical_products(id, name, category, category_id, description, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          productId,
+          resolvedCanonicalName,
+          category?.name ?? null,
+          category?.id ?? null,
+          input.description?.trim() || null,
+          timestamp,
+          timestamp,
+        );
+      }
       this.#database.prepare(`
         INSERT INTO product_variants(id, canonical_product_id, name, brand, ean, package_minor, package_unit, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)

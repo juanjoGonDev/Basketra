@@ -144,6 +144,7 @@ export function mapError(error: unknown): ApiError {
       case 'SHOPPING_LIST_NOT_FOUND': return new ApiError(404, 'SHOPPING_LIST_NOT_FOUND', 'Shopping list was not found');
       case 'SHOPPING_LIST_ITEM_NOT_FOUND': return new ApiError(404, 'SHOPPING_LIST_ITEM_NOT_FOUND', 'Shopping list item was not found');
       case 'PRODUCT_CATEGORY_NOT_FOUND': return new ApiError(404, 'PRODUCT_CATEGORY_NOT_FOUND', 'Product category was not found');
+      case 'CANONICAL_PRODUCT_NOT_FOUND': return new ApiError(404, 'CANONICAL_PRODUCT_NOT_FOUND', 'Canonical product was not found');
       case 'PRODUCT_VARIANT_NOT_FOUND': return new ApiError(404, 'PRODUCT_VARIANT_NOT_FOUND', 'Product variant was not found');
       case 'STORE_NOT_FOUND': return new ApiError(404, 'STORE_NOT_FOUND', 'Store was not found');
       case 'RECEIPT_STORE_REQUIRED': return new ApiError(400, 'VALIDATION_ERROR', 'A Store is required to confirm the receipt');
