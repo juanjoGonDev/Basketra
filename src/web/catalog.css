@@ -129,6 +129,11 @@
   white-space: nowrap;
 }
 
+.inventory-product-cell--name strong,
+.inventory-product-cell--name small {
+  width: 100%;
+}
+
 .inventory-product-cell--name small,
 .category-name-cell small {
   color: var(--muted);

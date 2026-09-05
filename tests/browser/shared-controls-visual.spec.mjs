@@ -15,9 +15,17 @@ test('shared controls align helper fields and retain rounded navigation at every
           overflow: document.documentElement.scrollWidth > innerWidth + 1,
           tabs: [...document.querySelectorAll('.task-tab')].filter(visible).map(element => parseFloat(getComputedStyle(element).borderRadius)),
           selects: [...document.querySelectorAll('select')].filter(visible).map(element => ({ radius: parseFloat(getComputedStyle(element).borderRadius), height: element.getBoundingClientRect().height, appearance: getComputedStyle(element).appearance, background: getComputedStyle(element).backgroundImage })),
+          productRowOverlap: [...document.querySelectorAll('#catalog-list-screen .inventory-product-row')].filter(visible).some(row => {
+            const name = row.querySelector('.inventory-product-cell--name strong')?.getBoundingClientRect();
+            const action = row.querySelector('.inventory-row-action')?.getBoundingClientRect();
+            if (!name || !action) return false;
+            const verticallyAligned = name.top < action.bottom && name.bottom > action.top;
+            return verticallyAligned && name.right > action.left;
+          }),
         };
       });
       expect(geometry.overflow, route).toBe(false);
+      expect(geometry.productRowOverlap, route).toBe(false);
       for (const radius of geometry.tabs) expect(radius, route).toBeGreaterThanOrEqual(12);
       for (const control of geometry.selects) {
         expect(control.radius, route).toBe(24);
