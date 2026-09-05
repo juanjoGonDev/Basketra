@@ -518,8 +518,12 @@ export class BasketraDatabase {
     return this.#catalog.updateCategory(id, input);
   }
 
-  searchProducts(query: string, limit: number) {
-    return this.#catalog.searchProducts(query, limit);
+  searchProducts(query: string, limit: number, storeId?: string) {
+    return this.#catalog.searchProducts(query, limit, storeId);
+  }
+
+  listProductVariantsByParent(parentId: string) {
+    return this.#catalog.listProductVariantsByParent(parentId);
   }
 
   getProductVariant(id: string) {

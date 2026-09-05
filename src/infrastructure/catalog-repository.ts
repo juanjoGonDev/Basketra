@@ -24,10 +24,20 @@ export type ProductSuggestionRecord = Readonly<{
   id: string;
   name: string;
   source: 'catalog';
+  canonicalProductId: string;
   canonicalName: string;
   brand?: string;
+  packageMinor?: number;
+  packageUnit?: string;
   categoryId?: string;
   categoryName?: string;
+  latestStorePrice?: Readonly<{
+    storeId: string;
+    storeName: string;
+    retailerName: string;
+    priceMinor: number;
+    observedAt: string;
+  }>;
 }>;
 
 export type ProductVariantRecord = Readonly<{
@@ -215,15 +225,18 @@ export class CatalogRepository {
     return mapCategory(row);
   }
 
-  searchProducts(query: string, limit: number): ProductSuggestionRecord[] {
+  searchProducts(query: string, limit: number, storeId?: string): ProductSuggestionRecord[] {
     const normalized = query.trim().replace(/["*:^()]/g, ' ');
     if (!normalized) return [];
     const rows = this.#database.prepare(`
       SELECT
         product_variants.id,
         product_variants.name,
+        product_variants.canonical_product_id AS canonicalProductId,
         canonical_products.name AS canonicalName,
         product_variants.brand,
+        product_variants.package_minor AS packageMinor,
+        product_variants.package_unit AS packageUnit,
         product_categories.id AS categoryId,
         product_categories.name AS categoryName
       FROM product_search
@@ -236,20 +249,55 @@ export class CatalogRepository {
     `).all(`${normalized}*`, limit) as Array<Readonly<{
       id: string;
       name: string;
+      canonicalProductId: string;
       canonicalName: string;
       brand: string | null;
+      packageMinor: number | null;
+      packageUnit: string | null;
       categoryId: string | null;
       categoryName: string | null;
     }>>;
-    return rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      source: 'catalog',
-      canonicalName: row.canonicalName,
-      ...(row.brand ? { brand: row.brand } : {}),
-      ...(row.categoryId ? { categoryId: row.categoryId } : {}),
-      ...(row.categoryName ? { categoryName: row.categoryName } : {}),
-    }));
+
+    const latestPrice = storeId ? this.#database.prepare(`
+      SELECT
+        price_observations.price_minor AS priceMinor,
+        price_observations.observed_at AS observedAt,
+        stores.id AS storeId,
+        stores.name AS storeName,
+        retailers.name AS retailerName
+      FROM price_observations
+      JOIN retailer_listings ON retailer_listings.id = price_observations.retailer_listing_id
+      JOIN stores ON stores.id = price_observations.store_id
+      JOIN retailers ON retailers.id = stores.retailer_id
+      WHERE retailer_listings.product_variant_id = ? AND stores.id = ?
+      ORDER BY price_observations.observed_at DESC, price_observations.id DESC
+      LIMIT 1
+    `) : null;
+
+    return rows.map((row) => {
+      const price = latestPrice
+        ? latestPrice.get(row.id, storeId) as {
+            priceMinor: number;
+            observedAt: string;
+            storeId: string;
+            storeName: string;
+            retailerName: string;
+          } | undefined
+        : undefined;
+      return {
+        id: row.id,
+        name: row.name,
+        source: 'catalog' as const,
+        canonicalProductId: row.canonicalProductId,
+        canonicalName: row.canonicalName,
+        ...(row.brand ? { brand: row.brand } : {}),
+        ...(row.packageMinor === null ? {} : { packageMinor: row.packageMinor }),
+        ...(row.packageUnit ? { packageUnit: row.packageUnit } : {}),
+        ...(row.categoryId ? { categoryId: row.categoryId } : {}),
+        ...(row.categoryName ? { categoryName: row.categoryName } : {}),
+        ...(price ? { latestStorePrice: price } : {}),
+      };
+    });
   }
 
   searchCanonicalProducts(query: string, limit: number): ProductParentSuggestionRecord[] {
@@ -290,6 +338,19 @@ export class CatalogRepository {
       ...(row.description ? { description: row.description } : {}),
       variantCount: Number(row.variantCount),
     }));
+  }
+
+  listProductVariantsByParent(parentId: string): ProductVariantRecord[] {
+    const ids = this.#database.prepare(`
+      SELECT id FROM product_variants
+      WHERE canonical_product_id = ?
+      ORDER BY name COLLATE NOCASE, id
+      LIMIT 100
+    `).all(parentId) as Array<{ id: string }>;
+    if (ids.length === 0 && !this.#database.prepare('SELECT 1 FROM canonical_products WHERE id = ?').get(parentId)) {
+      throw new Error('CANONICAL_PRODUCT_NOT_FOUND');
+    }
+    return ids.map(({ id }) => this.getProductVariant(id)).filter((value): value is ProductVariantRecord => value !== undefined);
   }
 
   getProductVariant(id: string): ProductVariantRecord | undefined {

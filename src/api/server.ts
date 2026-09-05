@@ -279,6 +279,10 @@ export class BasketraServer {
 
       if (request.method === 'GET' && url.pathname === '/api/v1/products/suggestions') return this.suggestProducts(response, url.searchParams);
       if (request.method === 'GET' && url.pathname === '/api/v1/products/parents') return this.suggestProductParents(response, url.searchParams);
+      const parentVariantsMatch = /^\/api\/v1\/products\/parents\/([^/]+)\/variants$/.exec(url.pathname);
+      if (request.method === 'GET' && parentVariantsMatch?.[1]) {
+        return this.listProductParentVariants(response, decodePathSegment(parentVariantsMatch[1]));
+      }
       if (request.method === 'POST' && url.pathname === '/api/v1/products/photo-proposal') return await this.proposeProductPhoto(request, response);
       if (request.method === 'POST' && url.pathname === '/api/v1/products') return await this.createProduct(request, response);
       const productPriceMatch = /^\/api\/v1\/products\/([^/]+)\/prices$/.exec(url.pathname);
@@ -661,7 +665,12 @@ export class BasketraServer {
     const query = asString(params.get('q') ?? '', '$.q', { min: 1, max: 100 });
     const limit = Math.min(20, Number(params.get('limit') ?? 8));
     if (!Number.isSafeInteger(limit) || limit < 1) throw new ApiError(400, 'VALIDATION_ERROR', 'Suggestion limit is invalid');
-    this.json(response, 200, { suggestions: this.#database.searchProducts(query, limit) });
+    const storeId = params.get('storeId')?.trim() || undefined;
+    this.json(response, 200, { suggestions: this.#database.searchProducts(query, limit, storeId) });
+  }
+
+  private listProductParentVariants(response: ServerResponse, parentId: string): void {
+    this.json(response, 200, { variants: this.#database.listProductVariantsByParent(parentId) });
   }
 
   private suggestProductParents(response: ServerResponse, params: URLSearchParams): void {
