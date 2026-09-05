@@ -84,7 +84,7 @@
 
         <div class="list-primary-actions list-primary-actions--split">
           <button id="open-item-dialog" class="button primary list-entry-action" type="button"><span data-icon="edit"></span><span><strong>Crear ítem</strong><small>Escribe o busca</small></span></button>
-          <button id="scan-list-item" class="button secondary list-entry-action" type="button"><span data-icon="camera"></span><span><strong>Escanear</strong><small>Producto</small></span></button>
+          <button id="scan-list-item" class="button secondary list-entry-action" type="button"><span data-icon="camera"></span><span><strong>Escanear</strong><small>Producto o ticket</small></span></button>
           <span id="item-state" class="inline-status" role="status"></span>
         </div>
 
@@ -190,7 +190,11 @@
 
       <div class="entry-mode-switch" role="group" aria-label="Cómo añadir el producto">
         <button id="item-mode-create" class="entry-mode is-selected" type="button" aria-pressed="true"><span data-icon="edit"></span><span><strong>Crear</strong><small>Escribe o busca</small></span></button>
-        <button id="item-mode-scan" class="entry-mode" type="button" aria-pressed="false"><span data-icon="camera"></span><span><strong>Escanear</strong><small>Autocompletar</small></span></button>
+        <button id="item-mode-scan" class="entry-mode" type="button" aria-pressed="false"><span data-icon="camera"></span><span><strong>Escanear</strong><small>Producto o ticket</small></span></button>
+      </div>
+      <div id="item-scan-options" class="scan-choice-panel" hidden>
+        <button id="scan-product-photo" class="button secondary" type="button"><span data-icon="camera"></span><span><strong>Producto</strong><small>Foto para autocompletar</small></span></button>
+        <button id="scan-ticket" class="button secondary" type="button"><span data-icon="receipt"></span><span><strong>Ticket</strong><small>Ir a captura de ticket</small></span></button>
       </div>
       <input id="product-camera" class="visually-hidden-file" type="file" accept="image/jpeg,image/png" capture="environment">
       <input id="product-gallery" class="visually-hidden-file" type="file" accept="image/jpeg,image/png">
