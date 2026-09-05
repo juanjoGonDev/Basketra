@@ -2,6 +2,7 @@ import { api, setBusy } from './api.js';
 import { breadcrumb, escapeHtml, formatEuroMinor, hydrateIcons, setFieldFeedback } from './ui.js';
 import { createPagedSelection, syncPagedSelectionDom } from './entity-selection.js';
 import {
+  applicationUrl,
   readApplicationLocation,
   readRouteEnum,
   readRoutePage,
@@ -1426,6 +1427,12 @@ function bindInteractions() {
   });
 }
 
+async function openRequestedRouteWhenCurrent(requested, searchParams, openRequested) {
+  const current = readApplicationLocation();
+  if (applicationUrl(current.route, current.searchParams) !== applicationUrl(requested, searchParams)) return;
+  await openRequested(requested, searchParams);
+}
+
 async function openRequestedProduct(requested, searchParams) {
   if (requested === 'catalog:new') {
     startCreateProduct({ historyMode: 'none' });
@@ -1456,7 +1463,7 @@ async function activateCatalog(requested = 'catalog', searchParams = new URLSear
   applyProductRouteState(searchParams);
   showProductListScreen();
   await loadProducts();
-  await openRequestedProduct(requested, searchParams);
+  await openRequestedRouteWhenCurrent(requested, searchParams, openRequestedProduct);
 }
 
 async function activateCategories(requested = 'categories', searchParams = new URLSearchParams()) {
@@ -1464,7 +1471,7 @@ async function activateCategories(requested = 'categories', searchParams = new U
   applyCategoryRouteState(searchParams);
   showCategoryListScreen();
   await loadCategoryInventory();
-  await openRequestedCategory(requested, searchParams);
+  await openRequestedRouteWhenCurrent(requested, searchParams, openRequestedCategory);
 }
 
 function handleViewChanged(event) {
