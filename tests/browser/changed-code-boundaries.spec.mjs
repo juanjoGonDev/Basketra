@@ -195,6 +195,12 @@ test('catalog covers filters, validation, relations, allowed deletes and error s
   await page.route('**/api/v1/catalog/products/*/delete-impact', route => json(route, {
     impact: { receiptItems: 0, shoppingListItems: 0, priceObservations: 0, linkedStores: 0, canDelete: true },
   }));
+  await page.route(/\/api\/v1\/catalog\/products\/([^/]+)$/, route => {
+    if (route.request().method() !== 'DELETE') return route.fallback();
+    const id = new URL(route.request().url()).pathname.split('/').at(-1);
+    products = products.filter(product => product.id !== id);
+    return route.fulfill({ status: 204, body: '' });
+  });
   await page.route('**/api/v1/catalog/products/bulk-delete-impact', route => {
     if (bulkImpactMode === 'error') return json(route, { error: { message: 'Bulk impact failed' } }, 500);
     if (bulkImpactMode === 'blocked') return json(route, { impact: { canDelete: false, blocked: [{ id: 'variant_one' }] } });
