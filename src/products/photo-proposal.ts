@@ -101,6 +101,7 @@ export async function proposeProductFromPhoto(input: Readonly<{
   const result = await executor.execute({
     operation: 'product-photo-proposal',
     schemaName: 'product_photo_proposal',
+    reasoningEffort: 'low',
     systemPrompt: [
       'Identify a grocery product from the attached image and return only the requested structured object.',
       'Do not invent unreadable product names, brands, EAN/GTIN values, package amounts, prices, retailers or stores.',

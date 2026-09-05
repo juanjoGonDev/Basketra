@@ -14,7 +14,7 @@ import {
   type RuntimeSettings,
 } from '../infrastructure/runtime-settings.ts';
 import { asArray, asBoolean, asEnum, asRecord, asSafeInteger, asString } from '../domain/validation.ts';
-import { UNIT_VALUES } from '../domain/units.ts';
+import { normalizedMinorPerDisplayUnit, rational, UNIT_VALUES } from '../domain/units.ts';
 import { optimizeBasket, type ShoppingRequirement } from '../domain/optimization.ts';
 import type { Offer } from '../domain/offers.ts';
 import { parseReceiptLineDiscount, validateReceiptLine, validateReceiptTotal, type ReceiptLineInput } from '../domain/receipt.ts';
@@ -241,6 +241,25 @@ export class BasketraServer {
       if (request.method === 'GET' && url.pathname === '/api/v1/shopping-lists') return this.json(response, 200, { lists: this.#database.listShoppingLists() });
       if (request.method === 'POST' && url.pathname === '/api/v1/shopping-lists') return await this.createShoppingList(request, response);
 
+      const listEstimateMatch = /^\/api\/v1\/shopping-lists\/([^/]+)\/estimate$/.exec(url.pathname);
+      if (request.method === 'GET' && listEstimateMatch?.[1]) {
+        return this.getShoppingListEstimate(response, decodePathSegment(listEstimateMatch[1]));
+      }
+      const itemEstimateMatch = /^\/api\/v1\/shopping-lists\/([^/]+)\/estimate-item$/.exec(url.pathname);
+      if (request.method === 'POST' && itemEstimateMatch?.[1]) {
+        return await this.estimateShoppingListItem(request, response, decodePathSegment(itemEstimateMatch[1]));
+      }
+
+      const listStoreSelectionMatch = /^\/api\/v1\/shopping-lists\/([^/]+)\/store-selection$/.exec(url.pathname);
+      if (request.method === 'PUT' && listStoreSelectionMatch?.[1]) {
+        return await this.updateShoppingListStoreSelection(request, response, decodePathSegment(listStoreSelectionMatch[1]));
+      }
+
+      const itemBulkMatch = /^\/api\/v1\/shopping-lists\/([^/]+)\/items\/bulk$/.exec(url.pathname);
+      if (request.method === 'POST' && itemBulkMatch?.[1]) {
+        return await this.bulkMutateShoppingListItems(request, response, decodePathSegment(itemBulkMatch[1]));
+      }
+
       const itemOrderMatch = /^\/api\/v1\/shopping-lists\/([^/]+)\/items\/order$/.exec(url.pathname);
       if (request.method === 'PUT' && itemOrderMatch?.[1]) {
         return await this.reorderShoppingListItems(request, response, decodePathSegment(itemOrderMatch[1]));
@@ -268,6 +287,12 @@ export class BasketraServer {
       }
 
       if (request.method === 'GET' && url.pathname === '/api/v1/products/suggestions') return this.suggestProducts(response, url.searchParams);
+      if (request.method === 'GET' && url.pathname === '/api/v1/products/parents') return this.suggestProductParents(response, url.searchParams);
+      const parentVariantsMatch = /^\/api\/v1\/products\/parents\/([^/]+)\/variants$/.exec(url.pathname);
+      if (request.method === 'GET' && parentVariantsMatch?.[1]) {
+        return this.listProductParentVariants(response, decodePathSegment(parentVariantsMatch[1]));
+      }
+      if (request.method === 'POST' && url.pathname === '/api/v1/products/price-normalization') return await this.normalizeProductPrice(request, response);
       if (request.method === 'POST' && url.pathname === '/api/v1/products/photo-proposal') return await this.proposeProductPhoto(request, response);
       if (request.method === 'POST' && url.pathname === '/api/v1/products') return await this.createProduct(request, response);
       const productPriceMatch = /^\/api\/v1\/products\/([^/]+)\/prices$/.exec(url.pathname);
@@ -527,6 +552,51 @@ export class BasketraServer {
     this.json(response, 200, result);
   }
 
+  private getShoppingListEstimate(response: ServerResponse, id: string): void {
+    const estimate = this.#database.getShoppingListEstimate(id);
+    if (!estimate) throw new ApiError(404, 'SHOPPING_LIST_NOT_FOUND', 'Shopping list was not found');
+    this.json(response, 200, { estimate });
+  }
+
+  private async estimateShoppingListItem(request: IncomingMessage, response: ServerResponse, listId: string): Promise<void> {
+    const body = asRecord(await this.readJson(request));
+    const line = this.#database.getShoppingListDraftEstimate({
+      listId,
+      text: asString(body['text'] ?? 'Producto', '$.text', { min: 1, max: 240 }),
+      quantityMinor: asSafeInteger(body['quantityMinor'] ?? 1, '$.quantityMinor', { min: 1, max: 100_000 }),
+      unit: asEnum(body['unit'] ?? 'unit', '$.unit', UNIT_VALUES),
+      productVariantId: asString(body['productVariantId'], '$.productVariantId', { min: 1, max: 128 }),
+      ...(body['storeOverrideId'] === undefined
+        ? {}
+        : { storeOverrideId: body['storeOverrideId'] === null ? null : asString(body['storeOverrideId'], '$.storeOverrideId', { min: 1, max: 128 }) }),
+    });
+    if (!line) throw new ApiError(404, 'SHOPPING_LIST_NOT_FOUND', 'Shopping list was not found');
+    this.json(response, 200, { line });
+  }
+
+  private async updateShoppingListStoreSelection(request: IncomingMessage, response: ServerResponse, id: string): Promise<void> {
+    const body = asRecord(await this.readJson(request));
+    const storeId = body['storeId'] === null || body['storeId'] === undefined
+      ? null
+      : asString(body['storeId'], '$.storeId', { min: 1, max: 128 });
+    const scope = asEnum(body['scope'] ?? 'default', '$.scope', ['default', 'all'] as const);
+    const result = this.#database.updateShoppingListStoreSelection(
+      id,
+      storeId,
+      asSafeInteger(body['version'], '$.version', { min: 1 }),
+      scope,
+    );
+    this.publishRealtime({
+      entityType: 'shopping-list',
+      mutation: 'updated',
+      listId: id,
+      entityId: id,
+      version: result.list.version,
+      updatedAt: result.list.updatedAt,
+    });
+    this.json(response, 200, result);
+  }
+
   private async updateShoppingList(request: IncomingMessage, response: ServerResponse, id: string): Promise<void> {
     const body = asRecord(await this.readJson(request));
     const list = this.#database.updateShoppingList(
@@ -552,6 +622,9 @@ export class BasketraServer {
     const productVariantId = body['productVariantId'] === undefined
       ? undefined
       : asString(body['productVariantId'], '$.productVariantId', { min: 1, max: 128 });
+    const storeOverrideId = body['storeOverrideId'] === undefined || body['storeOverrideId'] === null
+      ? undefined
+      : asString(body['storeOverrideId'], '$.storeOverrideId', { min: 1, max: 128 });
     const item = this.#database.addShoppingListItem({
       listId,
       text: asString(body['text'], '$.text', { min: 1, max: 240 }),
@@ -560,6 +633,7 @@ export class BasketraServer {
       exactRequired: body['exactRequired'] === undefined ? false : asBoolean(body['exactRequired'], '$.exactRequired'),
       substitutionAllowed: body['substitutionAllowed'] === undefined ? true : asBoolean(body['substitutionAllowed'], '$.substitutionAllowed'),
       ...(productVariantId ? { productVariantId } : {}),
+      ...(storeOverrideId ? { storeOverrideId } : {}),
     });
     this.publishRealtime({ entityType: 'shopping-list-item', mutation: 'created', listId, entityId: item.id, version: item.version, updatedAt: item.updatedAt });
     this.json(response, 201, { item, listVersion: this.#database.getShoppingListVersion(listId) });
@@ -570,7 +644,7 @@ export class BasketraServer {
     if (body['quantityMinor'] !== undefined && body['quantityDelta'] !== undefined) {
       throw new ApiError(400, 'VALIDATION_ERROR', 'quantityMinor and quantityDelta cannot be combined');
     }
-    const hasMutableField = ['text', 'quantityMinor', 'quantityDelta', 'unit', 'exactRequired', 'substitutionAllowed', 'completed', 'productVariantId']
+    const hasMutableField = ['text', 'quantityMinor', 'quantityDelta', 'unit', 'exactRequired', 'substitutionAllowed', 'completed', 'productVariantId', 'storeOverrideId']
       .some((field) => body[field] !== undefined);
     if (!hasMutableField) throw new ApiError(400, 'VALIDATION_ERROR', 'At least one item field must be provided');
     const update = {
@@ -587,6 +661,9 @@ export class BasketraServer {
       ...(body['productVariantId'] === undefined
         ? {}
         : { productVariantId: body['productVariantId'] === null ? null : asString(body['productVariantId'], '$.productVariantId', { min: 1, max: 128 }) }),
+      ...(body['storeOverrideId'] === undefined
+        ? {}
+        : { storeOverrideId: body['storeOverrideId'] === null ? null : asString(body['storeOverrideId'], '$.storeOverrideId', { min: 1, max: 128 }) }),
     };
     const item = this.#database.updateShoppingListItem(update);
     this.publishRealtime({ entityType: 'shopping-list-item', mutation: 'updated', listId, entityId: item.id, version: item.version, updatedAt: item.updatedAt });
@@ -599,6 +676,41 @@ export class BasketraServer {
     this.#database.deleteShoppingListItem(listId, itemId, version);
     this.publishRealtime({ entityType: 'shopping-list-item', mutation: 'deleted', listId, entityId: itemId, version: version + 1 });
     this.empty(response);
+  }
+
+  private async bulkMutateShoppingListItems(request: IncomingMessage, response: ServerResponse, listId: string): Promise<void> {
+    const body = asRecord(await this.readJson(request));
+    const selectedItems = asArray(body['items'], '$.items', 500).map((value, index) => {
+      const item = asRecord(value, `$.items[${index}]`);
+      return {
+        id: asString(item['id'], `$.items[${index}].id`, { min: 1, max: 128 }),
+        expectedVersion: asSafeInteger(item['version'], `$.items[${index}].version`, { min: 1 }),
+      };
+    });
+    if (selectedItems.length === 0) throw new ApiError(400, 'VALIDATION_ERROR', 'Select at least one shopping-list item');
+
+    const action = asEnum(body['action'], '$.action', ['completed', 'store', 'delete'] as const);
+    const mutation = action === 'completed'
+      ? { type: 'completed' as const, completed: asBoolean(body['completed'], '$.completed') }
+      : action === 'store'
+        ? {
+            type: 'store' as const,
+            storeOverrideId: body['storeOverrideId'] === null
+              ? null
+              : asString(body['storeOverrideId'], '$.storeOverrideId', { min: 1, max: 128 }),
+          }
+        : { type: 'delete' as const };
+
+    const result = this.#database.bulkMutateShoppingListItems(listId, selectedItems, mutation);
+    this.publishRealtime({
+      entityType: 'shopping-list',
+      mutation: 'updated',
+      listId,
+      entityId: listId,
+      version: result.list.version,
+      updatedAt: result.list.updatedAt,
+    });
+    this.json(response, 200, result);
   }
 
   private async reorderShoppingListItems(request: IncomingMessage, response: ServerResponse, listId: string): Promise<void> {
@@ -614,7 +726,21 @@ export class BasketraServer {
     const query = asString(params.get('q') ?? '', '$.q', { min: 1, max: 100 });
     const limit = Math.min(20, Number(params.get('limit') ?? 8));
     if (!Number.isSafeInteger(limit) || limit < 1) throw new ApiError(400, 'VALIDATION_ERROR', 'Suggestion limit is invalid');
-    this.json(response, 200, { suggestions: this.#database.searchProducts(query, limit) });
+    const storeId = params.get('storeId')?.trim() || undefined;
+    this.json(response, 200, { suggestions: this.#database.searchProducts(query, limit, storeId) });
+  }
+
+  private listProductParentVariants(response: ServerResponse, parentId: string): void {
+    this.json(response, 200, { variants: this.#database.listProductVariantsByParent(parentId) });
+  }
+
+  private suggestProductParents(response: ServerResponse, params: URLSearchParams): void {
+    const query = asString(params.get('q') ?? '', '$.q', { min: 1, max: 100 });
+    const limit = Math.min(20, Number(params.get('limit') ?? 8));
+    if (!Number.isSafeInteger(limit) || limit < 1) {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'Parent suggestion limit is invalid');
+    }
+    this.json(response, 200, { parents: this.#database.searchCanonicalProducts(query, limit) });
   }
 
   private async createCategory(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -642,8 +768,18 @@ export class BasketraServer {
 
   private async createProduct(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const body = asRecord(await this.readJson(request));
+    const canonicalProductId = body['canonicalProductId'] === undefined
+      ? undefined
+      : asString(body['canonicalProductId'], '$.canonicalProductId', { min: 1, max: 128 });
+    const canonicalName = body['canonicalName'] === undefined
+      ? undefined
+      : asString(body['canonicalName'], '$.canonicalName', { min: 1, max: 160 });
+    if (!canonicalProductId && !canonicalName) {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'canonicalName or canonicalProductId is required');
+    }
     const product = this.#database.createProduct({
-      canonicalName: asString(body['canonicalName'], '$.canonicalName', { min: 1, max: 160 }),
+      ...(canonicalProductId ? { canonicalProductId } : {}),
+      ...(canonicalName ? { canonicalName } : {}),
       ...(body['variantName'] === undefined ? {} : { variantName: asString(body['variantName'], '$.variantName', { min: 1, max: 160 }) }),
       ...(body['categoryId'] === undefined ? {} : { categoryId: asString(body['categoryId'], '$.categoryId', { min: 1, max: 128 }) }),
       ...(body['description'] === undefined ? {} : { description: asString(body['description'], '$.description', { max: 500 }) }),
@@ -684,6 +820,22 @@ export class BasketraServer {
     if (!product) throw new ApiError(404, 'PRODUCT_VARIANT_NOT_FOUND', 'Product variant was not found');
     this.publishRealtime({ entityType: 'product', mutation: 'updated', entityId: product.id, updatedAt: product.updatedAt });
     this.json(response, 200, { product });
+  }
+
+  private async normalizeProductPrice(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const body = asRecord(await this.readJson(request));
+    const priceMinor = asSafeInteger(body['priceMinor'], '$.priceMinor', { min: 0, max: 100_000_000 });
+    const packageNumerator = asSafeInteger(body['packageNumerator'], '$.packageNumerator', { min: 1, max: 100_000_000 });
+    const packageDenominator = asSafeInteger(body['packageDenominator'] ?? 1, '$.packageDenominator', { min: 1, max: 100_000_000 });
+    const packageUnit = asEnum(body['packageUnit'], '$.packageUnit', UNIT_VALUES);
+    const normalized = normalizedMinorPerDisplayUnit(priceMinor, {
+      amount: rational(packageNumerator, packageDenominator),
+      unit: packageUnit,
+    });
+    this.json(response, 200, {
+      normalizedPriceMinor: normalized.minor,
+      normalizedPriceUnit: normalized.unit,
+    });
   }
 
   private async proposeProductPhoto(request: IncomingMessage, response: ServerResponse): Promise<void> {

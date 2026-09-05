@@ -78,7 +78,7 @@ async function createList(page, name) {
 
 async function openProductDialog(page) {
   if (await page.locator('#item-dialog').evaluate(dialog => dialog.open)) return;
-  await page.getByRole('button', { name: 'Añadir producto', exact: true }).click();
+  await page.getByRole('button', { name: 'Crear ítem', exact: true }).click();
   await expect(page.locator('#item-dialog')).toHaveAttribute('open', '');
 }
 
@@ -203,8 +203,7 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   let riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
   await swipe(page, riceRow, 'right');
   const completedSection = page.locator('#completed-section');
-  await completedSection.locator('summary').click();
-  await expect(completedSection).toHaveAttribute('open', '');
+  await expect(completedSection).toBeVisible();
   await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Devolver Arroz 1 kg a pendientes' }).click());
   await expect(page.locator('#pending-items')).toContainText('Arroz 1 kg');
 
@@ -387,7 +386,8 @@ test('AI unavailability is recoverable and does not overwrite list input', async
   await productInput(page).fill('pan integral');
   await page.locator('#item-dialog').getByRole('button', { name: 'Cancelar', exact: true }).click();
 
-  await page.locator('#open-ai-assistant').click();
+  await page.locator('#list-menu').click();
+  await page.getByRole('button', { name: 'Añadir varios con IA', exact: true }).click();
   const aiDialog = page.locator('#ai-assistant-dialog');
   await aiDialog.getByLabel('Describe lo que necesitas', { exact: true }).fill('pan integral');
   await aiDialog.getByRole('button', { name: 'Preparar propuesta', exact: true }).click();

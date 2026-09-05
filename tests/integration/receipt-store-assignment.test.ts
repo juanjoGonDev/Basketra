@@ -86,6 +86,10 @@ test('store projection migration repairs receipt-derived prices that predate sto
       DROP TRIGGER IF EXISTS receipt_price_observation_write_store;
       DROP TRIGGER IF EXISTS confirmed_receipt_store_required_insert;
       DROP TRIGGER IF EXISTS confirmed_receipt_store_required_update;
+      DROP INDEX IF EXISTS shopping_lists_reference_store_idx;
+      DROP INDEX IF EXISTS shopping_list_items_store_override_idx;
+      ALTER TABLE shopping_list_items DROP COLUMN store_override_id;
+      ALTER TABLE shopping_lists DROP COLUMN reference_store_id;
     `);
     legacy.prepare('DELETE FROM schema_migrations WHERE version >= 13').run();
     const before = legacy.prepare(`
@@ -117,8 +121,8 @@ test('store projection migration repairs receipt-derived prices that predate sto
       JOIN price_observations ON price_observations.id = 'price_receipt_' || receipt_items.id
       WHERE receipts.id = ?
     `).get(receiptId) as { receiptStoreId: string | null; priceStoreId: string | null };
-    assert.equal(CURRENT_SCHEMA_VERSION, 14);
-    assert.equal(Number(schema.version), 14);
+    assert.equal(CURRENT_SCHEMA_VERSION, 15);
+    assert.equal(Number(schema.version), 15);
     assert.equal(projection.receiptStoreId, store.id);
     assert.equal(projection.priceStoreId, store.id);
     const storeProductCount = repaired.prepare(`
@@ -418,6 +422,10 @@ test('historical Store backfill changes only observations proven by receipt-item
       DROP TRIGGER IF EXISTS receipt_price_observation_write_store;
       DROP TRIGGER IF EXISTS confirmed_receipt_store_required_insert;
       DROP TRIGGER IF EXISTS confirmed_receipt_store_required_update;
+      DROP INDEX IF EXISTS shopping_lists_reference_store_idx;
+      DROP INDEX IF EXISTS shopping_list_items_store_override_idx;
+      ALTER TABLE shopping_list_items DROP COLUMN store_override_id;
+      ALTER TABLE shopping_lists DROP COLUMN reference_store_id;
     `);
     legacy.prepare('DELETE FROM schema_migrations WHERE version >= 13').run();
   } finally {

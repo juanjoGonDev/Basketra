@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { rankNearbyStores, type GeoPointMicrodegrees } from '../domain/location.ts';
-import { normalizedMinorPerBaseUnit, rational, type Unit } from '../domain/units.ts';
+import { normalizedMinorPerBaseUnit, normalizedMinorPerDisplayUnit, rational, type Unit } from '../domain/units.ts';
 import { createId } from './ids.ts';
 
 export type ProductCategoryRecord = Readonly<{
@@ -11,14 +11,33 @@ export type ProductCategoryRecord = Readonly<{
   updatedAt: string;
 }>;
 
+export type ProductParentSuggestionRecord = Readonly<{
+  id: string;
+  name: string;
+  categoryId?: string;
+  categoryName?: string;
+  description?: string;
+  variantCount: number;
+}>;
+
 export type ProductSuggestionRecord = Readonly<{
   id: string;
   name: string;
   source: 'catalog';
+  canonicalProductId: string;
   canonicalName: string;
   brand?: string;
+  packageMinor?: number;
+  packageUnit?: string;
   categoryId?: string;
   categoryName?: string;
+  latestStorePrice?: Readonly<{
+    storeId: string;
+    storeName: string;
+    retailerName: string;
+    priceMinor: number;
+    observedAt: string;
+  }>;
 }>;
 
 export type ProductVariantRecord = Readonly<{
@@ -65,6 +84,8 @@ export type PriceObservationRecord = Readonly<{
   packageUnit: string;
   normalizedPriceNumerator: number;
   normalizedPriceDenominator: number;
+  normalizedDisplayPriceMinor: number;
+  normalizedDisplayPriceUnit: Unit;
   evidenceId: string;
   observedAt: string;
   confidence: number;
@@ -206,15 +227,18 @@ export class CatalogRepository {
     return mapCategory(row);
   }
 
-  searchProducts(query: string, limit: number): ProductSuggestionRecord[] {
+  searchProducts(query: string, limit: number, storeId?: string): ProductSuggestionRecord[] {
     const normalized = query.trim().replace(/["*:^()]/g, ' ');
     if (!normalized) return [];
     const rows = this.#database.prepare(`
       SELECT
         product_variants.id,
         product_variants.name,
+        product_variants.canonical_product_id AS canonicalProductId,
         canonical_products.name AS canonicalName,
         product_variants.brand,
+        product_variants.package_minor AS packageMinor,
+        product_variants.package_unit AS packageUnit,
         product_categories.id AS categoryId,
         product_categories.name AS categoryName
       FROM product_search
@@ -227,20 +251,116 @@ export class CatalogRepository {
     `).all(`${normalized}*`, limit) as Array<Readonly<{
       id: string;
       name: string;
+      canonicalProductId: string;
       canonicalName: string;
       brand: string | null;
+      packageMinor: number | null;
+      packageUnit: string | null;
       categoryId: string | null;
       categoryName: string | null;
+    }>>;
+
+    const latestPrice = storeId ? this.#database.prepare(`
+      SELECT
+        price_observations.price_minor AS priceMinor,
+        price_observations.observed_at AS observedAt,
+        stores.id AS storeId,
+        stores.name AS storeName,
+        retailers.name AS retailerName
+      FROM price_observations
+      JOIN retailer_listings ON retailer_listings.id = price_observations.retailer_listing_id
+      JOIN stores ON stores.id = price_observations.store_id
+      JOIN retailers ON retailers.id = stores.retailer_id
+      WHERE retailer_listings.product_variant_id = ? AND stores.id = ?
+      ORDER BY price_observations.observed_at DESC, price_observations.id DESC
+      LIMIT 1
+    `) : null;
+
+    return rows.map((row) => {
+      const price = latestPrice
+        ? latestPrice.get(row.id, storeId) as {
+            priceMinor: number;
+            observedAt: string;
+            storeId: string;
+            storeName: string;
+            retailerName: string;
+          } | undefined
+        : undefined;
+      return {
+        id: row.id,
+        name: row.name,
+        source: 'catalog' as const,
+        canonicalProductId: row.canonicalProductId,
+        canonicalName: row.canonicalName,
+        ...(row.brand ? { brand: row.brand } : {}),
+        ...(row.packageMinor === null ? {} : { packageMinor: row.packageMinor }),
+        ...(row.packageUnit ? { packageUnit: row.packageUnit } : {}),
+        ...(row.categoryId ? { categoryId: row.categoryId } : {}),
+        ...(row.categoryName ? { categoryName: row.categoryName } : {}),
+        ...(price ? {
+          latestStorePrice: {
+            storeId: price.storeId,
+            storeName: price.storeName,
+            retailerName: price.retailerName,
+            priceMinor: price.priceMinor,
+            observedAt: price.observedAt,
+          },
+        } : {}),
+      };
+    });
+  }
+
+  searchCanonicalProducts(query: string, limit: number): ProductParentSuggestionRecord[] {
+    const normalized = query.trim();
+    if (!normalized) return [];
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 20) {
+      throw new RangeError('Canonical product suggestion limit is invalid');
+    }
+    const escaped = normalized.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
+    const rows = this.#database.prepare(`
+      SELECT
+        canonical_products.id,
+        canonical_products.name,
+        product_categories.id AS categoryId,
+        product_categories.name AS categoryName,
+        canonical_products.description,
+        COUNT(product_variants.id) AS variantCount
+      FROM canonical_products
+      LEFT JOIN product_categories ON product_categories.id = canonical_products.category_id
+      LEFT JOIN product_variants ON product_variants.canonical_product_id = canonical_products.id
+      WHERE canonical_products.name LIKE ? ESCAPE '\\' COLLATE NOCASE
+      GROUP BY canonical_products.id, product_categories.id
+      ORDER BY canonical_products.name COLLATE NOCASE, canonical_products.id
+      LIMIT ?
+    `).all(`%${escaped}%`, limit) as Array<Readonly<{
+      id: string;
+      name: string;
+      categoryId: string | null;
+      categoryName: string | null;
+      description: string | null;
+      variantCount: number;
     }>>;
     return rows.map((row) => ({
       id: row.id,
       name: row.name,
-      source: 'catalog',
-      canonicalName: row.canonicalName,
-      ...(row.brand ? { brand: row.brand } : {}),
       ...(row.categoryId ? { categoryId: row.categoryId } : {}),
       ...(row.categoryName ? { categoryName: row.categoryName } : {}),
+      ...(row.description ? { description: row.description } : {}),
+      variantCount: Number(row.variantCount),
     }));
+  }
+
+  listProductVariantsByParent(parentId: string): ProductVariantRecord[] {
+    const ids = this.#database.prepare(`
+      SELECT id FROM product_variants
+      WHERE canonical_product_id = ?
+      ORDER BY name COLLATE NOCASE, id
+      LIMIT 100
+    `).all(parentId) as Array<{ id: string }>;
+    if (ids.length === 0 && !this.#database.prepare('SELECT 1 FROM canonical_products WHERE id = ?').get(parentId)) {
+      throw new Error('CANONICAL_PRODUCT_NOT_FOUND');
+    }
+    return ids.map(({ id }) => this.getProductVariant(id)).filter((value): value is ProductVariantRecord => value !== undefined);
   }
 
   getProductVariant(id: string): ProductVariantRecord | undefined {
@@ -287,7 +407,8 @@ export class CatalogRepository {
   }
 
   createProduct(input: Readonly<{
-    canonicalName: string;
+    canonicalProductId?: string;
+    canonicalName?: string;
     variantName?: string;
     categoryId?: string;
     description?: string;
@@ -297,20 +418,43 @@ export class CatalogRepository {
     packageUnit?: string;
     aliases?: readonly string[];
   }>): ProductVariantRecord {
-    const canonicalName = input.canonicalName.trim();
-    const variantName = input.variantName?.trim() || canonicalName;
-    if (!canonicalName || !variantName) throw new RangeError('Product name is required');
-    const category = input.categoryId ? this.categoryById(input.categoryId) : undefined;
-    if (input.categoryId && !category) throw new Error('PRODUCT_CATEGORY_NOT_FOUND');
-    const productId = createId('product');
+    const parentId = input.canonicalProductId?.trim();
+    const canonicalName = input.canonicalName?.trim();
+    if (parentId && (canonicalName || input.categoryId || input.description)) {
+      throw new RangeError('Existing canonical product creation accepts variant fields only');
+    }
+    if (!parentId && !canonicalName) throw new RangeError('Canonical product name is required');
+
+    const existingParent = parentId
+      ? this.#database.prepare('SELECT id, name FROM canonical_products WHERE id = ?').get(parentId) as { id: string; name: string } | undefined
+      : undefined;
+    if (parentId && !existingParent) throw new Error('CANONICAL_PRODUCT_NOT_FOUND');
+
+    const resolvedCanonicalName = existingParent?.name ?? canonicalName!;
+    const variantName = input.variantName?.trim() || resolvedCanonicalName;
+    if (!variantName) throw new RangeError('Product variant name is required');
+    const category = !parentId && input.categoryId ? this.categoryById(input.categoryId) : undefined;
+    if (!parentId && input.categoryId && !category) throw new Error('PRODUCT_CATEGORY_NOT_FOUND');
+
+    const productId = existingParent?.id ?? createId('product');
     const variantId = createId('variant');
     const timestamp = this.#clock().toISOString();
     this.#database.exec('BEGIN IMMEDIATE');
     try {
-      this.#database.prepare(`
-        INSERT INTO canonical_products(id, name, category, category_id, description, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(productId, canonicalName, category?.name ?? null, category?.id ?? null, input.description?.trim() || null, timestamp, timestamp);
+      if (!existingParent) {
+        this.#database.prepare(`
+          INSERT INTO canonical_products(id, name, category, category_id, description, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          productId,
+          resolvedCanonicalName,
+          category?.name ?? null,
+          category?.id ?? null,
+          input.description?.trim() || null,
+          timestamp,
+          timestamp,
+        );
+      }
       this.#database.prepare(`
         INSERT INTO product_variants(id, canonical_product_id, name, brand, ean, package_minor, package_unit, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -497,6 +641,7 @@ export class CatalogRepository {
     const packageAmount = rational(input.packageNumerator, input.packageDenominator);
     if (packageAmount.numerator === 0) throw new RangeError('Price package quantity must be greater than zero');
     const normalized = normalizedMinorPerBaseUnit(input.priceMinor, { amount: packageAmount, unit: input.packageUnit });
+    const normalizedDisplay = normalizedMinorPerDisplayUnit(input.priceMinor, { amount: packageAmount, unit: input.packageUnit });
     const timestamp = this.#clock().toISOString();
     this.#database.exec('BEGIN IMMEDIATE');
     try {
@@ -571,6 +716,8 @@ export class CatalogRepository {
         packageUnit: input.packageUnit,
         normalizedPriceNumerator: normalized.numerator,
         normalizedPriceDenominator: normalized.denominator,
+        normalizedDisplayPriceMinor: normalizedDisplay.minor,
+        normalizedDisplayPriceUnit: normalizedDisplay.unit,
         evidenceId,
         observedAt: input.observedAt,
         confidence: input.confidence,
@@ -615,8 +762,14 @@ export class CatalogRepository {
         storeName: string | null;
       };
       const { storeId, storeName, ...base } = value;
+      const normalizedDisplay = normalizedMinorPerDisplayUnit(base.priceMinor, {
+        amount: rational(base.packageNumerator, base.packageDenominator),
+        unit: base.packageUnit as Unit,
+      });
       return {
         ...base,
+        normalizedDisplayPriceMinor: normalizedDisplay.minor,
+        normalizedDisplayPriceUnit: normalizedDisplay.unit,
         ...(storeId ? { storeId } : {}),
         ...(storeName ? { storeName } : {}),
       };

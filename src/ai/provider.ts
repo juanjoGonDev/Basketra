@@ -101,12 +101,15 @@ export function buildAiAttachmentContentPart(
   };
 }
 
+export type AiReasoningEffort = 'low' | 'medium' | 'high';
+
 export type AiStructuredInput = Readonly<{
   operation: string;
   systemPrompt: string;
   content: AiMessageContent;
   schemaName: string;
   jsonSchema: Readonly<Record<string, unknown>>;
+  reasoningEffort?: AiReasoningEffort;
   correlationId?: string;
   sessionAffinity?: string;
   sessionFinal?: boolean;
@@ -467,6 +470,7 @@ function buildProviderRequest(input: AiStructuredInput, model: string): Provider
       type: 'json_schema',
       json_schema: { name: input.schemaName, strict: true, schema: input.jsonSchema },
     },
+    ...(input.reasoningEffort ? { reasoning: { effort: input.reasoningEffort } } : {}),
   };
   const requestJson = JSON.stringify(metadata);
   const jsonBytes = Buffer.byteLength(requestJson, 'utf8');

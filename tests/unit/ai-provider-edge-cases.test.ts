@@ -197,3 +197,31 @@ test('provider capability probe rejects non-object and non-exact contracts', asy
     );
   }
 });
+
+
+test('provider preserves configured model identity while forwarding explicit low reasoning effort', async () => {
+  let requestBody: unknown;
+  const candidate = provider((async (url, init) => {
+    if (String(url).endsWith('/capabilities')) return new Response('{}', { status: 404 });
+    assert.equal(typeof init?.body, 'string');
+    requestBody = JSON.parse(init.body as string) as unknown;
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: '{"value":"ok"}' } }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch);
+
+  await candidate.executeStructured({ ...input, reasoningEffort: 'low' });
+
+  assert.deepEqual(requestBody, {
+    model: 'test-model',
+    messages: [
+      { role: 'system', content: 'Return JSON only.' },
+      { role: 'user', content: 'test' },
+    ],
+    response_format: {
+      type: 'json_schema',
+      json_schema: { name: 'edge_case', strict: true, schema: input.jsonSchema },
+    },
+    reasoning: { effort: 'low' },
+  });
+});
