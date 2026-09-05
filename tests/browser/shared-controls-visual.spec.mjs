@@ -64,7 +64,7 @@ test('ticket metadata controls align with a wrapped store explanation', async ({
     for (const box of boxes) expect(box.height).toBe(boxes[0].height);
     if (width >= 1440) for (const box of boxes) expect(box.y).toBe(boxes[0].y);
     await page.screenshot({ path: testInfo.outputPath(`ticket-metadata-${width}.png`), fullPage: true });
-    await page.getByRole('button', { name: 'AÃ±adir artÃ­culo', exact: true }).click();
+    await page.locator('#ticket-add-line').click();
     await expect(page.locator('.receipt-invoice-dialog[open]')).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath(`ticket-add-line-${width}.png`), fullPage: true });
   }
