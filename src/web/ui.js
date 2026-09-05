@@ -176,13 +176,6 @@ function openSwipeRow(root, row) {
 
 function dispatchSwipeAction(root, row, action) {
   const currentRow = resolveCurrentSwipeRow(root, row);
-  if (action === currentRow.dataset.swipeStartAction) {
-    const actionControl = currentRow.querySelector(`[data-item-action="${CSS.escape(action)}"]`);
-    if (actionControl instanceof HTMLButtonElement) {
-      actionControl.click();
-      return;
-    }
-  }
   currentRow.dispatchEvent(new CustomEvent('basketra:swipe-action', {
     bubbles: true,
     detail: { action, id: currentRow.dataset.swipeId, kind: currentRow.dataset.swipeKind },
