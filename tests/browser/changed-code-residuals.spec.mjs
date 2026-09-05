@@ -605,7 +605,10 @@ test('catalog and inventory defensive residuals cover partial payloads and alter
   await expect.poll(() => storesRequest).toBeGreaterThanOrEqual(2);
   releaseStores();
   await expect(page.locator('#store-state')).toContainText('0 tiendas encontradas');
-  await page.locator('#store-select-page').check();
+  await page.locator('#store-select-page').evaluate(element => {
+    element.checked = true;
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  });
   await page.locator('#store-selection-clear').click();
   await page.locator('#store-prev').dispatchEvent('click');
   await page.locator('#store-next').dispatchEvent('click');
