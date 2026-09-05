@@ -2362,6 +2362,10 @@ summary {
   white-space: nowrap;
 }
 
+.list-row__actions.list-row__actions--completed {
+  grid-template-columns: minmax(0, 1fr) var(--touch);
+}
+
 .completed-return-action .icon {
   width: 1rem;
   height: 1rem;
