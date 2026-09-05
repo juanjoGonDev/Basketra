@@ -269,3 +269,73 @@ test('product creation can reuse an existing canonical parent from the shopping 
   const reused = parents.find(candidate => candidate.id === parent.canonicalProductId);
   expect(reused?.variantCount).toBe(2);
 });
+
+
+test('multi-select mode applies atomic Store, completion and delete actions', async ({ page, request, context }) => {
+  test.setTimeout(45_000);
+  const store = await createStore(request, 'Mercado', 'Mercado Multi');
+  const first = await createProduct(request, {
+    canonicalName: 'Huevos',
+    variantName: 'Huevos M 12 ud',
+    packageMinor: 12,
+    packageUnit: 'unit',
+  });
+  const second = await createProduct(request, {
+    canonicalName: 'Pan',
+    variantName: 'Pan integral 500 g',
+    packageMinor: 500,
+    packageUnit: 'g',
+  });
+  const listResponse = await request.post('/api/v1/shopping-lists', { data: { name: 'Compra múltiple' } });
+  expect(listResponse.ok()).toBeTruthy();
+  const list = (await listResponse.json()).list;
+  for (const product of [first, second]) {
+    const response = await request.post(`/api/v1/shopping-lists/${encodeURIComponent(list.id)}/items`, {
+      data: {
+        text: product.variantName,
+        quantityMinor: 1,
+        unit: 'unit',
+        exactRequired: false,
+        substitutionAllowed: true,
+        productVariantId: product.id,
+      },
+    });
+    expect(response.ok()).toBeTruthy();
+  }
+
+  await page.goto(`/lists/${encodeURIComponent(list.id)}`);
+  const peer = await context.newPage();
+  await peer.goto(`/lists/${encodeURIComponent(list.id)}`);
+
+  await page.getByRole('button', { name: 'Seleccionar', exact: true }).click();
+  await expect(page.locator('#bulk-selection-bar')).toBeVisible();
+  await page.locator('#bulk-select-all').click();
+  await expect(page.locator('#bulk-selection-count')).toHaveText('2 seleccionados');
+
+  await page.locator('#bulk-store-select').selectOption(store.id);
+  await page.locator('#bulk-apply-store').click();
+  await expect(page.locator('#bulk-selection-bar')).toBeHidden();
+  await expect(peer.locator('#pending-items')).toContainText('Mercado Multi');
+
+  await page.getByRole('button', { name: 'Seleccionar', exact: true }).click();
+  await page.locator('#bulk-select-all').click();
+  await page.locator('#bulk-mark-completed').click();
+  await expect(page.locator('#pending-count')).toHaveText('0');
+  await expect(page.locator('#completed-count')).toHaveText('2');
+  await expect(peer.locator('#completed-count')).toHaveText('2');
+
+  await page.getByRole('button', { name: 'Seleccionar', exact: true }).click();
+  await page.locator('#bulk-select-all').click();
+  await page.locator('#bulk-mark-pending').click();
+  await expect(page.locator('#pending-count')).toHaveText('2');
+
+  await page.getByRole('button', { name: 'Seleccionar', exact: true }).click();
+  await page.locator('[data-select-item]').first().click();
+  await page.locator('#bulk-delete-items').click();
+  await expect(page.locator('#bulk-delete-dialog')).toBeVisible();
+  await expect(page.locator('#bulk-delete-count')).toHaveText('1 producto');
+  await page.locator('#confirm-bulk-delete').click();
+  await expect(page.locator('#pending-count')).toHaveText('1');
+  await expect(peer.locator('#pending-count')).toHaveText('1');
+  await peer.close();
+});
