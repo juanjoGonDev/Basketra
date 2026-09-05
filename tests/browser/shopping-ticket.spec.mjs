@@ -195,7 +195,7 @@ test('scan choice routes tickets separately and product photo AI hydrates the ca
   await page.goto(`/lists/${encodeURIComponent(list.id)}`);
   await page.getByRole('button', { name: 'Escanear', exact: true }).click();
   await expect(page.locator('#item-scan-options')).toBeVisible();
-  await expect(page.getByRole('button', { name: /Ticket/ })).toBeVisible();
+  await expect(page.locator('#scan-ticket')).toBeVisible();
 
   await page.getByRole('button', { name: /Producto.*Foto para autocompletar/ }).click();
   await page.locator('#product-camera').setInputFiles({
@@ -247,7 +247,7 @@ test('product creation can reuse an existing canonical parent from the shopping 
 
   await page.goto(`/lists/${encodeURIComponent(list.id)}`);
   await page.getByRole('button', { name: 'Crear ítem', exact: true }).click();
-  await page.getByLabel('Producto', { exact: true }).fill('Leche semidesnatada');
+  await page.locator('#item-dialog').getByLabel('Producto', { exact: true }).fill('Leche semidesnatada');
   await expect(page.getByRole('button', { name: /Crear nuevo producto/ })).toBeVisible();
   await page.getByRole('button', { name: /Crear nuevo producto/ }).click();
 

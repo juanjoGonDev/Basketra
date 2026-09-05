@@ -10,6 +10,7 @@
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/modern.css">
+  <link rel="stylesheet" href="/operations.css">
   <title>Basketra</title>
 </head>
 <body>
@@ -220,7 +221,7 @@
       <div id="linked-product" class="linked-product" hidden><span><strong id="linked-product-name"></strong><small>Producto guardado seleccionado</small></span><button id="edit-global-product" class="button secondary" type="button">Editar ficha y precio</button></div>
 
       <div class="item-core-fields">
-        <label class="field"><span>Cantidad</span><div class="quantity-stepper"><button id="item-quantity-minus" type="button" aria-label="Reducir cantidad">−</button><input id="item-quantity" type="number" min="1" max="100000" value="1" inputmode="numeric" required><button id="item-quantity-plus" type="button" aria-label="Aumentar cantidad">+</button></div></label>
+        <div class="field"><span id="item-quantity-label">Cantidad</span><div class="quantity-stepper"><button id="item-quantity-minus" type="button" aria-label="Reducir cantidad">−</button><input id="item-quantity" type="number" min="1" max="100000" value="1" inputmode="numeric" aria-labelledby="item-quantity-label" required><button id="item-quantity-plus" type="button" aria-label="Aumentar cantidad">+</button></div></div>
         <label class="field"><span>Unidad</span><select id="item-unit"><option value="">Cargando…</option></select></label>
         <label class="field"><span>Peso / tamaño</span><select id="item-size" disabled><option value="">Sin producto seleccionado</option></select></label>
       </div>
@@ -287,7 +288,7 @@
       <section class="product-editor-section">
         <h3>Detalles</h3>
         <div class="product-detail-grid">
-          <label class="field"><span>Cantidad</span><div class="quantity-stepper"><button id="global-item-quantity-minus" type="button" aria-label="Reducir cantidad">−</button><input id="global-item-quantity" type="number" min="1" max="100000" value="1" inputmode="numeric"><button id="global-item-quantity-plus" type="button" aria-label="Aumentar cantidad">+</button></div></label>
+          <div class="field"><span id="global-item-quantity-label">Cantidad</span><div class="quantity-stepper"><button id="global-item-quantity-minus" type="button" aria-label="Reducir cantidad">−</button><input id="global-item-quantity" type="number" min="1" max="100000" value="1" inputmode="numeric" aria-labelledby="global-item-quantity-label"><button id="global-item-quantity-plus" type="button" aria-label="Aumentar cantidad">+</button></div></div>
           <label class="field"><span>Unidad</span><select id="global-item-unit"><option value="">Cargando…</option></select></label>
           <label class="field"><span>Tamaño</span><input id="global-package-minor" type="number" min="1" max="100000000" inputmode="numeric" placeholder="1"></label>
           <label class="field"><span>Contenido envase</span><select id="global-package-unit"><option value="">Sin especificar</option></select></label>

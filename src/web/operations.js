@@ -779,10 +779,12 @@ function installHeartbeat() {
 }
 
 function init() {
-  const link = document.createElement('link');
-  link.rel = 'stylesheet';
-  link.href = '/operations.css';
-  document.head.append(link);
+  if (!document.querySelector('link[href="/operations.css"]')) {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = '/operations.css';
+    document.head.append(link);
+  }
   installGlobalActionIcons();
   installOperationsUi();
   installClientLogging();
