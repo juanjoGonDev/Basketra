@@ -31,6 +31,30 @@ test('bulk shopping-list mutations are atomic for completion, Store and deletion
       substitutionAllowed: true,
     });
 
+    assert.throws(
+      () => database.bulkMutateShoppingListItems(list.id, [], { type: 'delete' }),
+      /between 1 and 500/,
+    );
+    assert.throws(
+      () => database.bulkMutateShoppingListItems(
+        list.id,
+        [
+          { id: first.id, expectedVersion: first.version },
+          { id: first.id, expectedVersion: first.version },
+        ],
+        { type: 'delete' },
+      ),
+      /duplicate items/,
+    );
+    assert.throws(
+      () => database.bulkMutateShoppingListItems(
+        list.id,
+        [{ id: 'item_missing', expectedVersion: 1 }],
+        { type: 'delete' },
+      ),
+      /SHOPPING_LIST_ITEM_NOT_FOUND/,
+    );
+
     const completed = database.bulkMutateShoppingListItems(
       list.id,
       [
@@ -53,8 +77,22 @@ test('bulk shopping-list mutations are atomic for completion, Store and deletion
     );
     assert.deepEqual(stored.items.map((item) => item.storeOverrideId), [store.id, store.id]);
 
-    const staleFirst = stored.items.find((item) => item.id === first.id)!;
-    const staleSecond = stored.items.find((item) => item.id === second.id)!;
+    const inherited = database.bulkMutateShoppingListItems(
+      list.id,
+      stored.items.map((item) => ({ id: item.id, expectedVersion: item.version })),
+      { type: 'store', storeOverrideId: null },
+    );
+    assert.deepEqual(inherited.items.map((item) => item.storeOverrideId), [undefined, undefined]);
+
+    const pending = database.bulkMutateShoppingListItems(
+      list.id,
+      inherited.items.map((item) => ({ id: item.id, expectedVersion: item.version })),
+      { type: 'completed', completed: false },
+    );
+    assert.equal(pending.items.filter((item) => item.completed).length, 0);
+
+    const staleFirst = pending.items.find((item) => item.id === first.id)!;
+    const staleSecond = pending.items.find((item) => item.id === second.id)!;
     const changedSecond = database.updateShoppingListItem({
       listId: list.id,
       itemId: staleSecond.id,
