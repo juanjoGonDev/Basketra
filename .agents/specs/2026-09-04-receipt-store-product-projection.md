@@ -141,9 +141,9 @@ Required checks before delivery: focused receipt/catalog/Store/schema/API tests,
 - Spec complete: yes
 - Regression tests added: yes
 - Implementation complete: yes
-- Focused tests passing: pending exact-head CI execution
-- Browser tests passing: pending exact-head CI execution
-- `pnpm quality` passing: pending exact-head CI execution
-- CI status: pending on the current implementation head
-- Database proof: fixture added; actual IDs pending extraction from exact-head CI logs
-- Ready for human review: no
+- Focused tests passing: yes; Pull Request Quality run `33981534501` covers Store-required confirmation, migration 14, historical repair, Store reassignment safety and projection idempotency.
+- Browser tests passing: yes; 135/135 scenarios passed in 14.8 minutes on `5dfb1589b8c550a340c96854345d89721100204a`.
+- `pnpm quality` passing: yes; the CI Quality gate completed successfully.
+- CI status: functional head green across Quality, Security, container smoke, linux/amd64, linux/arm64 and CodeQL Advanced `33981534482`; final documentation-only head is recorded externally in the PR body after its exact-head run.
+- Database proof: Quality emitted `RECEIPT_STORE_DATABASE_PROOF` for `ALCAMPO ALMERIA`; both observations use the receipt Store and counts are `ticketCount=1`, `productCount=2`, `priceObservationCount=2`.
+- Ready for human review: functional implementation yes; final PR readiness is determined after the documentation-only exact-head checks recorded in the PR body.

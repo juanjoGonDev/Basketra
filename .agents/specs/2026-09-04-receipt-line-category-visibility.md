@@ -61,4 +61,4 @@ No merge, release or deploy without explicit user approval.
 
 ## Status
 
-In progress from branch head `ba07517bc60067c0fae75e59935662addf920049`. User-local commits are preserved.
+Implementation and regression coverage are complete. The latest pre-documentation functional head `5dfb1589b8c550a340c96854345d89721100204a` passes Quality and the 135/135 Browser suite; final PR readiness after this documentation-only synchronization is recorded in the PR body. User-local commits remain preserved.

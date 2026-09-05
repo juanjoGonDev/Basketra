@@ -139,12 +139,12 @@ No merge, release or deploy without explicit user approval.
 
 ## Status
 
-Implementation is complete on the branch. Delivery remains evidence-gated: exact-head CI and final visual review must be green before the task is reported done, and their observed results belong in the PR/final report rather than being predicted here.
+Implementation is complete on the branch. Functional exact-head CI and final visual review are green on `5dfb1589b8c550a340c96854345d89721100204a`; the final documentation-only head remains evidence-gated, and its observed result belongs in the PR/final report rather than creating a self-referential status commit.
 
 - Clean path routing, bounded query-state restoration, direct-GET shell fallback, legacy hash canonicalization and synchronous route bootstrap are implemented.
 - Settings tab, Inventory overview state, Product/Category/Store/Ticket filters and pagination, Statistics period, entity details, editor mode and Shopping List detail are represented in the URL; transient destructive selection/drafts remain intentionally non-restorable.
 - Shared invoice editor ownership, evidence-warning ticket deletion, full-page Product detail/history and explicit cross-page selection/bulk contracts are implemented with regression coverage.
 - The first post-routing Browser run exposed concrete regressions rather than product-domain failures: an undefined invoice-layout variable, a historical editor leaking the generic `.receipt-item` selector, an unclosed desktop media query that swallowed mobile Inventory styles, stale detail-route mocks and a stale child-category URL assertion. Each root cause is fixed and covered on the branch.
 - Obsolete contextual Product split-preview CSS has been removed; the full-page detail is now the only maintained presentation path.
-- Store/Product projection repair is now in progress from local/remote head `9973da6bf11173495d44a35e1662dad9ce2dc3b1`; the AI extraction path itself carries the Store, so the repair targets persisted receipt-derived price observations and upgrade compatibility.
+- Store/Product projection repair is complete: migration 13 backfills evidence-proven historical receipt observations, migration 14 enforces Store ownership at the confirmed-receipt/write boundary, and ticket Store reassignment retargets only evidence-proven observations atomically. Quality run `33981534501` emitted the ALCAMPO proof with one ticket, two products and two Store-owned price observations.
 - No merge, release or deploy has been performed.
