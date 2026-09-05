@@ -255,6 +255,11 @@ export class BasketraServer {
         return await this.updateShoppingListStoreSelection(request, response, decodePathSegment(listStoreSelectionMatch[1]));
       }
 
+      const itemBulkMatch = /^\/api\/v1\/shopping-lists\/([^/]+)\/items\/bulk$/.exec(url.pathname);
+      if (request.method === 'POST' && itemBulkMatch?.[1]) {
+        return await this.bulkMutateShoppingListItems(request, response, decodePathSegment(itemBulkMatch[1]));
+      }
+
       const itemOrderMatch = /^\/api\/v1\/shopping-lists\/([^/]+)\/items\/order$/.exec(url.pathname);
       if (request.method === 'PUT' && itemOrderMatch?.[1]) {
         return await this.reorderShoppingListItems(request, response, decodePathSegment(itemOrderMatch[1]));
@@ -671,6 +676,41 @@ export class BasketraServer {
     this.#database.deleteShoppingListItem(listId, itemId, version);
     this.publishRealtime({ entityType: 'shopping-list-item', mutation: 'deleted', listId, entityId: itemId, version: version + 1 });
     this.empty(response);
+  }
+
+  private async bulkMutateShoppingListItems(request: IncomingMessage, response: ServerResponse, listId: string): Promise<void> {
+    const body = asRecord(await this.readJson(request));
+    const selectedItems = asArray(body['items'], '$.items', 500).map((value, index) => {
+      const item = asRecord(value, `$.items[${index}]`);
+      return {
+        id: asString(item['id'], `$.items[${index}].id`, { min: 1, max: 128 }),
+        expectedVersion: asSafeInteger(item['version'], `$.items[${index}].version`, { min: 1 }),
+      };
+    });
+    if (selectedItems.length === 0) throw new ApiError(400, 'VALIDATION_ERROR', 'Select at least one shopping-list item');
+
+    const action = asEnum(body['action'], '$.action', ['completed', 'store', 'delete'] as const);
+    const mutation = action === 'completed'
+      ? { type: 'completed' as const, completed: asBoolean(body['completed'], '$.completed') }
+      : action === 'store'
+        ? {
+            type: 'store' as const,
+            storeOverrideId: body['storeOverrideId'] === null
+              ? null
+              : asString(body['storeOverrideId'], '$.storeOverrideId', { min: 1, max: 128 }),
+          }
+        : { type: 'delete' as const };
+
+    const result = this.#database.bulkMutateShoppingListItems(listId, selectedItems, mutation);
+    this.publishRealtime({
+      entityType: 'shopping-list',
+      mutation: 'updated',
+      listId,
+      entityId: listId,
+      version: result.list.version,
+      updatedAt: result.list.updatedAt,
+    });
+    this.json(response, 200, result);
   }
 
   private async reorderShoppingListItems(request: IncomingMessage, response: ServerResponse, listId: string): Promise<void> {

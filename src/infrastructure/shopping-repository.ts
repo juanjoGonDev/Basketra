@@ -376,6 +376,83 @@ export class ShoppingRepository {
     }
   }
 
+  bulkMutateItems(
+    listId: string,
+    selectedItems: readonly Readonly<{ id: string; expectedVersion: number }>[],
+    mutation:
+      | Readonly<{ type: 'completed'; completed: boolean }>
+      | Readonly<{ type: 'store'; storeOverrideId: string | null }>
+      | Readonly<{ type: 'delete' }>,
+  ): Readonly<{ list: ShoppingListRecord; items: ShoppingListItemRecord[]; affectedItemIds: readonly string[] }> {
+    if (selectedItems.length < 1 || selectedItems.length > 500) {
+      throw new RangeError('Bulk shopping-list selection must contain between 1 and 500 items');
+    }
+    const uniqueIds = new Set(selectedItems.map((item) => item.id));
+    if (uniqueIds.size !== selectedItems.length) throw new RangeError('Bulk shopping-list selection contains duplicate items');
+    selectedItems.forEach((item) => assertVersion(item.expectedVersion));
+    if (mutation.type === 'store' && mutation.storeOverrideId) this.assertStoreExists(mutation.storeOverrideId);
+
+    this.#database.exec('BEGIN IMMEDIATE');
+    try {
+      this.assertListExists(listId);
+      const currentItems = selectedItems.map((selected) => {
+        const current = this.itemById(listId, selected.id);
+        if (!current) throw new Error('SHOPPING_LIST_ITEM_NOT_FOUND');
+        if (current.version !== selected.expectedVersion) throw new ShoppingConflictError('item', current);
+        return current;
+      });
+      const timestamp = this.#clock().toISOString();
+
+      if (mutation.type === 'completed') {
+        const statement = this.#database.prepare(`
+          UPDATE shopping_list_items
+          SET completed = ?, completed_at = ?, updated_at = ?, version = version + 1
+          WHERE id = ? AND list_id = ? AND version = ?
+        `);
+        currentItems.forEach((current) => {
+          const completedAt = mutation.completed
+            ? current.completed && current.completedAt ? current.completedAt : timestamp
+            : null;
+          statement.run(
+            mutation.completed ? 1 : 0,
+            completedAt,
+            timestamp,
+            current.id,
+            listId,
+            current.version,
+          );
+        });
+      } else if (mutation.type === 'store') {
+        const statement = this.#database.prepare(`
+          UPDATE shopping_list_items
+          SET store_override_id = ?, updated_at = ?, version = version + 1
+          WHERE id = ? AND list_id = ? AND version = ?
+        `);
+        currentItems.forEach((current) => {
+          statement.run(mutation.storeOverrideId, timestamp, current.id, listId, current.version);
+        });
+      } else {
+        const statement = this.#database.prepare(
+          'DELETE FROM shopping_list_items WHERE id = ? AND list_id = ? AND version = ?',
+        );
+        currentItems.forEach((current) => statement.run(current.id, listId, current.version));
+        this.normalizePositions(listId);
+      }
+
+      this.touchList(listId, timestamp);
+      const updated = this.getList(listId);
+      if (!updated) throw new Error('SHOPPING_LIST_NOT_FOUND');
+      this.#database.exec('COMMIT');
+      return {
+        ...updated,
+        affectedItemIds: currentItems.map((item) => item.id),
+      };
+    } catch (error) {
+      this.#database.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   reorderItems(listId: string, itemIds: readonly string[], expectedListVersion: number): Readonly<{ list: ShoppingListRecord; items: ShoppingListItemRecord[] }> {
     assertVersion(expectedListVersion);
     this.#database.exec('BEGIN IMMEDIATE');

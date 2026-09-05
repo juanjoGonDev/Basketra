@@ -509,6 +509,17 @@ export class BasketraDatabase {
     this.#shopping.deleteItem(listId, itemId, expectedVersion);
   }
 
+  bulkMutateShoppingListItems(
+    listId: string,
+    selectedItems: readonly Readonly<{ id: string; expectedVersion: number }>[],
+    mutation:
+      | Readonly<{ type: 'completed'; completed: boolean }>
+      | Readonly<{ type: 'store'; storeOverrideId: string | null }>
+      | Readonly<{ type: 'delete' }>,
+  ) {
+    return this.#shopping.bulkMutateItems(listId, selectedItems, mutation);
+  }
+
   reorderShoppingListItems(listId: string, itemIds: readonly string[], expectedListVersion: number) {
     return this.#shopping.reorderItems(listId, itemIds, expectedListVersion);
   }
