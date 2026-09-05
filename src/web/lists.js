@@ -882,6 +882,40 @@ function selectedStore(id) {
   return model.stores.find(store => store.id === id) || null;
 }
 
+function sameStoreText(left, right) {
+  return Boolean(left && right)
+    && left.localeCompare(right, 'es', { sensitivity: 'base' }) === 0;
+}
+
+function proposalStoreMatches(store, storeName, retailerName) {
+  if (storeName && !sameStoreText(store.name, storeName)) return false;
+  if (retailerName && !sameStoreText(store.retailerName, retailerName)) return false;
+  return Boolean(storeName || retailerName);
+}
+
+async function resolveProposalStore(storeName, retailerName) {
+  const cached = model.stores.filter(store => proposalStoreMatches(store, storeName, retailerName));
+  if (cached.length === 1) return cached[0];
+
+  const query = storeName || retailerName;
+  if (!query) return null;
+  try {
+    const params = new URLSearchParams({ q: query, limit: '100' });
+    if (retailerName) params.set('retailer', retailerName);
+    const result = await api(`/api/v1/inventory/stores?${params}`);
+    const matches = (result.stores || []).filter(store => proposalStoreMatches(store, storeName, retailerName));
+    if (matches.length !== 1) return null;
+    const match = matches[0];
+    if (!model.stores.some(store => store.id === match.id)) {
+      model.stores = [...model.stores, match];
+      renderStoreOptions();
+    }
+    return match;
+  } catch {
+    return null;
+  }
+}
+
 function renderGlobalNormalizedPrice(minor, unit) {
   const target = $('#global-normalized-price');
   if (!Number.isSafeInteger(minor) || !unit) {
@@ -1195,18 +1229,15 @@ async function applyPhotoProposal(proposal, storageKey) {
 
   const storeName = proposal.storeName?.trim();
   const retailerName = proposal.retailerName?.trim();
-  const storeMatches = model.stores.filter(store =>
-    (storeName && store.name.localeCompare(storeName, 'es', { sensitivity: 'base' }) === 0)
-    || (!storeName && retailerName && store.retailerName.localeCompare(retailerName, 'es', { sensitivity: 'base' }) === 0)
-  );
-  if (storeMatches.length === 1) $('#global-store-select').value = storeMatches[0].id;
+  const proposalStore = await resolveProposalStore(storeName, retailerName);
+  if (proposalStore) $('#global-store-select').value = proposalStore.id;
 
   setGlobalEntryMode('manual');
   $('#global-product-confidence').textContent = `${Math.round(Number(proposal.confidence || 0) * 100)}%`;
   $('#global-product-confidence').className = `status-pill ${Number(proposal.confidence || 0) >= .8 ? 'success' : 'warning'}`;
   $('#global-product-warnings').innerHTML = (proposal.warnings || []).map(warning => `<p>${escapeHtml(warning)}</p>`).join('');
   $('#global-ai-feedback').hidden = false;
-  if ((storeName || retailerName) && storeMatches.length !== 1) {
+  if ((storeName || retailerName) && !proposalStore) {
     $('#global-product-warnings').insertAdjacentHTML('beforeend', `<p>${escapeHtml(storeName || retailerName)} no coincide de forma única con una tienda guardada. Confirma la tienda antes de guardar el precio.</p>`);
   }
   await refreshGlobalNormalizedPrice({ immediate: true });
@@ -1554,11 +1585,30 @@ async function confirmDeleteItem() {
   }
 }
 
+function revealCompletedRecovery() {
+  const section = $('#completed-section');
+  if (!section || section.hidden) return;
+  section.open = true;
+}
+
+async function setItemCompleted(itemId, completed, { offerUndo = false } = {}) {
+  await updateItem(itemId, { completed }, completed ? 'Producto completado' : 'Producto devuelto a pendientes');
+  if (!completed) return;
+  revealCompletedRecovery();
+  if (offerUndo) {
+    toast('Producto marcado como comprado', {
+      actionLabel: 'Deshacer',
+      duration: 5200,
+      onAction: () => undoCompletedItem(itemId),
+    });
+  }
+}
+
 async function undoCompletedItem(itemId) {
   const current = model.items.find(candidate => candidate.id === itemId);
   if (!current?.completed) return;
   try {
-    await updateItem(itemId, { completed: false }, 'Producto devuelto a pendientes');
+    await setItemCompleted(itemId, false);
     toast('Producto devuelto a pendientes');
   } catch (error) {
     toast(`No se pudo deshacer: ${error.message}`);
@@ -1574,17 +1624,7 @@ async function handleItemAction(event) {
     if (button.dataset.itemAction === 'delete') showDeleteItemDialog(itemId);
     if (button.dataset.itemAction === 'complete') {
       const item = model.items.find(candidate => candidate.id === itemId);
-      if (item) {
-        const wasCompleted = item.completed;
-        await updateItem(itemId, { completed: !wasCompleted }, wasCompleted ? 'Producto devuelto a pendientes' : 'Producto completado');
-        if (!wasCompleted) {
-          toast('Producto marcado como comprado', {
-            actionLabel: 'Deshacer',
-            duration: 5200,
-            onAction: () => undoCompletedItem(itemId),
-          });
-        }
-      }
+      if (item) await setItemCompleted(itemId, !item.completed, { offerUndo: !item.completed });
     }
     if (button.dataset.itemAction === 'quantity') await updateItem(itemId, { quantityDelta: Number(button.dataset.delta) }, 'Cantidad actualizada');
     if (button.dataset.itemAction === 'move') await moveItem(itemId, Number(button.dataset.direction));
@@ -1930,6 +1970,7 @@ async function runBulkAction(action, payload, status) {
     });
     setMultiSelectMode(false);
     await Promise.all([loadActiveList(), loadLists()]);
+    if (action === 'completed' && payload.completed === true) revealCompletedRecovery();
     toast(status);
     return true;
   } catch (error) {
@@ -2228,8 +2269,16 @@ function bindEvents() {
     }
   });
   document.addEventListener('basketra:swipe-action', event => {
-    if (event.detail?.kind !== 'shopping-item' || event.detail?.action !== 'delete') return;
-    void deleteItemFromSwipe(String(event.detail.id || ''));
+    if (event.detail?.kind !== 'shopping-item') return;
+    const itemId = String(event.detail.id || '');
+    if (event.detail?.action === 'delete') {
+      void deleteItemFromSwipe(itemId);
+      return;
+    }
+    if (event.detail?.action === 'complete') {
+      const item = model.items.find(candidate => candidate.id === itemId);
+      if (item) void setItemCompleted(itemId, !item.completed, { offerUndo: !item.completed });
+    }
   });
   document.addEventListener('basketra:view-changed', event => {
     if (event.detail?.view !== 'lists') {

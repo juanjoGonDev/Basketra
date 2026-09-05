@@ -188,6 +188,9 @@ test('scan choice routes tickets separately and product photo AI hydrates the ca
     }),
   }));
 
+  await Promise.all(Array.from({ length: 13 }, (_, index) =>
+    createStore(request, 'Auxiliar', `A Tienda ${String(index).padStart(2, '0')}`)
+  ));
   const store = await createStore(request, 'Mercado', 'Mercado Centro');
   const listResponse = await request.post('/api/v1/shopping-lists', { data: { name: 'Compra foto' } });
   const list = (await listResponse.json()).list;
@@ -254,7 +257,7 @@ test('product creation can reuse an existing canonical parent from the shopping 
   const dialog = page.locator('#global-product-dialog');
   await expect(dialog).toBeVisible();
   await dialog.locator('#global-parent-search').fill('Leche');
-  const parentOption = dialog.getByRole('option', { name: /Leche.*1 variantes/ });
+  const parentOption = dialog.locator(`[data-parent-id="${parent.canonicalProductId}"]`);
   await expect(parentOption).toBeVisible();
   await parentOption.click();
   await expect(dialog.locator('#global-parent-selected-name')).toHaveText('Leche');
