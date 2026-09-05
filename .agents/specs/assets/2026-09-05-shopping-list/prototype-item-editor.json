@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "id": "shopping-list-item-editor",
+  "source": "user-provided prototype content",
+  "authority": {
+    "content": "normative",
+    "behavior": "normative",
+    "layout": "non-normative"
+  },
+  "appearance": {
+    "direction": "Modern minimal sheet/dialog using existing Basketra component language.",
+    "rule": "No literal 'por formulario' wording. The two entry modes are named 'Crear' and 'Escanear'."
+  },
+  "content": {
+    "title": "Nuevo ítem",
+    "modes": [
+      {
+        "label": "Crear",
+        "secondary": "Escribe o busca",
+        "intent": "manual-or-suggestion"
+      },
+      {
+        "label": "Escanear",
+        "secondary": "Producto o ticket",
+        "intent": "camera"
+      }
+    ],
+    "productField": {
+      "label": "Producto",
+      "exampleQuery": "leche",
+      "suggestions": [
+        {
+          "name": "Leche entera Hacendado 1 L",
+          "metadata": "Leche · Hacendado · Lácteos",
+          "priceContext": "Mercadona Centro · 1,19 € · hace 4 d"
+        }
+      ],
+      "createNewAction": "Crear nuevo producto \"leche\"",
+      "selectedState": "Producto guardado seleccionado"
+    },
+    "editableFields": [
+      {
+        "key": "quantity",
+        "label": "Cantidad"
+      },
+      {
+        "key": "unit",
+        "label": "Unidad"
+      },
+      {
+        "key": "size",
+        "label": "Peso / tamaño"
+      },
+      {
+        "key": "store",
+        "label": "Tienda"
+      }
+    ],
+    "estimate": {
+      "label": "Estimación para esta línea",
+      "exampleContext": "Mercadona Centro · hace 4 d",
+      "exampleTotal": "1,19 €"
+    },
+    "advancedActions": [
+      {
+        "label": "Editar ficha y precio",
+        "intent": "open-product-editor"
+      },
+      {
+        "label": "Foto / IA",
+        "intent": "open-or-reuse-camera-analysis"
+      }
+    ],
+    "submitLabel": "Añadir"
+  },
+  "behavior": {
+    "suggestions": "Debounced local catalog suggestions. Stale requests are aborted/ignored. Selecting a saved product fills the same draft and exposes selected-store price context.",
+    "size": "For a linked product, size/package comes from its variant. Choosing another saved size switches variant. 'Other/new size' opens the product editor instead of creating a list-only duplicate product size.",
+    "store": "Defaults to the list reference store. Selecting another store creates a per-item override.",
+    "scanProduct": "Capture/upload product photo, analyze it, then hydrate this exact same draft/editor state. Do not open or keep a separate proposal form after analysis.",
+    "scanTicket": "Delegates to the existing ticket capture/import flow; do not fabricate a single-product form from a multi-line receipt.",
+    "errors": "Preserve all user-entered draft values on AI, network or store lookup failure."
+  },
+  "responsive": {
+    "mobile": "Bottom-sheet style is acceptable but not mandatory; keep fields in reading order and CTA reachable above safe-area/navigation.",
+    "desktop": "Dialog or centered sheet may use columns while preserving the exact same field/content contract."
+  }
+}

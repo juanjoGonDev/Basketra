@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "id": "shopping-product-editor",
+  "source": "user-provided prototype content",
+  "authority": {
+    "content": "normative",
+    "behavior": "normative",
+    "layout": "non-normative"
+  },
+  "appearance": {
+    "direction": "Modern minimal product editor; reuse Basketra catalog/store primitives.",
+    "rule": "Scanning and manual editing are two entry modes into one canonical form, not separate persistence flows."
+  },
+  "content": {
+    "title": "Crear producto",
+    "secondaryText": "Completa los datos o escanea",
+    "modes": [
+      {
+        "label": "Escanear",
+        "secondary": "Autocompletar",
+        "intent": "camera-ai-autofill"
+      },
+      {
+        "label": "Manual",
+        "secondary": "Editar datos",
+        "intent": "manual-edit"
+      }
+    ],
+    "parentProduct": {
+      "label": "Producto base",
+      "createAction": "Crear nuevo",
+      "searchPlaceholder": "Buscar base (ej. Leche)",
+      "exampleSuggestion": {
+        "name": "Leche",
+        "secondary": "3 variantes"
+      }
+    },
+    "variant": {
+      "label": "Variante",
+      "example": "Leche entera 1 L"
+    },
+    "details": [
+      {
+        "key": "quantity",
+        "label": "Cantidad"
+      },
+      {
+        "key": "unit",
+        "label": "Unidad"
+      },
+      {
+        "key": "size",
+        "label": "Tamaño"
+      },
+      {
+        "key": "packageContent",
+        "label": "Contenido envase"
+      }
+    ],
+    "extra": [
+      {
+        "key": "brand",
+        "label": "Marca",
+        "example": "Hacendado"
+      },
+      {
+        "key": "ean",
+        "label": "EAN / GTIN",
+        "examplePlaceholder": "Ej. 8480000123456"
+      },
+      {
+        "key": "category",
+        "label": "Categoría",
+        "example": "Lácteos"
+      }
+    ],
+    "priceAndStore": [
+      {
+        "key": "store",
+        "label": "Tienda",
+        "example": "Mercadona Centro"
+      },
+      {
+        "key": "price",
+        "label": "Precio",
+        "example": "1,19 €"
+      },
+      {
+        "key": "normalizedPrice",
+        "label": "Precio normalizado",
+        "example": "≈ 1,19 €/L",
+        "readOnlyDerived": true
+      }
+    ],
+    "submitLabel": "Crear y añadir"
+  },
+  "behavior": {
+    "parentSelection": "Allow selecting an existing canonical parent or creating a new canonical parent. Creating a variant under an existing parent must not duplicate the parent.",
+    "photoAnalysis": "Use the product-photo AI path only as a draft producer. When analysis completes, switch to the same manual form and populate detected fields: parent/canonical name, variant, brand, EAN, category, package size/unit, requested quantity/unit when supported, price, retailer/store suggestion, confidence and warnings.",
+    "persistence": "Nothing from AI or nearby-store search is persisted until explicit user confirmation.",
+    "lowAi": "For product-photo-proposal only, keep Basketra's configured WebAPI model identity and request WebAPI's low reasoning variant with reasoning.effort='low'. Do not invent a model id named 'low'.",
+    "location": "Store field first offers saved stores. Location is opt-in. If requested, rank known stores by distance and then allow explicit bounded OpenStreetMap/Overpass search. External candidates are not persisted until confirmed. Provide reuse of the existing Store creation editor when no saved store matches.",
+    "normalizedPrice": "Derived server-side from exact money/quantity units; never independently recalculated in the browser."
+  },
+  "responsive": {
+    "mobile": "Single reading column with grouped progressive sections. Keep camera/manual mode choice and primary CTA visible without permanent nested forms.",
+    "desktop": "Use balanced columns for independent fields while preserving source order and labels."
+  }
+}

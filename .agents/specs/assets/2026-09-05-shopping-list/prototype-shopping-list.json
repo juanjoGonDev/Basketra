@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "id": "shopping-list-ticket",
+  "source": "user-provided prototype content",
+  "authority": {
+    "content": "normative",
+    "behavior": "normative",
+    "layout": "non-normative",
+    "deviceChrome": "ignore",
+    "incidentalPrototypeNavigation": "ignore"
+  },
+  "appearance": {
+    "direction": "modern, minimal, ticket-like, dense but not cramped",
+    "designSystem": "Reuse Basketra modern.css tokens, icons, spacing, focus and responsive primitives.",
+    "ticketSemantics": [
+      "Use one continuous receipt/ticket surface for pending items instead of a card per item.",
+      "Use separators, aligned monetary values and a clear estimate footer.",
+      "Do not copy the phone frame, prototype bottom navigation, fonts or exact geometry."
+    ]
+  },
+  "content": {
+    "title": "Compra semanal",
+    "secondaryText": "Todo listo para una semana más",
+    "realtimeStatus": "En tiempo real",
+    "referenceStore": {
+      "label": "Tienda de referencia",
+      "example": "Mercadona Centro",
+      "behavior": "Items inherit this store unless they have an explicit per-item override."
+    },
+    "pendingItems": [
+      {
+        "name": "Leche entera",
+        "latestPriceText": "1,19 €/L · hace 4 d",
+        "estimatedTotal": "1,19 €",
+        "quantity": 1,
+        "unit": "ud",
+        "size": "1 L",
+        "store": "Mercadona Centro"
+      },
+      {
+        "name": "Arroz integral",
+        "latestPriceText": "1,99 €/ud · ayer",
+        "estimatedTotal": "3,98 €",
+        "quantity": 2,
+        "unit": "ud",
+        "size": "1 kg",
+        "store": "Lidl Centro",
+        "storeOverride": true
+      },
+      {
+        "name": "Tomate rama",
+        "latestPriceText": "Sin precio comparable",
+        "estimatedTotal": null,
+        "quantity": 1,
+        "unit": "kg",
+        "size": "500 g",
+        "store": "Mercadona Centro"
+      },
+      {
+        "name": "Yogur natural",
+        "latestPriceText": "1,64 €/pack · hace 8 d",
+        "estimatedTotal": "3,28 €",
+        "quantity": 2,
+        "unit": "pack",
+        "size": "4 ud",
+        "store": "Mercadona Centro"
+      }
+    ],
+    "estimate": {
+      "label": "Estimación",
+      "exampleTotal": "8,45 €",
+      "coverageText": "3 de 4 con precio",
+      "oldestPriceText": "más antiguo: 8 d"
+    },
+    "primaryActions": [
+      {
+        "label": "Crear ítem",
+        "secondary": "Escribe o busca",
+        "intent": "open-item-editor"
+      },
+      {
+        "label": "Escanear",
+        "secondary": "Producto o ticket",
+        "intent": "open-camera-flow"
+      }
+    ]
+  },
+  "itemRowContract": [
+    "completion control",
+    "optional product thumbnail when confirmed product-photo evidence exists, otherwise a neutral product icon",
+    "product name",
+    "latest selected-store price or explicit no-comparable-price state",
+    "estimated line total",
+    "quantity stepper/input",
+    "unit selector",
+    "size/package selector",
+    "effective store selector",
+    "edit/delete actions with existing Basketra swipe/button/keyboard equivalents"
+  ],
+  "storeSelection": {
+    "listWide": "Changing the reference store affects inherited items.",
+    "perItem": "Changing a row store creates an explicit override for that item.",
+    "applyAll": "The reference-store chooser exposes an explicit 'use for all items' action that clears item overrides transactionally."
+  },
+  "responsive": {
+    "mobile": "Single continuous ticket. Primary product/price line first; quantity, unit, size and store remain editable in a compact secondary control grid without horizontal page overflow.",
+    "desktop": "Preserve ticket semantics in a denser table-like receipt; controls may align into columns and the estimate summary may sit beside the ticket only when space permits.",
+    "narrow": "At 320-390 px, controls wrap into multiple rows rather than shrinking below touch/legibility requirements."
+  }
+}
