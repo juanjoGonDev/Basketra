@@ -733,15 +733,15 @@ test('catalog final changed-code branches cover DOM guards, stale loads and boun
   await page.evaluate(() => {
     document.querySelector('#catalog-latest-prices')?.remove();
     document.querySelector('#catalog-parent-select')?.remove();
-    document.dispatchEvent(new CustomEvent('basketra:view-changed', {
-      detail: { view: 'catalog', route: 'catalog:branch_product', searchParams: new URLSearchParams() },
+    document.dispatchEvent(new CustomEvent('basketra:navigate', {
+      detail: { route: 'catalog:branch_product' },
     }));
   });
   await expect(page.locator('#catalog-detail-title')).toHaveText('Producto ramas');
 
   const catalogBaseline = catalogRequests;
-  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
-    detail: { view: 'catalog', route: 'catalog:', searchParams: new URLSearchParams() },
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:navigate', {
+    detail: { route: 'catalog:' },
   })));
   await expect.poll(() => catalogRequests).toBeGreaterThan(catalogBaseline);
   await expect(page.locator('#catalog-state')).toContainText('productos encontrados');
@@ -820,12 +820,12 @@ test('catalog final changed-code branches cover DOM guards, stale loads and boun
 
   holdRootImpact = true;
   rootImpactStarted = false;
-  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
-    detail: { view: 'categories', route: 'categories:root', searchParams: new URLSearchParams() },
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:navigate', {
+    detail: { route: 'categories:root' },
   })));
   await expect.poll(() => rootImpactStarted).toBe(true);
-  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
-    detail: { view: 'categories', route: 'categories:child', searchParams: new URLSearchParams() },
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:navigate', {
+    detail: { route: 'categories:child' },
   })));
   await expect(page.locator('#category-detail-name')).toHaveText('Hija');
   releaseRootImpact();
