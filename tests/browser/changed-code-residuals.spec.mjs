@@ -995,7 +995,7 @@ test('inventory final changed-code branches cover missing controls, stale loads 
   await page.goto('/inventory/stores/store_one?mode=edit');
   await expect(page.locator('#store-editor')).toBeVisible();
   await page.locator('#store-cancel-edit').click();
-  await expect(page).toHaveURL(/\/inventory\/stores$/u);
+  await expect(page).toHaveURL(/\/inventory\/stores\/store_one$/u);
 
   await page.goto('/inventory/stores/store_one');
   await page.locator('#store-delete').click();
