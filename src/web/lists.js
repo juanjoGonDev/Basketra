@@ -59,6 +59,8 @@ const model = {
   suggestionTimer: null,
   parentSuggestionController: null,
   parentSuggestionTimer: null,
+  priceNormalizationController: null,
+  priceNormalizationTimer: null,
   draftEstimateController: null,
   draftEstimateTimer: null,
   photoStorageKey: '',
@@ -718,6 +720,10 @@ function setGlobalParent(parent) {
 }
 
 function resetGlobalProductFields() {
+  model.priceNormalizationController?.abort();
+  if (model.priceNormalizationTimer) clearTimeout(model.priceNormalizationTimer);
+  model.priceNormalizationController = null;
+  model.priceNormalizationTimer = null;
   clearGlobalParent({ keepName: true });
   $('#global-category-new').value = '';
   $('#global-variant-name').value = '';
@@ -816,6 +822,56 @@ function selectedStore(id) {
   return model.stores.find(store => store.id === id) || null;
 }
 
+function renderGlobalNormalizedPrice(minor, unit) {
+  const target = $('#global-normalized-price');
+  if (!Number.isSafeInteger(minor) || !unit) {
+    target.textContent = '';
+    return;
+  }
+  target.textContent = `≈ ${formatEuroMinor(minor)}/${UNIT_LABELS[unit] || unit}`;
+}
+
+function scheduleGlobalNormalizedPrice() {
+  void refreshGlobalNormalizedPrice();
+}
+
+async function refreshGlobalNormalizedPrice({ immediate = false } = {}) {
+  model.priceNormalizationController?.abort();
+  if (model.priceNormalizationTimer) clearTimeout(model.priceNormalizationTimer);
+  const priceText = $('#global-price').value.trim();
+  const packageNumerator = Number($('#global-package-minor').value);
+  const packageUnit = $('#global-package-unit').value;
+  if (!priceText || !Number.isSafeInteger(packageNumerator) || packageNumerator < 1 || !packageUnit) {
+    renderGlobalNormalizedPrice();
+    return;
+  }
+  const signature = `${priceText}|${packageNumerator}|${packageUnit}`;
+  const run = async () => {
+    const controller = new AbortController();
+    model.priceNormalizationController = controller;
+    try {
+      const result = await api('/api/v1/products/price-normalization', {
+        method: 'POST',
+        signal: controller.signal,
+        body: JSON.stringify({
+          priceMinor: euroInputToMinor(priceText),
+          packageNumerator,
+          packageDenominator: 1,
+          packageUnit,
+        }),
+      });
+      if (controller.signal.aborted) return;
+      const current = `${$('#global-price').value.trim()}|${Number($('#global-package-minor').value)}|${$('#global-package-unit').value}`;
+      if (current !== signature) return;
+      renderGlobalNormalizedPrice(result.normalizedPriceMinor, result.normalizedPriceUnit);
+    } catch (error) {
+      if (error.name !== 'AbortError') renderGlobalNormalizedPrice();
+    }
+  };
+  if (immediate) return await run();
+  model.priceNormalizationTimer = setTimeout(() => void run(), 160);
+}
+
 async function persistGlobalPrice(productVariantId) {
   const priceText = $('#global-price').value.trim();
   if (!priceText) return null;
@@ -838,6 +894,10 @@ async function persistGlobalPrice(productVariantId) {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+  renderGlobalNormalizedPrice(
+    result.observation.normalizedDisplayPriceMinor,
+    result.observation.normalizedDisplayPriceUnit,
+  );
   return result.observation;
 }
 
@@ -921,10 +981,7 @@ async function submitGlobalProduct(event) {
       result = await api('/api/v1/products', { method: 'POST', body: JSON.stringify(payload) });
     }
 
-    const observation = await persistGlobalPrice(result.product.id);
-    if (observation?.normalizedPriceNumerator && observation?.normalizedPriceDenominator) {
-      $('#global-normalized-price').textContent = 'Precio normalizado guardado.';
-    }
+    await persistGlobalPrice(result.product.id);
     setLinkedProduct(result.product.id, result.product.variantName, result.product);
     $('#item-text').value = result.product.variantName;
 
@@ -1092,6 +1149,7 @@ async function applyPhotoProposal(proposal, storageKey) {
   if ((storeName || retailerName) && storeMatches.length !== 1) {
     $('#global-product-warnings').insertAdjacentHTML('beforeend', `<p>${escapeHtml(storeName || retailerName)} no coincide de forma única con una tienda guardada. Confirma la tienda antes de guardar el precio.</p>`);
   }
+  await refreshGlobalNormalizedPrice({ immediate: true });
 }
 
 async function handleProductPhoto(file, source = 'item') {
@@ -1874,6 +1932,12 @@ function bindEvents() {
   $('#open-product-photo').addEventListener('click', () => $('#product-camera').click());
 
   $('#global-product-form').addEventListener('submit', submitGlobalProduct);
+  $('#global-product-form').addEventListener('input', event => {
+    if (event.target.matches('#global-price, #global-package-minor')) scheduleGlobalNormalizedPrice();
+  });
+  $('#global-product-form').addEventListener('change', event => {
+    if (event.target.matches('#global-package-unit')) scheduleGlobalNormalizedPrice();
+  });
   $('#global-parent-search').addEventListener('input', scheduleParentSuggestions);
   $('#global-parent-suggestions').addEventListener('click', event => {
     const button = event.target.closest('[data-parent-id]');
