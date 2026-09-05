@@ -1790,10 +1790,8 @@ async function confirmNearbyStore(index, scope = 'item') {
 }
 
 function openStoreCreator(statusTarget) {
-  const popup = window.open(applicationPathForRoute('stores:new'), '_blank', 'noopener,noreferrer');
-  statusTarget.textContent = popup
-    ? 'Crea la tienda en la nueva pestaña y vuelve aquí para actualizar la lista.'
-    : 'El navegador bloqueó la nueva pestaña. Permítela para crear la tienda sin perder este formulario.';
+  window.open(applicationPathForRoute('stores:new'), '_blank', 'noopener,noreferrer');
+  statusTarget.textContent = 'Crea la tienda en la nueva pestaña y vuelve aquí para actualizar las tiendas sin perder este formulario.';
 }
 
 async function refreshStoreChoices(select, statusTarget) {
