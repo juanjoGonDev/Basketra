@@ -132,10 +132,6 @@
   font-weight: 700;
 }
 
-.inventory-period-control select {
-  min-height: 2.75rem;
-}
-
 .inventory-kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -518,31 +514,6 @@
     letter-spacing: -.035em;
   }
 
-  .inventory-overview-tabs,
-  .view[data-view="catalog"] .task-tablist,
-  .view[data-view="categories"] .task-tablist {
-    border-bottom: 1px solid #dfe8e2;
-    border-radius: 0;
-    background: transparent;
-    padding-inline: 0;
-  }
-
-  .inventory-overview-tabs .task-tab,
-  .view[data-view="catalog"] .task-tab,
-  .view[data-view="categories"] .task-tab {
-    min-height: 2.7rem;
-    border-radius: 0;
-    border-bottom: 2px solid transparent;
-    background: transparent;
-  }
-
-  .inventory-overview-tabs .task-tab:first-child,
-  .view[data-view="catalog"] .task-tab[aria-selected="true"],
-  .view[data-view="categories"] .task-tab[aria-selected="true"] {
-    color: #057459;
-    border-bottom-color: #057459;
-  }
-
   .inventory-overview-kpis {
     gap: 1rem;
   }
@@ -619,7 +590,7 @@
   .inventory-toolbar select {
     min-height: 3rem;
     border-color: #dce6e0;
-    background: rgba(255,255,255,.92);
+    background-color: rgba(255,255,255,.92);
   }
 
   .inventory-overview-query-actions {
@@ -702,7 +673,7 @@
   .inventory-list-surface {
     border: 1px solid #e0e8e3;
     border-radius: .75rem;
-    background: rgba(255,255,255,.92);
+    background-color: rgba(255,255,255,.92);
   }
 
   .inventory-list-heading {
@@ -748,12 +719,7 @@
     grid-auto-columns: minmax(0, 1fr);
     grid-template-columns: repeat(4, minmax(0, 1fr));
     width: 100%;
-    gap: 0;
     overflow: visible;
-    border-bottom: 1px solid var(--border);
-    border-radius: 0;
-    padding-inline: 0;
-    background: transparent;
   }
 
   .inventory-overview-tabs .task-tab {
@@ -763,14 +729,6 @@
     overflow-wrap: anywhere;
     font-size: .7rem;
     white-space: normal;
-    border-radius: 0;
-    border-bottom: 2px solid transparent;
-    background: transparent;
-  }
-
-  .inventory-overview-tabs .task-tab:first-child {
-    color: var(--primary);
-    border-bottom-color: var(--primary);
   }
 
   @media (max-width: 22rem) {

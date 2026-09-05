@@ -2,7 +2,7 @@
   --invoice-summary-border: color-mix(in srgb, var(--color-primary) 22%, var(--color-outline-variant));
   --invoice-divider: color-mix(in srgb, var(--color-on-surface) 9%, transparent);
   --invoice-summary-bg: color-mix(in srgb, var(--color-primary-container) 10%, var(--color-surface));
-  --invoice-control-height: 2.55rem;
+  --invoice-control-height: var(--touch);
   width: min(100%, 42rem);
   max-width: none;
   max-height: min(100dvh, 48rem);
@@ -147,7 +147,7 @@
   min-width: 0;
   min-height: var(--invoice-control-height);
   height: var(--invoice-control-height);
-  border-radius: .55rem;
+  border-radius: var(--radius-interactive);
   font-size: .82rem;
 }
 

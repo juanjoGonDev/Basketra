@@ -518,15 +518,6 @@
   border: 0;
 }
 
-#catalog-list-screen .inventory-toolbar input,
-#catalog-list-screen .inventory-toolbar select {
-  min-height: 2.65rem;
-  border-color: #d9e4dd;
-  border-radius: .45rem;
-  background: #fff;
-  font-size: .8rem;
-}
-
 #catalog-list-screen .inventory-toolbar .button {
   min-height: 2.65rem;
   border-radius: .45rem;

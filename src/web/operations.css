@@ -422,7 +422,8 @@ details.settings-card:has(#diagnostics),
   color: var(--color-on-surface);
 }
 
-.task-tab[aria-selected="true"] {
+.task-tab[aria-selected="true"],
+.task-tab[aria-current="page"] {
   background: var(--color-primary-container);
   color: var(--color-on-primary-container);
 }

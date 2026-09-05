@@ -380,6 +380,7 @@ main {
 }
 
 .field {
+  align-content: start;
   gap: .4rem;
   color: var(--color-on-surface-variant);
   font-size: .78rem;
@@ -388,6 +389,7 @@ main {
 
 .field input,
 .field select,
+select,
 .field textarea {
   min-height: var(--touch);
   padding: .75rem 1rem;
@@ -398,14 +400,24 @@ main {
   box-shadow: none;
 }
 
+select,
+.field select {
+  appearance: none;
+  padding-inline-end: 2.5rem;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: right 1.05rem center, right .75rem center;
+  background-size: .3rem .3rem;
+  background-repeat: no-repeat;
+}
+
 .field input:hover,
-.field select:hover,
+select:hover,
 .field textarea:hover {
   border-color: var(--color-outline);
 }
 
 .field input:focus-visible,
-.field select:focus-visible,
+select:focus-visible,
 .field textarea:focus-visible {
   border-color: var(--color-primary);
   outline-width: .125rem;
@@ -536,7 +548,7 @@ main {
   grid-row: 1 / -1;
   align-self: center;
   color: var(--color-primary);
-  content: "›";
+  content: "Ã¢â‚¬Âº";
   font-size: 1.7rem;
   line-height: 1;
 }
@@ -973,6 +985,7 @@ summary {
 }
 
 .receipt-item .field {
+  align-content: start;
   gap: .3rem;
   font-size: .72rem;
 }
