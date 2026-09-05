@@ -7,6 +7,7 @@ import type { Unit } from '../domain/units.ts';
 import { CatalogRepository } from './catalog-repository.ts';
 import { COLLABORATION_MIGRATIONS } from './collaboration-schema.ts';
 import { createId } from './ids.ts';
+import { ShoppingEstimateReadModel } from './shopping-estimate.ts';
 import { ShoppingRepository } from './shopping-repository.ts';
 
 export type {
@@ -294,6 +295,7 @@ export class BasketraDatabase {
   readonly #migrationBackupRetention: BackupRetentionPolicy;
   readonly #manualBackupRetention: BackupRetentionPolicy;
   readonly #shopping: ShoppingRepository;
+  readonly #shoppingEstimate: ShoppingEstimateReadModel;
   readonly #catalog: CatalogRepository;
   readonly path: string;
 
@@ -319,6 +321,7 @@ export class BasketraDatabase {
       throw error;
     }
     this.#shopping = new ShoppingRepository(this.#database, this.#clock);
+    this.#shoppingEstimate = new ShoppingEstimateReadModel(this.#database);
     this.#catalog = new CatalogRepository(this.#database, this.#clock);
   }
 
@@ -443,6 +446,19 @@ export class BasketraDatabase {
     return this.#shopping.updateList(id, name, expectedVersion);
   }
 
+  updateShoppingListStoreSelection(
+    id: string,
+    referenceStoreId: string | null,
+    expectedVersion: number,
+    scope: 'default' | 'all',
+  ) {
+    return this.#shopping.setStoreSelection(id, referenceStoreId, expectedVersion, scope);
+  }
+
+  getShoppingListEstimate(id: string) {
+    return this.#shoppingEstimate.estimateList(id);
+  }
+
   deleteShoppingList(id: string, expectedVersion: number): boolean {
     return this.#shopping.deleteList(id, expectedVersion);
   }
@@ -455,6 +471,7 @@ export class BasketraDatabase {
     exactRequired: boolean;
     substitutionAllowed: boolean;
     productVariantId?: string;
+    storeOverrideId?: string;
   }>) {
     return this.#shopping.addItem(input);
   }
@@ -471,6 +488,7 @@ export class BasketraDatabase {
     substitutionAllowed?: boolean;
     completed?: boolean;
     productVariantId?: string | null;
+    storeOverrideId?: string | null;
   }>) {
     return this.#shopping.updateItem(input);
   }

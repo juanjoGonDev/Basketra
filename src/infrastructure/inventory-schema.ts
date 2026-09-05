@@ -163,4 +163,19 @@ export const INVENTORY_MIGRATIONS: readonly MigrationDefinition[] = [
       END;
     `,
   },
+  {
+    version: 15,
+    kind: 'safe',
+    sql: `
+      ALTER TABLE shopping_lists ADD COLUMN reference_store_id TEXT REFERENCES stores(id);
+      ALTER TABLE shopping_list_items ADD COLUMN store_override_id TEXT REFERENCES stores(id);
+
+      CREATE INDEX shopping_lists_reference_store_idx
+        ON shopping_lists(reference_store_id)
+        WHERE reference_store_id IS NOT NULL;
+      CREATE INDEX shopping_list_items_store_override_idx
+        ON shopping_list_items(store_override_id)
+        WHERE store_override_id IS NOT NULL;
+    `,
+  },
 ] as const;

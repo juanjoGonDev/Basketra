@@ -5,6 +5,7 @@ export type ShoppingListRecord = Readonly<{
   id: string;
   name: string;
   version: number;
+  referenceStoreId?: string;
   createdAt: string;
   updatedAt: string;
 }>;
@@ -27,6 +28,7 @@ export type ShoppingListItemRecord = Readonly<{
   position: number;
   version: number;
   productVariantId?: string;
+  storeOverrideId?: string;
   categoryId?: string;
   categoryName?: string;
   createdAt: string;
@@ -47,17 +49,25 @@ export class ShoppingConflictError extends Error {
   }
 }
 
-type ListRow = ShoppingListRecord;
+type ListRow = Omit<ShoppingListRecord, 'referenceStoreId'> & Readonly<{
+  referenceStoreId: string | null;
+}>;
 
-type ItemRow = Omit<ShoppingListItemRecord, 'exactRequired' | 'substitutionAllowed' | 'completed' | 'completedAt' | 'productVariantId' | 'categoryId' | 'categoryName'> & Readonly<{
+type ItemRow = Omit<ShoppingListItemRecord, 'exactRequired' | 'substitutionAllowed' | 'completed' | 'completedAt' | 'productVariantId' | 'storeOverrideId' | 'categoryId' | 'categoryName'> & Readonly<{
   exactRequired: number;
   substitutionAllowed: number;
   completed: number;
   completedAt: string | null;
   productVariantId: string | null;
+  storeOverrideId: string | null;
   categoryId: string | null;
   categoryName: string | null;
 }>;
+
+function mapList(row: ListRow): ShoppingListRecord {
+  const { referenceStoreId, ...base } = row;
+  return { ...base, ...(referenceStoreId ? { referenceStoreId } : {}) };
+}
 
 function mapItem(row: ItemRow): ShoppingListItemRecord {
   return {
@@ -73,6 +83,7 @@ function mapItem(row: ItemRow): ShoppingListItemRecord {
     position: row.position,
     version: row.version,
     ...(row.productVariantId ? { productVariantId: row.productVariantId } : {}),
+    ...(row.storeOverrideId ? { storeOverrideId: row.storeOverrideId } : {}),
     ...(row.categoryId ? { categoryId: row.categoryId } : {}),
     ...(row.categoryName ? { categoryName: row.categoryName } : {}),
     createdAt: row.createdAt,
@@ -102,6 +113,7 @@ export class ShoppingRepository {
         shopping_lists.id,
         shopping_lists.name,
         shopping_lists.version,
+        shopping_lists.reference_store_id AS referenceStoreId,
         shopping_lists.created_at AS createdAt,
         shopping_lists.updated_at AS updatedAt,
         SUM(CASE WHEN shopping_list_items.id IS NOT NULL AND shopping_list_items.completed = 0 THEN 1 ELSE 0 END) AS pendingCount,
@@ -112,7 +124,7 @@ export class ShoppingRepository {
       ORDER BY shopping_lists.updated_at DESC, shopping_lists.id
     `).all().map((row) => {
       const value = row as ListRow & { pendingCount: number; completedCount: number };
-      return { ...value, pendingCount: Number(value.pendingCount), completedCount: Number(value.completedCount) };
+      return { ...mapList(value), pendingCount: Number(value.pendingCount), completedCount: Number(value.completedCount) };
     }) as ShoppingListSummaryRecord[];
   }
 
@@ -133,6 +145,7 @@ export class ShoppingRepository {
         shopping_list_items.position,
         shopping_list_items.version,
         shopping_list_items.product_variant_id AS productVariantId,
+        shopping_list_items.store_override_id AS storeOverrideId,
         product_categories.id AS categoryId,
         product_categories.name AS categoryName,
         shopping_list_items.created_at AS createdAt,
@@ -163,6 +176,50 @@ export class ShoppingRepository {
     return this.listById(id);
   }
 
+  setStoreSelection(
+    listId: string,
+    referenceStoreId: string | null,
+    expectedVersion: number,
+    scope: 'default' | 'all',
+  ): Readonly<{ list: ShoppingListRecord; items: ShoppingListItemRecord[] }> {
+    assertVersion(expectedVersion);
+    this.#database.exec('BEGIN IMMEDIATE');
+    try {
+      const current = this.listById(listId);
+      if (!current) throw new Error('SHOPPING_LIST_NOT_FOUND');
+      if (current.version !== expectedVersion) throw new ShoppingConflictError('list', current);
+      if (referenceStoreId) this.assertStoreExists(referenceStoreId);
+
+      const timestamp = this.#clock().toISOString();
+      if (scope === 'all') {
+        this.#database.prepare(`
+          UPDATE shopping_list_items
+          SET store_override_id = NULL, updated_at = ?, version = version + 1
+          WHERE list_id = ? AND store_override_id IS NOT NULL
+        `).run(timestamp, listId);
+      }
+
+      const changed = this.#database.prepare(`
+        UPDATE shopping_lists
+        SET reference_store_id = ?, updated_at = ?, version = version + 1
+        WHERE id = ? AND version = ?
+      `).run(referenceStoreId, timestamp, listId, expectedVersion);
+      if (Number(changed.changes) === 0) {
+        const latest = this.listById(listId);
+        if (!latest) throw new Error('SHOPPING_LIST_NOT_FOUND');
+        throw new ShoppingConflictError('list', latest);
+      }
+
+      const updated = this.getList(listId);
+      if (!updated) throw new Error('SHOPPING_LIST_NOT_FOUND');
+      this.#database.exec('COMMIT');
+      return updated;
+    } catch (error) {
+      this.#database.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   deleteList(id: string, expectedVersion: number): boolean {
     assertVersion(expectedVersion);
     const result = this.#database.prepare('DELETE FROM shopping_lists WHERE id = ? AND version = ?').run(id, expectedVersion);
@@ -180,19 +237,21 @@ export class ShoppingRepository {
     exactRequired: boolean;
     substitutionAllowed: boolean;
     productVariantId?: string;
+    storeOverrideId?: string;
   }>): ShoppingListItemRecord {
     this.#database.exec('BEGIN IMMEDIATE');
     try {
       this.assertListExists(input.listId);
       if (input.productVariantId) this.assertProductVariantExists(input.productVariantId);
+      if (input.storeOverrideId) this.assertStoreExists(input.storeOverrideId);
       const position = Number((this.#database.prepare('SELECT COALESCE(MAX(position), -1) + 1 AS position FROM shopping_list_items WHERE list_id = ?').get(input.listId) as { position: number }).position);
       const id = createId('item');
       const timestamp = this.#clock().toISOString();
       this.#database.prepare(`
         INSERT INTO shopping_list_items(
           id, list_id, text, quantity_minor, unit, exact_required, substitution_allowed,
-          position, product_variant_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          position, product_variant_id, store_override_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         input.listId,
@@ -203,6 +262,7 @@ export class ShoppingRepository {
         input.substitutionAllowed ? 1 : 0,
         position,
         input.productVariantId ?? null,
+        input.storeOverrideId ?? null,
         timestamp,
         timestamp,
       );
@@ -229,6 +289,7 @@ export class ShoppingRepository {
     substitutionAllowed?: boolean;
     completed?: boolean;
     productVariantId?: string | null;
+    storeOverrideId?: string | null;
   }>): ShoppingListItemRecord {
     assertVersion(input.expectedVersion);
     this.#database.exec('BEGIN IMMEDIATE');
@@ -240,6 +301,7 @@ export class ShoppingRepository {
         throw new RangeError('quantityMinor and quantityDelta cannot be combined');
       }
       if (input.productVariantId) this.assertProductVariantExists(input.productVariantId);
+      if (input.storeOverrideId) this.assertStoreExists(input.storeOverrideId);
       const quantityMinor = input.quantityDelta === undefined
         ? input.quantityMinor ?? existing.quantityMinor
         : existing.quantityMinor + input.quantityDelta;
@@ -254,11 +316,14 @@ export class ShoppingRepository {
       const productVariantId = input.productVariantId === undefined
         ? existing.productVariantId ?? null
         : input.productVariantId;
+      const storeOverrideId = input.storeOverrideId === undefined
+        ? existing.storeOverrideId ?? null
+        : input.storeOverrideId;
       const result = this.#database.prepare(`
         UPDATE shopping_list_items
         SET
           text = ?, quantity_minor = ?, unit = ?, exact_required = ?, substitution_allowed = ?,
-          completed = ?, completed_at = ?, product_variant_id = ?, updated_at = ?, version = version + 1
+          completed = ?, completed_at = ?, product_variant_id = ?, store_override_id = ?, updated_at = ?, version = version + 1
         WHERE id = ? AND list_id = ? AND version = ?
       `).run(
         input.text ?? existing.text,
@@ -269,6 +334,7 @@ export class ShoppingRepository {
         completed ? 1 : 0,
         completedAt,
         productVariantId,
+        storeOverrideId,
         timestamp,
         input.itemId,
         input.listId,
@@ -355,10 +421,11 @@ export class ShoppingRepository {
   }
 
   private listById(id: string): ShoppingListRecord | undefined {
-    return this.#database.prepare(`
-      SELECT id, name, version, created_at AS createdAt, updated_at AS updatedAt
+    const row = this.#database.prepare(`
+      SELECT id, name, version, reference_store_id AS referenceStoreId, created_at AS createdAt, updated_at AS updatedAt
       FROM shopping_lists WHERE id = ?
     `).get(id) as ListRow | undefined;
+    return row ? mapList(row) : undefined;
   }
 
   private itemById(listId: string, itemId: string): ShoppingListItemRecord | undefined {
@@ -376,6 +443,7 @@ export class ShoppingRepository {
         shopping_list_items.position,
         shopping_list_items.version,
         shopping_list_items.product_variant_id AS productVariantId,
+        shopping_list_items.store_override_id AS storeOverrideId,
         product_categories.id AS categoryId,
         product_categories.name AS categoryName,
         shopping_list_items.created_at AS createdAt,
@@ -395,6 +463,10 @@ export class ShoppingRepository {
 
   private assertProductVariantExists(productVariantId: string): void {
     if (!this.#database.prepare('SELECT 1 FROM product_variants WHERE id = ?').get(productVariantId)) throw new Error('PRODUCT_VARIANT_NOT_FOUND');
+  }
+
+  private assertStoreExists(storeId: string): void {
+    if (!this.#database.prepare('SELECT 1 FROM stores WHERE id = ?').get(storeId)) throw new Error('STORE_NOT_FOUND');
   }
 
   private normalizePositions(listId: string): void {
