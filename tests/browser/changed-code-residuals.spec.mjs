@@ -611,7 +611,7 @@ test('catalog and inventory defensive residuals cover partial payloads and alter
     element.checked = true;
     element.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  await page.locator('#store-selection-clear').click();
+  await page.locator('#store-selection-clear').dispatchEvent('click');
   await page.locator('#store-prev').dispatchEvent('click');
   await page.locator('#store-next').dispatchEvent('click');
   await page.locator('#store-edit').dispatchEvent('click');
