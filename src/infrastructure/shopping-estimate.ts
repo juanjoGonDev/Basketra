@@ -21,6 +21,7 @@ export type ShoppingEstimateLine = Readonly<{
   quantityMinor: number;
   unit: Unit;
   productVariantId?: string;
+  canonicalProductId?: string;
   canonicalName?: string;
   variantName?: string;
   packageMinor?: number;
@@ -56,6 +57,7 @@ type EstimateRow = Readonly<{
   quantityMinor: number;
   itemUnit: string;
   productVariantId: string | null;
+  canonicalProductId: string | null;
   canonicalName: string | null;
   variantName: string | null;
   variantPackageMinor: number | null;
@@ -136,6 +138,7 @@ function estimateLine(row: EstimateRow, itemUnit: Unit): ShoppingEstimateLine {
     quantityMinor: row.quantityMinor,
     unit: itemUnit,
     ...(row.productVariantId ? { productVariantId: row.productVariantId } : {}),
+    ...(row.canonicalProductId ? { canonicalProductId: row.canonicalProductId } : {}),
     ...(row.canonicalName ? { canonicalName: row.canonicalName } : {}),
     ...(row.variantName ? { variantName: row.variantName } : {}),
     ...(row.variantPackageMinor === null ? {} : { packageMinor: row.variantPackageMinor }),
@@ -219,6 +222,7 @@ export class ShoppingEstimateReadModel {
         shopping_list_items.quantity_minor AS quantityMinor,
         shopping_list_items.unit AS itemUnit,
         shopping_list_items.product_variant_id AS productVariantId,
+        product_variants.canonical_product_id AS canonicalProductId,
         canonical_products.name AS canonicalName,
         product_variants.name AS variantName,
         product_variants.package_minor AS variantPackageMinor,
