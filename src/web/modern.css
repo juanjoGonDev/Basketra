@@ -2378,3 +2378,133 @@ summary {
     justify-content: center;
   }
 }
+
+
+.shopping-ticket__header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.button.compact {
+  min-height: 2.5rem;
+  padding: .45rem .75rem;
+}
+
+.bulk-selection-bar {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-on-surface) 10%, transparent);
+  background: color-mix(in srgb, var(--color-primary-container) 20%, var(--color-surface));
+}
+
+.bulk-selection-bar[hidden] {
+  display: none;
+}
+
+.bulk-selection-summary,
+.bulk-selection-actions {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.bulk-selection-summary {
+  justify-content: space-between;
+}
+
+.bulk-store-field {
+  min-width: min(100%, 14rem);
+  flex: 1 1 12rem;
+  margin: 0;
+}
+
+.multi-select-check {
+  width: var(--touch);
+  min-width: var(--touch);
+  height: var(--touch);
+  display: grid;
+  place-items: center;
+  border: 1.5px solid color-mix(in srgb, var(--color-on-surface) 28%, transparent);
+  border-radius: var(--radius-full);
+  background: var(--color-surface);
+  color: transparent;
+}
+
+.multi-select-check.is-selected,
+.multi-select-check[aria-pressed="true"] {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.bulk-select-row,
+.bulk-select-completed {
+  cursor: pointer;
+}
+
+.bulk-select-row.is-selected .ticket-item,
+.bulk-select-completed.is-selected {
+  background: color-mix(in srgb, var(--color-primary-container) 24%, var(--color-surface));
+}
+
+.ticket-item--select {
+  grid-template-areas: "complete identity total";
+  transition: background-color 140ms ease;
+}
+
+.bulk-select-completed {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.list-detail.is-multi-select .list-primary-actions--split {
+  display: none;
+}
+
+@media (max-width: 41.99rem) {
+  .shopping-ticket__header {
+    align-items: flex-start;
+  }
+
+  .shopping-ticket__header-actions {
+    flex-direction: column;
+    align-items: flex-end;
+  }
+
+  .bulk-selection-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bulk-selection-actions .button,
+  .bulk-store-field {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .bulk-store-field {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 31rem) {
+  .bulk-selection-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .bulk-store-field {
+    grid-column: 1;
+  }
+
+  .ticket-item--select {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "complete identity"
+      ". total";
+  }
+}
