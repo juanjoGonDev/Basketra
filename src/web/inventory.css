@@ -254,17 +254,6 @@
   border-bottom: 0;
 }
 
-.inventory-statistics-grid .inventory-data-table {
-  min-width: 0;
-  table-layout: fixed;
-}
-
-.inventory-statistics-grid .inventory-data-table th:first-child,
-.inventory-statistics-grid .inventory-data-table td:first-child {
-  width: 40%;
-  overflow-wrap: anywhere;
-}
-
 @media (max-width: 70rem) {
   .inventory-overview-query {
     grid-template-columns: minmax(0, 1.7fr) minmax(8rem, 1fr) minmax(8rem, 1fr);

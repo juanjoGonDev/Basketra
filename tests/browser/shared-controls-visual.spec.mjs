@@ -25,11 +25,15 @@ test('shared controls align helper fields and retain rounded navigation at every
           inventoryTabsOverflow: [...document.querySelectorAll('.inventory-overview-tabs .task-tab')].filter(visible).some(tab => (
             getComputedStyle(tab).whiteSpace !== 'nowrap' || tab.scrollWidth > tab.clientWidth + 1
           )),
+          statisticsHeadersOverflow: [...document.querySelectorAll('.inventory-stat-card .inventory-data-table thead th')].filter(visible).some(header => (
+            header.scrollWidth > header.clientWidth + 1
+          )),
         };
       });
       expect(geometry.overflow, route).toBe(false);
       expect(geometry.productRowOverlap, route).toBe(false);
       expect(geometry.inventoryTabsOverflow, route).toBe(false);
+      expect(geometry.statisticsHeadersOverflow, route).toBe(false);
       for (const radius of geometry.tabs) expect(radius, route).toBeGreaterThanOrEqual(12);
       for (const control of geometry.selects) {
         expect(control.radius, route).toBe(24);
