@@ -641,10 +641,13 @@ test('catalog final changed-code branches cover DOM guards, stale loads and boun
   const categories = [
     { id: 'root', name: 'Raíz', color: '#118844', productCount: 1, childCount: 1 },
     { id: 'child', name: 'Hija', parentId: 'root', parentName: 'Raíz', color: '#118844', productCount: 0, childCount: 0 },
+    { id: 'cycle_a', name: 'Ciclo A', parentId: 'cycle_b', color: '#118844', productCount: 0, childCount: 1 },
+    { id: 'cycle_b', name: 'Ciclo B', parentId: 'cycle_a', color: '#118844', productCount: 0, childCount: 1 },
   ];
   const catalogProduct = product('Producto ramas', { id: 'branch_product', canonicalName: 'Producto ramas' });
   let categoryMode = 'normal';
   let categoryInventoryRequests = 0;
+  let catalogRequests = 0;
   let holdNextCategoryInventory = false;
   let releaseCategoryInventory;
   let holdRootImpact = false;
@@ -667,6 +670,7 @@ test('catalog final changed-code branches cover DOM guards, stale loads and boun
     return json(route, { inventory: { categories, total: categories.length, offset: 0, limit: 12, hasMore: false } });
   });
   await page.route('**/api/v1/catalog?*', route => {
+    catalogRequests += 1;
     const q = new URL(route.request().url()).searchParams.get('q') || '';
     if (q === 'missing-products') {
       return json(route, { catalog: { total: 0, offset: 0, limit: 12, hasMore: false } });
@@ -703,6 +707,13 @@ test('catalog final changed-code branches cover DOM guards, stale loads and boun
       }),
     }, 201);
   });
+  await page.route('**/api/v1/catalog/products/branch_product/delete-impact', route => json(route, {
+    impact: { receiptItems: 0, shoppingListItems: 0, priceObservations: 0, linkedStores: 0, canDelete: true },
+  }));
+  await page.route('**/api/v1/catalog/products/branch_product', route => {
+    if (route.request().method() === 'DELETE') return route.fulfill({ status: 204, body: '' });
+    return route.fallback();
+  });
   await page.route('**/api/v1/catalog/products/bulk-delete-impact', route => json(route, {
     impact: bulkImpactBlocked ? { canDelete: false } : { canDelete: true, blocked: [] },
   }));
@@ -728,9 +739,12 @@ test('catalog final changed-code branches cover DOM guards, stale loads and boun
   });
   await expect(page.locator('#catalog-detail-title')).toHaveText('Producto ramas');
 
+  const catalogBaseline = catalogRequests;
   await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:view-changed', {
     detail: { view: 'catalog', route: 'catalog:', searchParams: new URLSearchParams() },
   })));
+  await expect.poll(() => catalogRequests).toBeGreaterThan(catalogBaseline);
+  await expect(page.locator('#catalog-state')).toContainText('productos encontrados');
   await expect(page.locator('#catalog-list-screen')).toBeVisible();
 
   await page.goto('/inventory/products/new');
@@ -746,8 +760,15 @@ test('catalog final changed-code branches cover DOM guards, stale loads and boun
   await expect(page.locator('#catalog-product-form-state')).toContainText('Revisa los campos');
 
   await page.locator('#catalog-package-unit').selectOption('');
+  await page.locator('#catalog-category').selectOption('root');
   await page.locator('#catalog-product-form').dispatchEvent('submit');
   await expect(page).toHaveURL(/\/inventory\/products\/branch_saved$/u);
+
+  await page.goto('/inventory/products/branch_product');
+  await page.locator('#catalog-delete-product').click();
+  await expect(page.locator('#catalog-delete-confirm')).toBeEnabled();
+  await page.locator('#catalog-delete-confirm').click();
+  await expect(page.locator('#catalog-state')).toContainText('Producto eliminado.');
 
   await page.goto('/inventory/products');
   await page.locator('#catalog-delete-product').dispatchEvent('click');
@@ -793,6 +814,9 @@ test('catalog final changed-code branches cover DOM guards, stale loads and boun
     window.AbortController = window.__basketraNativeAbortController;
     delete window.__basketraNativeAbortController;
   });
+
+  await page.goto('/inventory/categories/cycle_a?mode=edit');
+  await expect(page.locator('#category-editor')).toBeVisible();
 
   holdRootImpact = true;
   rootImpactStarted = false;
@@ -920,7 +944,7 @@ test('inventory final changed-code branches cover missing controls, stale loads 
 
   await page.goto('/inventory');
   const destination = page.locator('[data-inventory-destination]').first();
-  await destination.evaluate(element => { element.dataset.inventoryDestination = 'invalid'; });
+  await destination.evaluate(element => { element.dataset.inventoryDestination = ''; });
   await destination.dispatchEvent('click');
   await expect(page).toHaveURL(/\/inventory$/u);
 
