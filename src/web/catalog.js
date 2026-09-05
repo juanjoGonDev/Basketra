@@ -45,6 +45,8 @@ const state = {
   loadGeneration: 0,
   categoryLoadController: null,
   categoryLoadGeneration: 0,
+  catalogActivationGeneration: 0,
+  categoryActivationGeneration: 0,
   productSelection: createPagedSelection(),
   categorySelection: createPagedSelection(),
   bulkProductDeleteIds: [],
@@ -1459,18 +1461,22 @@ async function openRequestedCategory(requested, searchParams) {
 }
 
 async function activateCatalog(requested = 'catalog', searchParams = new URLSearchParams()) {
+  const generation = ++state.catalogActivationGeneration;
   if (!activateFeatureView('catalog')) return;
   applyProductRouteState(searchParams);
   showProductListScreen();
   await loadProducts();
+  if (generation !== state.catalogActivationGeneration) return;
   await openRequestedRouteWhenCurrent(requested, searchParams, openRequestedProduct);
 }
 
 async function activateCategories(requested = 'categories', searchParams = new URLSearchParams()) {
+  const generation = ++state.categoryActivationGeneration;
   if (!activateFeatureView('categories')) return;
   applyCategoryRouteState(searchParams);
   showCategoryListScreen();
   await loadCategoryInventory();
+  if (generation !== state.categoryActivationGeneration) return;
   await openRequestedRouteWhenCurrent(requested, searchParams, openRequestedCategory);
 }
 
