@@ -13,7 +13,7 @@ import {
   minorToEuroInput,
   shoppingListItem,
 } from './ui.js';
-import { readApplicationLocation, writeApplicationLocation } from './routes.js';
+import { applicationPathForRoute, readApplicationLocation, writeApplicationLocation } from './routes.js';
 
 const UNIT_LABELS = Object.freeze({
   g: 'g',
@@ -1789,6 +1789,25 @@ async function confirmNearbyStore(index, scope = 'item') {
   toast('Tienda guardada');
 }
 
+function openStoreCreator(statusTarget) {
+  const popup = window.open(applicationPathForRoute('stores:new'), '_blank', 'noopener,noreferrer');
+  statusTarget.textContent = popup
+    ? 'Crea la tienda en la nueva pestaña y vuelve aquí para actualizar la lista.'
+    : 'El navegador bloqueó la nueva pestaña. Permítela para crear la tienda sin perder este formulario.';
+}
+
+async function refreshStoreChoices(select, statusTarget) {
+  const selectedId = select.value;
+  try {
+    await loadStores(model.currentLocation || undefined);
+    renderStoreOptions();
+    if ([...select.options].some(option => option.value === selectedId)) select.value = selectedId;
+    statusTarget.textContent = 'Tiendas actualizadas.';
+  } catch (error) {
+    statusTarget.textContent = error.message;
+  }
+}
+
 async function updateReferenceStore(scope) {
   if (!model.list) return;
   const button = scope === 'all' ? $('#apply-list-store-all') : $('#list-store-select');
@@ -2011,8 +2030,16 @@ function bindEvents() {
   });
   $('#create-store-from-item').addEventListener('click', () => {
     persistItemDraft();
-    closeDialog($('#item-dialog'));
-    document.dispatchEvent(new CustomEvent('basketra:navigate', { detail: { route: 'stores:new' } }));
+    openStoreCreator($('#location-state'));
+  });
+  $('#refresh-item-stores').addEventListener('click', () => {
+    void refreshStoreChoices($('#store-select'), $('#location-state'));
+  });
+  $('#global-create-store').addEventListener('click', () => {
+    openStoreCreator($('#global-product-state'));
+  });
+  $('#global-refresh-stores').addEventListener('click', () => {
+    void refreshStoreChoices($('#global-store-select'), $('#global-product-state'));
   });
 
   document.addEventListener('visibilitychange', () => {
