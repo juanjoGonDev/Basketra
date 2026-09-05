@@ -189,6 +189,32 @@ jobs:
               "evidence-assets/$slug.gif"
           }
 
+          find_unique_capture() {
+            source=$1
+            mapfile -t matches < <(find downloaded/test-results -type f -name "$source" -print)
+            if [ "${#matches[@]}" -ne 1 ]; then
+              echo "Expected exactly one Playwright capture named '$source', found ${#matches[@]}:" >&2
+              printf '  %s\n' "${matches[@]}" >&2
+              exit 1
+            fi
+            printf '%s\n' "${matches[0]}"
+          }
+
+          prepare_unique_flow() {
+            screenshot=$1
+            slug=$2
+            capture=$(find_unique_capture "$screenshot")
+            directory=$(dirname "$capture")
+            test -f "$directory/video.webm"
+
+            cp "$capture" "evidence-assets/$slug.png"
+            cp "$directory/video.webm" "evidence-assets/$slug.webm"
+            ffmpeg -hide_banner -loglevel error -y -t 12 \
+              -i "$directory/video.webm" \
+              -vf "fps=6,scale=360:-2:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=96[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5" \
+              "evidence-assets/$slug.gif"
+          }
+
           copy_flow_capture() {
             needle=$1
             source=$2
@@ -201,13 +227,8 @@ jobs:
           copy_unique_capture() {
             source=$1
             target=$2
-            mapfile -t matches < <(find downloaded/test-results -type f -name "$source" -print)
-            if [ "${#matches[@]}" -ne 1 ]; then
-              echo "Expected exactly one Playwright capture named '$source', found ${#matches[@]}:" >&2
-              printf '  %s\n' "${matches[@]}" >&2
-              exit 1
-            fi
-            cp "${matches[0]}" "evidence-assets/$target"
+            capture=$(find_unique_capture "$source")
+            cp "$capture" "evidence-assets/$target"
           }
 
           prepare_flow mobile-PWA-loads 01-mobile-navigation
@@ -220,7 +241,7 @@ jobs:
           prepare_flow operations-settings-show-l 09-runtime-operations runtime-backups-logs.png
           prepare_flow operations-network-heartbe 10-vpn-recovery vpn-reconnected.png
           prepare_flow mobile-settings-receipts-s 11-responsive-settings settings-dark-430.png
-          prepare_flow retailer-autofill 12-ocr-retailer retailer-confirmed.png
+          prepare_unique_flow retailer-confirmed.png 12-ocr-retailer
 
           copy_flow_capture shopping-lists-su swipe-delete.png 02-shopping-list-full-delete.png
           copy_flow_capture imports-without-AI swipe-delete.png 04-local-ocr-full-delete.png
