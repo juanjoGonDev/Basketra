@@ -47,6 +47,8 @@ const model = {
   editingItemId: '',
   deletingItemId: '',
   swipeDeletingItemIds: new Set(),
+  multiSelectMode: false,
+  selectedItemIds: new Set(),
   selectedProductVariantId: '',
   selectedProductName: '',
   selectedCanonicalProductId: '',
@@ -219,6 +221,11 @@ function variantSelectOptions(line) {
   ).join('');
 }
 
+function selectionButton(item, name) {
+  const selected = model.selectedItemIds.has(item.id);
+  return `<button type="button" class="multi-select-check${selected ? ' is-selected' : ''}" data-select-item data-item-id="${escapeHtml(item.id)}" aria-label="${selected ? 'Quitar' : 'Seleccionar'} ${name}" aria-pressed="${String(selected)}"><span data-icon="check"></span></button>`;
+}
+
 function ticketItem(item, index, total) {
   const line = estimateLine(item.id);
   const name = escapeHtml(item.text);
@@ -229,6 +236,18 @@ function ticketItem(item, index, total) {
     : escapeHtml(unpricedLabel(line?.reason));
   const totalText = priced ? formatEuroMinor(line.estimatedTotalMinor) : '—';
   const category = item.categoryName ? `<small class="ticket-item__category">${escapeHtml(item.categoryName)}</small>` : '';
+  if (model.multiSelectMode) {
+    const storeName = line?.effectiveStoreName
+      || model.stores.find(store => store.id === (item.storeOverrideId || model.list?.referenceStoreId))?.name
+      || 'Sin tienda';
+    return `<div class="shopping-ticket-row bulk-select-row${model.selectedItemIds.has(item.id) ? ' is-selected' : ''}">
+      <article class="ticket-item ticket-item--select" data-select-row data-item-id="${id}">
+        ${selectionButton(item, name)}
+        <div class="ticket-item__identity list-row__content"><span class="ticket-item__product-icon" data-icon="cart" aria-hidden="true"></span><span class="ticket-item__identity-copy"><strong>${name}</strong>${category}<small>${priceContext}</small><small>${escapeHtml(storeName)}</small></span></div>
+        <strong class="ticket-item__total">${totalText}</strong>
+      </article>
+    </div>`;
+  }
   const editAttributes = `data-item-action="edit" data-item-id="${id}" aria-label="Editar ${name}"`;
   const deleteAttributes = `data-item-action="delete" data-item-id="${id}" aria-label="Eliminar ${name}"`;
   return `<div class="shopping-ticket-row swipe-shell" data-swipe-row data-swipe-kind="shopping-item" data-swipe-id="${id}" data-swipe-start-action="complete" data-swipe-end-action="delete" data-swipe-open="false">
@@ -300,7 +319,18 @@ function groupItems(items) {
   return groups;
 }
 
-function renderItemGroups(container, items, emptyMessage) {
+function bulkCompletedItem(item) {
+  const name = escapeHtml(item.text);
+  const id = escapeHtml(item.id);
+  const selected = model.selectedItemIds.has(item.id);
+  const storeName = model.stores.find(store => store.id === (item.storeOverrideId || model.list?.referenceStoreId))?.name || 'Sin tienda';
+  return `<li class="list-row bulk-select-completed${selected ? ' is-selected' : ''}" data-select-row data-item-id="${id}">
+    ${selectionButton(item, name)}
+    <div class="list-row__content"><strong>${name}</strong><span>${item.quantityMinor} ${escapeHtml(UNIT_LABELS[item.unit] || item.unit)} · ${escapeHtml(storeName)}</span></div>
+  </li>`;
+}
+
+function renderItemGroups(container, items, emptyMessage, renderer = shoppingListItem) {
   if (items.length === 0) {
     container.innerHTML = `<ul class="item-list">${emptyListState(emptyMessage)}</ul>`;
     return;
@@ -309,7 +339,7 @@ function renderItemGroups(container, items, emptyMessage) {
   container.innerHTML = [...groupItems(items)].map(([category, group]) => `
     <section class="category-group" aria-label="${escapeHtml(category)}">
       <h3>${escapeHtml(category)}</h3>
-      <ul class="item-list">${group.map(item => shoppingListItem(item, overallIndexes.get(item.id), items.length)).join('')}</ul>
+      <ul class="item-list">${group.map(item => renderer(item, overallIndexes.get(item.id), items.length)).join('')}</ul>
     </section>
   `).join('');
 }
@@ -332,6 +362,26 @@ function renderEstimateSummary() {
     : 'Añade productos para calcular la estimación.';
 }
 
+function renderBulkSelection() {
+  const validIds = new Set(model.items.map(item => item.id));
+  for (const id of model.selectedItemIds) {
+    if (!validIds.has(id)) model.selectedItemIds.delete(id);
+  }
+  const count = model.selectedItemIds.size;
+  const total = model.items.length;
+  const toggle = $('#toggle-multi-select');
+  toggle.setAttribute('aria-pressed', String(model.multiSelectMode));
+  toggle.querySelector('span:last-child').textContent = model.multiSelectMode ? 'Cancelar' : 'Seleccionar';
+  $('#bulk-selection-bar').hidden = !model.multiSelectMode;
+  $('#bulk-selection-count').textContent = `${count} seleccionado${count === 1 ? '' : 's'}`;
+  $('#bulk-select-all').textContent = total > 0 && count === total ? 'Quitar selección' : 'Seleccionar todos';
+  for (const selector of ['#bulk-mark-completed', '#bulk-mark-pending', '#bulk-apply-store', '#bulk-delete-items']) {
+    $(selector).disabled = count === 0;
+  }
+  $('#bulk-store-select').disabled = count === 0;
+  $('#list-detail').classList.toggle('is-multi-select', model.multiSelectMode);
+}
+
 function renderItems() {
   const pending = model.items.filter(item => !item.completed);
   const completed = model.items.filter(item => item.completed);
@@ -339,12 +389,19 @@ function renderItems() {
   pendingRoot.innerHTML = pending.length
     ? pending.map((item, index) => ticketItem(item, index, pending.length)).join('')
     : '<div class="shopping-ticket__empty"><strong>Lista vacía</strong><small>Añade el primer producto para empezar.</small></div>';
-  renderItemGroups($('#completed-items'), completed, 'Los productos comprados aparecerán aquí.');
+  renderItemGroups(
+    $('#completed-items'),
+    completed,
+    'Los productos comprados aparecerán aquí.',
+    model.multiSelectMode ? bulkCompletedItem : shoppingListItem,
+  );
   $('#pending-count').textContent = String(pending.length);
   $('#completed-count').textContent = String(completed.length);
   $('#completed-section').hidden = completed.length === 0;
   renderEstimateSummary();
+  renderBulkSelection();
   document.dispatchEvent(new CustomEvent('basketra:hydrate-icons', { detail: { root: pendingRoot } }));
+  document.dispatchEvent(new CustomEvent('basketra:hydrate-icons', { detail: { root: $('#completed-items') } }));
 }
 
 function renderDetail() {
@@ -396,6 +453,8 @@ async function loadActiveList() {
 }
 
 async function openList(listId, { syncUrl = true, replace = false } = {}) {
+  model.multiSelectMode = false;
+  model.selectedItemIds.clear();
   model.activeListId = listId;
   saveActiveListId(listId);
   if (syncUrl) writeListRoute(listId, { replace });
@@ -505,6 +564,7 @@ function renderStoreOptions() {
     ['#store-select', itemStoreOptions($('#store-select')?.value || '')],
     ['#global-store-select', `<option value="">Sin tienda física</option>${model.stores.map(store => `<option value="${escapeHtml(store.id)}">${escapeHtml(store.name)} · ${escapeHtml(store.retailerName)}</option>`).join('')}`],
     ['#list-store-select', listStoreOptions(model.list?.referenceStoreId || '')],
+    ['#bulk-store-select', itemStoreOptions($('#bulk-store-select')?.value || '')],
   ];
   for (const [selector, html] of configurations) {
     const select = $(selector);
@@ -1831,6 +1891,76 @@ async function refreshStoreChoices(select, statusTarget) {
   }
 }
 
+function setMultiSelectMode(enabled) {
+  model.multiSelectMode = enabled;
+  if (!enabled) model.selectedItemIds.clear();
+  renderItems();
+}
+
+function toggleSelectedItem(itemId) {
+  if (!model.multiSelectMode || !model.items.some(item => item.id === itemId)) return;
+  if (model.selectedItemIds.has(itemId)) model.selectedItemIds.delete(itemId);
+  else model.selectedItemIds.add(itemId);
+  renderItems();
+}
+
+function handleSelectionEvent(event) {
+  if (!model.multiSelectMode) return false;
+  const target = event.target.closest('[data-select-item], [data-select-row]');
+  if (!target) return false;
+  const itemId = target.dataset.itemId;
+  if (itemId) toggleSelectedItem(itemId);
+  return true;
+}
+
+function selectedItemsForBulk() {
+  return model.items
+    .filter(item => model.selectedItemIds.has(item.id))
+    .map(item => ({ id: item.id, version: item.version }));
+}
+
+async function runBulkAction(action, payload, status) {
+  if (!model.list) return false;
+  const items = selectedItemsForBulk();
+  if (items.length === 0) return false;
+  try {
+    await api(`/api/v1/shopping-lists/${encodeURIComponent(model.list.id)}/items/bulk`, {
+      method: 'POST',
+      body: JSON.stringify({ items, action, ...payload }),
+    });
+    setMultiSelectMode(false);
+    await Promise.all([loadActiveList(), loadLists()]);
+    toast(status);
+    return true;
+  } catch (error) {
+    if (error.code === 'SHOPPING_CONFLICT') {
+      await resyncAfterSimpleConflict('Alguno de los productos seleccionados cambió en otro dispositivo. Revisa la selección y vuelve a intentarlo.');
+      return false;
+    }
+    $('#item-state').textContent = error.message;
+    return false;
+  }
+}
+
+function openBulkDeleteDialog() {
+  const count = model.selectedItemIds.size;
+  if (count === 0) return;
+  $('#bulk-delete-count').textContent = `${count} producto${count === 1 ? '' : 's'}`;
+  $('#bulk-delete-state').textContent = '';
+  openDialog($('#bulk-delete-dialog'));
+}
+
+async function confirmBulkDelete() {
+  const button = $('#confirm-bulk-delete');
+  setBusy(button, true);
+  try {
+    const deleted = await runBulkAction('delete', {}, 'Productos eliminados');
+    if (deleted) closeDialog($('#bulk-delete-dialog'));
+  } finally {
+    setBusy(button, false);
+  }
+}
+
 async function updateReferenceStore(scope) {
   if (!model.list) return;
   const button = scope === 'all' ? $('#apply-list-store-all') : $('#list-store-select');
@@ -2033,9 +2163,27 @@ function bindEvents() {
 
   $('#list-store-select').addEventListener('change', () => void updateReferenceStore('default'));
   $('#apply-list-store-all').addEventListener('click', () => void updateReferenceStore('all'));
-  $('#pending-items').addEventListener('click', event => void handleItemAction(event));
+  $('#toggle-multi-select').addEventListener('click', () => setMultiSelectMode(!model.multiSelectMode));
+  $('#bulk-select-all').addEventListener('click', () => {
+    if (model.selectedItemIds.size === model.items.length) model.selectedItemIds.clear();
+    else model.items.forEach(item => model.selectedItemIds.add(item.id));
+    renderItems();
+  });
+  $('#bulk-mark-completed').addEventListener('click', () => void runBulkAction('completed', { completed: true }, 'Productos marcados como comprados'));
+  $('#bulk-mark-pending').addEventListener('click', () => void runBulkAction('completed', { completed: false }, 'Productos devueltos a pendientes'));
+  $('#bulk-apply-store').addEventListener('click', () => void runBulkAction('store', { storeOverrideId: $('#bulk-store-select').value || null }, 'Tienda actualizada en la selección'));
+  $('#bulk-delete-items').addEventListener('click', openBulkDeleteDialog);
+  $('#confirm-bulk-delete').addEventListener('click', () => void confirmBulkDelete());
+  $('#cancel-bulk-delete').addEventListener('click', () => closeDialog($('#bulk-delete-dialog')));
+  $('#pending-items').addEventListener('click', event => {
+    if (handleSelectionEvent(event)) return;
+    void handleItemAction(event);
+  });
   $('#pending-items').addEventListener('change', event => void handleTicketControl(event));
-  $('#completed-items').addEventListener('click', event => void handleItemAction(event));
+  $('#completed-items').addEventListener('click', event => {
+    if (handleSelectionEvent(event)) return;
+    void handleItemAction(event);
+  });
   $('#confirm-delete-item').addEventListener('click', () => void confirmDeleteItem());
   $('#cancel-delete-item').addEventListener('click', () => {
     model.deletingItemId = '';
