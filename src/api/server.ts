@@ -14,7 +14,7 @@ import {
   type RuntimeSettings,
 } from '../infrastructure/runtime-settings.ts';
 import { asArray, asBoolean, asEnum, asRecord, asSafeInteger, asString } from '../domain/validation.ts';
-import { UNIT_VALUES } from '../domain/units.ts';
+import { normalizedMinorPerDisplayUnit, rational, UNIT_VALUES } from '../domain/units.ts';
 import { optimizeBasket, type ShoppingRequirement } from '../domain/optimization.ts';
 import type { Offer } from '../domain/offers.ts';
 import { parseReceiptLineDiscount, validateReceiptLine, validateReceiptTotal, type ReceiptLineInput } from '../domain/receipt.ts';
@@ -287,6 +287,7 @@ export class BasketraServer {
       if (request.method === 'GET' && parentVariantsMatch?.[1]) {
         return this.listProductParentVariants(response, decodePathSegment(parentVariantsMatch[1]));
       }
+      if (request.method === 'POST' && url.pathname === '/api/v1/products/price-normalization') return await this.normalizeProductPrice(request, response);
       if (request.method === 'POST' && url.pathname === '/api/v1/products/photo-proposal') return await this.proposeProductPhoto(request, response);
       if (request.method === 'POST' && url.pathname === '/api/v1/products') return await this.createProduct(request, response);
       const productPriceMatch = /^\/api\/v1\/products\/([^/]+)\/prices$/.exec(url.pathname);
@@ -779,6 +780,22 @@ export class BasketraServer {
     if (!product) throw new ApiError(404, 'PRODUCT_VARIANT_NOT_FOUND', 'Product variant was not found');
     this.publishRealtime({ entityType: 'product', mutation: 'updated', entityId: product.id, updatedAt: product.updatedAt });
     this.json(response, 200, { product });
+  }
+
+  private async normalizeProductPrice(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const body = asRecord(await this.readJson(request));
+    const priceMinor = asSafeInteger(body['priceMinor'], '$.priceMinor', { min: 0, max: 100_000_000 });
+    const packageNumerator = asSafeInteger(body['packageNumerator'], '$.packageNumerator', { min: 1, max: 100_000_000 });
+    const packageDenominator = asSafeInteger(body['packageDenominator'] ?? 1, '$.packageDenominator', { min: 1, max: 100_000_000 });
+    const packageUnit = asEnum(body['packageUnit'], '$.packageUnit', UNIT_VALUES);
+    const normalized = normalizedMinorPerDisplayUnit(priceMinor, {
+      amount: rational(packageNumerator, packageDenominator),
+      unit: packageUnit,
+    });
+    this.json(response, 200, {
+      normalizedPriceMinor: normalized.minor,
+      normalizedPriceUnit: normalized.unit,
+    });
   }
 
   private async proposeProductPhoto(request: IncomingMessage, response: ServerResponse): Promise<void> {

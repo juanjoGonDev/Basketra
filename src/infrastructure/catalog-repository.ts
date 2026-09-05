@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { rankNearbyStores, type GeoPointMicrodegrees } from '../domain/location.ts';
-import { normalizedMinorPerBaseUnit, rational, type Unit } from '../domain/units.ts';
+import { normalizedMinorPerBaseUnit, normalizedMinorPerDisplayUnit, rational, type Unit } from '../domain/units.ts';
 import { createId } from './ids.ts';
 
 export type ProductCategoryRecord = Readonly<{
@@ -84,6 +84,8 @@ export type PriceObservationRecord = Readonly<{
   packageUnit: string;
   normalizedPriceNumerator: number;
   normalizedPriceDenominator: number;
+  normalizedDisplayPriceMinor: number;
+  normalizedDisplayPriceUnit: Unit;
   evidenceId: string;
   observedAt: string;
   confidence: number;
@@ -639,6 +641,7 @@ export class CatalogRepository {
     const packageAmount = rational(input.packageNumerator, input.packageDenominator);
     if (packageAmount.numerator === 0) throw new RangeError('Price package quantity must be greater than zero');
     const normalized = normalizedMinorPerBaseUnit(input.priceMinor, { amount: packageAmount, unit: input.packageUnit });
+    const normalizedDisplay = normalizedMinorPerDisplayUnit(input.priceMinor, { amount: packageAmount, unit: input.packageUnit });
     const timestamp = this.#clock().toISOString();
     this.#database.exec('BEGIN IMMEDIATE');
     try {
@@ -713,6 +716,8 @@ export class CatalogRepository {
         packageUnit: input.packageUnit,
         normalizedPriceNumerator: normalized.numerator,
         normalizedPriceDenominator: normalized.denominator,
+        normalizedDisplayPriceMinor: normalizedDisplay.minor,
+        normalizedDisplayPriceUnit: normalizedDisplay.unit,
         evidenceId,
         observedAt: input.observedAt,
         confidence: input.confidence,
@@ -757,8 +762,14 @@ export class CatalogRepository {
         storeName: string | null;
       };
       const { storeId, storeName, ...base } = value;
+      const normalizedDisplay = normalizedMinorPerDisplayUnit(base.priceMinor, {
+        amount: rational(base.packageNumerator, base.packageDenominator),
+        unit: base.packageUnit as Unit,
+      });
       return {
         ...base,
+        normalizedDisplayPriceMinor: normalizedDisplay.minor,
+        normalizedDisplayPriceUnit: normalizedDisplay.unit,
         ...(storeId ? { storeId } : {}),
         ...(storeName ? { storeName } : {}),
       };

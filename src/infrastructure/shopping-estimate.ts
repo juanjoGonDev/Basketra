@@ -4,7 +4,9 @@ import {
   multiplyRational,
   normalizeQuantity,
   normalizedMinorPerBaseUnit,
+  normalizedMinorPerDisplayUnit,
   rational,
+  roundRationalHalfUp,
   type Rational,
   type Unit,
 } from '../domain/units.ts';
@@ -80,12 +82,6 @@ function asUnit(value: string | null): Unit | undefined {
   return value !== null && UNIT_SET.has(value) ? value as Unit : undefined;
 }
 
-function roundMinor(value: Rational): number {
-  const quotient = Math.floor(value.numerator / value.denominator);
-  const remainder = value.numerator % value.denominator;
-  return quotient + (remainder * 2 >= value.denominator ? 1 : 0);
-}
-
 function massOrVolumePackage(row: EstimateRow): Readonly<{ amount: Rational; unit: Unit }> | undefined {
   const observedUnit = asUnit(row.packageUnit);
   if (
@@ -109,25 +105,6 @@ function massOrVolumePackage(row: EstimateRow): Readonly<{ amount: Rational; uni
     return { amount: rational(row.variantPackageMinor), unit: variantUnit };
   }
   return undefined;
-}
-
-function normalizedDisplayPrice(
-  row: EstimateRow,
-  itemUnit: Unit,
-): Readonly<{ minor: number; unit: Unit }> | undefined {
-  if (row.priceMinor === null) return undefined;
-  const packageQuantity = massOrVolumePackage(row);
-  if (packageQuantity) {
-    const normalized = normalizedMinorPerBaseUnit(row.priceMinor, packageQuantity);
-    const normalizedUnit = normalizeQuantity(packageQuantity).unit;
-    if (normalizedUnit === 'g') {
-      return { minor: roundMinor(multiplyRational(normalized, rational(1000))), unit: 'kg' };
-    }
-    if (normalizedUnit === 'ml') {
-      return { minor: roundMinor(multiplyRational(normalized, rational(1000))), unit: 'l' };
-    }
-  }
-  return { minor: row.priceMinor, unit: itemUnit };
 }
 
 function estimateLine(row: EstimateRow, itemUnit: Unit): ShoppingEstimateLine {
@@ -175,7 +152,8 @@ function estimateLine(row: EstimateRow, itemUnit: Unit): ShoppingEstimateLine {
     estimated = rational(multiplied);
   }
 
-  const normalized = normalizedDisplayPrice(row, itemUnit);
+  const packageQuantity = massOrVolumePackage(row);
+  const normalized = normalizedMinorPerDisplayUnit(row.priceMinor, packageQuantity ?? { amount: rational(1), unit: itemUnit });
   return {
     ...base,
     status: 'priced',
@@ -185,7 +163,7 @@ function estimateLine(row: EstimateRow, itemUnit: Unit): ShoppingEstimateLine {
     ...(normalized
       ? { normalizedPriceMinor: normalized.minor, normalizedPriceUnit: normalized.unit }
       : {}),
-    estimatedTotalMinor: roundMinor(estimated),
+    estimatedTotalMinor: roundRationalHalfUp(estimated),
   };
 }
 

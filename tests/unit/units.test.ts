@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compareRational, divideRational, ensureComparable, multiplyRational, normalizeQuantity, normalizedMinorPerBaseUnit, parseDecimalRational, rational } from '../../src/domain/units.ts';
+import { compareRational, divideRational, ensureComparable, multiplyRational, normalizeQuantity, normalizedMinorPerBaseUnit, normalizedMinorPerDisplayUnit, parseDecimalRational, rational, roundRationalHalfUp } from '../../src/domain/units.ts';
 
 test('rational quantities normalize exactly', () => {
   assert.deepEqual(rational(2, 4), { numerator: 1, denominator: 2 });
@@ -15,6 +15,11 @@ test('rational quantities normalize exactly', () => {
     assert.deepEqual(normalizeQuantity({ amount: rational(2), unit }), { amount: rational(2), unit });
   }
   assert.deepEqual(normalizedMinorPerBaseUnit(285, { amount: rational(3, 2), unit: 'kg' }), rational(19, 100));
+  assert.equal(roundRationalHalfUp(rational(3, 2)), 2);
+  assert.equal(roundRationalHalfUp(rational(4, 3)), 1);
+  assert.deepEqual(normalizedMinorPerDisplayUnit(119, { amount: rational(1), unit: 'l' }), { minor: 119, unit: 'l' });
+  assert.deepEqual(normalizedMinorPerDisplayUnit(200, { amount: rational(500), unit: 'g' }), { minor: 400, unit: 'kg' });
+  assert.deepEqual(normalizedMinorPerDisplayUnit(400, { amount: rational(4), unit: 'pack' }), { minor: 100, unit: 'pack' });
   assert.equal(compareRational(rational(1, 2), rational(2, 4)), 0);
   assert.equal(compareRational(rational(1, 3), rational(1, 2)), -1);
   assert.equal(compareRational(rational(2, 3), rational(1, 2)), 1);
