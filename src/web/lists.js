@@ -2140,7 +2140,7 @@ function bindEvents() {
   $('#scan-ticket').addEventListener('click', () => {
     persistItemDraft();
     closeDialog($('#item-dialog'));
-    document.dispatchEvent(new CustomEvent('basketra:navigate', { detail: { route: 'tickets' } }));
+    document.dispatchEvent(new CustomEvent('basketra:navigate', { detail: { route: 'scan' } }));
   });
   $('#open-product-photo').addEventListener('click', () => $('#product-camera').click());
 
@@ -2269,16 +2269,8 @@ function bindEvents() {
     }
   });
   document.addEventListener('basketra:swipe-action', event => {
-    if (event.detail?.kind !== 'shopping-item') return;
-    const itemId = String(event.detail.id || '');
-    if (event.detail?.action === 'delete') {
-      void deleteItemFromSwipe(itemId);
-      return;
-    }
-    if (event.detail?.action === 'complete') {
-      const item = model.items.find(candidate => candidate.id === itemId);
-      if (item) void setItemCompleted(itemId, !item.completed, { offerUndo: !item.completed });
-    }
+    if (event.detail?.kind !== 'shopping-item' || event.detail?.action !== 'delete') return;
+    void deleteItemFromSwipe(String(event.detail.id || ''));
   });
   document.addEventListener('basketra:view-changed', event => {
     if (event.detail?.view !== 'lists') {
