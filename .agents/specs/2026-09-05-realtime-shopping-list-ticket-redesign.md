@@ -196,6 +196,35 @@ Store chooser order:
 
 An external nearby candidate is not persisted until explicit confirmation. Location is not sent to the AI product-photo request.
 
+## AI-assisted existing-category suggestion
+
+Inventory Product, historical Ticket line and Shopping List canonical-product editors share one optional **Suggest category with AI** action.
+
+- One server endpoint owns the operation: `POST /api/v1/categories/suggest`.
+- The browser sends only bounded product/item fields already filled in the active form. It never supplies the authoritative category inventory.
+- The server reads the current persisted category inventory through `CategoryRepository`, excludes the protected `category_unknown` fallback from useful suggestions, and sends the compact existing-category snapshot to WebAPI.
+- The operation reuses Basketra's configured AI model and requests `reasoning.effort = "low"` through the existing `AiReasoningEffort` provider contract. No second model id or provider is introduced.
+- Structured output can select only an existing category id from the snapshot or return no match. It cannot create, rename, recolor, reparent or otherwise mutate categories.
+- A successful suggestion updates only the active form's category select. Saving remains an explicit user action.
+- Pressing the action with insufficient context performs no AI request and marks/focuses the form fields required by that surface:
+  - Inventory Product: canonical name and variant name;
+  - historical Ticket line: product description, positive quantity and valid unit price;
+  - Shopping List canonical product editor: product-base/canonical name and variant name.
+- Optional already-filled context such as brand, description, package, quantity, unit and unit price is included when valid.
+- All three surfaces reuse one browser request/validation helper. It owns checking/success/no-match/error feedback, request cancellation and stale-response protection.
+- AI failure or absence never blocks manual category selection or saving.
+- The UI communicates suggestion status through an accessible live region and the button remains keyboard-native.
+
+Additional acceptance:
+
+21. Inventory Product, Ticket line and Shopping List product creation call the same category-suggestion endpoint and shared browser helper.
+22. Every category-suggestion provider request carries low reasoning effort while preserving the configured model identity.
+23. The category inventory used for grounding is read server-side from the canonical repository; client-provided category inventories are not accepted.
+24. Missing required context is marked before any remote call and focus moves to the first invalid field.
+25. Unknown/malformed AI category ids fail closed and never alter the category select.
+26. A later edit/request cannot be overwritten by an earlier category-suggestion response.
+27. Category suggestions never persist or submit the surrounding item/product form automatically.
+
 ## UI/UX contract
 
 ### Shopping list
