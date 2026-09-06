@@ -1512,7 +1512,7 @@ async function resyncAfterSimpleConflict(message = 'La lista cambió en el otro 
 
 async function updateItem(itemId, payload, status) {
   const item = model.items.find(candidate => candidate.id === itemId);
-  if (!item || !model.list) return;
+  if (!item || !model.list) return false;
   try {
     await api(`/api/v1/shopping-lists/${encodeURIComponent(model.list.id)}/items/${encodeURIComponent(itemId)}`, {
       method: 'PATCH',
@@ -1520,8 +1520,12 @@ async function updateItem(itemId, payload, status) {
     });
     await loadActiveList();
     $('#item-state').textContent = status;
+    return true;
   } catch (error) {
-    if (error.code === 'SHOPPING_CONFLICT') return resyncAfterSimpleConflict();
+    if (error.code === 'SHOPPING_CONFLICT') {
+      await resyncAfterSimpleConflict();
+      return false;
+    }
     throw error;
   }
 }
@@ -1657,8 +1661,14 @@ function revealCompletedRecovery() {
 }
 
 async function setItemCompleted(itemId, completed, { offerUndo = false } = {}) {
-  await updateItem(itemId, { completed }, completed ? 'Producto completado' : 'Producto devuelto a pendientes');
-  if (!completed) return;
+  const status = completed ? 'Producto completado' : 'Producto devuelto a pendientes';
+  let updated = await updateItem(itemId, { completed }, status);
+  if (!updated) {
+    const current = model.items.find(candidate => candidate.id === itemId);
+    if (!current || current.completed === completed) updated = Boolean(current);
+    else updated = await updateItem(itemId, { completed }, status);
+  }
+  if (!updated || !completed) return;
   revealCompletedRecovery();
   if (offerUndo) {
     toast('Producto marcado como comprado', {
