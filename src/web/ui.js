@@ -184,6 +184,7 @@ function dispatchSwipeAction(root, row, action) {
 
 export function bindSwipeActions(root = document) {
   let gesture;
+  let suppressClick = false;
 
   const releaseSelectionLock = () => {
     document.documentElement.classList.remove('is-swipe-pointer-active');
@@ -274,6 +275,11 @@ export function bindSwipeActions(root = document) {
       return;
     }
 
+    suppressClick = true;
+    setTimeout(() => {
+      suppressClick = false;
+    }, 0);
+
     const effectiveOffset = initialOffset + deltaX;
     const ratio = Math.abs(effectiveOffset) / width;
     if (effectiveOffset > 0 && ratio >= SWIPE_START_COMMIT_RATIO && row.dataset.swipeStartAction) {
@@ -317,6 +323,12 @@ export function bindSwipeActions(root = document) {
   });
 
   root.addEventListener('click', event => {
+    if (suppressClick) {
+      suppressClick = false;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     const toggle = event.target.closest('[data-swipe-toggle]');
     if (toggle) {
       const row = toggle.closest('[data-swipe-row]');
