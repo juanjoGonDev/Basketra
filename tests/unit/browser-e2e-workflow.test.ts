@@ -28,15 +28,18 @@ test('browser runtime is primed once and every deterministic shard has the one-m
   assert.match(workflow, /browser-runtime:\n[\s\S]*?timeout-minutes:\s*1/u);
   assert.match(workflow, /actions\/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9/u);
   assert.match(workflow, /basketra-playwright-\$\{\{ runner\.os \}\}-1\.59\.1-\$\{\{ github\.event\.pull_request\.head\.sha \}\}/u);
-  assert.match(workflow, /browser-e2e:\n[\s\S]*?name: "🌐 Browser \$\{\{ matrix\.shard \}\}\/64"[\s\S]*?timeout-minutes:\s*1/u);
-  assert.match(workflow, /pnpm exec playwright test --shard=\$\{\{ matrix\.shard \}\}\/64/u);
+  assert.match(workflow, /browser-e2e:\n[\s\S]*?name: "🌐 Browser \$\{\{ matrix\.shard \}\}\/40"[\s\S]*?timeout-minutes:\s*1/u);
+  assert.match(workflow, /pnpm exec playwright test --shard=\$\{\{ matrix\.shard \}\}\/40/u);
   assert.match(workflow, /BASKETRA_BROWSER_COVERAGE_COLLECT_ONLY:\s*"1"/u);
-  assert.match(workflow, /pnpm exec playwright install-deps chromium/u);
-  assert.match(workflow, /http:\/\/azure\.archive\.ubuntu\.com\/ubuntu/u);
-  assert.match(workflow, /https:\/\/archive\.ubuntu\.com\/ubuntu/u);
+  assert.match(workflow, /name:\s+basketra-browser-runtime/u);
+  assert.match(workflow, /BASKETRA_BROWSER_PREBUILT:\s*"1"/u);
+  assert.doesNotMatch(workflow, /playwright install-deps/u);
 });
 
-test('browser sharding keeps one isolated worker and enables test-level partitioning', () => {
+test('browser sharding reuses one prebuilt application and keeps one isolated worker per shard', () => {
+  const startServer = readFileSync('tests/browser/start-server.mjs', 'utf8');
+  assert.match(startServer, /BASKETRA_BROWSER_PREBUILT/u);
+  assert.match(startServer, /requires dist\/main\.js/u);
   assert.match(playwrightConfig, /fullyParallel:\s*true/u);
   assert.match(playwrightConfig, /workers:\s*1/u);
   assert.match(playwrightConfig, /trace:\s*inCi \? 'retain-on-failure' : 'on'/u);
