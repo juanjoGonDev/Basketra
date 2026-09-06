@@ -1,7 +1,7 @@
 # Receipt confirmation SQLite failure
 
 Date: 2026-09-06
-Status: blocked pending affected-database evidence
+Status: implementation complete pending final CI and affected-device validation
 
 ## Request
 
@@ -93,3 +93,38 @@ The affected Raspberry/database must produce one of the following before a root-
 2. a read-only SQLite diagnostic from the affected database covering schema version, integrity/foreign-key status, capacity and receipt projection trigger presence.
 
 No schema repair, trigger replacement or data rewrite is authorized or justified until that evidence exists.
+
+
+## Proven rollback masking defect
+
+A deterministic regression now reproduces a second defect in the receipt confirmation path.
+
+The regression installs a test-only SQLite trigger that raises `ROLLBACK` while `importReceipt()` is inside its explicit transaction. On the unpatched implementation, SQLite has already ended the transaction, but the receipt catch block unconditionally executes another `ROLLBACK`. That second rollback fails with `cannot rollback - no transaction is active` and replaces the original SQLite exception.
+
+Failing evidence:
+
+- Head `fc2cb47166699680b248fdd5ac591ce58772c3e4`.
+- Pull Request Quality `34065932143`, Quality job `101574555286`.
+- Regression: `receipt import preserves the original SQLite error when SQLite rolls back the transaction`.
+- Expected original error: `FORCED_RECEIPT_ROLLBACK`.
+- Actual error before the fix: `cannot rollback - no transaction is active`.
+
+This is directly relevant to the reported production symptom because it proves that `importReceipt()` can replace the real SQLite failure with a second generic `ERR_SQLITE_ERROR`. The supplied production log therefore cannot be assumed to contain the original SQLite class.
+
+The minimal fix checks the connection transaction state before issuing rollback. Node 22.23.1 exposes that state through `DatabaseSync.isTransaction`; the local Node shim is updated to model the pinned runtime API instead of using an unsafe cast.
+
+Passing evidence after the fix:
+
+- Head `cdab531fded30bee30cac9709138c840dd869744`.
+- Quality reports the rollback regression passing.
+- Covered tests: 392/392 pass.
+- Changed executable coverage remains 100% for 20 lines, 1 function and 11 branches.
+- Exact-head Browser E2E and remaining workflow completion are still pending at the time of this spec update.
+
+## Revised decision
+
+The unconditional rollback is now a proven root cause of diagnostic corruption and is fixed. It may also have hidden the original production failure class whenever SQLite ended the transaction itself.
+
+Do not infer the hidden underlying production error from the generic pre-fix `ERR_SQLITE_ERROR`. After this change, any recurrence will preserve the original Node SQLite `errcode`/`errstr`, allowing a follow-up fix to target the actual storage, I/O, interrupt, memory, or other SQLite condition instead of the rollback artifact.
+
+No schema mutation or data rewrite is justified by the evidence collected so far.
