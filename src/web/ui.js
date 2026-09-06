@@ -252,12 +252,7 @@ export function bindSwipeActions(root = document) {
     const deltaX = event.clientX - gesture.x;
     const deltaY = event.clientY - gesture.y;
     const row = resolveCurrentSwipeRow(root, gesture.row);
-    if (!row.isConnected) {
-      gesture.row.classList.remove('is-pointer-active', 'is-dragging');
-      releaseSelectionLock(gesture.lockToken);
-      gesture = undefined;
-      return;
-    }
+    if (!row.isConnected) return;
     gesture.row = row;
     if (!gesture.horizontal) {
       if (Math.abs(deltaX) < 8 && Math.abs(deltaY) < 8) return;
