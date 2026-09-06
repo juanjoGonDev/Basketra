@@ -1677,6 +1677,8 @@ async function setItemCompleted(itemId, completed, { offerUndo = false } = {}) {
     else updated = await updateItem(itemId, { completed }, status);
   }
   if (!updated || !completed) return;
+  window.getSelection()?.removeAllRanges();
+  requestAnimationFrame(() => window.getSelection()?.removeAllRanges());
   revealCompletedRecovery();
   if (offerUndo) {
     toast('Producto marcado como comprado', {
