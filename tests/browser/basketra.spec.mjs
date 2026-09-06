@@ -108,15 +108,27 @@ async function stableBoundingBox(locator) {
 
 async function swipe(page, locator, direction, { long = false } = {}) {
   await expect(locator).toBeVisible();
-  await locator.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
-  const box = await stableBoundingBox(locator);
   const anchor = locator.locator('.list-row__content').first();
-  const anchorBox = await stableBoundingBox(anchor);
-  const startX = direction === 'left' ? anchorBox.x + anchorBox.width * 0.8 : anchorBox.x + anchorBox.width * 0.2;
+  let geometry;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await locator.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
+    const box = await stableBoundingBox(locator);
+    const anchorBox = await stableBoundingBox(anchor);
+    const startX = direction === 'left' ? anchorBox.x + anchorBox.width * 0.8 : anchorBox.x + anchorBox.width * 0.2;
+    const y = anchorBox.y + anchorBox.height / 2;
+    await page.mouse.move(startX, y);
+    const hitsRow = await locator.evaluate((element, point) => {
+      const target = document.elementFromPoint(point.x, point.y);
+      return Boolean(target && element.contains(target));
+    }, { x: startX, y });
+    if (!hitsRow) continue;
+    geometry = { box, startX, y };
+    break;
+  }
+  expect(geometry, 'swipe start point must still hit the target row').toBeTruthy();
+  const { box, startX, y } = geometry;
   const distance = box.width * (long ? 0.72 : direction === 'right' ? 0.46 : 0.34);
   const endX = direction === 'left' ? startX - distance : startX + distance;
-  const y = anchorBox.y + anchorBox.height / 2;
-  await page.mouse.move(startX, y);
   await page.mouse.down();
   await page.mouse.move(endX, y, { steps: 14 });
   await page.mouse.up();
