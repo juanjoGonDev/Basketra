@@ -310,6 +310,10 @@ export function bindSwipeActions(root = document) {
     if (!document.documentElement.classList.contains('is-swipe-pointer-active')) return;
     event.preventDefault();
   });
+  document.addEventListener('selectionchange', () => {
+    if (!document.documentElement.classList.contains('is-swipe-pointer-active')) return;
+    window.getSelection()?.removeAllRanges();
+  });
 
   root.addEventListener('click', event => {
     const toggle = event.target.closest('[data-swipe-toggle]');
