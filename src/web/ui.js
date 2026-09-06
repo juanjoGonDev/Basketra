@@ -185,6 +185,11 @@ function dispatchSwipeAction(root, row, action) {
 export function bindSwipeActions(root = document) {
   let gesture;
 
+  const releaseSelectionLock = () => {
+    document.documentElement.classList.remove('is-swipe-pointer-active');
+    window.getSelection()?.removeAllRanges();
+  };
+
   root.querySelectorAll('[data-swipe-row]').forEach(row => {
     if (isGenericSwipeRow(row)) closeSwipeRow(row);
   });
@@ -220,8 +225,7 @@ export function bindSwipeActions(root = document) {
     const row = resolveCurrentSwipeRow(root, gesture.row);
     if (!row.isConnected) {
       gesture.row.classList.remove('is-pointer-active', 'is-dragging');
-      document.documentElement.classList.remove('is-swipe-pointer-active');
-      window.getSelection()?.removeAllRanges();
+      releaseSelectionLock();
       gesture = undefined;
       return;
     }
@@ -230,8 +234,7 @@ export function bindSwipeActions(root = document) {
       if (Math.abs(deltaX) < 8 && Math.abs(deltaY) < 8) return;
       if (Math.abs(deltaY) >= Math.abs(deltaX)) {
         row.classList.remove('is-pointer-active');
-        document.documentElement.classList.remove('is-swipe-pointer-active');
-        window.getSelection()?.removeAllRanges();
+        releaseSelectionLock();
         gesture = undefined;
         return;
       }
@@ -261,8 +264,8 @@ export function bindSwipeActions(root = document) {
     const row = resolveCurrentSwipeRow(root, gestureRow);
     gestureRow.classList.remove('is-pointer-active', 'is-dragging');
     if (row !== gestureRow) row.classList.remove('is-pointer-active', 'is-dragging');
-    document.documentElement.classList.remove('is-swipe-pointer-active');
     window.getSelection()?.removeAllRanges();
+    requestAnimationFrame(releaseSelectionLock);
     if (!row.isConnected) return;
     if (!horizontal || cancelled) {
       if (initialOffset < 0) openSwipeRow(root, row);
@@ -294,6 +297,10 @@ export function bindSwipeActions(root = document) {
 
   root.addEventListener('pointerup', event => finish(event));
   root.addEventListener('pointercancel', event => finish(event, true));
+  root.addEventListener('selectstart', event => {
+    if (!document.documentElement.classList.contains('is-swipe-pointer-active')) return;
+    event.preventDefault();
+  });
 
   root.addEventListener('click', event => {
     const toggle = event.target.closest('[data-swipe-toggle]');
