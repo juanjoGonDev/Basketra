@@ -267,7 +267,10 @@ export function bindSwipeActions(root = document) {
     gestureRow.classList.remove('is-pointer-active', 'is-dragging');
     if (row !== gestureRow) row.classList.remove('is-pointer-active', 'is-dragging');
     window.getSelection()?.removeAllRanges();
-    setTimeout(releaseSelectionLock, 0);
+    requestAnimationFrame(() => {
+      window.getSelection()?.removeAllRanges();
+      releaseSelectionLock();
+    });
     if (!row.isConnected) return;
     if (!horizontal || cancelled) {
       if (initialOffset < 0) openSwipeRow(root, row);
