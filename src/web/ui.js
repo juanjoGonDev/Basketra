@@ -292,7 +292,8 @@ export function bindSwipeActions(root = document) {
 
   const finish = (event, cancelled = false) => {
     if (!gesture || event.pointerId !== gesture.pointerId) return;
-    const { row: gestureRow, width, deltaX, horizontal, initialOffset } = gesture;
+    const { row: gestureRow, width, deltaX, horizontal, initialOffset, x } = gesture;
+    const finalDeltaX = Number.isFinite(event.clientX) ? event.clientX - x : deltaX;
     gesture = undefined;
     const row = resolveCurrentSwipeRow(root, gestureRow);
     gestureRow.classList.remove('is-pointer-active', 'is-dragging');
@@ -314,7 +315,7 @@ export function bindSwipeActions(root = document) {
       suppressClick = false;
     }, 0);
 
-    const effectiveOffset = initialOffset + deltaX;
+    const effectiveOffset = initialOffset + finalDeltaX;
     const ratio = Math.abs(effectiveOffset) / width;
     if (effectiveOffset > 0 && ratio >= SWIPE_START_COMMIT_RATIO && row.dataset.swipeStartAction) {
       closeSwipeRow(row);
