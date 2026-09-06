@@ -200,21 +200,14 @@ export function bindSwipeActions(root = document) {
 
   const holdSelectionLock = () => {
     selectionLockToken += 1;
-    if (selectionReleaseTimer !== undefined) {
-      clearTimeout(selectionReleaseTimer);
-      selectionReleaseTimer = undefined;
-    }
+    clearTimeout(selectionReleaseTimer);
+    selectionReleaseTimer = undefined;
     document.documentElement.classList.add('is-swipe-pointer-active');
     window.getSelection()?.removeAllRanges();
     return selectionLockToken;
   };
 
-  const releaseSelectionLock = expectedToken => {
-    if (expectedToken !== undefined && expectedToken !== selectionLockToken) return;
-    if (selectionReleaseTimer !== undefined) {
-      clearTimeout(selectionReleaseTimer);
-      selectionReleaseTimer = undefined;
-    }
+  const releaseSelectionLock = () => {
     document.documentElement.classList.remove('is-swipe-pointer-active');
     window.getSelection()?.removeAllRanges();
   };
@@ -258,7 +251,7 @@ export function bindSwipeActions(root = document) {
       if (Math.abs(deltaX) < 8 && Math.abs(deltaY) < 8) return;
       if (Math.abs(deltaY) >= Math.abs(deltaX)) {
         row.classList.remove('is-pointer-active');
-        releaseSelectionLock(gesture.lockToken);
+        releaseSelectionLock();
         gesture = undefined;
         return;
       }
@@ -287,7 +280,7 @@ export function bindSwipeActions(root = document) {
     requestAnimationFrame(() => {
       if (expectedToken !== selectionLockToken) return;
       window.getSelection()?.removeAllRanges();
-      releaseSelectionLock(expectedToken);
+      releaseSelectionLock();
     });
   };
 
@@ -296,18 +289,18 @@ export function bindSwipeActions(root = document) {
     void Promise.resolve(pending).finally(() => {
       if (expectedToken !== selectionLockToken) return;
       window.getSelection()?.removeAllRanges();
-      if (selectionReleaseTimer !== undefined) clearTimeout(selectionReleaseTimer);
+      clearTimeout(selectionReleaseTimer);
       selectionReleaseTimer = setTimeout(() => {
         selectionReleaseTimer = undefined;
-        releaseSelectionLock(expectedToken);
+        releaseSelectionLock();
       }, SWIPE_SELECTION_SETTLE_MS);
     });
   };
 
   const finish = (event, cancelled = false) => {
     if (!gesture || event.pointerId !== gesture.pointerId) return;
-    const { row: gestureRow, width, deltaX, horizontal, initialOffset, x, lockToken } = gesture;
-    const finalDeltaX = Number.isFinite(event.clientX) ? event.clientX - x : deltaX;
+    const { row: gestureRow, width, horizontal, initialOffset, x, lockToken } = gesture;
+    const finalDeltaX = event.clientX - x;
     gesture = undefined;
     const row = resolveCurrentSwipeRow(root, gestureRow);
     gestureRow.classList.remove('is-pointer-active', 'is-dragging');
