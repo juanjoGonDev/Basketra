@@ -201,7 +201,20 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await expect(page.locator('#pending-items')).toContainText('Leche semidesnatada 1 L');
 
   let riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
+  await page.evaluate(() => {
+    window.__basketraSwipeActions = [];
+    document.addEventListener('basketra:swipe-action', event => {
+      window.__basketraSwipeActions.push({
+        action: event.detail?.action,
+        id: event.detail?.id,
+        kind: event.detail?.kind,
+      });
+    });
+  });
   await swipe(page, riceRow, 'right');
+  await expect.poll(() => page.evaluate(() => window.__basketraSwipeActions || [])).toContainEqual(
+    expect.objectContaining({ action: 'complete', kind: 'shopping-item' }),
+  );
   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() || '')).toBe('');
   const completedSection = page.locator('#completed-section');
   await expect(completedSection).toBeVisible();
