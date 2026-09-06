@@ -47,8 +47,11 @@ function readSafeStringField(error: unknown, field: keyof SystemErrorFields): st
 function readSafeSqliteErrcode(error: unknown): number | undefined {
   if (typeof error !== 'object' || error === null) return undefined;
   const value = (error as SystemErrorFields).errcode;
-  return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= 0x7fffffff
-    ? Number(value)
+  return typeof value === 'number'
+    && Number.isSafeInteger(value)
+    && value >= 0
+    && value <= 0x7fffffff
+    ? value
     : undefined;
 }
 
