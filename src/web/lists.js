@@ -2334,8 +2334,18 @@ function bindEvents() {
     }
   });
   document.addEventListener('basketra:swipe-action', event => {
-    if (event.detail?.kind !== 'shopping-item' || event.detail?.action !== 'delete') return;
-    void deleteItemFromSwipe(String(event.detail.id || ''));
+    if (event.detail?.kind !== 'shopping-item') return;
+    const itemId = String(event.detail.id || '');
+    if (event.detail.action === 'delete') {
+      void deleteItemFromSwipe(itemId);
+      return;
+    }
+    if (event.detail.action !== 'complete') return;
+    const item = model.items.find(candidate => candidate.id === itemId);
+    if (!item) return;
+    void setItemCompleted(itemId, !item.completed, { offerUndo: !item.completed }).catch(error => {
+      $('#item-state').textContent = error.message;
+    });
   });
   document.addEventListener('basketra:view-changed', event => {
     if (event.detail?.view !== 'lists') {
