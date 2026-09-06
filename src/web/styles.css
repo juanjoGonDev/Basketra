@@ -150,7 +150,13 @@ main:focus { outline: none; }
 
 .swipe-shell { --swipe-x: 0px; min-width: 0; position: relative; overflow: hidden; border-radius: var(--radius-md); touch-action: pan-y; isolation: isolate; }
 .swipe-content { position: relative; z-index: 2; transform: translateX(var(--swipe-x)); transition: transform 180ms cubic-bezier(.2, .8, .2, 1); will-change: transform; }
-.swipe-shell.is-dragging .swipe-content { transition: none; user-select: none; }
+.swipe-shell.is-pointer-active,
+.swipe-shell.is-pointer-active .swipe-content,
+.swipe-shell.is-dragging .swipe-content {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.swipe-shell.is-dragging .swipe-content { transition: none; }
 .swipe-shell.is-swipe-committing .swipe-content { transition-duration: 150ms; }
 .swipe-rail { position: absolute; inset: 0; z-index: 1; display: flex; align-items: stretch; color: #fff; }
 .swipe-rail--start { justify-content: flex-start; gap: .45rem; align-items: center; padding-inline: 1rem; background: var(--success); }

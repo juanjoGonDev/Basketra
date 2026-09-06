@@ -195,6 +195,7 @@ export function bindSwipeActions(root = document) {
     if (!isGenericSwipeRow(row) || !swipeContent(row)) return;
     event.preventDefault();
     closeSwipeRows(root, row);
+    row.classList.add('is-pointer-active');
     const width = Math.max(row.clientWidth, 1);
     gesture = {
       row,
@@ -216,6 +217,7 @@ export function bindSwipeActions(root = document) {
     const deltaY = event.clientY - gesture.y;
     const row = resolveCurrentSwipeRow(root, gesture.row);
     if (!row.isConnected) {
+      gesture.row.classList.remove('is-pointer-active', 'is-dragging');
       gesture = undefined;
       return;
     }
@@ -223,6 +225,7 @@ export function bindSwipeActions(root = document) {
     if (!gesture.horizontal) {
       if (Math.abs(deltaX) < 8 && Math.abs(deltaY) < 8) return;
       if (Math.abs(deltaY) >= Math.abs(deltaX)) {
+        row.classList.remove('is-pointer-active');
         gesture = undefined;
         return;
       }
@@ -250,8 +253,8 @@ export function bindSwipeActions(root = document) {
     const { row: gestureRow, width, deltaX, horizontal, initialOffset } = gesture;
     gesture = undefined;
     const row = resolveCurrentSwipeRow(root, gestureRow);
-    gestureRow.classList.remove('is-dragging');
-    if (row !== gestureRow) row.classList.remove('is-dragging');
+    gestureRow.classList.remove('is-pointer-active', 'is-dragging');
+    if (row !== gestureRow) row.classList.remove('is-pointer-active', 'is-dragging');
     if (!row.isConnected) return;
     if (!horizontal || cancelled) {
       if (initialOffset < 0) openSwipeRow(root, row);
