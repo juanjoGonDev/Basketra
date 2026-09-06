@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+
+test.use({ trace: 'on', screenshot: 'on', video: 'on' });
 import { fillRequiredReceiptStore } from './helpers/receipt-store.mjs';
 
 const validPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8//8/AwMDEwMDAwMDAwAkBgMB/DXemwAAAABJRU5ErkJggg==', 'base64');

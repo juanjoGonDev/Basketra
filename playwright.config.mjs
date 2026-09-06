@@ -1,23 +1,25 @@
 import './tests/browser/register-coverage-loader.mjs';
 import { defineConfig, devices } from '@playwright/test';
 
+const inCi = process.env.CI === 'true';
+
 export default defineConfig({
   testDir: './tests/browser',
-  fullyParallel: false,
+  fullyParallel: true,
   workers: 1,
   retries: 0,
   timeout: 30_000,
   expect: { timeout: 5_000 },
   reporter: [
     ['list'],
-    ['html', { outputFolder: 'playwright-report', open: 'never' }],
+    ...(!inCi ? [['html', { outputFolder: 'playwright-report', open: 'never' }]] : []),
     ['./tests/browser/coverage-reporter.mjs'],
   ],
   use: {
     baseURL: 'http://127.0.0.1:3000',
-    trace: 'on',
-    screenshot: 'on',
-    video: 'on',
+    trace: inCi ? 'retain-on-failure' : 'on',
+    screenshot: inCi ? 'only-on-failure' : 'on',
+    video: inCi ? 'retain-on-failure' : 'on',
     ...devices['Pixel 7'],
   },
   webServer: {

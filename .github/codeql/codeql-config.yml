@@ -1,0 +1,7 @@
+name: Basketra production and automation scope
+
+paths:
+  - .github/workflows
+  - playwright.config.mjs
+  - scripts
+  - src

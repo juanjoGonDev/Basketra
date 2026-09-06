@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
 
 const widths = [320, 390, 768, 1440, 1920];
+const routes = ['/inventory', '/inventory/products', '/inventory/categories', '/inventory/stores', '/inventory/statistics', '/tickets/history', '/settings'];
 
-test('shared controls align helper fields and retain rounded navigation at every width', async ({ page }, testInfo) => {
-  test.setTimeout(240_000);
-  for (const width of widths) {
+for (const width of widths) {
+  test(`shared controls align helper fields and retain rounded navigation at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 1000 });
-    for (const route of ['/inventory', '/inventory/products', '/inventory/categories', '/inventory/stores', '/inventory/statistics', '/tickets/history', '/settings']) {
+    for (const route of routes) {
       await page.goto(route);
       await expect(page.locator('html')).not.toHaveAttribute('data-route-pending', 'true');
       const geometry = await page.evaluate(() => {
@@ -43,6 +43,7 @@ test('shared controls align helper fields and retain rounded navigation at every
       }
       await page.screenshot({ path: testInfo.outputPath(`${route.replaceAll('/', '-')}-${width}.png`), fullPage: true });
     }
+
     await page.goto('/inventory');
     const dashboardChevron = await page.locator('.inventory-overview-cards .dashboard-card').first().evaluate(
       element => getComputedStyle(element, '::after').content,
@@ -60,19 +61,16 @@ test('shared controls align helper fields and retain rounded navigation at every
     expect(Math.abs(first.y - second.y)).toBeLessThanOrEqual(1);
     expect(Math.abs(first.height - second.height)).toBeLessThanOrEqual(1);
     await page.screenshot({ path: testInfo.outputPath(`field-feedback-${width}.png`), fullPage: true });
-  }
-});
+  });
 
+  test(`ticket metadata controls align with a wrapped store explanation at ${width}px`, async ({ page }, testInfo) => {
+    await page.route('**/api/v1/inventory/stores?*', route => route.fulfill({ json: { stores: [{ id: 'store_visual', name: 'Market Central', retailerName: 'Market' }], total: 1, hasMore: false } }));
+    await page.route('**/api/v1/inventory/tickets/ticket_visual', route => route.fulfill({ json: { ticket: {
+      id: 'ticket_visual', retailerName: 'Market', storeId: 'store_visual', storeName: 'Market Central',
+      purchasedAt: '2026-09-02T18:30:00.000Z', paymentStatus: 'paid', paymentMethod: 'Card',
+      taxMinor: 0, receiptDiscountMinor: 0, declaredTotalMinor: 150, items: [],
+    } } }));
 
-test('ticket metadata controls align with a wrapped store explanation', async ({ page }, testInfo) => {
-  test.setTimeout(90_000);
-  await page.route('**/api/v1/inventory/stores?*', route => route.fulfill({ json: { stores: [{ id: 'store_visual', name: 'Market Central', retailerName: 'Market' }], total: 1, hasMore: false } }));
-  await page.route('**/api/v1/inventory/tickets/ticket_visual', route => route.fulfill({ json: { ticket: {
-    id: 'ticket_visual', retailerName: 'Market', storeId: 'store_visual', storeName: 'Market Central',
-    purchasedAt: '2026-09-02T18:30:00.000Z', paymentStatus: 'paid', paymentMethod: 'Card',
-    taxMinor: 0, receiptDiscountMinor: 0, declaredTotalMinor: 150, items: [],
-  } } }));
-  for (const width of widths) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto('/tickets/history/ticket_visual');
     await expect(page.locator('#ticket-editor-store')).toHaveValue('store_visual');
@@ -87,5 +85,5 @@ test('ticket metadata controls align with a wrapped store explanation', async ({
     await page.locator('#ticket-add-line').click();
     await expect(page.locator('.receipt-invoice-dialog[open]')).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath(`ticket-add-line-${width}.png`), fullPage: true });
-  }
-});
+  });
+}
