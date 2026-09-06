@@ -177,27 +177,40 @@ function openSwipeRow(root, row) {
 
 function dispatchSwipeAction(root, row, action) {
   const currentRow = resolveCurrentSwipeRow(root, row);
+  const pending = [];
   currentRow.dispatchEvent(new CustomEvent('basketra:swipe-action', {
     bubbles: true,
-    detail: { action, id: currentRow.dataset.swipeId, kind: currentRow.dataset.swipeKind },
+    detail: {
+      action,
+      id: currentRow.dataset.swipeId,
+      kind: currentRow.dataset.swipeKind,
+      waitUntil(promise) {
+        if (promise && typeof promise.then === 'function') pending.push(Promise.resolve(promise));
+      },
+    },
   }));
+  return pending.length ? Promise.allSettled(pending) : Promise.resolve();
 }
 
 export function bindSwipeActions(root = document) {
   let gesture;
   let suppressClick = false;
   let selectionReleaseTimer;
+  let selectionLockToken = 0;
 
   const holdSelectionLock = () => {
+    selectionLockToken += 1;
     if (selectionReleaseTimer !== undefined) {
       clearTimeout(selectionReleaseTimer);
       selectionReleaseTimer = undefined;
     }
     document.documentElement.classList.add('is-swipe-pointer-active');
     window.getSelection()?.removeAllRanges();
+    return selectionLockToken;
   };
 
-  const releaseSelectionLock = () => {
+  const releaseSelectionLock = expectedToken => {
+    if (expectedToken !== undefined && expectedToken !== selectionLockToken) return;
     if (selectionReleaseTimer !== undefined) {
       clearTimeout(selectionReleaseTimer);
       selectionReleaseTimer = undefined;
@@ -215,7 +228,7 @@ export function bindSwipeActions(root = document) {
     const row = event.target.closest('[data-swipe-row]');
     if (!isGenericSwipeRow(row) || !swipeContent(row)) return;
     event.preventDefault();
-    holdSelectionLock();
+    const lockToken = holdSelectionLock();
     closeSwipeRows(root, row);
     row.classList.add('is-pointer-active');
     const width = Math.max(row.clientWidth, 1);
@@ -227,6 +240,7 @@ export function bindSwipeActions(root = document) {
       y: event.clientY,
       horizontal: false,
       deltaX: 0,
+      lockToken,
       initialOffset: row.dataset.swipeOpen === 'true'
         ? -Math.min(SWIPE_REVEAL_MAX_PX, Math.max(112, width * 0.42))
         : 0,
@@ -240,7 +254,7 @@ export function bindSwipeActions(root = document) {
     const row = resolveCurrentSwipeRow(root, gesture.row);
     if (!row.isConnected) {
       gesture.row.classList.remove('is-pointer-active', 'is-dragging');
-      releaseSelectionLock();
+      releaseSelectionLock(gesture.lockToken);
       gesture = undefined;
       return;
     }
@@ -249,7 +263,7 @@ export function bindSwipeActions(root = document) {
       if (Math.abs(deltaX) < 8 && Math.abs(deltaY) < 8) return;
       if (Math.abs(deltaY) >= Math.abs(deltaX)) {
         row.classList.remove('is-pointer-active');
-        releaseSelectionLock();
+        releaseSelectionLock(gesture.lockToken);
         gesture = undefined;
         return;
       }
@@ -273,26 +287,31 @@ export function bindSwipeActions(root = document) {
     row.dataset.swipeDeleteArmed = String(offset < 0 && ratio >= SWIPE_END_COMMIT_RATIO && Boolean(row.dataset.swipeEndAction));
   }, { passive: false });
 
-  const releaseSelectionAfterPointer = () => {
+  const releaseSelectionAfterPointer = expectedToken => {
     window.getSelection()?.removeAllRanges();
     requestAnimationFrame(() => {
+      if (expectedToken !== selectionLockToken) return;
       window.getSelection()?.removeAllRanges();
-      releaseSelectionLock();
+      releaseSelectionLock(expectedToken);
     });
   };
 
-  const releaseSelectionAfterCommit = () => {
+  const releaseSelectionAfterCommit = (expectedToken, pending = Promise.resolve()) => {
     window.getSelection()?.removeAllRanges();
-    if (selectionReleaseTimer !== undefined) clearTimeout(selectionReleaseTimer);
-    selectionReleaseTimer = setTimeout(() => {
-      selectionReleaseTimer = undefined;
-      releaseSelectionLock();
-    }, SWIPE_SELECTION_SETTLE_MS);
+    void Promise.resolve(pending).finally(() => {
+      if (expectedToken !== selectionLockToken) return;
+      window.getSelection()?.removeAllRanges();
+      if (selectionReleaseTimer !== undefined) clearTimeout(selectionReleaseTimer);
+      selectionReleaseTimer = setTimeout(() => {
+        selectionReleaseTimer = undefined;
+        releaseSelectionLock(expectedToken);
+      }, SWIPE_SELECTION_SETTLE_MS);
+    });
   };
 
   const finish = (event, cancelled = false) => {
     if (!gesture || event.pointerId !== gesture.pointerId) return;
-    const { row: gestureRow, width, deltaX, horizontal, initialOffset, x } = gesture;
+    const { row: gestureRow, width, deltaX, horizontal, initialOffset, x, lockToken } = gesture;
     const finalDeltaX = Number.isFinite(event.clientX) ? event.clientX - x : deltaX;
     gesture = undefined;
     const row = resolveCurrentSwipeRow(root, gestureRow);
@@ -300,13 +319,13 @@ export function bindSwipeActions(root = document) {
     if (row !== gestureRow) row.classList.remove('is-pointer-active', 'is-dragging');
     window.getSelection()?.removeAllRanges();
     if (!row.isConnected) {
-      releaseSelectionAfterPointer();
+      releaseSelectionAfterPointer(lockToken);
       return;
     }
     if (!horizontal || cancelled) {
       if (initialOffset < 0) openSwipeRow(root, row);
       else closeSwipeRow(row);
-      releaseSelectionAfterPointer();
+      releaseSelectionAfterPointer(lockToken);
       return;
     }
 
@@ -319,8 +338,8 @@ export function bindSwipeActions(root = document) {
     const ratio = Math.abs(effectiveOffset) / width;
     if (effectiveOffset > 0 && ratio >= SWIPE_START_COMMIT_RATIO && row.dataset.swipeStartAction) {
       closeSwipeRow(row);
-      dispatchSwipeAction(root, row, row.dataset.swipeStartAction);
-      releaseSelectionAfterCommit();
+      const pending = dispatchSwipeAction(root, row, row.dataset.swipeStartAction);
+      releaseSelectionAfterCommit(lockToken, pending);
       return;
     }
     if (effectiveOffset < 0 && ratio >= SWIPE_END_COMMIT_RATIO && row.dataset.swipeEndAction) {
@@ -329,18 +348,18 @@ export function bindSwipeActions(root = document) {
       setSwipeOffset(row, -row.clientWidth);
       const delay = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 150;
       setTimeout(() => {
-        dispatchSwipeAction(root, row, row.dataset.swipeEndAction);
-        releaseSelectionAfterCommit();
+        const pending = dispatchSwipeAction(root, row, row.dataset.swipeEndAction);
+        releaseSelectionAfterCommit(lockToken, pending);
       }, delay);
       return;
     }
     if (effectiveOffset < 0 && ratio >= SWIPE_REVEAL_RATIO && swipeActions(row)) {
       openSwipeRow(root, row);
-      releaseSelectionAfterCommit();
+      releaseSelectionAfterCommit(lockToken);
       return;
     }
     closeSwipeRow(row);
-    releaseSelectionAfterPointer();
+    releaseSelectionAfterPointer(lockToken);
   };
 
   root.addEventListener('pointerup', event => finish(event));

@@ -2357,15 +2357,16 @@ function bindEvents() {
     if (event.detail?.kind !== 'shopping-item') return;
     const itemId = String(event.detail.id || '');
     if (event.detail.action === 'delete') {
-      void deleteItemFromSwipe(itemId);
+      event.detail.waitUntil?.(deleteItemFromSwipe(itemId));
       return;
     }
     if (event.detail.action !== 'complete') return;
     const item = model.items.find(candidate => candidate.id === itemId);
     if (!item) return;
-    void setItemCompleted(itemId, !item.completed, { offerUndo: !item.completed }).catch(error => {
+    const operation = setItemCompleted(itemId, !item.completed, { offerUndo: !item.completed }).catch(error => {
       $('#item-state').textContent = error.message;
     });
+    event.detail.waitUntil?.(operation);
   });
   document.addEventListener('basketra:view-changed', event => {
     if (event.detail?.view !== 'lists') {
