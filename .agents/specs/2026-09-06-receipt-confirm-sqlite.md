@@ -1,7 +1,7 @@
 # Receipt confirmation SQLite failure
 
 Date: 2026-09-06
-Status: in progress
+Status: blocked pending affected-database evidence
 
 ## Request
 
@@ -56,3 +56,40 @@ After CI is green, the branch is safe to run against the affected database. The 
 - No receipt text, product names, SQL statements, file paths or other payload data are added to logs.
 - `pnpm quality` and required GitHub CI are green for the final head.
 - The final root-cause change is covered by a regression test before the PR is considered complete.
+
+
+## Current validation
+
+Head `a52ea909ce365b12ca4d9f08c7dd9fd838a9acc1` is green:
+
+- Pull Request Quality `34062502074`: success.
+  - Quality: success.
+  - Browser E2E: success.
+  - Security: success.
+  - Container smoke: success.
+  - linux/amd64: success.
+  - linux/arm64: success.
+- CodeQL Advanced `34062502095`: success.
+- Publish PR visual evidence `34062502087`: success.
+- Quality reports 391/391 covered tests passing and changed-code coverage at 100% for 20 changed executable lines, 1 function and 11 branches.
+- The post-upgrade regression successfully confirms an ALCAMPO Store-backed receipt and preserves Store ownership on its receipt-derived price observation.
+
+## Additional investigation
+
+The receipt catalog projection migration was compared at the main-branch merge points that introduced it and later category work:
+
+- `652a1a8f55cd08cdb7b30c6377ec8e8bc643272d` (PR #47)
+- `58cc5058673a77a928ec2fa553e8c93aae02a25e` (PR #49)
+
+The migration-7 receipt projection and `receipt_items_project_catalog` trigger definition are unchanged across those published main states. A stale migration-7 trigger caused by rewriting that migration after it reached main is therefore not supported by repository history and must not be treated as the root cause.
+
+PR #53 changes schema v15 only by adding shopping-list Store references and does not modify `BasketraDatabase.importReceipt`. CI also proves receipt confirmation after the v15 upgrade. The remaining evidence points to a condition specific to the persisted database or its runtime state, not the generic v15 upgrade path.
+
+## Required next evidence
+
+The affected Raspberry/database must produce one of the following before a root-cause mutation is justified:
+
+1. a confirmation failure running this branch so the sanitized event includes `sqliteErrcode` and `sqliteErrstr`; or
+2. a read-only SQLite diagnostic from the affected database covering schema version, integrity/foreign-key status, capacity and receipt projection trigger presence.
+
+No schema repair, trigger replacement or data rewrite is authorized or justified until that evidence exists.
