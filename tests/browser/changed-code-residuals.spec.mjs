@@ -1271,6 +1271,15 @@ test('generic swipe residual state machine fails closed across lifecycle races',
       exactRequired: false,
       substitutionAllowed: true,
     }, 0, 2);
+    const lastPendingHtml = shoppingListItem({
+      id: 'last-pending-item',
+      text: 'Pendiente final',
+      completed: false,
+      quantityMinor: 1,
+      unit: 'unit',
+      exactRequired: true,
+      substitutionAllowed: false,
+    }, 1, 2);
     const completedHtml = shoppingListItem({
       id: 'completed-item',
       text: 'Completado',
@@ -1287,6 +1296,9 @@ test('generic swipe residual state machine fails closed across lifecycle races',
       mouseUpPrevented,
       selectPrevented,
       pendingHasStepper: pendingHtml.includes('quantity-chip'),
+      lastPendingDisablesDecrease: lastPendingHtml.includes('data-delta="-1" disabled'),
+      lastPendingCanMoveUp: !lastPendingHtml.includes('data-direction="-1" disabled'),
+      lastPendingCannotMoveDown: lastPendingHtml.includes('data-direction="1" disabled'),
       completedHasReturn: completedHtml.includes('Volver a pendientes'),
     };
   });
@@ -1296,6 +1308,9 @@ test('generic swipe residual state machine fails closed across lifecycle races',
     mouseUpPrevented: true,
     selectPrevented: true,
     pendingHasStepper: true,
+    lastPendingDisablesDecrease: true,
+    lastPendingCanMoveUp: true,
+    lastPendingCannotMoveDown: true,
     completedHasReturn: true,
   });
 });
