@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { mapError } from '../../src/api/errors.ts';
+import { buildUnexpectedErrorLog, mapError } from '../../src/api/errors.ts';
 
 const ERROR_CASES = [
   ['SHOPPING_LIST_NOT_FOUND', 404, 'SHOPPING_LIST_NOT_FOUND'],
@@ -23,4 +23,51 @@ test('collaboration infrastructure failures map to stable public API contracts',
     assert.equal(mapped.status, expectedStatus, internalMessage);
     assert.equal(mapped.code, expectedCode, internalMessage);
   }
+});
+
+
+test('unexpected SQLite logs expose only bounded generic SQLite diagnostics', () => {
+  const event = buildUnexpectedErrorLog(
+    Object.assign(new Error('sensitive SQL or receipt data'), {
+      code: 'ERR_SQLITE_ERROR',
+      errcode: 5,
+      errstr: 'database is locked',
+    }),
+    'incident-test',
+    '2026-09-06T21:28:23.453Z',
+  );
+
+  assert.deepEqual(event, {
+    timestamp: '2026-09-06T21:28:23.453Z',
+    level: 'error',
+    event: 'http.unexpected_error',
+    incidentId: 'incident-test',
+    errorName: 'Error',
+    systemCode: 'ERR_SQLITE_ERROR',
+    sqliteErrcode: 5,
+    sqliteErrstr: 'database is locked',
+  });
+  assert.equal(JSON.stringify(event).includes('sensitive'), false);
+});
+
+test('unexpected error logs ignore invalid or non-SQLite diagnostic fields', () => {
+  const nonSqlite = buildUnexpectedErrorLog(
+    { code: 'EIO', errcode: 5, errstr: 'database is locked' },
+    'incident-non-sqlite',
+    '2026-09-06T21:28:23.453Z',
+  );
+  assert.equal('sqliteErrcode' in nonSqlite, false);
+  assert.equal('sqliteErrstr' in nonSqlite, false);
+
+  const invalidSqlite = buildUnexpectedErrorLog(
+    {
+      code: 'ERR_SQLITE_ERROR',
+      errcode: Number.MAX_SAFE_INTEGER,
+      errstr: 'x'.repeat(81),
+    },
+    'incident-invalid-sqlite',
+    '2026-09-06T21:28:23.453Z',
+  );
+  assert.equal('sqliteErrcode' in invalidSqlite, false);
+  assert.equal('sqliteErrstr' in invalidSqlite, false);
 });

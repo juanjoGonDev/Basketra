@@ -870,7 +870,7 @@ export class BasketraDatabase {
       this.#database.exec('COMMIT');
       return receiptId;
     } catch (error) {
-      this.#database.exec('ROLLBACK');
+      if (this.#database.isTransaction) this.#database.exec('ROLLBACK');
       throw error;
     }
   }

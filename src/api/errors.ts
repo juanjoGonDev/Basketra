@@ -22,6 +22,8 @@ type SystemErrorFields = Readonly<{
   name?: unknown;
   code?: unknown;
   syscall?: unknown;
+  errcode?: unknown;
+  errstr?: unknown;
 }>;
 
 export type UnexpectedErrorLog = Readonly<{
@@ -32,6 +34,8 @@ export type UnexpectedErrorLog = Readonly<{
   errorName: string;
   systemCode?: string;
   syscall?: string;
+  sqliteErrcode?: number;
+  sqliteErrstr?: string;
 }>;
 
 function readSafeStringField(error: unknown, field: keyof SystemErrorFields): string | undefined {
@@ -40,10 +44,24 @@ function readSafeStringField(error: unknown, field: keyof SystemErrorFields): st
   return typeof value === 'string' && value.length <= 80 ? value : undefined;
 }
 
+function readSafeSqliteErrcode(error: SystemErrorFields): number | undefined {
+  const value = error.errcode;
+  return typeof value === 'number'
+    && Number.isSafeInteger(value)
+    && value >= 0
+    && value <= 0x7fffffff
+    ? value
+    : undefined;
+}
+
 export function buildUnexpectedErrorLog(error: unknown, incidentId: string, timestamp: string): UnexpectedErrorLog {
   const errorName = error instanceof Error ? error.name : typeof error;
   const systemCode = readSafeStringField(error, 'code');
   const syscall = readSafeStringField(error, 'syscall');
+  const sqliteErrcode = systemCode === 'ERR_SQLITE_ERROR'
+    ? readSafeSqliteErrcode(error as SystemErrorFields)
+    : undefined;
+  const sqliteErrstr = systemCode === 'ERR_SQLITE_ERROR' ? readSafeStringField(error, 'errstr') : undefined;
   return {
     timestamp,
     level: 'error',
@@ -52,6 +70,8 @@ export function buildUnexpectedErrorLog(error: unknown, incidentId: string, time
     errorName,
     ...(systemCode ? { systemCode } : {}),
     ...(syscall ? { syscall } : {}),
+    ...(sqliteErrcode === undefined ? {} : { sqliteErrcode }),
+    ...(sqliteErrstr ? { sqliteErrstr } : {}),
   };
 }
 
