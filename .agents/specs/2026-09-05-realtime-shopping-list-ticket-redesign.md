@@ -386,12 +386,36 @@ Implementation must be reversible without data loss.
 - immutable price observations and receipt evidence remain untouched;
 - if estimate/read-model code is rolled back, persisted list/item/product/Store data remains valid.
 
+## Implementation evidence
+
+The implementation is complete on validated technical head `a0dd1c3a31406a6d6e6bcfd2b693ffbfebd5e8ff`.
+
+Key implementation milestones:
+
+- `3ca1ad142197440f2b72606e684d6e4ab9cee7f3` implemented the shared existing-category AI suggestion endpoint/helper across Inventory Product, historical Ticket line and Shopping List canonical-product editing.
+- shopping-list Store ownership, Store overrides, server-owned estimate, saved-product Store context, canonical parent reuse, product-photo autofill and multi-select/bulk actions are implemented through the canonical domain/repository/API owners described above.
+- swipe completion/delete remain progressive enhancements with button/keyboard equivalents; the final browser helper validates the live pointer target so synthetic gestures do not reuse stale geometry across realtime re-renders.
+- no polling was introduced; realtime convergence remains SSE invalidation based.
+- no earlier migration was rewritten; persistence changes remain additive.
+
+Validated technical-head evidence:
+
+- Pull Request Quality run `34054054636`: Quality, Security, container smoke, linux/amd64 and linux/arm64 all succeeded.
+- CodeQL Advanced run `34054054663`: JavaScript/TypeScript and Actions both succeeded.
+- Browser E2E job `101542601049`: **142/142 tests passed** in Chromium, including the canonical shopping-list `complete -> return -> reorder -> delete -> undo` flow.
+- Browser changed-code coverage passed at **100%** for the changed surface: 172 lines, 16 functions and 56 branches.
+- Publish PR visual evidence run `34054054652` succeeded and published evidence for the validated head.
+- Final visual inspection covered Shopping List at 320 px, 390 px and desktop, swipe reveal/delete/undo, Inventory Product editing with category suggestion, Shopping List canonical product autofill, and historical Ticket line editing. No horizontal overflow, obstructed CTA, broken bottom navigation, unreadable state or responsive regression was found.
+- PR #53 has no open review threads at this validation point.
+
+The documentation-only commit that records this evidence must itself pass exact-head CI before delivery is closed.
+
 ## Delivery
 
-First delivery milestone is this specification commit only. Implementation begins after this commit and must follow TDD-light, affected checks, full quality, Browser E2E, exact-head CI and final visual/runtime review before the PR is considered ready.
+Implementation, regression coverage and visual review are complete for the validated technical head. The remaining delivery step is exact-head validation of this documentation-only update and synchronization of the PR description.
 
 No merge, release or deploy is authorized by this request.
 
 ## Status
 
-Specification captured. Implementation not started.
+Implementation complete. Technical CI and final visual review are green on `a0dd1c3a31406a6d6e6bcfd2b693ffbfebd5e8ff`; documentation-only exact-head CI is pending before human review.
