@@ -408,14 +408,14 @@ Validated technical-head evidence:
 - Final visual inspection covered Shopping List at 320 px, 390 px and desktop, swipe reveal/delete/undo, Inventory Product editing with category suggestion, Shopping List canonical product autofill, and historical Ticket line editing. No horizontal overflow, obstructed CTA, broken bottom navigation, unreadable state or responsive regression was found.
 - PR #53 has no open review threads at this validation point.
 
-The documentation-only commit that records this evidence must itself pass exact-head CI before delivery is closed.
+Documentation-only evidence commits are required to pass exact-head CI before human review.
 
 ## Delivery
 
-Implementation, regression coverage and visual review are complete for the validated technical head. The remaining delivery step is exact-head validation of this documentation-only update and synchronization of the PR description.
+Implementation, regression coverage and visual review are complete for the validated technical head. Delivery readiness is determined by the PR's current exact-head CI status; documentation-only evidence commits do not change runtime behavior.
 
 No merge, release or deploy is authorized by this request.
 
 ## Status
 
-Implementation complete. Technical CI and final visual review are green on `a0dd1c3a31406a6d6e6bcfd2b693ffbfebd5e8ff`; documentation-only exact-head CI is pending before human review.
+Implementation complete. Technical validation and final visual-review evidence are recorded above. The PR may be handed to human review only while its current exact head remains green.
