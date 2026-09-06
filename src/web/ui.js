@@ -265,7 +265,7 @@ export function bindSwipeActions(root = document) {
     gestureRow.classList.remove('is-pointer-active', 'is-dragging');
     if (row !== gestureRow) row.classList.remove('is-pointer-active', 'is-dragging');
     window.getSelection()?.removeAllRanges();
-    requestAnimationFrame(releaseSelectionLock);
+    setTimeout(releaseSelectionLock, 0);
     if (!row.isConnected) return;
     if (!horizontal || cancelled) {
       if (initialOffset < 0) openSwipeRow(root, row);
@@ -300,6 +300,11 @@ export function bindSwipeActions(root = document) {
   root.addEventListener('mousedown', event => {
     if (!document.documentElement.classList.contains('is-swipe-pointer-active')) return;
     event.preventDefault();
+  }, { capture: true });
+  root.addEventListener('mouseup', event => {
+    if (!document.documentElement.classList.contains('is-swipe-pointer-active')) return;
+    event.preventDefault();
+    window.getSelection()?.removeAllRanges();
   }, { capture: true });
   root.addEventListener('selectstart', event => {
     if (!document.documentElement.classList.contains('is-swipe-pointer-active')) return;
