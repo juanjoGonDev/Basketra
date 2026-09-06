@@ -14,6 +14,7 @@ import {
   shoppingListItem,
 } from './ui.js';
 import { applicationPathForRoute, readApplicationLocation, writeApplicationLocation } from './routes.js';
+import { bindCategorySuggestion } from './category-suggestion.js';
 
 const UNIT_LABELS = Object.freeze({
   g: 'g',
@@ -78,6 +79,7 @@ const model = {
 let metadata;
 let toast = () => {};
 let aiConfigured = false;
+let shoppingCategorySuggestion;
 
 const $ = selector => document.querySelector(selector);
 
@@ -146,6 +148,68 @@ function populateUnits() {
 function ensureProgressiveFields() {
   // The shopping/product forms are now explicit canonical surfaces in index.html.
   // Keep this hook for initialization ordering without dynamically duplicating fields.
+}
+
+function bindShoppingCategorySuggestion() {
+  shoppingCategorySuggestion = bindCategorySuggestion({
+    button: $('#global-suggest-category'),
+    status: $('#global-category-suggestion-state'),
+    select: $('#global-category'),
+    surface: 'shopping-product',
+    requiredFields: [
+      {
+        element: () => $('#global-canonical-field').hidden ? $('#global-parent-search') : $('#global-canonical-name'),
+        value: () => $('#global-canonical-name').value.trim() || $('#global-parent-search').value.trim(),
+        message: 'Indica el producto base antes de pedir una sugerencia.',
+      },
+      {
+        element: $('#global-variant-name'),
+        message: 'Indica el nombre de la variante antes de pedir una sugerencia.',
+      },
+    ],
+    watch: [
+      $('#global-parent-search'),
+      $('#global-canonical-name'),
+      $('#global-variant-name'),
+      $('#global-brand'),
+      $('#global-description'),
+      $('#global-package-minor'),
+      $('#global-package-unit'),
+      $('#global-item-quantity'),
+      $('#global-item-unit'),
+      $('#global-price'),
+    ],
+    buildPayload() {
+      const canonicalName = $('#global-canonical-name').value.trim() || $('#global-parent-search').value.trim();
+      const variantName = $('#global-variant-name').value.trim();
+      const brand = $('#global-brand').value.trim();
+      const description = $('#global-description').value.trim();
+      const packageMinor = Number($('#global-package-minor').value);
+      const packageUnit = $('#global-package-unit').value;
+      const quantity = Number($('#global-item-quantity').value);
+      const unit = $('#global-item-unit').value;
+      const priceText = $('#global-price').value.trim();
+      let unitPriceMinor;
+      if (priceText) {
+        try {
+          unitPriceMinor = euroInputToMinor(priceText);
+        } catch {
+          unitPriceMinor = undefined;
+        }
+      }
+      return {
+        canonicalName,
+        variantName,
+        ...(brand ? { brand } : {}),
+        ...(description ? { description } : {}),
+        ...(Number.isSafeInteger(packageMinor) && packageMinor > 0 ? { packageMinor } : {}),
+        ...(packageUnit ? { packageUnit } : {}),
+        ...(Number.isSafeInteger(quantity) && quantity > 0 ? { quantity } : {}),
+        ...(unit ? { unit } : {}),
+        ...(unitPriceMinor === undefined ? {} : { unitPriceMinor }),
+      };
+    },
+  });
 }
 
 function formatEuroMinor(value) {
@@ -780,6 +844,7 @@ function setGlobalParent(parent) {
 }
 
 function resetGlobalProductFields() {
+  shoppingCategorySuggestion?.reset();
   model.priceNormalizationController?.abort();
   if (model.priceNormalizationTimer) clearTimeout(model.priceNormalizationTimer);
   model.priceNormalizationController = null;
@@ -2294,6 +2359,7 @@ export async function initLists(options) {
   aiConfigured = options.aiConfigured === true;
   populateUnits();
   ensureProgressiveFields();
+  bindShoppingCategorySuggestion();
   restoreItemDraft();
   bindEvents();
   const current = readApplicationLocation();

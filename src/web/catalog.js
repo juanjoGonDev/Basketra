@@ -1,6 +1,7 @@
 import { api, setBusy } from './api.js';
 import { breadcrumb, escapeHtml, formatEuroMinor, hydrateIcons, setFieldFeedback } from './ui.js';
 import { createPagedSelection, syncPagedSelectionDom } from './entity-selection.js';
+import { bindCategorySuggestion } from './category-suggestion.js';
 import {
   applicationUrl,
   readApplicationLocation,
@@ -21,6 +22,8 @@ const DEFAULT_CATEGORY_COLOR = '#64748B';
 const DATE_FORMATTER = new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium' });
 
 const $ = selector => document.querySelector(selector);
+
+let catalogCategorySuggestion;
 
 const state = {
   initialized: false,
@@ -150,6 +153,8 @@ function installCatalogView() {
           <label class="field"><span>Nombre de esta variante <span class="field-required" aria-hidden="true">*</span><strong>Obligatorio</strong></span><input id="catalog-variant-name" maxlength="160" required aria-describedby="catalog-variant-name-error"><small id="catalog-variant-name-error" class="field-error"></small></label>
           <div class="quantity-row"><label class="field"><span>Marca <em>Opcional</em></span><input id="catalog-brand" maxlength="120" aria-describedby="catalog-brand-error"><small id="catalog-brand-error" class="field-error"></small></label><label class="field"><span>EAN/GTIN <em>Opcional</em></span><input id="catalog-ean" maxlength="14" inputmode="numeric" aria-describedby="catalog-ean-error"><small id="catalog-ean-error" class="field-error"></small></label></div>
           <label class="field"><span>Categor\u00eda <em>Opcional</em></span><select id="catalog-category" aria-describedby="catalog-category-error"><option value="">Sin categor\u00eda</option></select><small id="catalog-category-error" class="field-error"></small></label>
+          <button id="catalog-suggest-category" class="button secondary" type="button"><span data-icon="sparkles"></span>Sugerir categor\u00eda con IA</button>
+          <p id="catalog-category-suggestion-state" class="inline-status" role="status" aria-live="polite"></p>
           <label class="field"><span>Descripci\u00f3n <em>Opcional</em></span><textarea id="catalog-description" maxlength="500" rows="3" aria-describedby="catalog-description-error"></textarea><small id="catalog-description-error" class="field-error"></small></label>
           <label class="field"><span>Alias de b\u00fasqueda, uno por l\u00ednea <em>Opcional</em></span><textarea id="catalog-aliases" maxlength="1000" rows="3" aria-describedby="catalog-aliases-error"></textarea><small id="catalog-aliases-error" class="field-error"></small></label>
           <div class="quantity-row"><label class="field"><span>Cantidad del formato <em>Opcional</em></span><input id="catalog-package-minor" type="number" min="1" max="100000000" inputmode="numeric" aria-describedby="catalog-package-minor-error"><small id="catalog-package-minor-error" class="field-error"></small></label><label class="field"><span>Unidad <em>Opcional</em></span><select id="catalog-package-unit" aria-describedby="catalog-package-unit-error"><option value="">Sin formato</option></select><small id="catalog-package-unit-error" class="field-error"></small></label></div>
@@ -594,7 +599,53 @@ function renderParents(product) {
   select.value = product?.canonicalProductId || '';
 }
 
+function bindCatalogCategorySuggestion() {
+  catalogCategorySuggestion = bindCategorySuggestion({
+    button: $('#catalog-suggest-category'),
+    status: $('#catalog-category-suggestion-state'),
+    select: $('#catalog-category'),
+    surface: 'inventory-product',
+    requiredFields: [
+      {
+        element: $('#catalog-canonical-name'),
+        errorElement: $('#catalog-canonical-name-error'),
+        message: 'Indica el nombre canónico antes de pedir una sugerencia.',
+      },
+      {
+        element: $('#catalog-variant-name'),
+        errorElement: $('#catalog-variant-name-error'),
+        message: 'Indica el nombre de esta variante antes de pedir una sugerencia.',
+      },
+    ],
+    watch: [
+      $('#catalog-canonical-name'),
+      $('#catalog-variant-name'),
+      $('#catalog-brand'),
+      $('#catalog-description'),
+      $('#catalog-package-minor'),
+      $('#catalog-package-unit'),
+    ],
+    buildPayload() {
+      const canonicalName = $('#catalog-canonical-name').value.trim();
+      const variantName = $('#catalog-variant-name').value.trim();
+      const brand = $('#catalog-brand').value.trim();
+      const description = $('#catalog-description').value.trim();
+      const packageMinor = Number($('#catalog-package-minor').value);
+      const packageUnit = $('#catalog-package-unit').value;
+      return {
+        canonicalName,
+        variantName,
+        ...(brand ? { brand } : {}),
+        ...(description ? { description } : {}),
+        ...(Number.isSafeInteger(packageMinor) && packageMinor > 0 ? { packageMinor } : {}),
+        ...(packageUnit ? { packageUnit } : {}),
+      };
+    },
+  });
+}
+
 function populateProductForm(product, { creating = false } = {}) {
+  catalogCategorySuggestion?.reset();
   $('#catalog-canonical-name').value = product?.canonicalName || '';
   $('#catalog-variant-name').value = product?.variantName || '';
   $('#catalog-brand').value = product?.brand || '';
@@ -1499,6 +1550,7 @@ export function initializeCatalogFeature({ activate = false, activateCategoryVie
     injectStylesheet();
     installCatalogView();
     installCategoryView();
+    bindCatalogCategorySuggestion();
     bindInteractions();
     document.addEventListener('basketra:view-changed', handleViewChanged);
   }

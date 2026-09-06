@@ -14,6 +14,7 @@ import {
 } from './receipt-editor-invoice.js';
 import { localDateBoundaryIso, parsePercentageBasisPoints } from './ticket-history-values.js';
 import { createPagedSelection, syncPagedSelectionDom } from './entity-selection.js';
+import { bindCategorySuggestion } from './category-suggestion.js';
 import {
   readApplicationLocation,
   readRouteEnum,
@@ -31,6 +32,8 @@ const DATE_TIME_FORMATTER = new Intl.DateTimeFormat('es-ES', { dateStyle: 'mediu
 const PAYMENT_STATUSES = ['', 'paid', 'pending', 'cancelled'];
 
 const $ = selector => document.querySelector(selector);
+
+let ticketLineCategorySuggestion;
 
 const state = {
   initialized: false,
@@ -179,6 +182,8 @@ function installHistoryView() {
       <legend>Línea del ticket</legend>
       <label class="field"><span>Producto</span><input id="historical-ticket-line-description" data-field="description" maxlength="240" required autocomplete="off"></label>
       <label class="field receipt-editor-category-field"><span>Categoría</span><select id="historical-ticket-line-category"><option value="">Sin categoría</option></select></label>
+      <button id="historical-ticket-line-suggest-category" class="button secondary" type="button"><span data-icon="sparkles"></span>Sugerir categoría con IA</button>
+      <p id="historical-ticket-line-category-suggestion-state" class="inline-status" role="status" aria-live="polite"></p>
       <div class="quantity-row"><label class="field"><span>Cantidad</span><input id="historical-ticket-line-quantity" data-field="quantity" type="number" min="1" max="100000" step="1" required></label><label class="field"><span>Unidad</span><select id="historical-ticket-line-unit"></select></label><label class="field"><span>Precio unitario (€)</span><input id="historical-ticket-line-unit-price" data-field="unitPriceEuro" inputmode="decimal" required></label></div>
       <div class="quantity-row"><label class="field receipt-discount-type-field"><span>Descuento</span><select id="historical-ticket-line-discount-type" data-field="discountType"><option value="none">Sin descuento</option><option value="amount">Importe (€)</option><option value="percentage">Porcentaje</option></select></label><label id="historical-ticket-line-discount-field" class="field receipt-discount-value-field"><span id="historical-ticket-line-discount-label">Valor</span><input id="historical-ticket-line-discount-value" data-field="discountValue" inputmode="decimal"></label><label id="historical-ticket-line-discount-quantity-field" class="field receipt-discount-quantity-field"><span>Unidades con descuento</span><input id="historical-ticket-line-discount-quantity" data-field="discountQuantity" type="number" min="1" step="1"></label><output id="historical-ticket-line-total" class="receipt-line-result" data-field="lineTotalEuro" aria-label="Total calculado (€)">0.00</output><p id="historical-ticket-line-state" class="inline-status receipt-line-derived-state" role="status" aria-live="polite"></p></div>
     </fieldset>`;
@@ -622,7 +627,53 @@ function percentageInput(discount) {
   return fractional === 0 ? String(whole) : `${whole},${String(fractional).padStart(2, '0').replace(/0$/u, '')}`;
 }
 
+function bindTicketLineCategorySuggestion() {
+  ticketLineCategorySuggestion = bindCategorySuggestion({
+    button: $('#historical-ticket-line-suggest-category'),
+    status: $('#historical-ticket-line-category-suggestion-state'),
+    select: $('#historical-ticket-line-category'),
+    surface: 'ticket-line',
+    requiredFields: [
+      {
+        element: $('#historical-ticket-line-description'),
+        message: 'Indica el producto antes de pedir una sugerencia.',
+      },
+      {
+        element: $('#historical-ticket-line-quantity'),
+        isValid: value => Number.isSafeInteger(Number(value)) && Number(value) > 0,
+        message: 'Indica una cantidad entera positiva antes de pedir una sugerencia.',
+      },
+      {
+        element: $('#historical-ticket-line-unit-price'),
+        isValid: value => {
+          try {
+            return euroInputToMinor(String(value)) >= 0;
+          } catch {
+            return false;
+          }
+        },
+        message: 'Indica un precio unitario válido antes de pedir una sugerencia.',
+      },
+    ],
+    watch: [
+      $('#historical-ticket-line-description'),
+      $('#historical-ticket-line-quantity'),
+      $('#historical-ticket-line-unit'),
+      $('#historical-ticket-line-unit-price'),
+    ],
+    buildPayload() {
+      return {
+        description: $('#historical-ticket-line-description').value.trim(),
+        quantity: Number($('#historical-ticket-line-quantity').value),
+        unit: $('#historical-ticket-line-unit').value,
+        unitPriceMinor: euroInputToMinor($('#historical-ticket-line-unit-price').value),
+      };
+    },
+  });
+}
+
 function openLineEditor(index) {
+  ticketLineCategorySuggestion?.reset();
   const item = index >= 0 ? state.editorItems[index] : null;
   state.lineIndex = index;
   $('#historical-ticket-line-title').textContent = item ? `Editar línea ${index + 1}` : 'Añadir artículo';
@@ -968,6 +1019,7 @@ export function initializeTicketHistoryFeature() {
   injectStylesheet();
   installTicketEntryNavigation();
   installHistoryView();
+  bindTicketLineCategorySuggestion();
   bindInteractions();
   document.addEventListener('basketra:view-changed', handleViewChanged);
   const current = readApplicationLocation();

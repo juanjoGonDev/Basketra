@@ -37,6 +37,8 @@ import {
 import { parseReceiptConfirmation } from '../receipts/import.ts';
 import { RealtimeHub, type RealtimeInvalidation } from '../realtime/hub.ts';
 import { proposeProductFromPhoto } from '../products/photo-proposal.ts';
+import { parseCategorySuggestionContext, suggestExistingCategory } from '../products/category-suggestion.ts';
+import { CategoryRepository } from '../infrastructure/category-repository.ts';
 import { OverpassClient } from '../stores/overpass.ts';
 
 const STOCK_VALUES = ['in-stock', 'out-of-stock', 'unknown'] as const;
@@ -67,6 +69,7 @@ export class BasketraServer {
   readonly config: AppConfig;
   readonly #server: Server;
   readonly #database: BasketraDatabase;
+  readonly #categoryRepository: CategoryRepository;
   readonly #runtimeSettingsStore: RuntimeSettingsStore;
   readonly #fileStore: FileStore;
   readonly #receiptExtractionService: ReceiptExtractionService;
@@ -93,6 +96,7 @@ export class BasketraServer {
   constructor(config: AppConfig) {
     this.config = config;
     this.#database = new BasketraDatabase(join(config.dataDir, 'basketra.db'));
+    this.#categoryRepository = new CategoryRepository(this.#database.path);
     this.#runtimeSettingsStore = new RuntimeSettingsStore(this.#database.path);
     this.#fileStore = new FileStore(
       join(config.dataDir, 'files'),
@@ -307,6 +311,7 @@ export class BasketraServer {
       }
 
       if (request.method === 'GET' && url.pathname === '/api/v1/categories') return this.json(response, 200, { categories: this.#database.listCategories() });
+      if (request.method === 'POST' && url.pathname === '/api/v1/categories/suggest') return await this.suggestCategory(request, response);
       if (request.method === 'POST' && url.pathname === '/api/v1/categories') return await this.createCategory(request, response);
       const categoryMatch = /^\/api\/v1\/categories\/([^/]+)$/.exec(url.pathname);
       if (request.method === 'PATCH' && categoryMatch?.[1]) return await this.updateCategory(request, response, decodePathSegment(categoryMatch[1]));
@@ -741,6 +746,27 @@ export class BasketraServer {
       throw new ApiError(400, 'VALIDATION_ERROR', 'Parent suggestion limit is invalid');
     }
     this.json(response, 200, { parents: this.#database.searchCanonicalProducts(query, limit) });
+  }
+
+  private async suggestCategory(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    this.#activeExpensiveOperations += 1;
+    const controller = new AbortController();
+    const onAborted = () => controller.abort(new Error('REQUEST_ABORTED'));
+    request.once('aborted', onAborted);
+    try {
+      const context = parseCategorySuggestionContext(await this.readJson(request));
+      const result = await suggestExistingCategory({
+        categoryRepository: this.#categoryRepository,
+        provider: this.getAiProvider(),
+        maxRetries: this.runtimeSettings().aiMaxRetries,
+        context,
+        signal: controller.signal,
+      });
+      this.json(response, 200, result);
+    } finally {
+      request.off('aborted', onAborted);
+      this.#activeExpensiveOperations -= 1;
+    }
   }
 
   private async createCategory(request: IncomingMessage, response: ServerResponse): Promise<void> {

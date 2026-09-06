@@ -302,6 +302,8 @@
           <label class="field"><span>EAN / GTIN</span><input id="global-ean" maxlength="14" inputmode="numeric" placeholder="Ej. 8480000123456"></label>
           <label class="field"><span>Categoría</span><select id="global-category"><option value="">Sin categoría</option></select></label>
         </div>
+        <button id="global-suggest-category" class="button secondary" type="button"><span data-icon="sparkles"></span>Sugerir categoría con IA</button>
+        <p id="global-category-suggestion-state" class="inline-status" role="status" aria-live="polite"></p>
         <label class="field"><span>Nueva categoría opcional</span><input id="global-category-new" maxlength="120" placeholder="Ej. Lácteos"></label>
         <details class="progressive-options"><summary>Descripción y alias</summary><div class="details-body">
           <label class="field"><span>Descripción</span><textarea id="global-description" maxlength="500" rows="3"></textarea></label>
