@@ -49,6 +49,25 @@ test('inventory schema upgrade preserves legacy receipt rows and initializes edi
     migrationBackupDir: join(root, 'migration-backups'),
     clock: () => new Date('2026-09-02T12:00:00.000Z'),
   });
+  const store = migrated.saveStore({ retailerName: 'ALCAMPO', name: 'ALCAMPO ALMERIA' });
+  const confirmedReceiptId = migrated.importReceipt({
+    importKey: 'inventory-upgrade-confirmation',
+    declaredTotalMinor: 120,
+    originalText: 'LECHE 1,20',
+    provider: 'upgrade-regression',
+    retailerName: 'ALCAMPO',
+    storeId: store.id,
+    storeName: store.name,
+    deterministic: { items: [] },
+    items: [{
+      description: 'LECHE',
+      quantity: 1,
+      unitPriceMinor: 120,
+      lineTotalMinor: 120,
+      status: 'confirmed',
+      confidence: 1,
+    }],
+  });
   migrated.close();
 
   const database = new DatabaseSync(databasePath, { readOnly: true });
@@ -110,6 +129,16 @@ test('inventory schema upgrade preserves legacy receipt rows and initializes edi
       discountQuantity: 1,
       lineTotalMinor: 350,
     });
+
+    const confirmation = database.prepare(`
+      SELECT receipts.store_id AS receiptStoreId, price_observations.store_id AS priceStoreId
+      FROM receipt_items
+      JOIN receipts ON receipts.id = receipt_items.receipt_id
+      JOIN price_observations ON price_observations.id = 'price_receipt_' || receipt_items.id
+      WHERE receipts.id = ?
+    `).get(confirmedReceiptId) as { receiptStoreId: string; priceStoreId: string };
+    assert.equal(confirmation.receiptStoreId, store.id);
+    assert.equal(confirmation.priceStoreId, store.id);
   } finally {
     database.close();
     rmSync(root, { recursive: true, force: true });
