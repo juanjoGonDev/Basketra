@@ -226,6 +226,9 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
 
   riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
   await swipe(page, riceRow, 'left', { long: true });
+  await expect.poll(() => page.evaluate(() => window.__basketraSwipeActions || [])).toContainEqual(
+    expect.objectContaining({ action: 'delete', kind: 'shopping-item' }),
+  );
   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() || '')).toBe('');
   await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
   await expect(page.locator('#toast-message')).toHaveText('Producto eliminado');
