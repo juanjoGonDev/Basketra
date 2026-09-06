@@ -193,6 +193,7 @@ export function bindSwipeActions(root = document) {
     if (event.button !== 0 || event.clientX < 24 || event.target.closest('button,input,select,textarea,a,summary')) return;
     const row = event.target.closest('[data-swipe-row]');
     if (!isGenericSwipeRow(row) || !swipeContent(row)) return;
+    event.preventDefault();
     closeSwipeRows(root, row);
     const width = Math.max(row.clientWidth, 1);
     gesture = {

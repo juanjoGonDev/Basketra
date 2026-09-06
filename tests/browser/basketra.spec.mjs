@@ -202,6 +202,7 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
 
   let riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
   await swipe(page, riceRow, 'right');
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() || '')).toBe('');
   const completedSection = page.locator('#completed-section');
   await expect(completedSection).toBeVisible();
   await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Devolver Arroz 1 kg a pendientes' }).click());
