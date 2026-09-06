@@ -1,130 +1,111 @@
 # Receipt confirmation SQLite failure
 
 Date: 2026-09-06
-Status: implementation complete pending final CI and affected-device validation
+Status: implementation complete; final PR CI and affected-device verification remain
 
 ## Request
 
-Fix the production-only mobile receipt confirmation failure reported after PR #53 was merged. The observed request is `POST /api/v1/receipts/confirm`, which returns HTTP 500 and logs an unexpected Node SQLite error with `code=ERR_SQLITE_ERROR`. The draft remains available in the browser.
+Fix the mobile production failure on `POST /api/v1/receipts/confirm` after PR #53. The request returned HTTP 500 and the server exposed only `ERR_SQLITE_ERROR`; the browser preserved the receipt draft.
 
 ## Evidence
 
-- `main` is `aeb3fd8e4229e099b9ca9165d948a1551f278c03` (merged PR #53).
-- The failure is deterministic across repeated confirmation attempts in the user's existing database.
-- Fresh-database integration coverage already proves ALCAMPO receipt confirmation, Store ownership, catalog projection and price observation projection.
-- PR #53 does not modify the receipt confirmation parser or `BasketraDatabase.importReceipt` transaction.
-- The current unexpected-error logger preserves `Error.code` but discards Node SQLite's numeric `errcode` and generic `errstr`. For Node SQLite, unrelated SQLite failures share `code=ERR_SQLITE_ERROR`, so the production log is insufficient to distinguish trigger constraints, locking, capacity and SQL/schema failures.
-- Historical migration 7 was edited during its original PR before merge. A stale installed trigger is therefore a possible production-state risk, but it is not proven by the supplied log and must not be repaired speculatively.
+- Baseline `main` for this task is `aeb3fd8e4229e099b9ca9165d948a1551f278c03`, the PR #53 merge.
+- The supplied production attempts repeatedly failed during receipt confirmation with `ERR_SQLITE_ERROR`.
+- PR #53 adds schema-v15 Store references to shopping lists but does not modify `BasketraDatabase.importReceipt()`.
+- Existing fresh-database and post-upgrade tests prove ALCAMPO receipt confirmation, Store ownership, catalog projection and receipt-derived price Store projection.
+- The migration-7 receipt projection and `receipt_items_project_catalog` trigger are unchanged between the published PR #47 merge state `652a1a8f55cd08cdb7b30c6377ec8e8bc643272d` and the later PR #49 main state `58cc5058673a77a928ec2fa553e8c93aae02a25e`. Repository history therefore does not support repairing that trigger speculatively.
+- The original unexpected-error logger retained Node's top-level `ERR_SQLITE_ERROR` but not the bounded numeric `errcode` or generic `errstr`.
+
+## Proven root cause
+
+`BasketraDatabase.importReceipt()` opened an explicit SQLite transaction and unconditionally executed `ROLLBACK` in its catch block.
+
+SQLite can end a transaction itself for rollback-class failures. A deterministic regression installs a test-only trigger that executes `RAISE(ROLLBACK, 'FORCED_RECEIPT_ROLLBACK')` while receipt import is active.
+
+On the unpatched implementation:
+
+- head: `fc2cb47166699680b248fdd5ac591ce58772c3e4`
+- Quality run: `34065932143`
+- expected original failure: `FORCED_RECEIPT_ROLLBACK`
+- actual propagated failure: `cannot rollback - no transaction is active`
+
+The cleanup rollback therefore replaced the original SQLite exception. This directly explains why a confirmation failure can lose the useful SQLite class before the HTTP error logger sees it.
+
+The pre-fix production log cannot establish which underlying SQLite condition triggered the automatic rollback because that exception may already have been masked.
 
 ## Decision
 
-Do not mutate production schema or weaken receipt/catalog invariants without direct evidence of the failing SQLite class.
+Fix the transaction owner, not the schema:
 
-First make the existing sanitized diagnostics sufficient to identify the SQLite class while preserving the current no-payload/no-PII logging contract. Add regression coverage for the exact structured fields. Add a post-upgrade receipt confirmation regression so CI explicitly proves that the v14-to-v15 schema transition itself does not break confirmation.
+1. issue cleanup `ROLLBACK` only while `DatabaseSync.isTransaction` is true;
+2. rethrow the original failure unchanged;
+3. model `DatabaseSync.isTransaction` in the project-local Node type shim for the pinned Node 22 runtime;
+4. expose only bounded `sqliteErrcode` and `sqliteErrstr` for unexpected Node SQLite errors;
+5. retain the existing no-message/no-payload logging contract;
+6. keep the post-v15 Store-backed receipt confirmation regression.
 
-After CI is green, the branch is safe to run against the affected database. The next failed confirmation, if any, must expose bounded `sqliteErrcode` and `sqliteErrstr` values without receipt content. Use that evidence for the minimal root-cause fix in this same PR.
+Do not recreate triggers, rewrite applied migrations, or mutate persistent receipt/catalog data without evidence of a separate database-state defect.
 
 ## Scope
 
 ### In
 
-- Sanitized SQLite diagnostic fields for unexpected HTTP errors.
-- Regression tests for logging.
-- Regression test for confirming a receipt after the v15 upgrade path.
-- Root-cause fix once the new diagnostics identify it.
+- Receipt-import transaction cleanup.
+- Safe SQLite error classification fields.
+- Regression proving the original SQLite error survives an automatic rollback.
+- Post-v15 Store-backed receipt confirmation regression.
+- Unit coverage for diagnostic inclusion and redaction.
 
 ### Out
 
-- UI redesign.
-- Changes to receipt arithmetic, Store ownership, catalog matching or price semantics without evidence.
-- Manual edits to the user's database.
-- Destructive or remote migration.
+- Receipt UI redesign.
+- Changes to receipt arithmetic or catalog matching.
+- Manual edits to the Raspberry database.
+- Trigger replacement or data repair without evidence.
 - Merge, release or deploy.
 
-## Risks
+## Security and data handling
 
-- The existing log intentionally omits exception messages. Exposing raw SQLite `message` could include SQL or data and is not acceptable.
-- A schema repair based only on `ERR_SQLITE_ERROR` would be speculative because Node uses that same top-level code for multiple SQLite error classes.
-- A post-upgrade regression passing in CI cannot prove the user's persistent database state is identical to a clean upgrade.
+- Do not log raw exception messages.
+- Do not log SQL statements.
+- Do not log receipt text, product names, Store values, paths or request payloads.
+- `sqliteErrcode` must be a bounded safe integer.
+- `sqliteErrstr` must remain a bounded generic SQLite diagnostic string.
+- Non-SQLite errors must not gain SQLite-specific fields.
 
 ## Acceptance
 
-- Unexpected Node SQLite errors include only bounded numeric `sqliteErrcode` and bounded generic `sqliteErrstr`, while preserving the incident ID and existing fields.
-- Non-SQLite errors do not gain those fields.
-- Tests reject oversized/non-safe diagnostic values.
-- An integration test upgrades a representative pre-v15 database and successfully confirms a Store-backed receipt afterward.
-- No receipt text, product names, SQL statements, file paths or other payload data are added to logs.
-- `pnpm quality` and required GitHub CI are green for the final head.
-- The final root-cause change is covered by a regression test before the PR is considered complete.
+- A SQLite failure that already ended the receipt transaction is rethrown unchanged.
+- The rollback-masking regression fails before the fix and passes after it.
+- The connection remains consistent with no partial receipt after the forced rollback.
+- Unexpected Node SQLite errors expose only bounded `sqliteErrcode` and `sqliteErrstr`.
+- Invalid, oversized and non-SQLite diagnostic values are omitted.
+- A representative pre-v15 database upgrades and then confirms a Store-backed ALCAMPO receipt.
+- Receipt and receipt-derived price observation keep the same Store.
+- Changed executable code remains fully covered.
+- Required GitHub CI is green on the final PR head.
+- No unrelated production files are changed.
 
+## Validation evidence
 
-## Current validation
+The code-bearing head `cdab531fded30bee30cac9709138c840dd869744` passed Quality after the fix:
 
-Head `a52ea909ce365b12ca4d9f08c7dd9fd838a9acc1` is green:
+- rollback preservation regression: pass;
+- covered tests: 392/392 pass;
+- changed-code coverage: 20 executable lines, 1 function and 11 branches at 100%;
+- post-upgrade receipt confirmation regression: pass;
+- ALCAMPO receipt-to-Store database proof: pass.
 
-- Pull Request Quality `34062502074`: success.
-  - Quality: success.
-  - Browser E2E: success.
-  - Security: success.
-  - Container smoke: success.
-  - linux/amd64: success.
-  - linux/arm64: success.
-- CodeQL Advanced `34062502095`: success.
-- Publish PR visual evidence `34062502087`: success.
-- Quality reports 391/391 covered tests passing and changed-code coverage at 100% for 20 changed executable lines, 1 function and 11 branches.
-- The post-upgrade regression successfully confirms an ALCAMPO Store-backed receipt and preserves Store ownership on its receipt-derived price observation.
+Earlier branch validation also passed Browser E2E with 142/142 scenarios, Security, container smoke, linux/amd64, linux/arm64 and CodeQL. The final PR head must preserve those gates; the GitHub PR is the delivery source of truth for their current state.
 
-## Additional investigation
+## Runtime verification
 
-The receipt catalog projection migration was compared at the main-branch merge points that introduced it and later category work:
+The fix is demonstrated in CI, but the original production log cannot reveal the SQLite failure that was masked. After this PR is deployed, retry the affected mobile receipt confirmation.
 
-- `652a1a8f55cd08cdb7b30c6377ec8e8bc643272d` (PR #47)
-- `58cc5058673a77a928ec2fa553e8c93aae02a25e` (PR #49)
+- If confirmation succeeds, the reproduced rollback-masking defect was sufficient to resolve the observed path.
+- If confirmation still fails, the preserved `sqliteErrcode`/`sqliteErrstr` becomes the evidence for a separate minimal follow-up.
+- A read-only SQLite health/schema diagnostic may be used at that point; it is not a prerequisite for this proven code fix.
 
-The migration-7 receipt projection and `receipt_items_project_catalog` trigger definition are unchanged across those published main states. A stale migration-7 trigger caused by rewriting that migration after it reached main is therefore not supported by repository history and must not be treated as the root cause.
+## Rollback
 
-PR #53 changes schema v15 only by adding shopping-list Store references and does not modify `BasketraDatabase.importReceipt`. CI also proves receipt confirmation after the v15 upgrade. The remaining evidence points to a condition specific to the persisted database or its runtime state, not the generic v15 upgrade path.
-
-## Required next evidence
-
-The affected Raspberry/database must produce one of the following before a root-cause mutation is justified:
-
-1. a confirmation failure running this branch so the sanitized event includes `sqliteErrcode` and `sqliteErrstr`; or
-2. a read-only SQLite diagnostic from the affected database covering schema version, integrity/foreign-key status, capacity and receipt projection trigger presence.
-
-No schema repair, trigger replacement or data rewrite is authorized or justified until that evidence exists.
-
-
-## Proven rollback masking defect
-
-A deterministic regression now reproduces a second defect in the receipt confirmation path.
-
-The regression installs a test-only SQLite trigger that raises `ROLLBACK` while `importReceipt()` is inside its explicit transaction. On the unpatched implementation, SQLite has already ended the transaction, but the receipt catch block unconditionally executes another `ROLLBACK`. That second rollback fails with `cannot rollback - no transaction is active` and replaces the original SQLite exception.
-
-Failing evidence:
-
-- Head `fc2cb47166699680b248fdd5ac591ce58772c3e4`.
-- Pull Request Quality `34065932143`, Quality job `101574555286`.
-- Regression: `receipt import preserves the original SQLite error when SQLite rolls back the transaction`.
-- Expected original error: `FORCED_RECEIPT_ROLLBACK`.
-- Actual error before the fix: `cannot rollback - no transaction is active`.
-
-This is directly relevant to the reported production symptom because it proves that `importReceipt()` can replace the real SQLite failure with a second generic `ERR_SQLITE_ERROR`. The supplied production log therefore cannot be assumed to contain the original SQLite class.
-
-The minimal fix checks the connection transaction state before issuing rollback. Node 22.23.1 exposes that state through `DatabaseSync.isTransaction`; the local Node shim is updated to model the pinned runtime API instead of using an unsafe cast.
-
-Passing evidence after the fix:
-
-- Head `cdab531fded30bee30cac9709138c840dd869744`.
-- Quality reports the rollback regression passing.
-- Covered tests: 392/392 pass.
-- Changed executable coverage remains 100% for 20 lines, 1 function and 11 branches.
-- Exact-head Browser E2E and remaining workflow completion are still pending at the time of this spec update.
-
-## Revised decision
-
-The unconditional rollback is now a proven root cause of diagnostic corruption and is fixed. It may also have hidden the original production failure class whenever SQLite ended the transaction itself.
-
-Do not infer the hidden underlying production error from the generic pre-fix `ERR_SQLITE_ERROR`. After this change, any recurrence will preserve the original Node SQLite `errcode`/`errstr`, allowing a follow-up fix to target the actual storage, I/O, interrupt, memory, or other SQLite condition instead of the rollback artifact.
-
-No schema mutation or data rewrite is justified by the evidence collected so far.
+The production change is limited to conditional transaction cleanup plus additional redacted log fields. Reverting the PR restores the former behavior; no schema or data migration is introduced by this fix.
