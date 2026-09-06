@@ -11,6 +11,7 @@ const SWIPE_REVEAL_RATIO = 0.16;
 const SWIPE_START_COMMIT_RATIO = 0.38;
 const SWIPE_END_COMMIT_RATIO = 0.68;
 const SWIPE_REVEAL_MAX_PX = 152;
+const SWIPE_SELECTION_SETTLE_MS = 200;
 
 const ICONS = {
   home: '<path d="M3 11.5 12 4l9 7.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 19.5Z"/><path d="M9 21v-6h6v6"/>',
@@ -185,8 +186,22 @@ function dispatchSwipeAction(root, row, action) {
 export function bindSwipeActions(root = document) {
   let gesture;
   let suppressClick = false;
+  let selectionReleaseTimer;
+
+  const holdSelectionLock = () => {
+    if (selectionReleaseTimer !== undefined) {
+      clearTimeout(selectionReleaseTimer);
+      selectionReleaseTimer = undefined;
+    }
+    document.documentElement.classList.add('is-swipe-pointer-active');
+    window.getSelection()?.removeAllRanges();
+  };
 
   const releaseSelectionLock = () => {
+    if (selectionReleaseTimer !== undefined) {
+      clearTimeout(selectionReleaseTimer);
+      selectionReleaseTimer = undefined;
+    }
     document.documentElement.classList.remove('is-swipe-pointer-active');
     window.getSelection()?.removeAllRanges();
   };
@@ -200,8 +215,7 @@ export function bindSwipeActions(root = document) {
     const row = event.target.closest('[data-swipe-row]');
     if (!isGenericSwipeRow(row) || !swipeContent(row)) return;
     event.preventDefault();
-    window.getSelection()?.removeAllRanges();
-    document.documentElement.classList.add('is-swipe-pointer-active');
+    holdSelectionLock();
     closeSwipeRows(root, row);
     row.classList.add('is-pointer-active');
     const width = Math.max(row.clientWidth, 1);
@@ -259,12 +273,21 @@ export function bindSwipeActions(root = document) {
     row.dataset.swipeDeleteArmed = String(offset < 0 && ratio >= SWIPE_END_COMMIT_RATIO && Boolean(row.dataset.swipeEndAction));
   }, { passive: false });
 
-  const releaseSelectionAfterGesture = () => {
+  const releaseSelectionAfterPointer = () => {
     window.getSelection()?.removeAllRanges();
     requestAnimationFrame(() => {
       window.getSelection()?.removeAllRanges();
       releaseSelectionLock();
     });
+  };
+
+  const releaseSelectionAfterCommit = () => {
+    window.getSelection()?.removeAllRanges();
+    if (selectionReleaseTimer !== undefined) clearTimeout(selectionReleaseTimer);
+    selectionReleaseTimer = setTimeout(() => {
+      selectionReleaseTimer = undefined;
+      releaseSelectionLock();
+    }, SWIPE_SELECTION_SETTLE_MS);
   };
 
   const finish = (event, cancelled = false) => {
@@ -276,13 +299,13 @@ export function bindSwipeActions(root = document) {
     if (row !== gestureRow) row.classList.remove('is-pointer-active', 'is-dragging');
     window.getSelection()?.removeAllRanges();
     if (!row.isConnected) {
-      releaseSelectionAfterGesture();
+      releaseSelectionAfterPointer();
       return;
     }
     if (!horizontal || cancelled) {
       if (initialOffset < 0) openSwipeRow(root, row);
       else closeSwipeRow(row);
-      releaseSelectionAfterGesture();
+      releaseSelectionAfterPointer();
       return;
     }
 
@@ -296,7 +319,7 @@ export function bindSwipeActions(root = document) {
     if (effectiveOffset > 0 && ratio >= SWIPE_START_COMMIT_RATIO && row.dataset.swipeStartAction) {
       closeSwipeRow(row);
       dispatchSwipeAction(root, row, row.dataset.swipeStartAction);
-      releaseSelectionAfterGesture();
+      releaseSelectionAfterCommit();
       return;
     }
     if (effectiveOffset < 0 && ratio >= SWIPE_END_COMMIT_RATIO && row.dataset.swipeEndAction) {
@@ -306,17 +329,17 @@ export function bindSwipeActions(root = document) {
       const delay = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 150;
       setTimeout(() => {
         dispatchSwipeAction(root, row, row.dataset.swipeEndAction);
-        releaseSelectionAfterGesture();
+        releaseSelectionAfterCommit();
       }, delay);
       return;
     }
     if (effectiveOffset < 0 && ratio >= SWIPE_REVEAL_RATIO && swipeActions(row)) {
       openSwipeRow(root, row);
-      releaseSelectionAfterGesture();
+      releaseSelectionAfterCommit();
       return;
     }
     closeSwipeRow(row);
-    releaseSelectionAfterGesture();
+    releaseSelectionAfterPointer();
   };
 
   root.addEventListener('pointerup', event => finish(event));
