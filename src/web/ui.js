@@ -297,6 +297,10 @@ export function bindSwipeActions(root = document) {
 
   root.addEventListener('pointerup', event => finish(event));
   root.addEventListener('pointercancel', event => finish(event, true));
+  root.addEventListener('mousedown', event => {
+    if (!document.documentElement.classList.contains('is-swipe-pointer-active')) return;
+    event.preventDefault();
+  }, { capture: true });
   root.addEventListener('selectstart', event => {
     if (!document.documentElement.classList.contains('is-swipe-pointer-active')) return;
     event.preventDefault();
