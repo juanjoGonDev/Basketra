@@ -240,10 +240,11 @@ export function bindSwipeActions(root = document) {
       }
       gesture.horizontal = true;
       row.classList.add('is-dragging');
+      const captureTarget = root instanceof Element ? root : document.documentElement;
       try {
-        row.setPointerCapture?.(event.pointerId);
+        captureTarget.setPointerCapture?.(event.pointerId);
       } catch {
-        // A realtime render can replace the pointerdown target before capture.
+        // Pointer capture is best-effort; the stable owner avoids row replacement orphaning pointerup.
       }
     }
     event.preventDefault();
