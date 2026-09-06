@@ -259,6 +259,14 @@ export function bindSwipeActions(root = document) {
     row.dataset.swipeDeleteArmed = String(offset < 0 && ratio >= SWIPE_END_COMMIT_RATIO && Boolean(row.dataset.swipeEndAction));
   }, { passive: false });
 
+  const releaseSelectionAfterGesture = () => {
+    window.getSelection()?.removeAllRanges();
+    requestAnimationFrame(() => {
+      window.getSelection()?.removeAllRanges();
+      releaseSelectionLock();
+    });
+  };
+
   const finish = (event, cancelled = false) => {
     if (!gesture || event.pointerId !== gesture.pointerId) return;
     const { row: gestureRow, width, deltaX, horizontal, initialOffset } = gesture;
@@ -267,14 +275,14 @@ export function bindSwipeActions(root = document) {
     gestureRow.classList.remove('is-pointer-active', 'is-dragging');
     if (row !== gestureRow) row.classList.remove('is-pointer-active', 'is-dragging');
     window.getSelection()?.removeAllRanges();
-    requestAnimationFrame(() => {
-      window.getSelection()?.removeAllRanges();
-      releaseSelectionLock();
-    });
-    if (!row.isConnected) return;
+    if (!row.isConnected) {
+      releaseSelectionAfterGesture();
+      return;
+    }
     if (!horizontal || cancelled) {
       if (initialOffset < 0) openSwipeRow(root, row);
       else closeSwipeRow(row);
+      releaseSelectionAfterGesture();
       return;
     }
 
@@ -288,6 +296,7 @@ export function bindSwipeActions(root = document) {
     if (effectiveOffset > 0 && ratio >= SWIPE_START_COMMIT_RATIO && row.dataset.swipeStartAction) {
       closeSwipeRow(row);
       dispatchSwipeAction(root, row, row.dataset.swipeStartAction);
+      releaseSelectionAfterGesture();
       return;
     }
     if (effectiveOffset < 0 && ratio >= SWIPE_END_COMMIT_RATIO && row.dataset.swipeEndAction) {
@@ -295,14 +304,19 @@ export function bindSwipeActions(root = document) {
       row.dataset.swipeDeleteArmed = 'true';
       setSwipeOffset(row, -row.clientWidth);
       const delay = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 150;
-      setTimeout(() => dispatchSwipeAction(root, row, row.dataset.swipeEndAction), delay);
+      setTimeout(() => {
+        dispatchSwipeAction(root, row, row.dataset.swipeEndAction);
+        releaseSelectionAfterGesture();
+      }, delay);
       return;
     }
     if (effectiveOffset < 0 && ratio >= SWIPE_REVEAL_RATIO && swipeActions(row)) {
       openSwipeRow(root, row);
+      releaseSelectionAfterGesture();
       return;
     }
     closeSwipeRow(row);
+    releaseSelectionAfterGesture();
   };
 
   root.addEventListener('pointerup', event => finish(event));
