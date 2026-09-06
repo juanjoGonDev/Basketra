@@ -61,6 +61,7 @@ test('product photo proposal sends the stored image through the canonical AI att
     assert.equal(result.proposal.category, 'Lácteos');
     assert.equal(observed.length, 1);
     assert.equal(observed[0]!.operation, 'product-photo-proposal');
+    assert.equal(observed[0]!.reasoningEffort, 'low');
     assert.ok(Array.isArray(observed[0]!.content));
     const content = observed[0]!.content as readonly unknown[];
     assert.equal((content[1] as { type: string }).type, 'image_url');

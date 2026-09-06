@@ -573,8 +573,10 @@ async function openStoreDeleteDialog() {
   dialog.showModal();
   try {
     const { impact } = await api(`/api/v1/inventory/stores/${encodeURIComponent(store.id)}/delete-impact`);
-    $('#store-delete-impact').textContent = `${store.name} tiene ${Number(impact.linkedProducts || 0)} productos vinculados, ${Number(impact.priceObservations || 0)} observaciones de precio y ${Number(impact.historicalTickets || 0)} tickets históricos.`;
-    $('#store-delete-state').textContent = impact.canDelete ? 'La tienda no tiene dependencias históricas y se puede eliminar.' : 'El borrado está bloqueado para conservar la historia de precios o tickets.';
+    $('#store-delete-impact').textContent = `${store.name} tiene ${Number(impact.linkedProducts || 0)} productos vinculados, ${Number(impact.priceObservations || 0)} observaciones de precio, ${Number(impact.historicalTickets || 0)} tickets históricos y ${Number(impact.shoppingLists || 0)} listas de la compra activas.`;
+    $('#store-delete-state').textContent = impact.canDelete
+      ? 'La tienda no tiene dependencias y se puede eliminar.'
+      : 'El borrado está bloqueado para conservar precios, tickets o listas de la compra que todavía usan esta tienda.';
     confirm.disabled = !impact.canDelete;
   } catch (error) {
     $('#store-delete-state').textContent = error.message;

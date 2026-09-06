@@ -78,7 +78,7 @@ async function createList(page, name) {
 
 async function openProductDialog(page) {
   if (await page.locator('#item-dialog').evaluate(dialog => dialog.open)) return;
-  await page.getByRole('button', { name: 'Añadir producto', exact: true }).click();
+  await page.getByRole('button', { name: 'Crear ítem', exact: true }).click();
   await expect(page.locator('#item-dialog')).toHaveAttribute('open', '');
 }
 
@@ -108,18 +108,52 @@ async function stableBoundingBox(locator) {
 
 async function swipe(page, locator, direction, { long = false } = {}) {
   await expect(locator).toBeVisible();
-  await locator.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
-  const box = await stableBoundingBox(locator);
   const anchor = locator.locator('.list-row__content').first();
-  const anchorBox = await stableBoundingBox(anchor);
-  const startX = direction === 'left' ? anchorBox.x + anchorBox.width * 0.8 : anchorBox.x + anchorBox.width * 0.2;
-  const distance = box.width * (long ? 0.72 : direction === 'right' ? 0.46 : 0.34);
-  const endX = direction === 'left' ? startX - distance : startX + distance;
-  const y = anchorBox.y + anchorBox.height / 2;
-  await page.mouse.move(startX, y);
-  await page.mouse.down();
-  await page.mouse.move(endX, y, { steps: 14 });
-  await page.mouse.up();
+  const expectedId = await locator.getAttribute('data-swipe-id');
+  const expectedKind = await locator.getAttribute('data-swipe-kind');
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await locator.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
+    const box = await stableBoundingBox(locator);
+    const anchorBox = await stableBoundingBox(anchor);
+    const startX = direction === 'left' ? anchorBox.x + anchorBox.width * 0.8 : anchorBox.x + anchorBox.width * 0.2;
+    const y = anchorBox.y + anchorBox.height / 2;
+    await page.mouse.move(startX, y);
+
+    const hitsRow = await locator.evaluate((element, point) => {
+      const target = document.elementFromPoint(point.x, point.y);
+      return Boolean(target && element.contains(target));
+    }, { x: startX, y });
+    if (!hitsRow) continue;
+
+    await page.evaluate(({ id, kind }) => {
+      window.__basketraSwipePointerDownHit = false;
+      document.addEventListener('pointerdown', event => {
+        const row = event.target.closest?.('[data-swipe-row]');
+        window.__basketraSwipePointerDownHit = row?.dataset.swipeId === id && row?.dataset.swipeKind === kind;
+      }, { capture: true, once: true });
+    }, { id: expectedId, kind: expectedKind });
+
+    await page.mouse.down();
+    const pointerDownHit = await page.evaluate(() => {
+      const hit = window.__basketraSwipePointerDownHit === true;
+      delete window.__basketraSwipePointerDownHit;
+      return hit;
+    });
+    if (!pointerDownHit) {
+      await page.mouse.move(1, 1);
+      await page.mouse.up();
+      continue;
+    }
+
+    const distance = box.width * (long ? 0.72 : direction === 'right' ? 0.46 : 0.34);
+    const endX = direction === 'left' ? startX - distance : startX + distance;
+    await page.mouse.move(endX, y, { steps: 14 });
+    await page.mouse.up();
+    return;
+  }
+
+  expect(false, 'swipe pointerdown must target the current swipe row').toBe(true);
 }
 
 async function expectNoHorizontalOverflow(page) {
@@ -202,9 +236,9 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
 
   let riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
   await swipe(page, riceRow, 'right');
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() || '')).toBe('');
   const completedSection = page.locator('#completed-section');
-  await completedSection.locator('summary').click();
-  await expect(completedSection).toHaveAttribute('open', '');
+  await expect(completedSection).toBeVisible();
   await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Devolver Arroz 1 kg a pendientes' }).click());
   await expect(page.locator('#pending-items')).toContainText('Arroz 1 kg');
 
@@ -213,6 +247,7 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
 
   riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
   await swipe(page, riceRow, 'left', { long: true });
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() || '')).toBe('');
   await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
   await expect(page.locator('#toast-message')).toHaveText('Producto eliminado');
   await expect(page.getByRole('button', { name: 'Deshacer' })).toBeVisible();
@@ -387,7 +422,8 @@ test('AI unavailability is recoverable and does not overwrite list input', async
   await productInput(page).fill('pan integral');
   await page.locator('#item-dialog').getByRole('button', { name: 'Cancelar', exact: true }).click();
 
-  await page.locator('#open-ai-assistant').click();
+  await page.locator('#list-menu').click();
+  await page.getByRole('button', { name: 'Añadir varios con IA', exact: true }).click();
   const aiDialog = page.locator('#ai-assistant-dialog');
   await aiDialog.getByLabel('Describe lo que necesitas', { exact: true }).fill('pan integral');
   await aiDialog.getByRole('button', { name: 'Preparar propuesta', exact: true }).click();

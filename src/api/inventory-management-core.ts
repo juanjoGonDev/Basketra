@@ -315,11 +315,18 @@ function storeDeleteImpact(databasePath: string, storeId: string): Readonly<Reco
       WHERE price_observations.store_id = ? AND retailer_listings.product_variant_id IS NOT NULL
     `, storeId);
     const historicalTickets = count(database, 'SELECT COUNT(*) AS count FROM receipts WHERE store_id = ?', storeId);
+    const shoppingLists = count(database, `
+      SELECT COUNT(DISTINCT shopping_lists.id) AS count
+      FROM shopping_lists
+      LEFT JOIN shopping_list_items ON shopping_list_items.list_id = shopping_lists.id
+      WHERE shopping_lists.reference_store_id = ? OR shopping_list_items.store_override_id = ?
+    `, storeId, storeId);
     return {
       linkedProducts,
       priceObservations,
       historicalTickets,
-      canDelete: priceObservations === 0 && historicalTickets === 0,
+      shoppingLists,
+      canDelete: priceObservations === 0 && historicalTickets === 0 && shoppingLists === 0,
     };
   }, true);
 }
@@ -332,8 +339,14 @@ function deleteStore(databasePath: string, storeId: string): void {
       if (!exists) throw new ApiError(404, 'STORE_NOT_FOUND', 'Store was not found');
       const priceObservations = count(database, 'SELECT COUNT(*) AS count FROM price_observations WHERE store_id = ?', storeId);
       const historicalTickets = count(database, 'SELECT COUNT(*) AS count FROM receipts WHERE store_id = ?', storeId);
-      if (priceObservations > 0 || historicalTickets > 0) {
-        throw new ApiError(409, 'STORE_DELETE_BLOCKED', 'Store has historical price or ticket dependencies');
+      const shoppingLists = count(database, `
+        SELECT COUNT(DISTINCT shopping_lists.id) AS count
+        FROM shopping_lists
+        LEFT JOIN shopping_list_items ON shopping_list_items.list_id = shopping_lists.id
+        WHERE shopping_lists.reference_store_id = ? OR shopping_list_items.store_override_id = ?
+      `, storeId, storeId);
+      if (priceObservations > 0 || historicalTickets > 0 || shoppingLists > 0) {
+        throw new ApiError(409, 'STORE_DELETE_BLOCKED', 'Store has historical price, ticket or shopping-list dependencies');
       }
       database.prepare('DELETE FROM stores WHERE id = ?').run(storeId);
       database.exec('COMMIT');

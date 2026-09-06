@@ -11,6 +11,7 @@ const SWIPE_REVEAL_RATIO = 0.16;
 const SWIPE_START_COMMIT_RATIO = 0.38;
 const SWIPE_END_COMMIT_RATIO = 0.68;
 const SWIPE_REVEAL_MAX_PX = 152;
+const SWIPE_SELECTION_SETTLE_MS = 200;
 
 const ICONS = {
   home: '<path d="M3 11.5 12 4l9 7.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 19.5Z"/><path d="M9 21v-6h6v6"/>',
@@ -176,24 +177,53 @@ function openSwipeRow(root, row) {
 
 function dispatchSwipeAction(root, row, action) {
   const currentRow = resolveCurrentSwipeRow(root, row);
+  const pending = [];
   currentRow.dispatchEvent(new CustomEvent('basketra:swipe-action', {
     bubbles: true,
-    detail: { action, id: currentRow.dataset.swipeId, kind: currentRow.dataset.swipeKind },
+    detail: {
+      action,
+      id: currentRow.dataset.swipeId,
+      kind: currentRow.dataset.swipeKind,
+      waitUntil(promise) {
+        if (promise && typeof promise.then === 'function') pending.push(Promise.resolve(promise));
+      },
+    },
   }));
+  return pending.length ? Promise.allSettled(pending) : Promise.resolve();
 }
 
 export function bindSwipeActions(root = document) {
   let gesture;
+  let suppressClick = false;
+  let selectionReleaseTimer;
+  let selectionLockToken = 0;
+
+  const holdSelectionLock = () => {
+    selectionLockToken += 1;
+    clearTimeout(selectionReleaseTimer);
+    selectionReleaseTimer = undefined;
+    document.documentElement.classList.add('is-swipe-pointer-active');
+    window.getSelection()?.removeAllRanges();
+    return selectionLockToken;
+  };
+
+  const releaseSelectionLock = () => {
+    document.documentElement.classList.remove('is-swipe-pointer-active');
+    window.getSelection()?.removeAllRanges();
+  };
 
   root.querySelectorAll('[data-swipe-row]').forEach(row => {
     if (isGenericSwipeRow(row)) closeSwipeRow(row);
   });
 
   root.addEventListener('pointerdown', event => {
-    if (event.button !== 0 || event.clientX < 24 || event.target.closest('button,input,select,textarea,a,summary')) return;
+    if (event.button !== 0 || event.clientX < 24 || event.target.closest('button,a,summary,input:not(:disabled),select:not(:disabled),textarea:not(:disabled)')) return;
     const row = event.target.closest('[data-swipe-row]');
     if (!isGenericSwipeRow(row) || !swipeContent(row)) return;
+    event.preventDefault();
+    const lockToken = holdSelectionLock();
     closeSwipeRows(root, row);
+    row.classList.add('is-pointer-active');
     const width = Math.max(row.clientWidth, 1);
     gesture = {
       row,
@@ -203,6 +233,7 @@ export function bindSwipeActions(root = document) {
       y: event.clientY,
       horizontal: false,
       deltaX: 0,
+      lockToken,
       initialOffset: row.dataset.swipeOpen === 'true'
         ? -Math.min(SWIPE_REVEAL_MAX_PX, Math.max(112, width * 0.42))
         : 0,
@@ -214,23 +245,23 @@ export function bindSwipeActions(root = document) {
     const deltaX = event.clientX - gesture.x;
     const deltaY = event.clientY - gesture.y;
     const row = resolveCurrentSwipeRow(root, gesture.row);
-    if (!row.isConnected) {
-      gesture = undefined;
-      return;
-    }
+    if (!row.isConnected) return;
     gesture.row = row;
     if (!gesture.horizontal) {
       if (Math.abs(deltaX) < 8 && Math.abs(deltaY) < 8) return;
       if (Math.abs(deltaY) >= Math.abs(deltaX)) {
+        row.classList.remove('is-pointer-active');
+        releaseSelectionLock();
         gesture = undefined;
         return;
       }
       gesture.horizontal = true;
       row.classList.add('is-dragging');
+      const captureTarget = root instanceof Element ? root : document.documentElement;
       try {
-        row.setPointerCapture?.(event.pointerId);
+        captureTarget.setPointerCapture?.(event.pointerId);
       } catch {
-        // A realtime render can replace the pointerdown target before capture.
+        // Pointer capture is best-effort; the stable owner avoids row replacement orphaning pointerup.
       }
     }
     event.preventDefault();
@@ -244,25 +275,59 @@ export function bindSwipeActions(root = document) {
     row.dataset.swipeDeleteArmed = String(offset < 0 && ratio >= SWIPE_END_COMMIT_RATIO && Boolean(row.dataset.swipeEndAction));
   }, { passive: false });
 
+  const releaseSelectionAfterPointer = expectedToken => {
+    window.getSelection()?.removeAllRanges();
+    requestAnimationFrame(() => {
+      if (expectedToken !== selectionLockToken) return;
+      window.getSelection()?.removeAllRanges();
+      releaseSelectionLock();
+    });
+  };
+
+  const releaseSelectionAfterCommit = (expectedToken, pending = Promise.resolve()) => {
+    window.getSelection()?.removeAllRanges();
+    void Promise.resolve(pending).finally(() => {
+      if (expectedToken !== selectionLockToken) return;
+      window.getSelection()?.removeAllRanges();
+      clearTimeout(selectionReleaseTimer);
+      selectionReleaseTimer = setTimeout(() => {
+        selectionReleaseTimer = undefined;
+        releaseSelectionLock();
+      }, SWIPE_SELECTION_SETTLE_MS);
+    });
+  };
+
   const finish = (event, cancelled = false) => {
     if (!gesture || event.pointerId !== gesture.pointerId) return;
-    const { row: gestureRow, width, deltaX, horizontal, initialOffset } = gesture;
+    const { row: gestureRow, width, horizontal, initialOffset, x, lockToken } = gesture;
+    const finalDeltaX = event.clientX - x;
     gesture = undefined;
     const row = resolveCurrentSwipeRow(root, gestureRow);
-    gestureRow.classList.remove('is-dragging');
-    if (row !== gestureRow) row.classList.remove('is-dragging');
-    if (!row.isConnected) return;
+    gestureRow.classList.remove('is-pointer-active', 'is-dragging');
+    if (row !== gestureRow) row.classList.remove('is-pointer-active', 'is-dragging');
+    window.getSelection()?.removeAllRanges();
+    if (!row.isConnected) {
+      releaseSelectionAfterPointer(lockToken);
+      return;
+    }
     if (!horizontal || cancelled) {
       if (initialOffset < 0) openSwipeRow(root, row);
       else closeSwipeRow(row);
+      releaseSelectionAfterPointer(lockToken);
       return;
     }
 
-    const effectiveOffset = initialOffset + deltaX;
+    suppressClick = true;
+    setTimeout(() => {
+      suppressClick = false;
+    }, 0);
+
+    const effectiveOffset = initialOffset + finalDeltaX;
     const ratio = Math.abs(effectiveOffset) / width;
     if (effectiveOffset > 0 && ratio >= SWIPE_START_COMMIT_RATIO && row.dataset.swipeStartAction) {
       closeSwipeRow(row);
-      dispatchSwipeAction(root, row, row.dataset.swipeStartAction);
+      const pending = dispatchSwipeAction(root, row, row.dataset.swipeStartAction);
+      releaseSelectionAfterCommit(lockToken, pending);
       return;
     }
     if (effectiveOffset < 0 && ratio >= SWIPE_END_COMMIT_RATIO && row.dataset.swipeEndAction) {
@@ -270,20 +335,48 @@ export function bindSwipeActions(root = document) {
       row.dataset.swipeDeleteArmed = 'true';
       setSwipeOffset(row, -row.clientWidth);
       const delay = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 150;
-      setTimeout(() => dispatchSwipeAction(root, row, row.dataset.swipeEndAction), delay);
+      setTimeout(() => {
+        const pending = dispatchSwipeAction(root, row, row.dataset.swipeEndAction);
+        releaseSelectionAfterCommit(lockToken, pending);
+      }, delay);
       return;
     }
     if (effectiveOffset < 0 && ratio >= SWIPE_REVEAL_RATIO && swipeActions(row)) {
       openSwipeRow(root, row);
+      releaseSelectionAfterCommit(lockToken);
       return;
     }
     closeSwipeRow(row);
+    releaseSelectionAfterPointer(lockToken);
   };
 
   root.addEventListener('pointerup', event => finish(event));
   root.addEventListener('pointercancel', event => finish(event, true));
+  root.addEventListener('mousedown', event => {
+    if (!document.documentElement.classList.contains('is-swipe-pointer-active')) return;
+    event.preventDefault();
+  }, { capture: true });
+  root.addEventListener('mouseup', event => {
+    if (!document.documentElement.classList.contains('is-swipe-pointer-active')) return;
+    event.preventDefault();
+    window.getSelection()?.removeAllRanges();
+  }, { capture: true });
+  root.addEventListener('selectstart', event => {
+    if (!document.documentElement.classList.contains('is-swipe-pointer-active')) return;
+    event.preventDefault();
+  });
+  document.addEventListener('selectionchange', () => {
+    if (!document.documentElement.classList.contains('is-swipe-pointer-active')) return;
+    window.getSelection()?.removeAllRanges();
+  });
 
   root.addEventListener('click', event => {
+    if (suppressClick) {
+      suppressClick = false;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     const toggle = event.target.closest('[data-swipe-toggle]');
     if (toggle) {
       const row = toggle.closest('[data-swipe-row]');
@@ -337,13 +430,16 @@ export function shoppingListItem(item, index, total) {
     <div class="list-row${item.completed ? ' is-completed' : ''} swipe-content" data-swipe-content>
       <button type="button" class="completion-button" data-item-action="complete" data-item-id="${id}" aria-label="${completionLabel}" aria-pressed="${String(item.completed)}">${icon('check')}</button>
       <div class="list-row__content"><strong>${name}</strong><span>${details}</span></div>
-      <div class="list-row__actions">
-        <button type="button" class="icon-button" data-item-action="quantity" data-item-id="${id}" data-delta="-1" ${item.quantityMinor <= 1 ? 'disabled' : ''} aria-label="Reducir cantidad de ${name}">${icon('minus')}</button>
-        <span class="quantity-chip" aria-label="Cantidad actual">${item.quantityMinor}</span>
-        <button type="button" class="icon-button" data-item-action="quantity" data-item-id="${id}" data-delta="1" aria-label="Aumentar cantidad de ${name}">${icon('plus')}</button>
-        <button type="button" class="icon-button" data-item-action="move" data-item-id="${id}" data-direction="-1" ${index === 0 ? 'disabled' : ''} aria-label="Subir ${name}">${icon('chevronUp')}</button>
-        <button type="button" class="icon-button" data-item-action="move" data-item-id="${id}" data-direction="1" ${index === total - 1 ? 'disabled' : ''} aria-label="Bajar ${name}">${icon('chevronDown')}</button>
-        <button type="button" class="icon-button" data-swipe-toggle aria-expanded="false" aria-label="Mostrar acciones de ${name}">${icon('more')}</button>
+      <div class="list-row__actions${item.completed ? ' list-row__actions--completed' : ''}">
+        ${item.completed
+          ? `<button type="button" class="button secondary completed-return-action" data-item-action="complete" data-item-id="${id}" aria-label="Volver a pendientes">${icon('refresh')}<span>Volver a pendientes</span></button>
+             <button type="button" class="icon-button" data-swipe-toggle aria-expanded="false" aria-label="Mostrar acciones de ${name}">${icon('more')}</button>`
+          : `<button type="button" class="icon-button" data-item-action="quantity" data-item-id="${id}" data-delta="-1" ${item.quantityMinor <= 1 ? 'disabled' : ''} aria-label="Reducir cantidad de ${name}">${icon('minus')}</button>
+             <span class="quantity-chip" aria-label="Cantidad actual">${item.quantityMinor}</span>
+             <button type="button" class="icon-button" data-item-action="quantity" data-item-id="${id}" data-delta="1" aria-label="Aumentar cantidad de ${name}">${icon('plus')}</button>
+             <button type="button" class="icon-button" data-item-action="move" data-item-id="${id}" data-direction="-1" ${index === 0 ? 'disabled' : ''} aria-label="Subir ${name}">${icon('chevronUp')}</button>
+             <button type="button" class="icon-button" data-item-action="move" data-item-id="${id}" data-direction="1" ${index === total - 1 ? 'disabled' : ''} aria-label="Bajar ${name}">${icon('chevronDown')}</button>
+             <button type="button" class="icon-button" data-swipe-toggle aria-expanded="false" aria-label="Mostrar acciones de ${name}">${icon('more')}</button>`}
       </div>
     </div>
   </li>`;

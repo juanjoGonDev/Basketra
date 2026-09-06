@@ -80,6 +80,27 @@ export function normalizedMinorPerBaseUnit(totalMinor: number, quantity: Quantit
   return divideRational(rational(totalMinor), normalized.amount);
 }
 
+export function roundRationalHalfUp(value: Rational): number {
+  const quotient = Math.floor(value.numerator / value.denominator);
+  const remainder = value.numerator % value.denominator;
+  return quotient + (remainder * 2 >= value.denominator ? 1 : 0);
+}
+
+export function normalizedMinorPerDisplayUnit(
+  totalMinor: number,
+  quantity: Quantity,
+): Readonly<{ minor: number; unit: Unit }> {
+  const perBaseUnit = normalizedMinorPerBaseUnit(totalMinor, quantity);
+  const baseUnit = normalizeQuantity(quantity).unit;
+  if (baseUnit === 'g') {
+    return { minor: roundRationalHalfUp(multiplyRational(perBaseUnit, rational(1000))), unit: 'kg' };
+  }
+  if (baseUnit === 'ml') {
+    return { minor: roundRationalHalfUp(multiplyRational(perBaseUnit, rational(1000))), unit: 'l' };
+  }
+  return { minor: roundRationalHalfUp(perBaseUnit), unit: baseUnit };
+}
+
 export function compareRational(left: Rational, right: Rational): number {
   const lhs = left.numerator * right.denominator;
   const rhs = right.numerator * left.denominator;

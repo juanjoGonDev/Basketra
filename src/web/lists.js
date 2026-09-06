@@ -13,7 +13,8 @@ import {
   minorToEuroInput,
   shoppingListItem,
 } from './ui.js';
-import { readApplicationLocation, writeApplicationLocation } from './routes.js';
+import { applicationPathForRoute, readApplicationLocation, writeApplicationLocation } from './routes.js';
+import { bindCategorySuggestion } from './category-suggestion.js';
 
 const UNIT_LABELS = Object.freeze({
   g: 'g',
@@ -40,16 +41,31 @@ const model = {
   activeListId: loadActiveListId(),
   list: null,
   items: [],
+  estimate: null,
   categories: [],
   stores: [],
+  variantOptions: new Map(),
   editingItemId: '',
   deletingItemId: '',
   swipeDeletingItemIds: new Set(),
+  multiSelectMode: false,
+  selectedItemIds: new Set(),
   selectedProductVariantId: '',
   selectedProductName: '',
+  selectedCanonicalProductId: '',
+  selectedSuggestion: null,
   globalProductEditingId: '',
+  globalProductAddToList: false,
+  globalParentId: '',
+  globalParentName: '',
   suggestionController: null,
   suggestionTimer: null,
+  parentSuggestionController: null,
+  parentSuggestionTimer: null,
+  priceNormalizationController: null,
+  priceNormalizationTimer: null,
+  draftEstimateController: null,
+  draftEstimateTimer: null,
   photoStorageKey: '',
   photoProposal: null,
   proposedCategoryName: '',
@@ -57,12 +73,14 @@ const model = {
   nearbyCandidates: [],
   realtimeSource: null,
   realtimeTimer: null,
+  activeListLoadGeneration: 0,
   conflict: null,
 };
 
 let metadata;
 let toast = () => {};
 let aiConfigured = false;
+let shoppingCategorySuggestion;
 
 const $ = selector => document.querySelector(selector);
 
@@ -103,30 +121,229 @@ function setOverviewVisible(overviewVisible) {
   }
 }
 
-function populateUnits() {
-  const select = $('#item-unit');
-  select.innerHTML = metadata.units
+function unitOptions({ includeEmpty = false } = {}) {
+  const options = metadata.units
     .map(unit => `<option value="${escapeHtml(unit)}">${escapeHtml(UNIT_LABELS[unit] || unit)}</option>`)
     .join('');
-  select.value = metadata.units.includes('unit') ? 'unit' : metadata.units[0] || '';
+  return `${includeEmpty ? '<option value="">Sin especificar</option>' : ''}${options}`;
+}
+
+function populateUnits() {
+  for (const selector of ['#item-unit', '#global-item-unit']) {
+    const select = $(selector);
+    if (!select) continue;
+    const current = select.value;
+    select.innerHTML = unitOptions();
+    select.value = metadata.units.includes(current)
+      ? current
+      : metadata.units.includes('unit') ? 'unit' : metadata.units[0] || '';
+  }
+  const packageUnit = $('#global-package-unit');
+  if (packageUnit) {
+    const current = packageUnit.value;
+    packageUnit.innerHTML = unitOptions({ includeEmpty: true });
+    if ([...packageUnit.options].some(option => option.value === current)) packageUnit.value = current;
+  }
 }
 
 function ensureProgressiveFields() {
-  const advancedBody = $('#item-advanced .details-body');
-  if (!$('#open-manual-product-details')) {
-    advancedBody.querySelector('#product-proposal').insertAdjacentHTML('beforebegin', `
-      <button id="open-manual-product-details" class="button secondary full" type="button">Añadir ficha global o precio manual</button>
-    `);
+  // The shopping/product forms are now explicit canonical surfaces in index.html.
+  // Keep this hook for initialization ordering without dynamically duplicating fields.
+}
+
+function bindShoppingCategorySuggestion() {
+  shoppingCategorySuggestion = bindCategorySuggestion({
+    button: $('#global-suggest-category'),
+    status: $('#global-category-suggestion-state'),
+    select: $('#global-category'),
+    surface: 'shopping-product',
+    requiredFields: [
+      {
+        element: () => $('#global-canonical-field').hidden ? $('#global-parent-search') : $('#global-canonical-name'),
+        value: () => $('#global-canonical-name').value.trim() || $('#global-parent-search').value.trim(),
+        message: 'Indica el producto base antes de pedir una sugerencia.',
+      },
+      {
+        element: $('#global-variant-name'),
+        message: 'Indica el nombre de la variante antes de pedir una sugerencia.',
+      },
+    ],
+    watch: [
+      $('#global-parent-search'),
+      $('#global-canonical-name'),
+      $('#global-variant-name'),
+      $('#global-brand'),
+      $('#global-description'),
+      $('#global-package-minor'),
+      $('#global-package-unit'),
+      $('#global-item-quantity'),
+      $('#global-item-unit'),
+      $('#global-price'),
+    ],
+    buildPayload() {
+      const canonicalName = $('#global-canonical-name').value.trim() || $('#global-parent-search').value.trim();
+      const variantName = $('#global-variant-name').value.trim();
+      const brand = $('#global-brand').value.trim();
+      const description = $('#global-description').value.trim();
+      const packageMinor = Number($('#global-package-minor').value);
+      const packageUnit = $('#global-package-unit').value;
+      const quantity = Number($('#global-item-quantity').value);
+      const unit = $('#global-item-unit').value;
+      const priceText = $('#global-price').value.trim();
+      let unitPriceMinor;
+      if (priceText) {
+        try {
+          unitPriceMinor = euroInputToMinor(priceText);
+        } catch {
+          unitPriceMinor = undefined;
+        }
+      }
+      return {
+        canonicalName,
+        variantName,
+        ...(brand ? { brand } : {}),
+        ...(description ? { description } : {}),
+        ...(Number.isSafeInteger(packageMinor) && packageMinor > 0 ? { packageMinor } : {}),
+        ...(packageUnit ? { packageUnit } : {}),
+        ...(Number.isSafeInteger(quantity) && quantity > 0 ? { quantity } : {}),
+        ...(unit ? { unit } : {}),
+        ...(unitPriceMinor === undefined ? {} : { unitPriceMinor }),
+      };
+    },
+  });
+}
+
+function formatEuroMinor(value) {
+  const minor = Number(value);
+  if (!Number.isSafeInteger(minor)) return '—';
+  return new Intl.NumberFormat('es-ES', {
+    style: 'currency',
+    currency: 'EUR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(minor / 100);
+}
+
+function relativeAge(iso) {
+  const timestamp = Date.parse(iso || '');
+  if (!Number.isFinite(timestamp)) return '';
+  const days = Math.max(0, Math.floor((Date.now() - timestamp) / 86_400_000));
+  if (days === 0) return 'hoy';
+  if (days === 1) return 'ayer';
+  return `hace ${days} d`;
+}
+
+function packageLabel(product) {
+  if (!product || !Number.isSafeInteger(product.packageMinor) || !product.packageUnit) return 'Sin tamaño';
+  return `${product.packageMinor} ${UNIT_LABELS[product.packageUnit] || product.packageUnit}`;
+}
+
+function estimateLine(itemId) {
+  return model.estimate?.lines?.find(line => line.itemId === itemId) || null;
+}
+
+function unpricedLabel(reason) {
+  return {
+    'store-required': 'Selecciona una tienda',
+    'product-required': 'Vincula un producto guardado',
+    'price-missing': 'Sin precio en esta tienda',
+    'not-comparable': 'Sin precio comparable',
+  }[reason] || 'Sin precio comparable';
+}
+
+function listStoreOptions(selectedId = '') {
+  return `<option value="">Sin tienda de referencia</option>${model.stores.map(store =>
+    `<option value="${escapeHtml(store.id)}"${store.id === selectedId ? ' selected' : ''}>${escapeHtml(store.name)} · ${escapeHtml(store.retailerName)}</option>`
+  ).join('')}`;
+}
+
+function itemStoreOptions(selectedOverrideId = '') {
+  const inherited = model.list?.referenceStoreId
+    ? model.stores.find(store => store.id === model.list.referenceStoreId)?.name || 'tienda de la lista'
+    : 'sin tienda';
+  return `<option value="">Lista · ${escapeHtml(inherited)}</option>${model.stores.map(store =>
+    `<option value="${escapeHtml(store.id)}"${store.id === selectedOverrideId ? ' selected' : ''}>${escapeHtml(store.name)}</option>`
+  ).join('')}`;
+}
+
+function renderReferenceStore() {
+  const select = $('#list-store-select');
+  if (!select || !model.list) return;
+  select.innerHTML = listStoreOptions(model.list.referenceStoreId || '');
+}
+
+function variantSelectOptions(line) {
+  if (!line?.productVariantId) return '<option value="">Sin producto guardado</option>';
+  const variants = model.variantOptions.get(line.canonicalProductId) || [];
+  const options = variants.length ? variants : [{
+    id: line.productVariantId,
+    variantName: line.variantName || line.text,
+    packageMinor: line.packageMinor,
+    packageUnit: line.packageUnit,
+  }];
+  return options.map(variant =>
+    `<option value="${escapeHtml(variant.id)}" data-variant-name="${escapeHtml(variant.variantName)}"${variant.id === line.productVariantId ? ' selected' : ''}>${escapeHtml(packageLabel(variant))}</option>`
+  ).join('');
+}
+
+function selectionButton(item, name) {
+  const selected = model.selectedItemIds.has(item.id);
+  return `<button type="button" class="multi-select-check${selected ? ' is-selected' : ''}" data-select-item data-item-id="${escapeHtml(item.id)}" aria-label="${selected ? 'Quitar' : 'Seleccionar'} ${name}" aria-pressed="${String(selected)}"><span data-icon="check"></span></button>`;
+}
+
+function ticketItem(item, index, total) {
+  const line = estimateLine(item.id);
+  const name = escapeHtml(item.text);
+  const id = escapeHtml(item.id);
+  const priced = line?.status === 'priced';
+  const priceContext = priced
+    ? `${formatEuroMinor(line.normalizedPriceMinor ?? line.latestPriceMinor)}/${escapeHtml(UNIT_LABELS[line.normalizedPriceUnit || item.unit] || line.normalizedPriceUnit || item.unit)} · ${escapeHtml(relativeAge(line.observedAt))}`
+    : escapeHtml(unpricedLabel(line?.reason));
+  const totalText = priced ? formatEuroMinor(line.estimatedTotalMinor) : '—';
+  const category = item.categoryName ? `<small class="ticket-item__category">${escapeHtml(item.categoryName)}</small>` : '';
+  if (model.multiSelectMode) {
+    const storeName = line?.effectiveStoreName
+      || model.stores.find(store => store.id === (item.storeOverrideId || model.list?.referenceStoreId))?.name
+      || 'Sin tienda';
+    return `<div class="shopping-ticket-row bulk-select-row${model.selectedItemIds.has(item.id) ? ' is-selected' : ''}">
+      <article class="ticket-item ticket-item--select" data-select-row data-item-id="${id}">
+        ${selectionButton(item, name)}
+        <div class="ticket-item__identity list-row__content"><span class="ticket-item__product-icon" data-icon="cart" aria-hidden="true"></span><span class="ticket-item__identity-copy"><strong>${name}</strong>${category}<small>${priceContext}</small><small>${escapeHtml(storeName)}</small></span></div>
+        <strong class="ticket-item__total">${totalText}</strong>
+      </article>
+    </div>`;
   }
-  if (!$('#global-category-new')) {
-    $('#global-category').closest('.field').insertAdjacentHTML('afterend', `
-      <label class="field"><span>Nueva categoría opcional</span><input id="global-category-new" maxlength="120" placeholder="Ej. Lácteos"></label>
-      <div class="quantity-row">
-        <label class="field"><span>Cantidad del envase</span><input id="global-package-minor" type="number" min="1" max="100000000" inputmode="numeric" placeholder="1"></label>
-        <label class="field"><span>Unidad del envase</span><select id="global-package-unit"><option value="">Sin especificar</option>${metadata.units.map(unit => `<option value="${escapeHtml(unit)}">${escapeHtml(UNIT_LABELS[unit] || unit)}</option>`).join('')}</select></label>
+  const editAttributes = `data-item-action="edit" data-item-id="${id}" aria-label="Editar ${name}"`;
+  const deleteAttributes = `data-item-action="delete" data-item-id="${id}" aria-label="Eliminar ${name}"`;
+  return `<div class="shopping-ticket-row swipe-shell" data-swipe-row data-swipe-kind="shopping-item" data-swipe-id="${id}" data-swipe-start-action="complete" data-swipe-end-action="delete" data-swipe-open="false">
+    <div class="swipe-rail swipe-rail--start" aria-hidden="true"><span data-icon="check"></span><strong>Completado</strong></div>
+    <div class="swipe-rail swipe-rail--end" data-swipe-actions aria-hidden="true">
+      <button type="button" class="swipe-rail__action" data-primary-swipe-action ${editAttributes} tabindex="-1"><span data-icon="edit"></span><span>Editar</span></button>
+      <button type="button" class="swipe-rail__action swipe-rail__action--danger" data-destructive-action ${deleteAttributes} tabindex="-1"><span data-icon="trash"></span><span>Eliminar</span></button>
+      <span class="swipe-rail__commit" aria-hidden="true"><span data-icon="trash"></span><strong>Suelta para eliminar</strong></span>
+    </div>
+    <article class="ticket-item swipe-content" data-swipe-content>
+      <button type="button" class="completion-button" data-item-action="complete" data-item-id="${id}" aria-label="Marcar ${name} como comprado" aria-pressed="false"><span data-icon="check"></span></button>
+      <div class="ticket-item__identity list-row__content"><span class="ticket-item__product-icon" data-icon="cart" aria-hidden="true"></span><span class="ticket-item__identity-copy"><strong>${name}</strong>${category}<small class="${priced ? '' : 'ticket-item__warning'}">${priceContext}</small></span></div>
+      <strong class="ticket-item__total">${totalText}</strong>
+      <div class="ticket-item__controls">
+        <div class="quantity-stepper quantity-stepper--compact" aria-label="Cantidad de ${name}">
+          <button type="button" data-item-action="quantity" data-item-id="${id}" data-delta="-1" ${item.quantityMinor <= 1 ? 'disabled' : ''} aria-label="Reducir cantidad de ${name}">−</button>
+          <span class="quantity-chip" aria-label="Cantidad actual">${item.quantityMinor}</span>
+          <button type="button" data-item-action="quantity" data-item-id="${id}" data-delta="1" aria-label="Aumentar cantidad de ${name}">+</button>
+        </div>
+        <label class="ticket-control"><span class="sr-only">Unidad de ${name}</span><select data-item-control="unit" data-item-id="${id}">${metadata.units.map(unit => `<option value="${escapeHtml(unit)}"${unit === item.unit ? ' selected' : ''}>${escapeHtml(UNIT_LABELS[unit] || unit)}</option>`).join('')}</select></label>
+        <label class="ticket-control"><span class="sr-only">Peso o tamaño de ${name}</span><select data-item-control="variant" data-item-id="${id}" ${line?.productVariantId ? '' : 'disabled'}>${variantSelectOptions(line)}</select></label>
+        <label class="ticket-control ticket-control--store"><span class="sr-only">Tienda de ${name}</span><select data-item-control="store" data-item-id="${id}">${itemStoreOptions(item.storeOverrideId || '')}</select></label>
+        <div class="ticket-item__move" aria-label="Orden de ${name}">
+          <button type="button" class="icon-button" data-item-action="move" data-item-id="${id}" data-direction="-1" ${index === 0 ? 'disabled' : ''} aria-label="Subir ${name}"><span data-icon="chevronUp"></span></button>
+          <button type="button" class="icon-button" data-item-action="move" data-item-id="${id}" data-direction="1" ${index === total - 1 ? 'disabled' : ''} aria-label="Bajar ${name}"><span data-icon="chevronDown"></span></button>
+        </div>
+        <button type="button" class="icon-button ticket-item__more" data-swipe-toggle aria-expanded="false" aria-label="Mostrar acciones de ${name}"><span data-icon="more"></span></button>
       </div>
-    `);
-  }
+      <span class="ticket-item__position sr-only">${index + 1} de ${total}</span>
+    </article>
+  </div>`;
 }
 
 function renderOverview() {
@@ -167,7 +384,18 @@ function groupItems(items) {
   return groups;
 }
 
-function renderItemGroups(container, items, emptyMessage) {
+function bulkCompletedItem(item) {
+  const name = escapeHtml(item.text);
+  const id = escapeHtml(item.id);
+  const selected = model.selectedItemIds.has(item.id);
+  const storeName = model.stores.find(store => store.id === (item.storeOverrideId || model.list?.referenceStoreId))?.name || 'Sin tienda';
+  return `<li class="list-row bulk-select-completed${selected ? ' is-selected' : ''}" data-select-row data-item-id="${id}">
+    ${selectionButton(item, name)}
+    <div class="list-row__content"><strong>${name}</strong><span>${item.quantityMinor} ${escapeHtml(UNIT_LABELS[item.unit] || item.unit)} · ${escapeHtml(storeName)}</span></div>
+  </li>`;
+}
+
+function renderItemGroups(container, items, emptyMessage, renderer = shoppingListItem) {
   if (items.length === 0) {
     container.innerHTML = `<ul class="item-list">${emptyListState(emptyMessage)}</ul>`;
     return;
@@ -176,25 +404,89 @@ function renderItemGroups(container, items, emptyMessage) {
   container.innerHTML = [...groupItems(items)].map(([category, group]) => `
     <section class="category-group" aria-label="${escapeHtml(category)}">
       <h3>${escapeHtml(category)}</h3>
-      <ul class="item-list">${group.map(item => shoppingListItem(item, overallIndexes.get(item.id), items.length)).join('')}</ul>
+      <ul class="item-list">${group.map(item => renderer(item, overallIndexes.get(item.id), items.length)).join('')}</ul>
     </section>
   `).join('');
+}
+
+function renderEstimateSummary() {
+  const estimate = model.estimate;
+  if (!estimate) {
+    $('#estimate-total').textContent = '—';
+    $('#estimate-coverage').textContent = 'Sin estimación';
+    $('#estimate-oldest').textContent = '';
+    $('#list-store-coverage').textContent = 'La estimación usa el último precio guardado.';
+    return;
+  }
+  const total = estimate.pricedItemCount + estimate.unpricedItemCount;
+  $('#estimate-total').textContent = formatEuroMinor(estimate.totalMinor);
+  $('#estimate-coverage').textContent = `${estimate.pricedItemCount} de ${total} con precio${estimate.unpricedItemCount ? ` · ${estimate.unpricedItemCount} sin precio` : ''}`;
+  $('#estimate-oldest').textContent = estimate.oldestObservedAt ? `Más antiguo: ${relativeAge(estimate.oldestObservedAt)}` : '';
+  $('#list-store-coverage').textContent = total
+    ? `${estimate.pricedItemCount}/${total} productos con precio guardado`
+    : 'Añade productos para calcular la estimación.';
+}
+
+function renderBulkSelection() {
+  const validIds = new Set(model.items.map(item => item.id));
+  for (const id of model.selectedItemIds) {
+    if (!validIds.has(id)) model.selectedItemIds.delete(id);
+  }
+  const count = model.selectedItemIds.size;
+  const total = model.items.length;
+  const toggle = $('#toggle-multi-select');
+  toggle.setAttribute('aria-pressed', String(model.multiSelectMode));
+  toggle.querySelector('span:last-child').textContent = model.multiSelectMode ? 'Cancelar' : 'Seleccionar';
+  $('#bulk-selection-bar').hidden = !model.multiSelectMode;
+  $('#bulk-selection-count').textContent = `${count} seleccionado${count === 1 ? '' : 's'}`;
+  $('#bulk-select-all').textContent = total > 0 && count === total ? 'Quitar selección' : 'Seleccionar todos';
+  for (const selector of ['#bulk-mark-completed', '#bulk-mark-pending', '#bulk-apply-store', '#bulk-delete-items']) {
+    $(selector).disabled = count === 0;
+  }
+  $('#bulk-store-select').disabled = count === 0;
+  $('#list-detail').classList.toggle('is-multi-select', model.multiSelectMode);
 }
 
 function renderItems() {
   const pending = model.items.filter(item => !item.completed);
   const completed = model.items.filter(item => item.completed);
-  renderItemGroups($('#pending-items'), pending, 'Añade el primer producto para empezar.');
-  renderItemGroups($('#completed-items'), completed, 'Los productos comprados aparecerán aquí.');
+  const pendingRoot = $('#pending-items');
+  pendingRoot.innerHTML = pending.length
+    ? pending.map((item, index) => ticketItem(item, index, pending.length)).join('')
+    : '<div class="shopping-ticket__empty"><strong>Lista vacía</strong><small>Añade el primer producto para empezar.</small></div>';
+  renderItemGroups(
+    $('#completed-items'),
+    completed,
+    'Los productos comprados aparecerán aquí.',
+    model.multiSelectMode ? bulkCompletedItem : shoppingListItem,
+  );
   $('#pending-count').textContent = String(pending.length);
   $('#completed-count').textContent = String(completed.length);
   $('#completed-section').hidden = completed.length === 0;
+  renderEstimateSummary();
+  renderBulkSelection();
+  document.dispatchEvent(new CustomEvent('basketra:hydrate-icons', { detail: { root: pendingRoot } }));
+  document.dispatchEvent(new CustomEvent('basketra:hydrate-icons', { detail: { root: $('#completed-items') } }));
 }
 
 function renderDetail() {
   if (!model.list) return;
   $('#active-list-title').textContent = model.list.name;
+  renderReferenceStore();
   renderItems();
+}
+
+async function loadVariantOptions(lines = []) {
+  const parentIds = [...new Set(lines.map(line => line.canonicalProductId).filter(Boolean))];
+  await Promise.all(parentIds.map(async parentId => {
+    if (model.variantOptions.has(parentId)) return;
+    try {
+      const result = await api(`/api/v1/products/parents/${encodeURIComponent(parentId)}/variants`);
+      model.variantOptions.set(parentId, result.variants || []);
+    } catch {
+      model.variantOptions.set(parentId, []);
+    }
+  }));
 }
 
 async function loadLists() {
@@ -211,16 +503,28 @@ async function loadLists() {
 }
 
 async function loadActiveList() {
-  if (!model.activeListId) return;
-  const result = await api(`/api/v1/shopping-lists/${encodeURIComponent(model.activeListId)}`);
-  model.list = result.list;
-  model.items = result.items;
-  const index = model.lists.findIndex(list => list.id === result.list.id);
-  if (index >= 0) model.lists[index] = { ...model.lists[index], ...result.list };
+  const listId = model.activeListId;
+  if (!listId) return false;
+  const generation = ++model.activeListLoadGeneration;
+  const [detail, estimateResult] = await Promise.all([
+    api(`/api/v1/shopping-lists/${encodeURIComponent(listId)}`),
+    api(`/api/v1/shopping-lists/${encodeURIComponent(listId)}/estimate`),
+  ]);
+  if (generation !== model.activeListLoadGeneration || model.activeListId !== listId) return false;
+  await loadVariantOptions(estimateResult.estimate?.lines || []);
+  if (generation !== model.activeListLoadGeneration || model.activeListId !== listId) return false;
+  model.list = detail.list;
+  model.items = detail.items;
+  model.estimate = estimateResult.estimate;
+  const index = model.lists.findIndex(list => list.id === detail.list.id);
+  if (index >= 0) model.lists[index] = { ...model.lists[index], ...detail.list };
   renderDetail();
+  return true;
 }
 
 async function openList(listId, { syncUrl = true, replace = false } = {}) {
+  model.multiSelectMode = false;
+  model.selectedItemIds.clear();
   model.activeListId = listId;
   saveActiveListId(listId);
   if (syncUrl) writeListRoute(listId, { replace });
@@ -260,8 +564,10 @@ function scheduleRealtimeResync(event) {
         || event.listId === model.activeListId
       );
       const tasks = [loadLists()];
+      if (event?.entityType === 'product') model.variantOptions.clear();
       if (shouldReloadDetail) tasks.push(loadActiveList());
       if (event?.entityType === 'category') tasks.push(loadCategories());
+      if (event?.entityType === 'store') tasks.push(loadStores());
       await Promise.all(tasks);
       setRealtimeState('live', 'En tiempo real');
     } catch {
@@ -302,28 +608,12 @@ async function loadCategories() {
 }
 
 function populateCategorySelects() {
+  const select = $('#global-category');
+  if (!select) return;
+  const current = select.value;
   const options = model.categories.map(category => `<option value="${escapeHtml(category.id)}">${escapeHtml(category.name)}</option>`).join('');
-  for (const selector of ['#proposal-category', '#global-category']) {
-    const select = $(selector);
-    const current = select.value;
-    select.innerHTML = `<option value="">Sin categoría</option>${options}`;
-    if ([...select.options].some(option => option.value === current)) select.value = current;
-  }
-  if (model.proposedCategoryName) ensureProposedCategoryOption();
-}
-
-function ensureProposedCategoryOption() {
-  const select = $('#proposal-category');
-  const existing = model.categories.find(category => category.name.localeCompare(model.proposedCategoryName, 'es', { sensitivity: 'base' }) === 0);
-  if (existing) {
-    select.value = existing.id;
-    return;
-  }
-  const option = document.createElement('option');
-  option.value = '__proposal__';
-  option.textContent = `${model.proposedCategoryName} (nueva al confirmar)`;
-  select.append(option);
-  select.value = '__proposal__';
+  select.innerHTML = `<option value="">Sin categoría</option>${options}`;
+  if ([...select.options].some(option => option.value === current)) select.value = current;
 }
 
 async function loadStores(origin) {
@@ -339,13 +629,20 @@ async function loadStores(origin) {
   return model.stores;
 }
 
-function renderStoreOptions(selectedId = $('#store-select').value) {
-  const select = $('#store-select');
-  select.innerHTML = `<option value="">Sin tienda física</option>${model.stores.map(store => {
-    const distance = Number.isFinite(store.distanceMeters) ? ` · ${Math.round(store.distanceMeters)} m` : '';
-    return `<option value="${escapeHtml(store.id)}" data-retailer="${escapeHtml(store.retailerName)}">${escapeHtml(store.name)} · ${escapeHtml(store.retailerName)}${distance}</option>`;
-  }).join('')}`;
-  if ([...select.options].some(option => option.value === selectedId)) select.value = selectedId;
+function renderStoreOptions() {
+  const configurations = [
+    ['#store-select', itemStoreOptions($('#store-select')?.value || '')],
+    ['#global-store-select', `<option value="">Sin tienda física</option>${model.stores.map(store => `<option value="${escapeHtml(store.id)}">${escapeHtml(store.name)} · ${escapeHtml(store.retailerName)}</option>`).join('')}`],
+    ['#list-store-select', listStoreOptions(model.list?.referenceStoreId || '')],
+    ['#bulk-store-select', itemStoreOptions($('#bulk-store-select')?.value || '')],
+  ];
+  for (const [selector, html] of configurations) {
+    const select = $(selector);
+    if (!select) continue;
+    const current = select.value;
+    select.innerHTML = html;
+    if ([...select.options].some(option => option.value === current)) select.value = current;
+  }
 }
 
 function restoreItemDraft() {
@@ -372,44 +669,80 @@ function resetProductProposal() {
   model.photoStorageKey = '';
   model.photoProposal = null;
   model.proposedCategoryName = '';
-  $('#product-proposal').hidden = true;
-  $('#proposal-canonical-name').value = '';
-  $('#proposal-variant-name').value = '';
-  $('#proposal-brand').value = '';
-  $('#proposal-ean').value = '';
-  $('#proposal-description').value = '';
-  $('#proposal-price').value = '';
-  $('#proposal-retailer').value = '';
-  $('#proposal-warnings').innerHTML = '';
-  $('#product-confidence').textContent = '';
   $('#product-photo-state').textContent = '';
-  populateCategorySelects();
+  if ($('#global-ai-feedback')) $('#global-ai-feedback').hidden = true;
+  if ($('#global-product-warnings')) $('#global-product-warnings').innerHTML = '';
+  if ($('#global-product-confidence')) $('#global-product-confidence').textContent = '';
 }
 
 function clearLinkedProduct() {
   model.selectedProductVariantId = '';
   model.selectedProductName = '';
+  model.selectedCanonicalProductId = '';
+  model.selectedSuggestion = null;
   $('#linked-product').hidden = true;
   $('#linked-product-name').textContent = '';
+  const size = $('#item-size');
+  size.innerHTML = '<option value="">Sin producto seleccionado</option>';
+  size.disabled = true;
+  void refreshDraftEstimate();
 }
 
-function setLinkedProduct(id, name) {
+async function hydrateItemProduct(variantId, knownProduct) {
+  if (!variantId) return;
+  try {
+    const product = knownProduct || (await api(`/api/v1/products/${encodeURIComponent(variantId)}`)).product;
+    if (model.selectedProductVariantId !== variantId) return;
+    model.selectedCanonicalProductId = product.canonicalProductId;
+    if (!model.variantOptions.has(product.canonicalProductId)) {
+      const result = await api(`/api/v1/products/parents/${encodeURIComponent(product.canonicalProductId)}/variants`);
+      model.variantOptions.set(product.canonicalProductId, result.variants || []);
+    }
+    const variants = model.variantOptions.get(product.canonicalProductId) || [product];
+    const size = $('#item-size');
+    size.innerHTML = variants.map(variant =>
+      `<option value="${escapeHtml(variant.id)}" data-variant-name="${escapeHtml(variant.variantName)}"${variant.id === variantId ? ' selected' : ''}>${escapeHtml(packageLabel(variant))}</option>`
+    ).join('');
+    size.disabled = false;
+    void refreshDraftEstimate();
+  } catch {
+    const size = $('#item-size');
+    size.innerHTML = '<option value="">Tamaño no disponible</option>';
+    size.disabled = true;
+  }
+}
+
+function setLinkedProduct(id, name, product) {
   model.selectedProductVariantId = id;
   model.selectedProductName = name;
+  model.selectedSuggestion = product || null;
   $('#linked-product-name').textContent = name;
   $('#linked-product').hidden = false;
+  void hydrateItemProduct(id, product);
+}
+
+function setItemEntryMode(mode) {
+  const scanning = mode === 'scan';
+  $('#item-mode-create').classList.toggle('is-selected', !scanning);
+  $('#item-mode-create').setAttribute('aria-pressed', String(!scanning));
+  $('#item-mode-scan').classList.toggle('is-selected', scanning);
+  $('#item-mode-scan').setAttribute('aria-pressed', String(scanning));
+  $('#item-scan-options').hidden = !scanning;
 }
 
 function resetItemForm() {
   model.editingItemId = '';
+  setItemEntryMode('create');
   clearLinkedProduct();
   resetProductProposal();
-  $('#item-form-title').textContent = 'Añadir producto';
+  $('#item-form-title').textContent = 'Nuevo ítem';
   $('#item-submit-label').textContent = 'Añadir';
   $('#item-dialog-state').textContent = '';
   $('#suggestions').innerHTML = '';
   $('#item-advanced').open = false;
+  $('#store-select').value = '';
   restoreItemDraft();
+  void refreshDraftEstimate();
 }
 
 function openItemCreate() {
@@ -422,31 +755,31 @@ async function beginItemEdit(itemId) {
   if (!item) return;
   resetProductProposal();
   model.editingItemId = item.id;
-  $('#item-form-title').textContent = 'Editar producto de esta lista';
+  $('#item-form-title').textContent = 'Editar ítem';
   $('#item-submit-label').textContent = 'Guardar cambios';
   $('#item-text').value = item.text;
   $('#item-quantity').value = String(item.quantityMinor);
   $('#item-unit').value = item.unit;
+  $('#store-select').value = item.storeOverrideId || '';
   $('#exact-required').checked = item.exactRequired;
   $('#substitution-allowed').checked = item.substitutionAllowed;
   if (item.productVariantId) {
     try {
       const result = await api(`/api/v1/products/${encodeURIComponent(item.productVariantId)}`);
-      setLinkedProduct(item.productVariantId, result.product.variantName);
+      setLinkedProduct(item.productVariantId, result.product.variantName, result.product);
+      await hydrateItemProduct(item.productVariantId, result.product);
     } catch {
       clearLinkedProduct();
     }
   } else {
     clearLinkedProduct();
   }
+  await refreshDraftEstimate({ immediate: true });
   openDialog($('#item-dialog'), '#item-text');
 }
 
 function showManualProductDetails() {
-  $('#product-proposal').hidden = false;
-  if (!$('#proposal-canonical-name').value.trim()) $('#proposal-canonical-name').value = $('#item-text').value.trim();
-  if (!$('#proposal-variant-name').value.trim()) $('#proposal-variant-name').value = $('#item-text').value.trim();
-  $('#proposal-canonical-name').focus();
+  void openGlobalProductEditor(!model.selectedProductVariantId);
 }
 
 function scheduleSuggestions() {
@@ -463,27 +796,103 @@ function scheduleSuggestions() {
   model.suggestionTimer = setTimeout(async () => {
     if (controller.signal.aborted) return;
     try {
-      const result = await api(`/api/v1/products/suggestions?q=${encodeURIComponent(query)}`, { signal: controller.signal });
+      const params = new URLSearchParams({ q: query });
+      const effectiveStoreId = $('#store-select').value || model.list?.referenceStoreId || '';
+      if (effectiveStoreId) params.set('storeId', effectiveStoreId);
+      const result = await api(`/api/v1/products/suggestions?${params}`, { signal: controller.signal });
       if (controller.signal.aborted || $('#item-text').value.trim() !== query) return;
-      const options = result.suggestions.map(suggestion => `
-        <button type="button" class="suggestion-option" role="option" data-product-id="${escapeHtml(suggestion.id)}" data-product-name="${escapeHtml(suggestion.name)}">
-          <span>${escapeHtml(suggestion.name)}</span><small>${escapeHtml(suggestion.categoryName || suggestion.canonicalName)}</small>
-        </button>
-      `).join('');
-      $('#suggestions').innerHTML = `${options}<button type="button" class="suggestion-option suggestion-option--create" data-create-global-product="true"><span>Crear ficha global de “${escapeHtml(query)}”</span><small>Opcional: categoría, marca, EAN y formato</small></button>`;
+      const options = result.suggestions.map(suggestion => {
+        const details = [suggestion.brand, suggestion.categoryName || suggestion.canonicalName, packageLabel(suggestion)]
+          .filter(value => value && value !== 'Sin tamaño')
+          .join(' · ');
+        const price = suggestion.latestStorePrice
+          ? `${suggestion.latestStorePrice.storeName} · ${formatEuroMinor(suggestion.latestStorePrice.priceMinor)} · ${relativeAge(suggestion.latestStorePrice.observedAt)}`
+          : 'Sin precio guardado en la tienda seleccionada';
+        return `<button type="button" class="suggestion-option" role="option" data-product-id="${escapeHtml(suggestion.id)}" data-product-name="${escapeHtml(suggestion.name)}">
+          <span><strong>${escapeHtml(suggestion.name)}</strong><small>${escapeHtml(details)}</small><small class="suggestion-price">${escapeHtml(price)}</small></span>
+        </button>`;
+      }).join('');
+      $('#suggestions').innerHTML = `${options}<button type="button" class="suggestion-option suggestion-option--create" data-create-global-product="true"><span><strong>Crear nuevo producto “${escapeHtml(query)}”</strong><small>Producto base, variante, marca, EAN, tamaño, precio y tienda</small></span></button>`;
     } catch (error) {
       if (error.name !== 'AbortError') $('#suggestions').innerHTML = '';
     }
   }, 180);
 }
 
+function setGlobalEntryMode(mode) {
+  const scanning = mode === 'scan';
+  $('#global-mode-scan').classList.toggle('is-selected', scanning);
+  $('#global-mode-scan').setAttribute('aria-pressed', String(scanning));
+  $('#global-mode-manual').classList.toggle('is-selected', !scanning);
+  $('#global-mode-manual').setAttribute('aria-pressed', String(!scanning));
+}
+
+function clearGlobalParent({ keepName = false } = {}) {
+  model.globalParentId = '';
+  model.globalParentName = '';
+  $('#global-parent-selected').hidden = true;
+  $('#global-parent-selected-name').textContent = '';
+  $('#global-parent-selected-meta').textContent = '';
+  $('#global-canonical-field').hidden = false;
+  if (!keepName) $('#global-canonical-name').value = $('#global-parent-search').value.trim();
+}
+
+function setGlobalParent(parent) {
+  model.globalParentId = parent.id;
+  model.globalParentName = parent.name;
+  $('#global-parent-selected-name').textContent = parent.name;
+  $('#global-parent-selected-meta').textContent = `${Number(parent.variantCount || 0)} variantes`;
+  $('#global-parent-selected').hidden = false;
+  $('#global-parent-suggestions').innerHTML = '';
+  $('#global-parent-search').value = parent.name;
+  $('#global-canonical-name').value = parent.name;
+  $('#global-canonical-field').hidden = true;
+}
+
+function resetGlobalProductFields() {
+  shoppingCategorySuggestion?.reset();
+  model.priceNormalizationController?.abort();
+  if (model.priceNormalizationTimer) clearTimeout(model.priceNormalizationTimer);
+  model.priceNormalizationController = null;
+  model.priceNormalizationTimer = null;
+  clearGlobalParent({ keepName: true });
+  $('#global-category-new').value = '';
+  $('#global-variant-name').value = '';
+  $('#global-brand').value = '';
+  $('#global-ean').value = '';
+  $('#global-category').value = '';
+  $('#global-description').value = '';
+  $('#global-aliases').value = '';
+  $('#global-package-minor').value = '';
+  $('#global-package-unit').value = '';
+  $('#global-price').value = '';
+  $('#global-normalized-price').textContent = '';
+  $('#global-product-state').textContent = '';
+  $('#global-ai-feedback').hidden = true;
+  $('#global-product-warnings').innerHTML = '';
+  $('#global-product-confidence').textContent = '';
+}
+
 async function openGlobalProductEditor(createNew = false) {
   model.globalProductEditingId = createNew ? '' : model.selectedProductVariantId;
-  $('#global-product-state').textContent = '';
-  $('#global-category-new').value = '';
+  model.globalProductAddToList = createNew;
+  setGlobalEntryMode('manual');
+  resetGlobalProductFields();
+  $('#global-item-quantity').value = $('#item-quantity').value || '1';
+  $('#global-item-unit').value = $('#item-unit').value || 'unit';
+  const effectiveStoreId = $('#store-select').value || model.list?.referenceStoreId || '';
+  $('#global-store-select').value = effectiveStoreId;
+
   if (model.globalProductEditingId) {
     const result = await api(`/api/v1/products/${encodeURIComponent(model.globalProductEditingId)}`);
     const product = result.product;
+    model.globalParentId = product.canonicalProductId;
+    model.globalParentName = product.canonicalName;
+    $('#global-parent-search').value = product.canonicalName;
+    $('#global-parent-selected-name').textContent = product.canonicalName;
+    $('#global-parent-selected-meta').textContent = 'Producto base actual';
+    $('#global-parent-selected').hidden = false;
+    $('#global-canonical-field').hidden = false;
     $('#global-canonical-name').value = product.canonicalName;
     $('#global-variant-name').value = product.variantName;
     $('#global-brand').value = product.brand || '';
@@ -493,19 +902,41 @@ async function openGlobalProductEditor(createNew = false) {
     $('#global-aliases').value = (product.aliases || []).join('\n');
     $('#global-package-minor').value = product.packageMinor || '';
     $('#global-package-unit').value = product.packageUnit || '';
+    $('#global-product-title').textContent = 'Editar producto';
+    $('#global-product-submit-label').textContent = 'Guardar cambios';
   } else {
     const name = $('#item-text').value.trim();
+    $('#global-parent-search').value = name;
     $('#global-canonical-name').value = name;
     $('#global-variant-name').value = name;
-    $('#global-brand').value = '';
-    $('#global-ean').value = '';
-    $('#global-category').value = '';
-    $('#global-description').value = '';
-    $('#global-aliases').value = '';
-    $('#global-package-minor').value = '';
-    $('#global-package-unit').value = '';
+    $('#global-product-title').textContent = 'Crear producto';
+    $('#global-product-submit-label').textContent = 'Crear y añadir';
   }
-  openDialog($('#global-product-dialog'), '#global-canonical-name');
+  openDialog($('#global-product-dialog'), '#global-parent-search');
+}
+
+function scheduleParentSuggestions() {
+  model.parentSuggestionController?.abort();
+  if (model.parentSuggestionTimer) clearTimeout(model.parentSuggestionTimer);
+  const query = $('#global-parent-search').value.trim();
+  if (model.globalParentId && query !== model.globalParentName) clearGlobalParent({ keepName: true });
+  if (query.length < 2) {
+    $('#global-parent-suggestions').innerHTML = '';
+    return;
+  }
+  const controller = new AbortController();
+  model.parentSuggestionController = controller;
+  model.parentSuggestionTimer = setTimeout(async () => {
+    try {
+      const result = await api(`/api/v1/products/parents?q=${encodeURIComponent(query)}`, { signal: controller.signal });
+      if (controller.signal.aborted || $('#global-parent-search').value.trim() !== query) return;
+      $('#global-parent-suggestions').innerHTML = (result.parents || []).map(parent =>
+        `<button type="button" class="suggestion-option" role="option" data-parent-id="${escapeHtml(parent.id)}" data-parent-name="${escapeHtml(parent.name)}" data-parent-variants="${Number(parent.variantCount || 0)}"><span><strong>${escapeHtml(parent.name)}</strong><small>${Number(parent.variantCount || 0)} variantes${parent.categoryName ? ` · ${escapeHtml(parent.categoryName)}` : ''}</small></span></button>`
+      ).join('');
+    } catch (error) {
+      if (error.name !== 'AbortError') $('#global-parent-suggestions').innerHTML = '';
+    }
+  }, 180);
 }
 
 async function resolveManualCategory() {
@@ -518,39 +949,222 @@ async function resolveManualCategory() {
   return $('#global-category').value || undefined;
 }
 
+function selectedStore(id) {
+  return model.stores.find(store => store.id === id) || null;
+}
+
+function sameStoreText(left, right) {
+  return Boolean(left && right)
+    && left.localeCompare(right, 'es', { sensitivity: 'base' }) === 0;
+}
+
+function proposalStoreMatches(store, storeName, retailerName) {
+  if (storeName && !sameStoreText(store.name, storeName)) return false;
+  if (retailerName && !sameStoreText(store.retailerName, retailerName)) return false;
+  return Boolean(storeName || retailerName);
+}
+
+async function resolveProposalStore(storeName, retailerName) {
+  const cached = model.stores.filter(store => proposalStoreMatches(store, storeName, retailerName));
+  if (cached.length === 1) return cached[0];
+
+  const query = storeName || retailerName;
+  if (!query) return null;
+  try {
+    const params = new URLSearchParams({ q: query, limit: '100' });
+    if (retailerName) params.set('retailer', retailerName);
+    const result = await api(`/api/v1/inventory/stores?${params}`);
+    const matches = (result.stores || []).filter(store => proposalStoreMatches(store, storeName, retailerName));
+    if (matches.length !== 1) return null;
+    const match = matches[0];
+    if (!model.stores.some(store => store.id === match.id)) {
+      model.stores = [...model.stores, match];
+      renderStoreOptions();
+    }
+    return match;
+  } catch {
+    return null;
+  }
+}
+
+function renderGlobalNormalizedPrice(minor, unit) {
+  const target = $('#global-normalized-price');
+  if (!Number.isSafeInteger(minor) || !unit) {
+    target.textContent = '';
+    return;
+  }
+  target.textContent = `≈ ${formatEuroMinor(minor)}/${UNIT_LABELS[unit] || unit}`;
+}
+
+function scheduleGlobalNormalizedPrice() {
+  void refreshGlobalNormalizedPrice();
+}
+
+async function refreshGlobalNormalizedPrice({ immediate = false } = {}) {
+  model.priceNormalizationController?.abort();
+  if (model.priceNormalizationTimer) clearTimeout(model.priceNormalizationTimer);
+  const priceText = $('#global-price').value.trim();
+  const packageNumerator = Number($('#global-package-minor').value);
+  const packageUnit = $('#global-package-unit').value;
+  if (!priceText || !Number.isSafeInteger(packageNumerator) || packageNumerator < 1 || !packageUnit) {
+    renderGlobalNormalizedPrice();
+    return;
+  }
+  const signature = `${priceText}|${packageNumerator}|${packageUnit}`;
+  const run = async () => {
+    const controller = new AbortController();
+    model.priceNormalizationController = controller;
+    try {
+      const result = await api('/api/v1/products/price-normalization', {
+        method: 'POST',
+        signal: controller.signal,
+        body: JSON.stringify({
+          priceMinor: euroInputToMinor(priceText),
+          packageNumerator,
+          packageDenominator: 1,
+          packageUnit,
+        }),
+      });
+      if (controller.signal.aborted) return;
+      const current = `${$('#global-price').value.trim()}|${Number($('#global-package-minor').value)}|${$('#global-package-unit').value}`;
+      if (current !== signature) return;
+      renderGlobalNormalizedPrice(result.normalizedPriceMinor, result.normalizedPriceUnit);
+    } catch (error) {
+      if (error.name !== 'AbortError') renderGlobalNormalizedPrice();
+    }
+  };
+  if (immediate) return await run();
+  model.priceNormalizationTimer = setTimeout(() => void run(), 160);
+}
+
+async function persistGlobalPrice(productVariantId) {
+  const priceText = $('#global-price').value.trim();
+  if (!priceText) return null;
+  const store = selectedStore($('#global-store-select').value);
+  const retailerName = store?.retailerName || model.photoProposal?.retailerName || '';
+  if (!retailerName) throw new Error('Selecciona una tienda o comercio para guardar el precio.');
+  const packageMinor = Number($('#global-package-minor').value);
+  const packageUnit = $('#global-package-unit').value;
+  const payload = {
+    priceMinor: euroInputToMinor(priceText),
+    retailerName,
+    ...(store ? { storeId: store.id } : {}),
+    evidenceType: model.photoStorageKey ? 'product-photo' : 'manual',
+    ...(model.photoStorageKey ? { storageKey: model.photoStorageKey } : {}),
+    ...(Number.isSafeInteger(packageMinor) && packageMinor > 0 ? { packageNumerator: packageMinor } : {}),
+    ...(packageUnit ? { packageUnit } : {}),
+    confidence: model.photoProposal?.confidence ?? 1,
+  };
+  const result = await api(`/api/v1/products/${encodeURIComponent(productVariantId)}/prices`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  renderGlobalNormalizedPrice(
+    result.observation.normalizedDisplayPriceMinor,
+    result.observation.normalizedDisplayPriceUnit,
+  );
+  return result.observation;
+}
+
+function storeOverrideFromSelection(storeId) {
+  if (!storeId || storeId === model.list?.referenceStoreId) return null;
+  return storeId;
+}
+
+async function persistItemWithProduct(product) {
+  if (!model.list) return;
+  const storeOverrideId = storeOverrideFromSelection($('#global-store-select').value);
+  const payload = {
+    text: product.variantName,
+    quantityMinor: Number($('#global-item-quantity').value) || 1,
+    unit: $('#global-item-unit').value || 'unit',
+    exactRequired: $('#exact-required').checked,
+    substitutionAllowed: $('#substitution-allowed').checked,
+    productVariantId: product.id,
+    storeOverrideId,
+  };
+  if (model.editingItemId) {
+    const current = model.items.find(item => item.id === model.editingItemId);
+    if (!current) throw new Error('El producto ya no está en la lista');
+    await api(`/api/v1/shopping-lists/${encodeURIComponent(model.list.id)}/items/${encodeURIComponent(current.id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ ...payload, version: current.version }),
+    });
+  } else {
+    await api(`/api/v1/shopping-lists/${encodeURIComponent(model.list.id)}/items`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+}
+
 async function submitGlobalProduct(event) {
   event.preventDefault();
   const button = event.submitter;
   setBusy(button, true);
-  $('#global-product-state').textContent = 'Guardando ficha global…';
+  $('#global-product-state').textContent = 'Guardando producto…';
   try {
-    const categoryId = await resolveManualCategory();
     const packageMinorRaw = $('#global-package-minor').value.trim();
     const packageUnit = $('#global-package-unit').value;
-    const payload = {
-      canonicalName: $('#global-canonical-name').value.trim(),
+    const variantFields = {
       variantName: $('#global-variant-name').value.trim(),
-      ...(categoryId ? { categoryId } : { categoryId: null }),
-      description: $('#global-description').value.trim() || null,
       brand: $('#global-brand').value.trim() || null,
       ean: $('#global-ean').value.trim() || null,
       packageMinor: packageMinorRaw ? Number(packageMinorRaw) : null,
       packageUnit: packageUnit || null,
       aliases: $('#global-aliases').value.split('\n').map(value => value.trim()).filter(Boolean),
     };
+
     let result;
     if (model.globalProductEditingId) {
-      result = await api(`/api/v1/products/${encodeURIComponent(model.globalProductEditingId)}`, { method: 'PATCH', body: JSON.stringify(payload) });
+      const categoryId = await resolveManualCategory();
+      const payload = {
+        canonicalName: $('#global-canonical-name').value.trim(),
+        ...variantFields,
+        ...(categoryId ? { categoryId } : { categoryId: null }),
+        description: $('#global-description').value.trim() || null,
+      };
+      result = await api(`/api/v1/products/${encodeURIComponent(model.globalProductEditingId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+    } else if (model.globalParentId) {
+      const payload = Object.fromEntries(Object.entries({
+        canonicalProductId: model.globalParentId,
+        ...variantFields,
+      }).filter(([, value]) => value !== null));
+      result = await api('/api/v1/products', { method: 'POST', body: JSON.stringify(payload) });
     } else {
-      const createPayload = Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== null));
-      result = await api('/api/v1/products', { method: 'POST', body: JSON.stringify(createPayload) });
+      const categoryId = await resolveManualCategory();
+      const canonicalName = $('#global-canonical-name').value.trim() || $('#global-parent-search').value.trim();
+      const payload = Object.fromEntries(Object.entries({
+        canonicalName,
+        ...variantFields,
+        ...(categoryId ? { categoryId } : {}),
+        description: $('#global-description').value.trim() || null,
+      }).filter(([, value]) => value !== null));
+      result = await api('/api/v1/products', { method: 'POST', body: JSON.stringify(payload) });
     }
-    setLinkedProduct(result.product.id, result.product.variantName);
-    if (!model.editingItemId) $('#item-text').value = result.product.variantName;
-    closeDialog($('#global-product-dialog'));
-    $('#global-product-state').textContent = '';
-    toast('Ficha global guardada');
-    await loadCategories();
+
+    await persistGlobalPrice(result.product.id);
+    setLinkedProduct(result.product.id, result.product.variantName, result.product);
+    $('#item-text').value = result.product.variantName;
+
+    if (model.globalProductAddToList) {
+      await persistItemWithProduct(result.product);
+      if (!model.editingItemId) clearItemDraft();
+      closeDialog($('#global-product-dialog'));
+      closeDialog($('#item-dialog'));
+      resetItemForm();
+      await Promise.all([loadActiveList(), loadLists()]);
+      toast(model.editingItemId ? 'Producto y línea actualizados' : 'Producto añadido');
+    } else {
+      closeDialog($('#global-product-dialog'));
+      $('#global-product-state').textContent = '';
+      await Promise.all([loadCategories(), loadActiveList()]);
+      await refreshDraftEstimate({ immediate: true });
+      toast('Ficha de producto guardada');
+    }
   } catch (error) {
     $('#global-product-state').textContent = error.message;
   } finally {
@@ -649,109 +1263,144 @@ async function uploadProductImage(file) {
   return result.file.storageKey;
 }
 
-function applyPhotoProposal(proposal, storageKey) {
+async function applyPhotoProposal(proposal, storageKey) {
   model.photoStorageKey = storageKey;
   model.photoProposal = proposal;
   model.proposedCategoryName = proposal.category || '';
-  $('#product-proposal').hidden = false;
-  $('#proposal-canonical-name').value = proposal.canonicalName || $('#item-text').value.trim();
-  $('#proposal-variant-name').value = proposal.variantName || proposal.canonicalName || $('#item-text').value.trim();
-  $('#proposal-brand').value = proposal.brand || '';
-  $('#proposal-ean').value = proposal.ean || '';
-  $('#proposal-description').value = proposal.description || '';
-  $('#proposal-price').value = Number.isSafeInteger(proposal.priceMinor) ? minorToEuroInput(proposal.priceMinor) : '';
-  $('#proposal-retailer').value = proposal.retailerName || '';
-  $('#product-confidence').textContent = `${Math.round(Number(proposal.confidence || 0) * 100)}%`;
-  $('#product-confidence').className = `status-pill ${Number(proposal.confidence || 0) >= .8 ? 'success' : 'warning'}`;
-  $('#proposal-warnings').innerHTML = (proposal.warnings || []).map(warning => `<p>${escapeHtml(warning)}</p>`).join('');
-  populateCategorySelects();
-  if (proposal.storeName) $('#location-state').textContent = `La foto sugiere “${proposal.storeName}”. Confirma una tienda guardada o búscala manualmente.`;
+
+  if (!$('#global-product-dialog').open) await openGlobalProductEditor(true);
+  const canonicalName = proposal.canonicalName || $('#item-text').value.trim();
+  $('#global-parent-search').value = canonicalName;
+  $('#global-canonical-name').value = canonicalName;
+  $('#global-variant-name').value = proposal.variantName || canonicalName;
+  $('#global-brand').value = proposal.brand || '';
+  $('#global-ean').value = proposal.ean || '';
+  $('#global-description').value = proposal.description || '';
+  $('#global-package-minor').value = Number.isSafeInteger(proposal.packageAmountMinor) ? String(proposal.packageAmountMinor) : '';
+  $('#global-package-unit').value = proposal.packageUnit || '';
+  $('#global-item-quantity').value = Number.isSafeInteger(proposal.quantityMinor) ? String(proposal.quantityMinor) : $('#item-quantity').value || '1';
+  $('#global-item-unit').value = proposal.unit || $('#item-unit').value || 'unit';
+  $('#global-price').value = Number.isSafeInteger(proposal.priceMinor) ? minorToEuroInput(proposal.priceMinor) : '';
+
+  if (proposal.category) {
+    const category = model.categories.find(candidate => candidate.name.localeCompare(proposal.category, 'es', { sensitivity: 'base' }) === 0);
+    if (category) $('#global-category').value = category.id;
+    else $('#global-category-new').value = proposal.category;
+  }
+
+  if (canonicalName) {
+    try {
+      const result = await api(`/api/v1/products/parents?q=${encodeURIComponent(canonicalName)}`);
+      const exact = (result.parents || []).filter(parent => parent.name.localeCompare(canonicalName, 'es', { sensitivity: 'base' }) === 0);
+      if (exact.length === 1) setGlobalParent(exact[0]);
+    } catch {
+      // Parent matching is an optional convenience; the editable form remains available.
+    }
+  }
+
+  const storeName = proposal.storeName?.trim();
+  const retailerName = proposal.retailerName?.trim();
+  const proposalStore = await resolveProposalStore(storeName, retailerName);
+  if (proposalStore) $('#global-store-select').value = proposalStore.id;
+
+  setGlobalEntryMode('manual');
+  $('#global-product-confidence').textContent = `${Math.round(Number(proposal.confidence || 0) * 100)}%`;
+  $('#global-product-confidence').className = `status-pill ${Number(proposal.confidence || 0) >= .8 ? 'success' : 'warning'}`;
+  $('#global-product-warnings').innerHTML = (proposal.warnings || []).map(warning => `<p>${escapeHtml(warning)}</p>`).join('');
+  $('#global-ai-feedback').hidden = false;
+  if ((storeName || retailerName) && !proposalStore) {
+    $('#global-product-warnings').insertAdjacentHTML('beforeend', `<p>${escapeHtml(storeName || retailerName)} no coincide de forma única con una tienda guardada. Confirma la tienda antes de guardar el precio.</p>`);
+  }
+  await refreshGlobalNormalizedPrice({ immediate: true });
 }
 
 async function handleProductPhoto(file, source = 'item') {
-  const state = source === 'ai' ? $('#ai-state') : $('#product-photo-state');
+  const state = source === 'ai'
+    ? $('#ai-state')
+    : source === 'global'
+      ? $('#global-product-state')
+      : $('#product-photo-state');
   state.textContent = 'Preparando imagen…';
   try {
     const storageKey = await uploadProductImage(file);
-    state.textContent = aiConfigured ? 'Analizando imagen…' : 'Imagen guardada. La IA no está configurada; puedes completar los datos manualmente.';
+    state.textContent = aiConfigured
+      ? 'Analizando imagen…'
+      : 'Imagen guardada. La IA no está configurada; completa los datos manualmente.';
+    if (source !== 'global' && !$('#item-dialog').open) openItemCreate();
     if (!aiConfigured) {
       model.photoStorageKey = storageKey;
-      if (source === 'ai') {
-        closeDialog($('#ai-assistant-dialog'));
-        openItemCreate();
-      }
-      showManualProductDetails();
+      if (source === 'ai') closeDialog($('#ai-assistant-dialog'));
+      if (!$('#global-product-dialog').open) await openGlobalProductEditor(true);
       return;
     }
     const result = await api('/api/v1/products/photo-proposal', {
       method: 'POST',
-      body: JSON.stringify({ storageKey, contextText: $('#item-text').value.trim() || $('#ai-text').value.trim() }),
+      body: JSON.stringify({
+        storageKey,
+        contextText: $('#item-text').value.trim() || $('#ai-text').value.trim(),
+      }),
     });
-    if (source === 'ai') {
-      closeDialog($('#ai-assistant-dialog'));
-      openItemCreate();
-    }
-    applyPhotoProposal(result.proposal, storageKey);
-    state.textContent = 'Propuesta lista. Revísala antes de guardar.';
+    if (source === 'ai') closeDialog($('#ai-assistant-dialog'));
+    await applyPhotoProposal(result.proposal, storageKey);
+    state.textContent = 'Datos detectados. Revisa el mismo formulario antes de crear.';
   } catch (error) {
-    state.textContent = `No se pudo preparar la propuesta: ${error.message}. Puedes continuar manualmente.`;
+    state.textContent = `No se pudo analizar la foto: ${error.message}. El formulario manual sigue disponible.`;
   }
 }
 
-async function ensureProposalCategory() {
-  const value = $('#proposal-category').value;
-  if (value === '__proposal__' && model.proposedCategoryName) {
-    const result = await api('/api/v1/categories', { method: 'POST', body: JSON.stringify({ name: model.proposedCategoryName }) });
-    await loadCategories();
-    return result.category.id;
+function scheduleDraftEstimate() {
+  void refreshDraftEstimate();
+}
+
+async function refreshDraftEstimate({ immediate = false } = {}) {
+  model.draftEstimateController?.abort();
+  if (model.draftEstimateTimer) clearTimeout(model.draftEstimateTimer);
+  const variantId = model.selectedProductVariantId;
+  const context = $('#item-line-estimate-context');
+  const total = $('#item-line-estimate-total');
+  if (!variantId || !model.list) {
+    context.textContent = 'Selecciona un producto guardado para calcularla.';
+    total.textContent = '—';
+    return;
   }
-  return value || undefined;
-}
-
-async function ensureProductForItem() {
-  if (model.selectedProductVariantId) return model.selectedProductVariantId;
-  if ($('#product-proposal').hidden) return undefined;
-  const canonicalName = $('#proposal-canonical-name').value.trim();
-  if (!canonicalName) return undefined;
-  const variantName = $('#proposal-variant-name').value.trim() || canonicalName;
-  const categoryId = await ensureProposalCategory();
-  const payload = {
-    canonicalName,
-    variantName,
-    ...(categoryId ? { categoryId } : {}),
-    ...($('#proposal-description').value.trim() ? { description: $('#proposal-description').value.trim() } : {}),
-    ...($('#proposal-brand').value.trim() ? { brand: $('#proposal-brand').value.trim() } : {}),
-    ...($('#proposal-ean').value.trim() ? { ean: $('#proposal-ean').value.trim() } : {}),
-    ...(Number.isSafeInteger(model.photoProposal?.packageAmountMinor) ? { packageMinor: model.photoProposal.packageAmountMinor } : {}),
-    ...(model.photoProposal?.packageUnit ? { packageUnit: model.photoProposal.packageUnit } : {}),
+  const run = async () => {
+    const controller = new AbortController();
+    model.draftEstimateController = controller;
+    try {
+      const storeOverrideId = $('#store-select').value || null;
+      const result = await api(`/api/v1/shopping-lists/${encodeURIComponent(model.list.id)}/estimate-item`, {
+        method: 'POST',
+        signal: controller.signal,
+        body: JSON.stringify({
+          text: $('#item-text').value.trim() || model.selectedProductName || 'Producto',
+          quantityMinor: Number($('#item-quantity').value) || 1,
+          unit: $('#item-unit').value || 'unit',
+          productVariantId: variantId,
+          ...(storeOverrideId ? { storeOverrideId } : {}),
+        }),
+      });
+      if (controller.signal.aborted) return;
+      const line = result.line;
+      if (line.status === 'priced') {
+        total.textContent = formatEuroMinor(line.estimatedTotalMinor);
+        context.textContent = `${line.effectiveStoreName || 'Tienda'} · ${relativeAge(line.observedAt)}`;
+      } else {
+        total.textContent = '—';
+        context.textContent = unpricedLabel(line.reason);
+      }
+    } catch (error) {
+      if (error.name !== 'AbortError') {
+        total.textContent = '—';
+        context.textContent = 'No se pudo actualizar la estimación.';
+      }
+    }
   };
-  const result = await api('/api/v1/products', { method: 'POST', body: JSON.stringify(payload) });
-  setLinkedProduct(result.product.id, result.product.variantName);
-  return result.product.id;
-}
-
-async function persistConfirmedPrice(productVariantId) {
-  const priceText = $('#proposal-price').value.trim();
-  if (!priceText) return { persisted: false, reason: 'none' };
-  const retailerName = $('#proposal-retailer').value.trim();
-  if (!retailerName) return { persisted: false, reason: 'retailer-required' };
-  if (!productVariantId) return { persisted: false, reason: 'product-required' };
-  const storeId = $('#store-select').value || undefined;
-  const payload = {
-    priceMinor: euroInputToMinor(priceText),
-    retailerName,
-    ...(storeId ? { storeId } : {}),
-    evidenceType: model.photoStorageKey ? 'product-photo' : 'manual',
-    ...(model.photoStorageKey ? { storageKey: model.photoStorageKey } : {}),
-    ...(Number.isSafeInteger(model.photoProposal?.packageAmountMinor) ? { packageNumerator: model.photoProposal.packageAmountMinor } : {}),
-    ...(model.photoProposal?.packageUnit ? { packageUnit: model.photoProposal.packageUnit } : {}),
-    confidence: model.photoProposal?.confidence ?? 1,
-  };
-  await api(`/api/v1/products/${encodeURIComponent(productVariantId)}/prices`, { method: 'POST', body: JSON.stringify(payload) });
-  return { persisted: true };
+  if (immediate) return await run();
+  model.draftEstimateTimer = setTimeout(() => void run(), 160);
 }
 
 function explicitEditPayload() {
+  const storeOverrideId = $('#store-select').value || null;
   return {
     text: $('#item-text').value.trim(),
     quantityMinor: Number($('#item-quantity').value),
@@ -763,6 +1412,7 @@ function explicitEditPayload() {
       : model.editingItemId
         ? { productVariantId: null }
         : {}),
+    ...(storeOverrideId ? { storeOverrideId } : model.editingItemId ? { storeOverrideId: null } : {}),
   };
 }
 
@@ -773,19 +1423,16 @@ async function submitItemForm(event) {
   setBusy(button, true);
   $('#item-dialog-state').textContent = model.editingItemId ? 'Guardando cambios…' : 'Añadiendo…';
   try {
-    const productVariantId = await ensureProductForItem();
-    if (productVariantId) setLinkedProduct(productVariantId, model.selectedProductName || $('#proposal-variant-name').value.trim() || $('#item-text').value.trim());
+    const wasEditing = Boolean(model.editingItemId);
     const payload = explicitEditPayload();
-    let item;
     if (model.editingItemId) {
       const current = model.items.find(candidate => candidate.id === model.editingItemId);
       if (!current) throw new Error('El producto ya no está en la lista');
       try {
-        const result = await api(`/api/v1/shopping-lists/${encodeURIComponent(model.list.id)}/items/${encodeURIComponent(current.id)}`, {
+        await api(`/api/v1/shopping-lists/${encodeURIComponent(model.list.id)}/items/${encodeURIComponent(current.id)}`, {
           method: 'PATCH',
           body: JSON.stringify({ ...payload, version: current.version }),
         });
-        item = result.item;
       } catch (error) {
         if (error.code === 'SHOPPING_CONFLICT' && error.details?.kind === 'item') {
           showConflict(payload, error.details.current);
@@ -794,25 +1441,17 @@ async function submitItemForm(event) {
         throw error;
       }
     } else {
-      const result = await api(`/api/v1/shopping-lists/${encodeURIComponent(model.list.id)}/items`, {
+      await api(`/api/v1/shopping-lists/${encodeURIComponent(model.list.id)}/items`, {
         method: 'POST',
         body: JSON.stringify(payload),
       });
-      item = result.item;
+      clearItemDraft();
     }
 
-    const price = await persistConfirmedPrice(item.productVariantId || productVariantId);
-    if (!model.editingItemId) clearItemDraft();
     closeDialog($('#item-dialog'));
     resetItemForm();
     await Promise.all([loadActiveList(), loadLists()]);
-    if (price.reason === 'retailer-required') {
-      toast('Producto guardado. El precio no se añadió al historial porque falta el comercio.');
-    } else if (price.reason === 'product-required') {
-      toast('Producto guardado. Crea una ficha global para registrar historial de precio.');
-    } else {
-      toast(model.editingItemId ? 'Producto actualizado' : 'Producto añadido');
-    }
+    toast(wasEditing ? 'Producto actualizado' : 'Producto añadido');
   } catch (error) {
     $('#item-dialog-state').textContent = error.message;
   } finally {
@@ -879,19 +1518,20 @@ async function resyncAfterSimpleConflict(message = 'La lista cambió en el otro 
 
 async function updateItem(itemId, payload, status) {
   const item = model.items.find(candidate => candidate.id === itemId);
-  if (!item || !model.list) return;
+  if (!item || !model.list) return false;
   try {
-    const result = await api(`/api/v1/shopping-lists/${encodeURIComponent(model.list.id)}/items/${encodeURIComponent(itemId)}`, {
+    await api(`/api/v1/shopping-lists/${encodeURIComponent(model.list.id)}/items/${encodeURIComponent(itemId)}`, {
       method: 'PATCH',
       body: JSON.stringify({ ...payload, version: item.version }),
     });
-    const index = model.items.findIndex(candidate => candidate.id === itemId);
-    if (index >= 0) model.items[index] = result.item;
-    if (Number.isSafeInteger(result.listVersion)) model.list.version = result.listVersion;
-    renderItems();
+    await loadActiveList();
     $('#item-state').textContent = status;
+    return true;
   } catch (error) {
-    if (error.code === 'SHOPPING_CONFLICT') return resyncAfterSimpleConflict();
+    if (error.code === 'SHOPPING_CONFLICT') {
+      await resyncAfterSimpleConflict();
+      return false;
+    }
     throw error;
   }
 }
@@ -939,6 +1579,7 @@ function itemCreationPayload(item) {
     exactRequired: item.exactRequired,
     substitutionAllowed: item.substitutionAllowed,
     ...(item.productVariantId ? { productVariantId: item.productVariantId } : {}),
+    ...(item.storeOverrideId ? { storeOverrideId: item.storeOverrideId } : {}),
   };
 }
 
@@ -984,6 +1625,8 @@ async function deleteItemFromSwipe(itemId) {
     });
     model.items.splice(originalIndex, 1);
     renderItems();
+    window.getSelection()?.removeAllRanges();
+    requestAnimationFrame(() => window.getSelection()?.removeAllRanges());
     toast('Producto eliminado', {
       actionLabel: 'Deshacer',
       duration: 5200,
@@ -1019,6 +1662,44 @@ async function confirmDeleteItem() {
   }
 }
 
+function revealCompletedRecovery() {
+  const section = $('#completed-section');
+  if (!section || section.hidden) return;
+  section.open = true;
+}
+
+async function setItemCompleted(itemId, completed, { offerUndo = false } = {}) {
+  const status = completed ? 'Producto completado' : 'Producto devuelto a pendientes';
+  let updated = await updateItem(itemId, { completed }, status);
+  if (!updated) {
+    const current = model.items.find(candidate => candidate.id === itemId);
+    if (!current || current.completed === completed) updated = Boolean(current);
+    else updated = await updateItem(itemId, { completed }, status);
+  }
+  if (!updated || !completed) return;
+  window.getSelection()?.removeAllRanges();
+  requestAnimationFrame(() => window.getSelection()?.removeAllRanges());
+  revealCompletedRecovery();
+  if (offerUndo) {
+    toast('Producto marcado como comprado', {
+      actionLabel: 'Deshacer',
+      duration: 5200,
+      onAction: () => undoCompletedItem(itemId),
+    });
+  }
+}
+
+async function undoCompletedItem(itemId) {
+  const current = model.items.find(candidate => candidate.id === itemId);
+  if (!current?.completed) return;
+  try {
+    await setItemCompleted(itemId, false);
+    toast('Producto devuelto a pendientes');
+  } catch (error) {
+    toast(`No se pudo deshacer: ${error.message}`);
+  }
+}
+
 async function handleItemAction(event) {
   const button = event.target.closest('[data-item-action]');
   if (!button) return;
@@ -1028,7 +1709,7 @@ async function handleItemAction(event) {
     if (button.dataset.itemAction === 'delete') showDeleteItemDialog(itemId);
     if (button.dataset.itemAction === 'complete') {
       const item = model.items.find(candidate => candidate.id === itemId);
-      if (item) await updateItem(itemId, { completed: !item.completed }, item.completed ? 'Producto devuelto a pendientes' : 'Producto completado');
+      if (item) await setItemCompleted(itemId, !item.completed, { offerUndo: !item.completed });
     }
     if (button.dataset.itemAction === 'quantity') await updateItem(itemId, { quantityDelta: Number(button.dataset.delta) }, 'Cantidad actualizada');
     if (button.dataset.itemAction === 'move') await moveItem(itemId, Number(button.dataset.direction));
@@ -1217,69 +1898,84 @@ async function confirmAiProposal(event) {
   }
 }
 
-function requestGeolocation() {
+function locationUi(scope) {
+  const global = scope === 'global';
+  return {
+    button: $(global ? '#global-use-current-location' : '#use-current-location'),
+    nearbyButton: $(global ? '#global-find-nearby-stores' : '#find-nearby-stores'),
+    state: global ? $('#global-product-state') : $('#location-state'),
+    results: $(global ? '#global-nearby-stores' : '#nearby-stores'),
+    attribution: $(global ? '#global-osm-attribution' : '#osm-attribution'),
+    select: $(global ? '#global-store-select' : '#store-select'),
+  };
+}
+
+function requestGeolocation(scope = 'item') {
+  const ui = locationUi(scope);
   if (!window.isSecureContext) {
-    $('#location-state').textContent = 'Tu navegador exige HTTPS para compartir ubicación. Puedes elegir tienda manualmente; un proxy privado con HTTPS habilita esta opción.';
+    ui.state.textContent = 'Tu navegador exige HTTPS para compartir ubicación. Puedes elegir una tienda manualmente.';
     return;
   }
   if (!navigator.geolocation) {
-    $('#location-state').textContent = 'Este navegador no ofrece geolocalización. Elige una tienda manualmente.';
+    ui.state.textContent = 'Este navegador no ofrece geolocalización. Elige una tienda manualmente.';
     return;
   }
-  const button = $('#use-current-location');
-  setBusy(button, true);
-  $('#location-state').textContent = 'Buscando tiendas guardadas cerca…';
+  setBusy(ui.button, true);
+  ui.state.textContent = 'Buscando tiendas guardadas cerca…';
   navigator.geolocation.getCurrentPosition(async position => {
     try {
       model.currentLocation = {
         latitudeMicrodegrees: Math.round(position.coords.latitude * 1_000_000),
         longitudeMicrodegrees: Math.round(position.coords.longitude * 1_000_000),
       };
+      const current = ui.select.value;
       const stores = await loadStores(model.currentLocation);
+      renderStoreOptions();
+      if ([...ui.select.options].some(option => option.value === current)) ui.select.value = current;
       if (stores.length > 0) {
-        $('#location-state').textContent = `Encontradas ${stores.length} tiendas guardadas cerca. Revisa la selección.`;
-        $('#find-nearby-stores').hidden = true;
+        ui.state.textContent = `Encontradas ${stores.length} tiendas guardadas cerca.`;
+        ui.nearbyButton.hidden = true;
       } else {
-        $('#location-state').textContent = 'No hay tiendas guardadas cerca. Puedes buscar candidatas en OpenStreetMap de forma explícita.';
-        $('#find-nearby-stores').hidden = false;
+        ui.state.textContent = 'No hay tiendas guardadas cerca. Puedes buscar candidatas en OpenStreetMap.';
+        ui.nearbyButton.hidden = false;
       }
     } catch (error) {
-      $('#location-state').textContent = error.message;
+      ui.state.textContent = error.message;
     } finally {
-      setBusy(button, false);
+      setBusy(ui.button, false);
     }
   }, error => {
-    setBusy(button, false);
-    $('#location-state').textContent = error.code === error.PERMISSION_DENIED
+    setBusy(ui.button, false);
+    ui.state.textContent = error.code === error.PERMISSION_DENIED
       ? 'No has dado permiso de ubicación. Puedes elegir tienda manualmente.'
       : 'No se pudo obtener la ubicación. Puedes elegir tienda manualmente.';
   }, { enableHighAccuracy: false, maximumAge: 60_000, timeout: 10_000 });
 }
 
-async function findNearbyStores() {
+async function findNearbyStores(scope = 'item') {
   if (!model.currentLocation) return;
-  const button = $('#find-nearby-stores');
-  setBusy(button, true);
-  $('#location-state').textContent = 'Consultando tiendas cercanas…';
+  const ui = locationUi(scope);
+  setBusy(ui.nearbyButton, true);
+  ui.state.textContent = 'Consultando tiendas cercanas…';
   try {
     const result = await api('/api/v1/stores/nearby', {
       method: 'POST',
       body: JSON.stringify({ ...model.currentLocation, radiusMeters: MAX_NEARBY_METERS, limit: 8 }),
     });
     model.nearbyCandidates = result.candidates;
-    $('#nearby-stores').innerHTML = result.candidates.length
-      ? result.candidates.map((candidate, index) => `<button class="suggestion-option" type="button" data-nearby-index="${index}"><span>${escapeHtml(candidate.name)}</span><small>${escapeHtml(candidate.address || 'OpenStreetMap')} · Usar esta tienda</small></button>`).join('')
+    ui.results.innerHTML = result.candidates.length
+      ? result.candidates.map((candidate, index) => `<button class="suggestion-option" type="button" data-nearby-index="${index}" data-nearby-scope="${scope}"><span><strong>${escapeHtml(candidate.name)}</strong><small>${escapeHtml(candidate.address || 'OpenStreetMap')}</small></span></button>`).join('')
       : '<p>No se encontraron tiendas cercanas.</p>';
-    $('#osm-attribution').hidden = false;
-    $('#location-state').textContent = result.candidates.length ? 'Elige una candidata para guardarla.' : 'Sin resultados cercanos.';
+    ui.attribution.hidden = false;
+    ui.state.textContent = result.candidates.length ? 'Elige una candidata para guardarla.' : 'Sin resultados cercanos.';
   } catch (error) {
-    $('#location-state').textContent = `No se pudo consultar OpenStreetMap: ${error.message}`;
+    ui.state.textContent = `No se pudo consultar OpenStreetMap: ${error.message}`;
   } finally {
-    setBusy(button, false);
+    setBusy(ui.nearbyButton, false);
   }
 }
 
-async function confirmNearbyStore(index) {
+async function confirmNearbyStore(index, scope = 'item') {
   const candidate = model.nearbyCandidates[index];
   if (!candidate) return;
   const result = await api('/api/v1/stores', {
@@ -1295,11 +1991,141 @@ async function confirmNearbyStore(index) {
     }),
   });
   await loadStores(model.currentLocation || undefined);
-  $('#store-select').value = result.store.id;
-  $('#proposal-retailer').value = result.store.retailerName;
-  $('#location-state').textContent = `${result.store.name} guardada y seleccionada.`;
-  $('#nearby-stores').innerHTML = '';
+  const ui = locationUi(scope);
+  ui.select.value = result.store.id;
+  ui.state.textContent = `${result.store.name} guardada y seleccionada.`;
+  ui.results.innerHTML = '';
+  if (scope === 'item') void refreshDraftEstimate();
   toast('Tienda guardada');
+}
+
+function openStoreCreator(statusTarget) {
+  window.open(applicationPathForRoute('stores:new'), '_blank', 'noopener,noreferrer');
+  statusTarget.textContent = 'Crea la tienda en la nueva pestaña y vuelve aquí para actualizar las tiendas sin perder este formulario.';
+}
+
+async function refreshStoreChoices(select, statusTarget) {
+  const selectedId = select.value;
+  try {
+    await loadStores(model.currentLocation || undefined);
+    renderStoreOptions();
+    if ([...select.options].some(option => option.value === selectedId)) select.value = selectedId;
+    statusTarget.textContent = 'Tiendas actualizadas.';
+  } catch (error) {
+    statusTarget.textContent = error.message;
+  }
+}
+
+function setMultiSelectMode(enabled) {
+  model.multiSelectMode = enabled;
+  if (!enabled) model.selectedItemIds.clear();
+  renderItems();
+}
+
+function toggleSelectedItem(itemId) {
+  if (!model.multiSelectMode || !model.items.some(item => item.id === itemId)) return;
+  if (model.selectedItemIds.has(itemId)) model.selectedItemIds.delete(itemId);
+  else model.selectedItemIds.add(itemId);
+  renderItems();
+}
+
+function handleSelectionEvent(event) {
+  if (!model.multiSelectMode) return false;
+  const target = event.target.closest('[data-select-item], [data-select-row]');
+  if (!target) return false;
+  const itemId = target.dataset.itemId;
+  if (itemId) toggleSelectedItem(itemId);
+  return true;
+}
+
+function selectedItemsForBulk() {
+  return model.items
+    .filter(item => model.selectedItemIds.has(item.id))
+    .map(item => ({ id: item.id, version: item.version }));
+}
+
+async function runBulkAction(action, payload, status) {
+  if (!model.list) return false;
+  const items = selectedItemsForBulk();
+  if (items.length === 0) return false;
+  try {
+    await api(`/api/v1/shopping-lists/${encodeURIComponent(model.list.id)}/items/bulk`, {
+      method: 'POST',
+      body: JSON.stringify({ items, action, ...payload }),
+    });
+    setMultiSelectMode(false);
+    await Promise.all([loadActiveList(), loadLists()]);
+    if (action === 'completed' && payload.completed === true) revealCompletedRecovery();
+    toast(status);
+    return true;
+  } catch (error) {
+    if (error.code === 'SHOPPING_CONFLICT') {
+      await resyncAfterSimpleConflict('Alguno de los productos seleccionados cambió en otro dispositivo. Revisa la selección y vuelve a intentarlo.');
+      return false;
+    }
+    $('#item-state').textContent = error.message;
+    return false;
+  }
+}
+
+function openBulkDeleteDialog() {
+  const count = model.selectedItemIds.size;
+  if (count === 0) return;
+  $('#bulk-delete-count').textContent = `${count} producto${count === 1 ? '' : 's'}`;
+  $('#bulk-delete-state').textContent = '';
+  openDialog($('#bulk-delete-dialog'));
+}
+
+async function confirmBulkDelete() {
+  const button = $('#confirm-bulk-delete');
+  setBusy(button, true);
+  try {
+    const deleted = await runBulkAction('delete', {}, 'Productos eliminados');
+    if (deleted) closeDialog($('#bulk-delete-dialog'));
+  } finally {
+    setBusy(button, false);
+  }
+}
+
+async function updateReferenceStore(scope) {
+  if (!model.list) return;
+  const button = scope === 'all' ? $('#apply-list-store-all') : $('#list-store-select');
+  setBusy(button, true);
+  try {
+    const storeId = $('#list-store-select').value || null;
+    await api(`/api/v1/shopping-lists/${encodeURIComponent(model.list.id)}/store-selection`, {
+      method: 'PUT',
+      body: JSON.stringify({ storeId, scope, version: model.list.version }),
+    });
+    await Promise.all([loadActiveList(), loadLists()]);
+    toast(scope === 'all' ? 'Tienda aplicada a todos los productos' : 'Tienda de referencia actualizada');
+  } catch (error) {
+    if (error.code === 'SHOPPING_CONFLICT') await resyncAfterSimpleConflict();
+    else $('#item-state').textContent = error.message;
+  } finally {
+    setBusy(button, false);
+  }
+}
+
+async function handleTicketControl(event) {
+  const select = event.target.closest('[data-item-control]');
+  if (!select) return;
+  const itemId = select.dataset.itemId;
+  if (select.dataset.itemControl === 'unit') {
+    await updateItem(itemId, { unit: select.value }, 'Unidad actualizada');
+    return;
+  }
+  if (select.dataset.itemControl === 'store') {
+    await updateItem(itemId, { storeOverrideId: select.value || null }, 'Tienda actualizada');
+    return;
+  }
+  if (select.dataset.itemControl === 'variant') {
+    const option = select.selectedOptions[0];
+    await updateItem(itemId, {
+      productVariantId: select.value,
+      text: option?.dataset.variantName || model.items.find(item => item.id === itemId)?.text,
+    }, 'Tamaño actualizado');
+  }
 }
 
 function bindListOverviewActions() {
@@ -1321,9 +2147,14 @@ function bindDialogs() {
   });
   $('#open-create-list').addEventListener('click', openCreateListDialog);
   $('#open-item-dialog').addEventListener('click', openItemCreate);
+  $('#scan-list-item').addEventListener('click', () => {
+    openItemCreate();
+    setItemEntryMode('scan');
+  });
   $('#close-item-dialog').addEventListener('click', () => { closeDialog($('#item-dialog')); resetItemForm(); });
   $('#cancel-item-edit').addEventListener('click', () => { closeDialog($('#item-dialog')); resetItemForm(); });
   $('#open-ai-assistant').addEventListener('click', () => {
+    $('#list-menu-panel').hidden = true;
     $('#ai-state').textContent = aiConfigured ? '' : 'La IA no está configurada; puedes seguir usando la lista manualmente.';
     $('#ai-proposals').hidden = true;
     openDialog($('#ai-assistant-dialog'), '#ai-text');
@@ -1349,10 +2180,33 @@ function bindEvents() {
   $('#rename-list-form').addEventListener('submit', renameList);
   $('#confirm-delete-list').addEventListener('click', () => void confirmDeleteList());
   $('#cancel-delete-list').addEventListener('click', () => closeDialog($('#delete-list-dialog')));
+
   $('#item-form').addEventListener('submit', submitItemForm);
-  $('#item-form').addEventListener('input', persistItemDraft);
-  $('#item-form').addEventListener('change', persistItemDraft);
+  $('#item-form').addEventListener('input', event => {
+    persistItemDraft();
+    if (event.target.matches('#item-quantity')) scheduleDraftEstimate();
+  });
+  $('#item-form').addEventListener('change', event => {
+    persistItemDraft();
+    if (event.target.matches('#item-unit, #store-select')) scheduleDraftEstimate();
+  });
   $('#item-text').addEventListener('input', scheduleSuggestions);
+  $('#item-quantity-minus').addEventListener('click', () => {
+    $('#item-quantity').value = String(Math.max(1, Number($('#item-quantity').value) - 1));
+    persistItemDraft();
+    scheduleDraftEstimate();
+  });
+  $('#item-quantity-plus').addEventListener('click', () => {
+    $('#item-quantity').value = String(Math.min(100000, Number($('#item-quantity').value) + 1));
+    persistItemDraft();
+    scheduleDraftEstimate();
+  });
+  $('#item-size').addEventListener('change', event => {
+    const option = event.target.selectedOptions[0];
+    if (!event.target.value) return;
+    $('#item-text').value = option?.dataset.variantName || $('#item-text').value;
+    setLinkedProduct(event.target.value, option?.dataset.variantName || $('#item-text').value);
+  });
   $('#suggestions').addEventListener('click', event => {
     const product = event.target.closest('[data-product-id]');
     if (product) {
@@ -1365,13 +2219,64 @@ function bindEvents() {
     if (event.target.closest('[data-create-global-product]')) void openGlobalProductEditor(true);
   });
   $('#edit-global-product').addEventListener('click', () => void openGlobalProductEditor(false));
+  $('#item-mode-create').addEventListener('click', () => setItemEntryMode('create'));
+  $('#item-mode-scan').addEventListener('click', () => setItemEntryMode('scan'));
+  $('#scan-product-photo').addEventListener('click', () => $('#product-camera').click());
+  $('#scan-ticket').addEventListener('click', () => {
+    persistItemDraft();
+    closeDialog($('#item-dialog'));
+    document.dispatchEvent(new CustomEvent('basketra:navigate', { detail: { route: 'scan' } }));
+  });
+  $('#open-product-photo').addEventListener('click', () => $('#product-camera').click());
+
   $('#global-product-form').addEventListener('submit', submitGlobalProduct);
-  $('#open-manual-product-details').addEventListener('click', showManualProductDetails);
+  $('#global-product-form').addEventListener('input', event => {
+    if (event.target.matches('#global-price, #global-package-minor')) scheduleGlobalNormalizedPrice();
+  });
+  $('#global-product-form').addEventListener('change', event => {
+    if (event.target.matches('#global-package-unit')) scheduleGlobalNormalizedPrice();
+  });
+  $('#global-parent-search').addEventListener('input', scheduleParentSuggestions);
+  $('#global-parent-suggestions').addEventListener('click', event => {
+    const button = event.target.closest('[data-parent-id]');
+    if (!button) return;
+    setGlobalParent({
+      id: button.dataset.parentId,
+      name: button.dataset.parentName,
+      variantCount: Number(button.dataset.parentVariants || 0),
+    });
+  });
+  $('#global-parent-create').addEventListener('click', () => {
+    clearGlobalParent({ keepName: true });
+    $('#global-canonical-name').value = $('#global-parent-search').value.trim();
+    $('#global-canonical-field').hidden = false;
+    $('#global-canonical-name').focus();
+  });
+  $('#global-parent-clear').addEventListener('click', () => clearGlobalParent({ keepName: true }));
+  $('#global-mode-manual').addEventListener('click', () => setGlobalEntryMode('manual'));
+  $('#global-mode-scan').addEventListener('click', () => {
+    setGlobalEntryMode('scan');
+    $('#global-product-camera').click();
+  });
+  $('#global-item-quantity-minus').addEventListener('click', () => {
+    $('#global-item-quantity').value = String(Math.max(1, Number($('#global-item-quantity').value) - 1));
+  });
+  $('#global-item-quantity-plus').addEventListener('click', () => {
+    $('#global-item-quantity').value = String(Math.min(100000, Number($('#global-item-quantity').value) + 1));
+  });
+
   for (const selector of ['#product-camera', '#product-gallery']) {
     $(selector).addEventListener('change', event => {
       const file = event.target.files?.[0];
       event.target.value = '';
       if (file) void handleProductPhoto(file, 'item');
+    });
+  }
+  for (const selector of ['#global-product-camera', '#global-product-gallery']) {
+    $(selector).addEventListener('change', event => {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      if (file) void handleProductPhoto(file, 'global');
     });
   }
   for (const selector of ['#ai-product-camera', '#ai-product-gallery']) {
@@ -1381,8 +2286,30 @@ function bindEvents() {
       if (file) void handleProductPhoto(file, 'ai');
     });
   }
-  $('#pending-items').addEventListener('click', event => void handleItemAction(event));
-  $('#completed-items').addEventListener('click', event => void handleItemAction(event));
+
+  $('#list-store-select').addEventListener('change', () => void updateReferenceStore('default'));
+  $('#apply-list-store-all').addEventListener('click', () => void updateReferenceStore('all'));
+  $('#toggle-multi-select').addEventListener('click', () => setMultiSelectMode(!model.multiSelectMode));
+  $('#bulk-select-all').addEventListener('click', () => {
+    if (model.selectedItemIds.size === model.items.length) model.selectedItemIds.clear();
+    else model.items.forEach(item => model.selectedItemIds.add(item.id));
+    renderItems();
+  });
+  $('#bulk-mark-completed').addEventListener('click', () => void runBulkAction('completed', { completed: true }, 'Productos marcados como comprados'));
+  $('#bulk-mark-pending').addEventListener('click', () => void runBulkAction('completed', { completed: false }, 'Productos devueltos a pendientes'));
+  $('#bulk-apply-store').addEventListener('click', () => void runBulkAction('store', { storeOverrideId: $('#bulk-store-select').value || null }, 'Tienda actualizada en la selección'));
+  $('#bulk-delete-items').addEventListener('click', openBulkDeleteDialog);
+  $('#confirm-bulk-delete').addEventListener('click', () => void confirmBulkDelete());
+  $('#cancel-bulk-delete').addEventListener('click', () => closeDialog($('#bulk-delete-dialog')));
+  $('#pending-items').addEventListener('click', event => {
+    if (handleSelectionEvent(event)) return;
+    void handleItemAction(event);
+  });
+  $('#pending-items').addEventListener('change', event => void handleTicketControl(event));
+  $('#completed-items').addEventListener('click', event => {
+    if (handleSelectionEvent(event)) return;
+    void handleItemAction(event);
+  });
   $('#confirm-delete-item').addEventListener('click', () => void confirmDeleteItem());
   $('#cancel-delete-item').addEventListener('click', () => {
     model.deletingItemId = '';
@@ -1392,16 +2319,33 @@ function bindEvents() {
   $('#use-my-conflict').addEventListener('click', () => void useMyConflict());
   $('#analyze-ai').addEventListener('click', () => void analyzeWithAi());
   $('#ai-proposals').addEventListener('submit', confirmAiProposal);
-  $('#use-current-location').addEventListener('click', requestGeolocation);
-  $('#find-nearby-stores').addEventListener('click', () => void findNearbyStores());
+
+  $('#use-current-location').addEventListener('click', () => requestGeolocation('item'));
+  $('#find-nearby-stores').addEventListener('click', () => void findNearbyStores('item'));
   $('#nearby-stores').addEventListener('click', event => {
     const button = event.target.closest('[data-nearby-index]');
-    if (button) void confirmNearbyStore(Number(button.dataset.nearbyIndex));
+    if (button) void confirmNearbyStore(Number(button.dataset.nearbyIndex), 'item');
   });
-  $('#store-select').addEventListener('change', event => {
-    const option = event.target.selectedOptions[0];
-    if (option?.dataset.retailer) $('#proposal-retailer').value = option.dataset.retailer;
+  $('#global-use-current-location').addEventListener('click', () => requestGeolocation('global'));
+  $('#global-find-nearby-stores').addEventListener('click', () => void findNearbyStores('global'));
+  $('#global-nearby-stores').addEventListener('click', event => {
+    const button = event.target.closest('[data-nearby-index]');
+    if (button) void confirmNearbyStore(Number(button.dataset.nearbyIndex), 'global');
   });
+  $('#create-store-from-item').addEventListener('click', () => {
+    persistItemDraft();
+    openStoreCreator($('#location-state'));
+  });
+  $('#refresh-item-stores').addEventListener('click', () => {
+    void refreshStoreChoices($('#store-select'), $('#location-state'));
+  });
+  $('#global-create-store').addEventListener('click', () => {
+    openStoreCreator($('#global-product-state'));
+  });
+  $('#global-refresh-stores').addEventListener('click', () => {
+    void refreshStoreChoices($('#global-store-select'), $('#global-product-state'));
+  });
+
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) stopRealtime();
     else if (model.list && !$('#list-detail').hidden) {
@@ -1410,8 +2354,19 @@ function bindEvents() {
     }
   });
   document.addEventListener('basketra:swipe-action', event => {
-    if (event.detail?.kind !== 'shopping-item' || event.detail?.action !== 'delete') return;
-    void deleteItemFromSwipe(String(event.detail.id || ''));
+    if (event.detail?.kind !== 'shopping-item') return;
+    const itemId = String(event.detail.id || '');
+    if (event.detail.action === 'delete') {
+      event.detail.waitUntil?.(deleteItemFromSwipe(itemId));
+      return;
+    }
+    if (event.detail.action !== 'complete') return;
+    const item = model.items.find(candidate => candidate.id === itemId);
+    if (!item) return;
+    const operation = setItemCompleted(itemId, !item.completed, { offerUndo: !item.completed }).catch(error => {
+      $('#item-state').textContent = error.message;
+    });
+    event.detail.waitUntil?.(operation);
   });
   document.addEventListener('basketra:view-changed', event => {
     if (event.detail?.view !== 'lists') {
@@ -1435,6 +2390,7 @@ export async function initLists(options) {
   aiConfigured = options.aiConfigured === true;
   populateUnits();
   ensureProgressiveFields();
+  bindShoppingCategorySuggestion();
   restoreItemDraft();
   bindEvents();
   const current = readApplicationLocation();

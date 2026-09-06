@@ -63,7 +63,7 @@ test('product photos refresh the live WebAPI limit and never use Basketra metada
   await expect(page.locator('#product-image-limit-help')).toContainText('Límites actuales de WebAPI: imágenes 2 MB');
   const baselineReads = capabilityReads();
 
-  await page.getByRole('button', { name: 'Añadir producto', exact: true }).click();
+  await page.getByRole('button', { name: 'Crear ítem', exact: true }).click();
   imageLimit = 1024 * 1024;
   const oversizedBytes = imageLimit + imageLimit / 2;
   const oversizedPng = Buffer.concat([
@@ -103,7 +103,7 @@ test('product photo upload fails closed when current WebAPI limits cannot be rea
   await page.goto('/');
   await createList(page, 'Unavailable limits');
   await expect(page.locator('#product-image-limit-help')).toContainText('No se pudieron consultar los límites actuales de WebAPI');
-  await page.getByRole('button', { name: 'Añadir producto', exact: true }).click();
+  await page.getByRole('button', { name: 'Crear ítem', exact: true }).click();
   await page.locator('#product-gallery').setInputFiles({ name: 'photo.png', mimeType: 'image/png', buffer: validPng });
 
   await expect(page.locator('#product-photo-state')).toContainText('WebAPI limits unavailable');

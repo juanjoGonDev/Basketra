@@ -7,12 +7,14 @@ import type { Unit } from '../domain/units.ts';
 import { CatalogRepository } from './catalog-repository.ts';
 import { COLLABORATION_MIGRATIONS } from './collaboration-schema.ts';
 import { createId } from './ids.ts';
+import { ShoppingEstimateReadModel } from './shopping-estimate.ts';
 import { ShoppingRepository } from './shopping-repository.ts';
 
 export type {
   PriceObservationRecord,
   ProductTicketHistoryRecord,
   ProductCategoryRecord,
+  ProductParentSuggestionRecord,
   ProductSuggestionRecord,
   ProductVariantRecord,
   StoreRecord,
@@ -294,6 +296,7 @@ export class BasketraDatabase {
   readonly #migrationBackupRetention: BackupRetentionPolicy;
   readonly #manualBackupRetention: BackupRetentionPolicy;
   readonly #shopping: ShoppingRepository;
+  readonly #shoppingEstimate: ShoppingEstimateReadModel;
   readonly #catalog: CatalogRepository;
   readonly path: string;
 
@@ -319,6 +322,7 @@ export class BasketraDatabase {
       throw error;
     }
     this.#shopping = new ShoppingRepository(this.#database, this.#clock);
+    this.#shoppingEstimate = new ShoppingEstimateReadModel(this.#database);
     this.#catalog = new CatalogRepository(this.#database, this.#clock);
   }
 
@@ -443,6 +447,30 @@ export class BasketraDatabase {
     return this.#shopping.updateList(id, name, expectedVersion);
   }
 
+  updateShoppingListStoreSelection(
+    id: string,
+    referenceStoreId: string | null,
+    expectedVersion: number,
+    scope: 'default' | 'all',
+  ) {
+    return this.#shopping.setStoreSelection(id, referenceStoreId, expectedVersion, scope);
+  }
+
+  getShoppingListEstimate(id: string) {
+    return this.#shoppingEstimate.estimateList(id);
+  }
+
+  getShoppingListDraftEstimate(input: Readonly<{
+    listId: string;
+    text: string;
+    quantityMinor: number;
+    unit: Unit;
+    productVariantId: string;
+    storeOverrideId?: string | null;
+  }>) {
+    return this.#shoppingEstimate.estimateDraft(input);
+  }
+
   deleteShoppingList(id: string, expectedVersion: number): boolean {
     return this.#shopping.deleteList(id, expectedVersion);
   }
@@ -455,6 +483,7 @@ export class BasketraDatabase {
     exactRequired: boolean;
     substitutionAllowed: boolean;
     productVariantId?: string;
+    storeOverrideId?: string;
   }>) {
     return this.#shopping.addItem(input);
   }
@@ -471,12 +500,24 @@ export class BasketraDatabase {
     substitutionAllowed?: boolean;
     completed?: boolean;
     productVariantId?: string | null;
+    storeOverrideId?: string | null;
   }>) {
     return this.#shopping.updateItem(input);
   }
 
   deleteShoppingListItem(listId: string, itemId: string, expectedVersion: number): void {
     this.#shopping.deleteItem(listId, itemId, expectedVersion);
+  }
+
+  bulkMutateShoppingListItems(
+    listId: string,
+    selectedItems: readonly Readonly<{ id: string; expectedVersion: number }>[],
+    mutation:
+      | Readonly<{ type: 'completed'; completed: boolean }>
+      | Readonly<{ type: 'store'; storeOverrideId: string | null }>
+      | Readonly<{ type: 'delete' }>,
+  ) {
+    return this.#shopping.bulkMutateItems(listId, selectedItems, mutation);
   }
 
   reorderShoppingListItems(listId: string, itemIds: readonly string[], expectedListVersion: number) {
@@ -499,16 +540,25 @@ export class BasketraDatabase {
     return this.#catalog.updateCategory(id, input);
   }
 
-  searchProducts(query: string, limit: number) {
-    return this.#catalog.searchProducts(query, limit);
+  searchProducts(query: string, limit: number, storeId?: string) {
+    return this.#catalog.searchProducts(query, limit, storeId);
+  }
+
+  listProductVariantsByParent(parentId: string) {
+    return this.#catalog.listProductVariantsByParent(parentId);
   }
 
   getProductVariant(id: string) {
     return this.#catalog.getProductVariant(id);
   }
 
+  searchCanonicalProducts(query: string, limit: number) {
+    return this.#catalog.searchCanonicalProducts(query, limit);
+  }
+
   createProduct(input: Readonly<{
-    canonicalName: string;
+    canonicalProductId?: string;
+    canonicalName?: string;
     variantName?: string;
     categoryId?: string;
     description?: string;

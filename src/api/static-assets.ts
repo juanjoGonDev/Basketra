@@ -4,6 +4,7 @@ export const STATIC_ASSETS = new Set([
   'api.js',
   'routes.js',
   'catalog.js',
+  'category-suggestion.js',
   'catalog.css',
   'inventory.js',
   'inventory.css',

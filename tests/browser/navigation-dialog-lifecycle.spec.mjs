@@ -6,7 +6,7 @@ test('navigating away closes the active shopping-item editor immediately', async
   const createDialog = page.locator('#create-list-dialog');
   await createDialog.getByLabel('Nombre', { exact: true }).fill('Compra');
   await createDialog.getByRole('button', { name: 'Crear lista', exact: true }).click();
-  await page.getByRole('button', { name: 'Añadir producto', exact: true }).click();
+  await page.getByRole('button', { name: 'Crear ítem', exact: true }).click();
   const itemDialog = page.locator('#item-dialog');
   await expect(itemDialog).toHaveAttribute('open', '');
   await page.evaluate(() => document.dispatchEvent(new CustomEvent('basketra:navigate', {
