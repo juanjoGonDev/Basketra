@@ -1,48 +1,98 @@
 name: Publish PR visual evidence
 
 on:
-  pull_request:
+  workflow_run:
+    workflows:
+      - Pull Request Quality
     types:
-      - opened
-      - synchronize
-      - reopened
-      - ready_for_review
+      - completed
 
 permissions: read-all
 
 concurrency:
-  group: pr-visual-evidence-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: pr-visual-evidence-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
 
 jobs:
   classify:
     name: "🔎 Classify visual impact"
     if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 1
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     outputs:
       required: ${{ steps.visual-impact.outputs.required }}
+      pr_number: ${{ steps.pull-request.outputs.pr_number }}
+      head_sha: ${{ steps.pull-request.outputs.head_sha }}
+      run_id: ${{ steps.pull-request.outputs.run_id }}
     env:
       REPOSITORY: ${{ github.repository }}
-      PR_NUMBER: ${{ github.event.pull_request.number }}
-      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
-      - name: Checkout visual evidence policy
+      - name: Checkout trusted visual evidence policy
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Resolve the exact trusted pull request
+        id: pull-request
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          candidates="$RUNNER_TEMP/pr-candidates.json"
+          gh api --paginate "repos/$REPOSITORY/commits/$HEAD_SHA/pulls?per_page=100" | \
+            jq -s 'add // []' > "$candidates"
+
+          matches=$(jq \
+            --arg repository "$REPOSITORY" \
+            --arg head "$HEAD_SHA" \
+            '[.[] | select(
+              .state == "open" and
+              .base.ref == "main" and
+              .head.sha == $head and
+              .head.repo.full_name == $repository
+            )]' "$candidates")
+          count=$(jq 'length' <<<"$matches")
+          if [ "$count" -ne 1 ]; then
+            echo "Expected exactly one open same-repository PR for validated head $HEAD_SHA, found $count" >&2
+            exit 1
+          fi
+
+          pr_number=$(jq -r '.[0].number' <<<"$matches")
+          association=$(jq -r '.[0].author_association' <<<"$matches")
+          case "$association" in
+            OWNER|MEMBER|COLLABORATOR) ;;
+            *)
+              echo "Refusing visual publication for untrusted author association: $association" >&2
+              exit 1
+              ;;
+          esac
+
+          current_head=$(gh api "repos/$REPOSITORY/pulls/$pr_number" --jq '.head.sha')
+          if [ "$current_head" != "$HEAD_SHA" ]; then
+            echo "Refusing stale visual evidence preparation: validated head $HEAD_SHA, current PR head $current_head" >&2
+            exit 1
+          fi
+
+          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
 
       - name: Classify visual evidence impact
         id: visual-impact
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pull-request.outputs.pr_number }}
         run: |
           set -euo pipefail
           changed_files="$RUNNER_TEMP/pr-files.json"
@@ -63,76 +113,38 @@ jobs:
             echo "Visual evidence skipped: no src/web/** or canonical dependency/workspace files changed."
           fi
 
-  publish:
-    name: "🖼️ Publish direct PR evidence"
+  prepare:
+    name: "🎞️ Prepare direct PR evidence"
     needs: classify
     if: needs.classify.outputs.required == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 1
     permissions:
       actions: read
-      contents: write
-      issues: write
-      pull-requests: write
+      contents: read
     env:
       GH_TOKEN: ${{ github.token }}
       REPOSITORY: ${{ github.repository }}
-      PR_NUMBER: ${{ github.event.pull_request.number }}
-      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-      EVIDENCE_TAG: pr-${{ github.event.pull_request.number }}-visual-evidence
+      PR_NUMBER: ${{ needs.classify.outputs.pr_number }}
+      HEAD_SHA: ${{ needs.classify.outputs.head_sha }}
+      RUN_ID: ${{ needs.classify.outputs.run_id }}
     steps:
-      - name: Wait for the authoritative browser run
-        id: quality-run
-        shell: bash
-        run: |
-          set -euo pipefail
-          for attempt in $(seq 1 80); do
-            response=$(gh api --method GET \
-              "repos/$REPOSITORY/actions/workflows/ci.yml/runs" \
-              -f event=pull_request \
-              -f head_sha="$HEAD_SHA" \
-              -f per_page=20)
-            run_id=$(jq -r '[.workflow_runs[] | select(.name == "Pull Request Quality")] | sort_by(.run_number) | last | .id // empty' <<<"$response")
-            status=$(jq -r '[.workflow_runs[] | select(.name == "Pull Request Quality")] | sort_by(.run_number) | last | .status // empty' <<<"$response")
-            conclusion=$(jq -r '[.workflow_runs[] | select(.name == "Pull Request Quality")] | sort_by(.run_number) | last | .conclusion // empty' <<<"$response")
-
-            if [ -z "$run_id" ]; then
-              sleep 15
-              continue
-            fi
-            if [ "$status" != "completed" ]; then
-              sleep 15
-              continue
-            fi
-            if [ "$conclusion" != "success" ]; then
-              echo "Pull Request Quality run $run_id concluded with $conclusion" >&2
-              exit 1
-            fi
-
-            echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
-            exit 0
-          done
-          echo "Timed out waiting for a successful Pull Request Quality run for $HEAD_SHA" >&2
-          exit 1
-
       - name: Download browser output for the validated head
         shell: bash
-        env:
-          RUN_ID: ${{ steps.quality-run.outputs.run_id }}
         run: |
           set -euo pipefail
           gh run download "$RUN_ID" \
             --repo "$REPOSITORY" \
-            --name basketra-browser-evidence \
+            --pattern 'basketra-browser-shard-*' \
             --dir downloaded
-          test -d downloaded/test-results
+          test -n "$(find downloaded -type f -print -quit)"
           if find downloaded -type l -print -quit | grep -q .; then
             echo "Browser evidence must not contain symbolic links" >&2
             exit 1
           fi
 
       - name: Install the media converter
-        timeout-minutes: 5
+        timeout-minutes: 1
         shell: bash
         run: |
           set -euo pipefail
@@ -164,10 +176,10 @@ jobs:
 
           find_flow_directory() {
             needle=$1
-            directory=$(find downloaded/test-results -mindepth 1 -maxdepth 1 -type d -name "*$needle*" -print -quit)
+            directory=$(find downloaded -type d -name "*$needle*" -print -quit)
             if [ -z "$directory" ]; then
               echo "No Playwright evidence directory matched '$needle'. Available directories:" >&2
-              find downloaded/test-results -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort >&2
+              find downloaded -type d -printf '%p\n' | sort >&2
               exit 1
             fi
             printf '%s\n' "$directory"
@@ -191,7 +203,7 @@ jobs:
 
           find_unique_capture() {
             source=$1
-            mapfile -t matches < <(find downloaded/test-results -type f -name "$source" -print)
+            mapfile -t matches < <(find downloaded -type f -name "$source" -print)
             if [ "${#matches[@]}" -ne 1 ]; then
               echo "Expected exactly one Playwright capture named '$source', found ${#matches[@]}:" >&2
               printf '  %s\n' "${matches[@]}" >&2
@@ -285,6 +297,53 @@ jobs:
             test "$(stat -c %s "$file")" -le 25000000
           done < <(find evidence-assets -maxdepth 1 -type f -print)
 
+      - name: Upload prepared visual evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: basketra-prepared-visual-evidence
+          path: evidence-assets
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  publish:
+    name: "🖼️ Publish direct PR evidence"
+    needs:
+      - classify
+      - prepare
+    if: >-
+      needs.classify.outputs.required == 'true' &&
+      needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    permissions:
+      actions: read
+      contents: write
+      issues: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: ${{ github.repository }}
+      PR_NUMBER: ${{ needs.classify.outputs.pr_number }}
+      HEAD_SHA: ${{ needs.classify.outputs.head_sha }}
+      RUN_ID: ${{ needs.classify.outputs.run_id }}
+      EVIDENCE_TAG: pr-${{ needs.classify.outputs.pr_number }}-visual-evidence
+    steps:
+      - name: Download prepared visual evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence-assets
+          gh run download "$GITHUB_RUN_ID" \
+            --repo "$REPOSITORY" \
+            --name basketra-prepared-visual-evidence \
+            --dir evidence-assets
+          test -n "$(find evidence-assets -type f -print -quit)"
+          if find evidence-assets -type l -print -quit | grep -q .; then
+            echo "Prepared visual evidence must not contain symbolic links" >&2
+            exit 1
+          fi
+
       - name: Replace the temporary visual-evidence release
         shell: bash
         run: |
@@ -315,8 +374,6 @@ jobs:
 
       - name: Publish or update the visual-evidence comment
         shell: bash
-        env:
-          RUN_ID: ${{ steps.quality-run.outputs.run_id }}
         run: |
           set -euo pipefail
           current_head=$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha')

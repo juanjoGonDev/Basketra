@@ -85,6 +85,9 @@ jobs:
     name: "🌐 Browser runtime"
     runs-on: ubuntu-latest
     timeout-minutes: 1
+    outputs:
+      shards: ${{ steps.shard-plan.outputs.shards }}
+      total: ${{ steps.shard-plan.outputs.total }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -101,6 +104,28 @@ jobs:
           npm install --global --ignore-scripts typescript@5.8.3
       - name: Frozen install
         run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Plan bounded Browser shards
+        id: shard-plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          listing="$RUNNER_TEMP/playwright-list.txt"
+          pnpm exec playwright test --list > "$listing"
+          test_count=$(awk '/^Total: [0-9]+ tests? / { print $2 }' "$listing")
+          if ! [[ "$test_count" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Unable to resolve Browser test count from Playwright --list" >&2
+            cat "$listing" >&2
+            exit 1
+          fi
+          shard_count=$(( (test_count + 1) / 2 ))
+          if [ "$shard_count" -gt 256 ]; then
+            echo "Browser suite requires $shard_count shards, above GitHub's 256-job matrix limit" >&2
+            exit 1
+          fi
+          shards=$(node -e 'const n=Number(process.argv[1]); process.stdout.write(JSON.stringify(Array.from({length:n},(_,i)=>i+1)))' "$shard_count")
+          echo "total=$shard_count" >> "$GITHUB_OUTPUT"
+          echo "shards=$shards" >> "$GITHUB_OUTPUT"
+          echo "Planned $shard_count Browser shards for $test_count tests (maximum two tests per shard)."
       - name: Build browser runtime once
         run: pnpm build
       - name: Restore exact Chromium cache
@@ -121,55 +146,15 @@ jobs:
           retention-days: 1
 
   browser-e2e:
-    name: "🌐 Browser ${{ matrix.shard }}/40"
+    name: "🌐 Browser ${{ matrix.shard }}/${{ needs.browser-runtime.outputs.total }}"
     needs: browser-runtime
     runs-on: ubuntu-latest
     timeout-minutes: 1
     strategy:
       fail-fast: false
-      max-parallel: 40
+      max-parallel: 256
       matrix:
-        shard:
-          - 1
-          - 2
-          - 3
-          - 4
-          - 5
-          - 6
-          - 7
-          - 8
-          - 9
-          - 10
-          - 11
-          - 12
-          - 13
-          - 14
-          - 15
-          - 16
-          - 17
-          - 18
-          - 19
-          - 20
-          - 21
-          - 22
-          - 23
-          - 24
-          - 25
-          - 26
-          - 27
-          - 28
-          - 29
-          - 30
-          - 31
-          - 32
-          - 33
-          - 34
-          - 35
-          - 36
-          - 37
-          - 38
-          - 39
-          - 40
+        shard: ${{ fromJSON(needs.browser-runtime.outputs.shards) }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -208,22 +193,18 @@ jobs:
         env:
           BASKETRA_BROWSER_COVERAGE_COLLECT_ONLY: "1"
           BASKETRA_BROWSER_PREBUILT: "1"
-        run: pnpm exec playwright test --shard=${{ matrix.shard }}/40
-      - name: Upload shard coverage
-        if: success()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: basketra-browser-coverage-${{ matrix.shard }}
-          path: .coverage/browser
-          if-no-files-found: error
-          retention-days: 1
-      - name: Upload shard evidence
+        run: pnpm exec playwright test --shard=${{ matrix.shard }}/${{ needs.browser-runtime.outputs.total }}
+      - name: Upload shard output
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: basketra-browser-evidence-${{ matrix.shard }}
-          path: test-results
-          if-no-files-found: warn
+          name: basketra-browser-shard-${{ matrix.shard }}
+          path: |
+            .coverage/browser
+            test-results
+          if-no-files-found: error
+          include-hidden-files: true
+          compression-level: 0
           retention-days: 7
 
   browser-coverage:
@@ -246,13 +227,13 @@ jobs:
           set -euo pipefail
           gh run download "$GITHUB_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
-            --pattern 'basketra-browser-coverage-*' \
+            --pattern 'basketra-browser-shard-*' \
             --dir downloaded-coverage
           mkdir -p .coverage/browser
           while IFS= read -r file; do
-            artifact=$(basename "$(dirname "$file")")
+            artifact=$(printf '%s' "$file" | sed 's#^downloaded-coverage/##; s#/.*##')
             cp "$file" ".coverage/browser/$artifact-$(basename "$file")"
-          done < <(find downloaded-coverage -type f -name '*.json' -print | sort)
+          done < <(find downloaded-coverage -type f -path '*/.coverage/browser/*.json' -print | sort)
           test "$(find .coverage/browser -type f -name '*.json' | wc -l)" -gt 0
       - name: Enforce aggregate changed-code coverage
         run: node scripts/check-browser-diff-coverage.mjs
