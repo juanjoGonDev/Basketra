@@ -44,9 +44,8 @@ function readSafeStringField(error: unknown, field: keyof SystemErrorFields): st
   return typeof value === 'string' && value.length <= 80 ? value : undefined;
 }
 
-function readSafeSqliteErrcode(error: unknown): number | undefined {
-  if (typeof error !== 'object' || error === null) return undefined;
-  const value = (error as SystemErrorFields).errcode;
+function readSafeSqliteErrcode(error: SystemErrorFields): number | undefined {
+  const value = error.errcode;
   return typeof value === 'number'
     && Number.isSafeInteger(value)
     && value >= 0
@@ -59,7 +58,9 @@ export function buildUnexpectedErrorLog(error: unknown, incidentId: string, time
   const errorName = error instanceof Error ? error.name : typeof error;
   const systemCode = readSafeStringField(error, 'code');
   const syscall = readSafeStringField(error, 'syscall');
-  const sqliteErrcode = systemCode === 'ERR_SQLITE_ERROR' ? readSafeSqliteErrcode(error) : undefined;
+  const sqliteErrcode = systemCode === 'ERR_SQLITE_ERROR'
+    ? readSafeSqliteErrcode(error as SystemErrorFields)
+    : undefined;
   const sqliteErrstr = systemCode === 'ERR_SQLITE_ERROR' ? readSafeStringField(error, 'errstr') : undefined;
   return {
     timestamp,
