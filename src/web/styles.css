@@ -150,6 +150,8 @@ main:focus { outline: none; }
 
 .swipe-shell { --swipe-x: 0px; min-width: 0; position: relative; overflow: hidden; border-radius: var(--radius-md); touch-action: pan-y; isolation: isolate; }
 .swipe-content { position: relative; z-index: 2; transform: translateX(var(--swipe-x)); transition: transform 180ms cubic-bezier(.2, .8, .2, 1); will-change: transform; }
+html.is-swipe-pointer-active,
+html.is-swipe-pointer-active * ,
 .swipe-shell.is-pointer-active,
 .swipe-shell.is-pointer-active .swipe-content,
 .swipe-shell.is-dragging .swipe-content {

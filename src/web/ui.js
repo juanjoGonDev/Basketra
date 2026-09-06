@@ -194,6 +194,8 @@ export function bindSwipeActions(root = document) {
     const row = event.target.closest('[data-swipe-row]');
     if (!isGenericSwipeRow(row) || !swipeContent(row)) return;
     event.preventDefault();
+    window.getSelection()?.removeAllRanges();
+    document.documentElement.classList.add('is-swipe-pointer-active');
     closeSwipeRows(root, row);
     row.classList.add('is-pointer-active');
     const width = Math.max(row.clientWidth, 1);
@@ -218,6 +220,8 @@ export function bindSwipeActions(root = document) {
     const row = resolveCurrentSwipeRow(root, gesture.row);
     if (!row.isConnected) {
       gesture.row.classList.remove('is-pointer-active', 'is-dragging');
+      document.documentElement.classList.remove('is-swipe-pointer-active');
+      window.getSelection()?.removeAllRanges();
       gesture = undefined;
       return;
     }
@@ -226,6 +230,8 @@ export function bindSwipeActions(root = document) {
       if (Math.abs(deltaX) < 8 && Math.abs(deltaY) < 8) return;
       if (Math.abs(deltaY) >= Math.abs(deltaX)) {
         row.classList.remove('is-pointer-active');
+        document.documentElement.classList.remove('is-swipe-pointer-active');
+        window.getSelection()?.removeAllRanges();
         gesture = undefined;
         return;
       }
@@ -255,6 +261,8 @@ export function bindSwipeActions(root = document) {
     const row = resolveCurrentSwipeRow(root, gestureRow);
     gestureRow.classList.remove('is-pointer-active', 'is-dragging');
     if (row !== gestureRow) row.classList.remove('is-pointer-active', 'is-dragging');
+    document.documentElement.classList.remove('is-swipe-pointer-active');
+    window.getSelection()?.removeAllRanges();
     if (!row.isConnected) return;
     if (!horizontal || cancelled) {
       if (initialOffset < 0) openSwipeRow(root, row);
