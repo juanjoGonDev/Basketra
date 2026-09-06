@@ -149,7 +149,10 @@ main:focus { outline: none; }
 .item-list, .capture-list, .proposal-list { display: grid; gap: .65rem; margin: 0; padding: 0; list-style: none; }
 
 .swipe-shell { --swipe-x: 0px; min-width: 0; position: relative; overflow: hidden; border-radius: var(--radius-md); touch-action: pan-y; isolation: isolate; }
-.swipe-content { position: relative; z-index: 2; transform: translateX(var(--swipe-x)); transition: transform 180ms cubic-bezier(.2, .8, .2, 1); will-change: transform; }
+.swipe-content { position: relative; z-index: 2; transform: translateX(var(--swipe-x)); transition: transform 180ms cubic-bezier(.2, .8, .2, 1); will-change: transform; user-select: none; -webkit-user-select: none; }
+.swipe-content input,
+.swipe-content textarea,
+.swipe-content select { user-select: text; -webkit-user-select: text; }
 html.is-swipe-pointer-active,
 html.is-swipe-pointer-active * ,
 .swipe-shell.is-pointer-active,
