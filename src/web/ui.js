@@ -190,7 +190,7 @@ export function bindSwipeActions(root = document) {
   });
 
   root.addEventListener('pointerdown', event => {
-    if (event.button !== 0 || event.clientX < 24 || event.target.closest('button,input,select,textarea,a,summary')) return;
+    if (event.button !== 0 || event.clientX < 24 || event.target.closest('button,a,summary,input:not(:disabled),select:not(:disabled),textarea:not(:disabled)')) return;
     const row = event.target.closest('[data-swipe-row]');
     if (!isGenericSwipeRow(row) || !swipeContent(row)) return;
     event.preventDefault();
