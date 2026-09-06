@@ -1625,6 +1625,8 @@ async function deleteItemFromSwipe(itemId) {
     });
     model.items.splice(originalIndex, 1);
     renderItems();
+    window.getSelection()?.removeAllRanges();
+    requestAnimationFrame(() => window.getSelection()?.removeAllRanges());
     toast('Producto eliminado', {
       actionLabel: 'Deshacer',
       duration: 5200,
