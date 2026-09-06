@@ -73,6 +73,7 @@ const model = {
   nearbyCandidates: [],
   realtimeSource: null,
   realtimeTimer: null,
+  activeListLoadGeneration: 0,
   conflict: null,
 };
 
@@ -502,18 +503,23 @@ async function loadLists() {
 }
 
 async function loadActiveList() {
-  if (!model.activeListId) return;
+  const listId = model.activeListId;
+  if (!listId) return false;
+  const generation = ++model.activeListLoadGeneration;
   const [detail, estimateResult] = await Promise.all([
-    api(`/api/v1/shopping-lists/${encodeURIComponent(model.activeListId)}`),
-    api(`/api/v1/shopping-lists/${encodeURIComponent(model.activeListId)}/estimate`),
+    api(`/api/v1/shopping-lists/${encodeURIComponent(listId)}`),
+    api(`/api/v1/shopping-lists/${encodeURIComponent(listId)}/estimate`),
   ]);
+  if (generation !== model.activeListLoadGeneration || model.activeListId !== listId) return false;
+  await loadVariantOptions(estimateResult.estimate?.lines || []);
+  if (generation !== model.activeListLoadGeneration || model.activeListId !== listId) return false;
   model.list = detail.list;
   model.items = detail.items;
   model.estimate = estimateResult.estimate;
-  await loadVariantOptions(model.estimate?.lines || []);
   const index = model.lists.findIndex(list => list.id === detail.list.id);
   if (index >= 0) model.lists[index] = { ...model.lists[index], ...detail.list };
   renderDetail();
+  return true;
 }
 
 async function openList(listId, { syncUrl = true, replace = false } = {}) {
