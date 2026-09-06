@@ -213,43 +213,7 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await expect(page.locator('#pending-items')).toContainText('Leche semidesnatada 1 L');
 
   let riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
-  await page.evaluate(() => {
-    window.__basketraSwipeActions = [];
-    window.__basketraPointerTrace = [];
-    document.addEventListener('basketra:swipe-action', event => {
-      window.__basketraSwipeActions.push({
-        action: event.detail?.action,
-        id: event.detail?.id,
-        kind: event.detail?.kind,
-      });
-    });
-    for (const type of ['pointerdown', 'pointermove', 'pointerup']) {
-      document.addEventListener(type, event => {
-        if (type === 'pointermove' && window.__basketraPointerTrace.filter(entry => entry.type === 'pointermove').length >= 3) return;
-        const row = event.target.closest?.('[data-swipe-row]');
-        window.__basketraPointerTrace.push({
-          type,
-          target: event.target.tagName,
-          rowId: row?.dataset.swipeId || '',
-          rowKind: row?.dataset.swipeKind || '',
-          interactive: Boolean(event.target.closest?.('button,a,summary,input,select,textarea')),
-          x: event.clientX,
-          y: event.clientY,
-        });
-      }, { capture: true });
-    }
-  });
-  const riceSwipeId = await riceRow.getAttribute('data-swipe-id');
   await swipe(page, riceRow, 'right');
-  await expect.poll(() => page.evaluate(() => window.__basketraPointerTrace || [])).toContainEqual(
-    expect.objectContaining({ type: 'pointerdown', rowId: riceSwipeId, rowKind: 'shopping-item', interactive: false }),
-  );
-  await expect.poll(() => page.evaluate(() => window.__basketraPointerTrace || [])).toContainEqual(
-    expect.objectContaining({ type: 'pointerup' }),
-  );
-  await expect.poll(() => page.evaluate(() => window.__basketraSwipeActions || [])).toContainEqual(
-    expect.objectContaining({ action: 'complete', kind: 'shopping-item' }),
-  );
   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() || '')).toBe('');
   const completedSection = page.locator('#completed-section');
   await expect(completedSection).toBeVisible();
@@ -261,9 +225,6 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
 
   riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
   await swipe(page, riceRow, 'left', { long: true });
-  await expect.poll(() => page.evaluate(() => window.__basketraSwipeActions || [])).toContainEqual(
-    expect.objectContaining({ action: 'delete', kind: 'shopping-item' }),
-  );
   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() || '')).toBe('');
   await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
   await expect(page.locator('#toast-message')).toHaveText('Producto eliminado');

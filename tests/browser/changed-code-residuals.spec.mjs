@@ -1111,3 +1111,191 @@ test('generic swipe initialization closes supported rows while Inventory-owned r
   expect(result).toEqual({ genericOpen: 'false', ownedOpen: 'true' });
 });
 
+
+
+test('inventory product AI category suggestion sends bounded optional payloads', async ({ page }) => {
+  const payloads = [];
+  const categories = [{ id: 'root', name: 'Alimentos', color: '#118844', productCount: 0, childCount: 0 }];
+
+  await page.route('**/api/v1/meta', route => json(route, { units: ['unit', 'kg'] }));
+  await page.route(/\/api\/v1\/categories(?:\?.*)?$/, route => json(route, { categories }));
+  await page.route('**/api/v1/catalog?*', route => json(route, {
+    catalog: { products: [], parents: [], total: 0, offset: 0, limit: 12, hasMore: false },
+  }));
+  await page.route('**/api/v1/categories/suggest', route => {
+    payloads.push(route.request().postDataJSON());
+    return json(route, { categoryId: 'root' });
+  });
+
+  await page.goto('/inventory/products/new');
+  await page.locator('#catalog-canonical-name').fill('Arroz');
+  await page.locator('#catalog-variant-name').fill('Arroz largo');
+  await page.locator('#catalog-brand').fill('Marca');
+  await page.locator('#catalog-description').fill('Grano largo');
+  await page.locator('#catalog-package-minor').fill('2');
+  await page.locator('#catalog-package-unit').selectOption('kg');
+  await page.locator('#catalog-suggest-category').click();
+  await expect.poll(() => payloads.length).toBe(1);
+  await expect(page.locator('#catalog-category')).toHaveValue('root');
+
+  await page.locator('#catalog-brand').fill('');
+  await page.locator('#catalog-description').fill('');
+  await page.locator('#catalog-package-minor').fill('');
+  await page.locator('#catalog-package-unit').selectOption('');
+  await page.locator('#catalog-suggest-category').click();
+  await expect.poll(() => payloads.length).toBe(2);
+
+  expect(payloads).toEqual([
+    {
+      surface: 'inventory-product',
+      canonicalName: 'Arroz',
+      variantName: 'Arroz largo',
+      brand: 'Marca',
+      description: 'Grano largo',
+      packageMinor: 2,
+      packageUnit: 'kg',
+    },
+    {
+      surface: 'inventory-product',
+      canonicalName: 'Arroz',
+      variantName: 'Arroz largo',
+    },
+  ]);
+});
+
+test('operations restores its stylesheet when the shell omits it', async ({ page }) => {
+  await page.route('**/settings', async route => {
+    const response = await route.fetch();
+    const body = (await response.text()).replace(
+      '  <link rel="stylesheet" href="/operations.css">\n',
+      '',
+    );
+    await route.fulfill({ response, body });
+  });
+
+  await page.goto('/settings');
+  await expect(page.locator('link[href="/operations.css"]')).toHaveCount(1);
+});
+
+test('generic swipe residual state machine fails closed across lifecycle races', async ({ page }) => {
+  await page.goto('/settings');
+  const result = await page.evaluate(async () => {
+    const { bindSwipeActions, shoppingListItem } = await import('/ui.js');
+    const root = document.createElement('div');
+    document.body.append(root);
+    bindSwipeActions(root);
+
+    const makeRow = (id, { start = 'complete', end = 'delete' } = {}) => {
+      const row = document.createElement('div');
+      row.dataset.swipeRow = '';
+      row.dataset.swipeId = id;
+      row.dataset.swipeKind = 'generic';
+      row.dataset.swipeOpen = 'false';
+      if (start) row.dataset.swipeStartAction = start;
+      if (end) row.dataset.swipeEndAction = end;
+      row.innerHTML = '<div data-swipe-actions><button type="button">Action</button></div><div data-swipe-content><span class="gesture-target">Row</span></div>';
+      Object.defineProperty(row, 'clientWidth', { configurable: true, value: 240 });
+      root.append(row);
+      return { row, target: row.querySelector('.gesture-target') };
+    };
+    const pointer = (target, type, pointerId, clientX, clientY = 100) => target.dispatchEvent(new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      pointerId,
+      clientX,
+      clientY,
+    }));
+
+    const active = makeRow('active');
+    pointer(active.target, 'pointerdown', 1, 100);
+    const mouseDownPrevented = !active.target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    const mouseUpPrevented = !active.target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+    const selectPrevented = !active.target.dispatchEvent(new Event('selectstart', { bubbles: true, cancelable: true }));
+    pointer(active.target, 'pointermove', 1, 105, 130);
+    active.row.remove();
+
+    const disconnected = makeRow('disconnected');
+    pointer(disconnected.target, 'pointerdown', 2, 100);
+    disconnected.row.remove();
+    pointer(root, 'pointermove', 2, 140);
+    pointer(root, 'pointerup', 2, 180);
+
+    const replaced = makeRow('replaced');
+    pointer(replaced.target, 'pointerdown', 3, 100);
+    pointer(replaced.target, 'pointermove', 3, 130);
+    replaced.row.remove();
+    const replacement = makeRow('replaced');
+    pointer(replacement.target, 'pointerup', 3, 220);
+
+    const first = makeRow('raf-old', { start: '', end: '' });
+    pointer(first.target, 'pointerdown', 4, 100);
+    pointer(first.target, 'pointerup', 4, 100);
+    const second = makeRow('raf-new', { start: '', end: '' });
+    pointer(second.target, 'pointerdown', 5, 100);
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    pointer(second.target, 'pointercancel', 5, 100);
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
+    let resolvePending;
+    const pendingGate = new Promise(resolve => { resolvePending = resolve; });
+    const waitListener = event => {
+      if (event.detail?.action === 'complete') event.detail.waitUntil(pendingGate);
+    };
+    root.addEventListener('basketra:swipe-action', waitListener);
+    const pending = makeRow('pending');
+    pointer(pending.target, 'pointerdown', 6, 100);
+    pointer(pending.target, 'pointermove', 6, 220);
+    pointer(pending.target, 'pointerup', 6, 220);
+    const newer = makeRow('newer', { start: '', end: '' });
+    pointer(newer.target, 'pointerdown', 7, 100);
+    resolvePending();
+    await Promise.resolve();
+    await Promise.resolve();
+    pointer(newer.target, 'pointercancel', 7, 100);
+    root.removeEventListener('basketra:swipe-action', waitListener);
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
+    const short = makeRow('short');
+    pointer(short.target, 'pointerdown', 8, 100);
+    pointer(short.target, 'pointermove', 8, 120);
+    pointer(short.target, 'pointerup', 8, 120);
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
+    const pendingHtml = shoppingListItem({
+      id: 'pending-item',
+      text: 'Pendiente',
+      completed: false,
+      quantityMinor: 2,
+      unit: 'unit',
+      exactRequired: false,
+      substitutionAllowed: true,
+    }, 0, 2);
+    const completedHtml = shoppingListItem({
+      id: 'completed-item',
+      text: 'Completado',
+      completed: true,
+      quantityMinor: 1,
+      unit: 'unit',
+      exactRequired: true,
+      substitutionAllowed: false,
+    }, 1, 2);
+
+    root.remove();
+    return {
+      mouseDownPrevented,
+      mouseUpPrevented,
+      selectPrevented,
+      pendingHasStepper: pendingHtml.includes('quantity-chip'),
+      completedHasReturn: completedHtml.includes('Volver a pendientes'),
+    };
+  });
+
+  expect(result).toEqual({
+    mouseDownPrevented: true,
+    mouseUpPrevented: true,
+    selectPrevented: true,
+    pendingHasStepper: true,
+    completedHasReturn: true,
+  });
+});
