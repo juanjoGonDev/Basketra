@@ -70,6 +70,10 @@ function captureCards(page) {
 }
 
 async function expectLoadedImages(page, count) {
+  const queue = page.locator('#receipt-source-queue');
+  if (!(await queue.evaluate(element => element.open))) {
+    await queue.locator(':scope > summary').click();
+  }
   const images = page.locator('#capture-list img[data-capture-preview-image]');
   await expect(images).toHaveCount(count);
   await expect.poll(() => images.evaluateAll(items => items.every(image => image.complete && image.naturalWidth > 0))).toBe(true);
