@@ -177,10 +177,12 @@ test('service worker versions and serves the complete shell cache-first without 
     responseWork = undefined;
     matchImplementation = async () => undefined;
     fetchListener({ request: new Request('http://basketra.test/another-route'), respondWith, waitUntil });
+    assert.ok(responseWork);
     await assert.rejects(responseWork, /offline/);
 
     responseWork = undefined;
     fetchListener({ request: new Request('http://basketra.test/uncached.js'), respondWith, waitUntil });
+    assert.ok(responseWork);
     await assert.rejects(responseWork, /offline/);
   } finally {
     if (originalSelf) Object.defineProperty(globalThis, 'self', originalSelf);

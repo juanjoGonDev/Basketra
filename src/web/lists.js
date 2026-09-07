@@ -324,17 +324,13 @@ function effectiveItemStoreName(item, line) {
 }
 
 function toggleItemSettings(button, itemId) {
-  const item = model.items.find(candidate => candidate.id === itemId);
-  if (!item) return;
   const expanded = !model.expandedItemIds.has(itemId);
   if (expanded) model.expandedItemIds.add(itemId);
   else model.expandedItemIds.delete(itemId);
   button.setAttribute('aria-expanded', String(expanded));
-  button.setAttribute('aria-label', `${expanded ? 'Ocultar configuración de' : 'Configurar'} ${item.text}`);
-  const controlsId = button.getAttribute('aria-controls');
-  const controls = controlsId ? document.getElementById(controlsId) : null;
-  if (controls) controls.hidden = !expanded;
-  button.closest('.ticket-item')?.classList.toggle('is-settings-expanded', expanded);
+  button.setAttribute('aria-label', `${expanded ? 'Ocultar configuración de' : 'Configurar'} ${button.dataset.itemName}`);
+  document.getElementById(button.getAttribute('aria-controls')).hidden = !expanded;
+  button.closest('.ticket-item').classList.toggle('is-settings-expanded', expanded);
 }
 
 function ticketItem(item, index, total) {
@@ -359,7 +355,7 @@ function ticketItem(item, index, total) {
   }
   const expanded = model.expandedItemIds.has(item.id);
   const settingsId = `ticket-item-settings-${id}`;
-  const compactMeta = `${item.quantityMinor} ${escapeHtml(UNIT_LABELS[item.unit] || item.unit)} · ${escapeHtml(storeName)} · ${priceContext}`;
+  const compactMeta = `${item.quantityMinor} ${escapeHtml(UNIT_LABELS[item.unit] || item.unit)}${item.categoryName ? ` · ${escapeHtml(item.categoryName)}` : ''} · ${escapeHtml(storeName)} · ${priceContext}`;
   const editAttributes = `data-item-action="edit" data-item-id="${id}" aria-label="Editar ${name}"`;
   const deleteAttributes = `data-item-action="delete" data-item-id="${id}" aria-label="Eliminar ${name}"`;
   return `<div class="shopping-ticket-row swipe-shell" data-swipe-row data-swipe-kind="shopping-item" data-swipe-id="${id}" data-swipe-start-action="complete" data-swipe-end-action="delete" data-swipe-open="false">
@@ -373,7 +369,7 @@ function ticketItem(item, index, total) {
       <button type="button" class="completion-button" data-item-action="complete" data-item-id="${id}" aria-label="Marcar ${name} como comprado" aria-pressed="false"><span data-icon="check"></span></button>
       <div class="ticket-item__identity list-row__content"><span class="ticket-item__product-icon" data-icon="cart" aria-hidden="true"></span><span class="ticket-item__identity-copy"><strong>${name}</strong><small class="ticket-item__compact-meta${priced ? '' : ' ticket-item__warning'}">${compactMeta}</small></span></div>
       <strong class="ticket-item__total">${totalText}</strong>
-      <button type="button" class="icon-button ticket-item__settings-toggle" data-item-action="toggle-settings" data-item-id="${id}" aria-expanded="${String(expanded)}" aria-controls="${settingsId}" aria-label="${expanded ? 'Ocultar configuración de' : 'Configurar'} ${name}"><span data-icon="chevronDown"></span></button>
+      <button type="button" class="icon-button ticket-item__settings-toggle" data-item-action="toggle-settings" data-item-id="${id}" data-item-name="${name}" aria-expanded="${String(expanded)}" aria-controls="${settingsId}" aria-label="${expanded ? 'Ocultar configuración de' : 'Configurar'} ${name}"><span data-icon="chevronDown"></span></button>
       <div id="${settingsId}" class="ticket-item__controls ticket-item__settings"${expanded ? '' : ' hidden'}>
         <div class="quantity-stepper quantity-stepper--compact" aria-label="Cantidad de ${name}">
           <button type="button" data-item-action="quantity" data-item-id="${id}" data-delta="-1" ${item.quantityMinor <= 1 ? 'disabled' : ''} aria-label="Reducir cantidad de ${name}">−</button>
