@@ -17,7 +17,7 @@ The visual direction was explicitly approved before implementation. The launcher
 ## Evidence and current context
 
 - Root `AGENTS.md` requires dependency-free runtime, no polling, one canonical frontend HTTP client and regression coverage.
-- Root `spec.md` requires camera/gallery/previews/local OCR to remain usable without AI, durable AI progress through SSE+REST, 320 px support, safe-area handling, accessible alternatives and preserved evidence.
+- Root `spec.md` requires camera/gallery/previews and OCR evidence to remain recoverable when AI is unavailable, while configured receipt analysis always continues through durable AI verification; it also requires 320 px support, safe-area handling, accessible alternatives and preserved evidence.
 - The current frontend is framework-free HTML/CSS/ES modules under `src/web`.
 - `modern.css` owns semantic palette, spacing, radius, touch and motion tokens.
 - `ui.js` owns the icon family and receipt-line renderer.
@@ -45,9 +45,9 @@ The source queue and review disclosure are separate concepts. Closing a disclosu
 
 A single floating `+` button opens a small speed dial:
 
-- **IA**: choose existing image/PDF files. When AI is configured, the existing “Corregir OCR con IA” preference is enabled for that capture batch; when AI is unavailable, local OCR still runs and the UI explains the degraded path rather than removing capture capability.
-- **Manual**: add a blank editable receipt line and open the existing review editor.
-- **Scan**: invoke the existing rear-camera input. AI correction is enabled when available; otherwise local OCR remains the fallback.
+- **IA**: choose existing image/PDF files. There is no AI enable/disable option in the receipt UI; configured AI verification is always used.
+- **Manual**: open the existing focused receipt-line modal as a new draft. Cancel/close/Escape discards that unsaved draft and returns to the minimal workspace.
+- **Scan**: invoke the existing rear-camera input and use the same implicit configured-AI path after capture.
 
 The speed dial must close after an option is chosen, on `Escape`, on outside interaction, and when leaving the Tickets view.
 
@@ -133,12 +133,12 @@ The actual diff must remain smaller if existing components can satisfy the behav
 4. A queue-header `×` cancels the whole analysis; closing the queue itself does not.
 5. Cancel-all preserves captures and already durable OCR/completed evidence exactly as the existing cancellation contract requires.
 6. A single floating `+` opens exactly three visible paths: IA, Manual and Scan.
-7. File/camera paths continue to work when AI is unavailable by degrading to local OCR with clear status rather than removing capture capability.
+7. The receipt UI exposes no AI verification toggle; when AI is configured, file/camera analysis always uses it. Missing/failing AI preserves uploaded evidence and available local OCR for recovery/manual review.
 8. The body progressively shows detected line summaries before final assembly and switches to the combined model when available.
 9. Global progress remains visible in a compact form while work is active and exposes completed/total plus meaningful error/cancel state.
 10. Automatic extraction no longer auto-expands the full review editor; a concise review disclosure/CTA remains visible after final assembly.
-11. Opening review preserves capture preview, editable rows, retailer/store fields, line validation, total validation and confirm/import.
-12. Manual entry opens review and focuses the new line.
+11. Opening review preserves capture preview only when capture evidence exists, plus editable rows, retailer/store fields, line validation, total validation and confirm/import.
+12. Manual entry opens the focused line modal, exposes Cancel/close, shows no capture selector when there are no captures, and discards the unsaved draft on cancellation.
 13. At 320, 390/430, 768 and desktop widths there is no unintended horizontal overflow, clipped queue, hidden FAB or bottom-navigation collision.
 14. Keyboard users can operate queue, speed dial, review and cancellation; `Escape` closes transient queue/dial state without cancelling.
 15. Existing durable AI/SSE behavior remains polling-free and uses current state owners.
@@ -155,8 +155,8 @@ The actual diff must remain smaller if existing components can satisfy the behav
 - 430 px: cancel-all preserves captures and closes/updates transient state correctly.
 - Desktop: queue behaves as bounded popover and body stays minimal.
 - Keyboard: trigger, speed-dial actions, `Escape`, review disclosure and destructive action naming.
-- AI configured and not configured: file/camera path selects correct existing analysis mode without losing local OCR fallback.
-- Manual path: review opens, blank line is editable and focus is placed in description.
+- AI configured and not configured: no AI toggle is rendered; configured AI is selected implicitly and unavailable/failing AI preserves recoverable evidence.
+- Manual path: focused line modal opens, Cancel/close discards the draft, successful save appears in the compact detected-items body, and no empty capture preview is rendered.
 - Completed extraction: review remains collapsed until requested; preview and final validation/import still work.
 
 ### Regression
@@ -191,7 +191,7 @@ Before handoff:
 
 - [x] Recon complete against `main` at `6fc25b3af3c26e59fa905bb4c672a438a630120f`.
 - [x] User-approved prototype translated into executable acceptance criteria.
-- [ ] Implementation.
+- [x] Implementation.
 - [ ] Local/CI-equivalent validation.
 - [ ] Browser visual review.
 - [ ] PR created.
