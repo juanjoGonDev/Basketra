@@ -471,6 +471,12 @@ export function bindEvents() {
     if (queue?.open) queue.open = false;
     setReceiptAddMenuOpen(false);
   });
+  document.addEventListener('basketra:view-changed', event => {
+    if (event.detail?.view === 'scan') return;
+    const queue = $('#receipt-source-queue');
+    if (queue?.open) queue.open = false;
+    setReceiptAddMenuOpen(false);
+  });
 
   $('#capture-list').addEventListener('click', handleCaptureAction);
   $('#receipt-review').addEventListener('click', handleReceiptAction);
