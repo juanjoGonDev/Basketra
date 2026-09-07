@@ -45,6 +45,10 @@ async function openReview(page, items, statuses) {
       },
     });
   }, { currentItems: items, currentStatuses: statuses });
+  const panel = page.locator('#receipt-review-panel');
+  if (!(await panel.evaluate(element => element.open))) {
+    await panel.locator(':scope > summary').click();
+  }
 }
 
 async function makeReviewConfirmable(page, storageKey = 'file_receipt_validation_1') {
