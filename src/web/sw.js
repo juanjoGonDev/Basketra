@@ -68,13 +68,15 @@ async function cachedShellAsset(request) {
 async function boundedNavigation(request) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), NAVIGATION_TIMEOUT_MS);
+  let response;
   try {
-    return await fetchAndCache(request, { signal: controller.signal });
+    response = await fetchAndCache(request, { signal: controller.signal });
   } catch {
-    return (await caches.match(request)) || caches.match('/index.html');
+    response = (await caches.match(request)) || await caches.match('/index.html');
   } finally {
     clearTimeout(timer);
   }
+  return response;
 }
 
 async function networkWithFallback(request) {
