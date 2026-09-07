@@ -1,10 +1,13 @@
 import { join } from 'node:path';
 import { installAiRuntimeCapabilitiesCache } from './ai/runtime-capabilities-cache.ts';
 import { loadConfig } from './infrastructure/config.ts';
+import { prepareRuntimeTempStorage } from './infrastructure/runtime-temp.ts';
 import { OperationsGateway } from './operations/gateway.ts';
 import { applyPendingRestore } from './operations/restore.ts';
 
-const config = loadConfig();
+const bootstrapConfig = loadConfig();
+const runtimeTempStorage = prepareRuntimeTempStorage(bootstrapConfig.tempDir, bootstrapConfig.dataDir);
+const config = { ...bootstrapConfig, tempDir: runtimeTempStorage.directory };
 const restore = await applyPendingRestore(config.dataDir);
 if (restore.status === 'applied') {
   console.log(JSON.stringify({ level: 'info', event: 'restore_applied', importedName: restore.importedName }));
@@ -47,6 +50,7 @@ async function shutdown(signal: string): Promise<void> {
 
 gateway = new OperationsGateway(config, {
   requestRestart: () => void shutdown('RESTORE_STAGED'),
+  tempStorageMode: runtimeTempStorage.mode,
 });
 uninstallAiRuntimeCapabilitiesCache = installAiRuntimeCapabilitiesCache({
   databasePath: join(config.dataDir, 'basketra.db'),

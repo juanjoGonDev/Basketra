@@ -10,6 +10,7 @@ import { BasketraServer } from '../api/server.ts';
 import type { AppConfig } from '../infrastructure/config.ts';
 import { DEFAULT_DATABASE_STORAGE_LIMITS } from '../infrastructure/database.ts';
 import type { RuntimeSettings } from '../infrastructure/runtime-settings.ts';
+import type { RuntimeTempStorageMode } from '../infrastructure/runtime-temp.ts';
 import { AiProviderProbeStore, type AiProviderProbeTrigger } from './ai-provider-probe-store.ts';
 import { ApplicationLogStore, sanitizeClientLog, type LogSource } from './log-store.ts';
 import { importBackupStream, listImportedBackups, RESTORE_CONFIRMATION, stagePendingRestore } from './restore.ts';
@@ -25,6 +26,7 @@ const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 export type OperationsGatewayOptions = Readonly<{
   requestRestart?: () => void;
   clock?: () => Date;
+  tempStorageMode?: RuntimeTempStorageMode;
 }>;
 
 type ProviderProbeOutcome =
@@ -109,6 +111,7 @@ export class OperationsGateway {
   readonly #publicDir: string;
   readonly #requestRestart: (() => void) | undefined;
   readonly #clock: () => Date;
+  readonly #tempStorageMode: RuntimeTempStorageMode | 'unverified';
   #innerPort = 0;
   #clientLogWindowStarted = 0;
   #clientLogCount = 0;
@@ -120,6 +123,7 @@ export class OperationsGateway {
     this.#clock = options.clock ?? (() => new Date());
     this.#startedAt = this.#clock().toISOString();
     this.#requestRestart = options.requestRestart;
+    this.#tempStorageMode = options.tempStorageMode ?? 'unverified';
     this.#inner = new BasketraServer({ ...config, host: '127.0.0.1', port: 0 });
     this.#logStore = new ApplicationLogStore(config.dataDir, { clock: this.#clock });
     this.#probeStore = new AiProviderProbeStore(config.dataDir, this.#clock);
@@ -148,6 +152,16 @@ export class OperationsGateway {
       level: 'info',
       event: 'server.started',
       code: runtime.version.replaceAll('.', '_').replaceAll('-', '_').toUpperCase(),
+    });
+    this.#logStore.append({
+      source: 'server',
+      level: this.#tempStorageMode === 'data-fallback' ? 'warn' : 'info',
+      event: 'server.temp_storage',
+      code: this.#tempStorageMode === 'data-fallback'
+        ? 'DATA_FALLBACK'
+        : this.#tempStorageMode === 'primary'
+          ? 'PRIMARY'
+          : 'UNVERIFIED',
     });
     this.#startupProbeController = new AbortController();
     this.#startupProbePromise = this.runAiProviderProbe(
@@ -253,6 +267,7 @@ export class OperationsGateway {
       name: 'Basketra',
       version: runtime.version,
       ...(runtime.revision ? { revision: runtime.revision } : {}),
+      tempStorage: { mode: this.#tempStorageMode },
       startedAt: this.#startedAt,
       uptimeMs: Math.max(0, this.#clock().getTime() - new Date(this.#startedAt).getTime()),
     };
