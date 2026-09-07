@@ -113,3 +113,4 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', installWhenReady, { once: true });
   else installWhenReady();
 })();
+

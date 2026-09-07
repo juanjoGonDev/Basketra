@@ -283,9 +283,11 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await addProduct(page, { name: 'Arroz 1 kg', quantity: '1', unit: 'kg' });
 
   let milkRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Leche entera 1 L' });
+  await milkRow.getByRole('button', { name: 'Mostrar opciones de Leche entera 1 L', exact: true }).click();
   await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Aumentar cantidad de Leche entera 1 L' }).click());
   milkRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Leche entera 1 L' });
   await expect(milkRow.locator('.quantity-chip')).toHaveText('3');
+  await milkRow.getByRole('button', { name: 'Ocultar opciones de Leche entera 1 L', exact: true }).click();
 
   await swipe(page, milkRow, 'left');
   await expect(milkRow).toHaveAttribute('data-swipe-open', 'true');
@@ -306,6 +308,8 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Devolver Arroz 1 kg a pendientes' }).click());
   await expect(page.locator('#pending-items')).toContainText('Arroz 1 kg');
 
+  riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
+  await riceRow.getByRole('button', { name: 'Mostrar opciones de Arroz 1 kg', exact: true }).click();
   await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Subir Arroz 1 kg' }).click());
   await expect(page.locator('#pending-items [data-swipe-kind="shopping-item"]').first()).toContainText('Arroz 1 kg');
 
@@ -322,6 +326,7 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   const restoredRice = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
   await restoredRice.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
   await expect(restoredRice).toBeVisible();
+  await restoredRice.getByRole('button', { name: 'Mostrar opciones de Arroz 1 kg', exact: true }).click();
   await restoredRice.getByRole('button', { name: 'Mostrar acciones de Arroz 1 kg' }).click();
   await expect(restoredRice).toHaveAttribute('data-swipe-open', 'true');
   await page.keyboard.press('Escape');

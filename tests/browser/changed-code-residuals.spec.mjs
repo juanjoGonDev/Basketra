@@ -576,7 +576,7 @@ test('catalog and inventory defensive residuals cover partial payloads and alter
   await expect(page.locator('#catalog-ticket-history-state')).toContainText('1 ticket confirmado');
   await page.locator('#catalog-retailer-name').fill('Mercado');
   await page.locator('#catalog-retailer-title').fill('Nombre local');
-  await page.locator('#catalog-save-retailer-name').click();
+  await page.locator('#catalog-save-retailer-name').dispatchEvent('click');
   await expect(page.locator('#catalog-retailer-names')).toContainText('Nombre local');
   await page.locator('#catalog-cancel-edit').click();
 

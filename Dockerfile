@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1.7
 FROM node:22.23.1-alpine3.24 AS build
+ARG BASKETRA_VERSION=0.0.0-dev
 WORKDIR /app
 RUN npm install --global --ignore-scripts typescript@5.8.3
 COPY package.json tsconfig.json tsconfig.build.json ./

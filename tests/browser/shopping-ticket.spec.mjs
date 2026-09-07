@@ -99,20 +99,38 @@ test('shopping ticket estimates by effective Store and converges between devices
   const row = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Leche entera 1 L' });
   await expect(row.locator('.ticket-item__product-icon')).toBeVisible();
   await expect(row).toContainText('Mercado Centro');
+  await expect(row.locator('.ticket-item__position')).toHaveCSS('clip-path', 'inset(50%)');
+  await expect(page.locator('.list-store-panel__select .sr-only')).toHaveCSS('clip-path', 'inset(50%)');
+
+  const disclosure = row.locator('[data-shopping-item-toggle]');
+  await expect(disclosure).toHaveAccessibleName('Mostrar opciones de Leche entera 1 L');
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+  await expect(row.locator('[data-shopping-item-options]')).toBeHidden();
+  const compactHeight = await row.locator('.ticket-item').evaluate(element => element.getBoundingClientRect().height);
+  expect(compactHeight).toBeLessThanOrEqual(112);
+  await disclosure.click();
+  await expect(disclosure).toHaveAccessibleName('Ocultar opciones de Leche entera 1 L');
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+  await expect(row.locator('[data-shopping-item-options]')).toBeVisible();
 
   await row.locator('[data-item-control="store"]').selectOption(overrideStore.id);
   await expect(page.locator('#estimate-total')).toHaveText(/1,09/);
+  await expect(row.locator('[data-shopping-item-options]')).toBeVisible();
 
   const second = await context.newPage();
   const secondErrors = runtimeErrors(second);
   await second.setViewportSize({ width: 320, height: 700 });
   await second.goto(`/lists/${encodeURIComponent(list.id)}`);
   await expect(second.locator('#estimate-total')).toHaveText(/1,09/);
+  await expect(second.locator('.ticket-item__position')).toHaveCSS('clip-path', 'inset(50%)');
+  await expect(second.locator('.list-store-panel__select .sr-only')).toHaveCSS('clip-path', 'inset(50%)');
+  await expect(second.getByRole('button', { name: 'Mostrar opciones de Leche entera 1 L', exact: true })).toBeVisible();
   await expectNoHorizontalOverflow(second);
 
   await page.getByRole('button', { name: 'Aumentar cantidad de Leche entera 1 L', exact: true }).click();
   await expect(page.locator('#estimate-total')).toHaveText(/2,18/);
   await expect(second.locator('.quantity-chip')).toHaveText('2');
+  await expect(row.locator('[data-shopping-item-options]')).toBeVisible();
   await expect(second.locator('#estimate-total')).toHaveText(/2,18/);
 
   await page.getByRole('button', { name: 'Marcar Leche entera 1 L como comprado', exact: true }).click();
@@ -128,6 +146,12 @@ test('shopping ticket estimates by effective Store and converges between devices
   await expect(row.locator('[data-item-control="store"]')).toHaveValue('');
   await expect(page.locator('#estimate-total')).toHaveText(/2,38/);
   await expect(second.locator('#estimate-total')).toHaveText(/2,38/);
+  await expect(row.locator('[data-shopping-item-options]')).toBeVisible();
+
+  await disclosure.focus();
+  await page.keyboard.press('Enter');
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+  await expect(row.locator('[data-shopping-item-options]')).toBeHidden();
 
   await page.screenshot({ path: testInfo.outputPath('shopping-ticket-mobile-390.png'), fullPage: true });
   await second.screenshot({ path: testInfo.outputPath('shopping-ticket-mobile-320.png'), fullPage: true });

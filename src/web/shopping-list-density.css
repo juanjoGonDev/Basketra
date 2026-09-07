@@ -1,0 +1,93 @@
+.ticket-item[data-shopping-density="compact"] {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    "complete identity total disclosure"
+    "controls controls controls controls";
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+}
+
+.ticket-item[data-shopping-density="compact"] .ticket-item__identity {
+  gap: var(--space-2);
+}
+
+.ticket-item[data-shopping-density="compact"] .ticket-item__identity-copy {
+  min-width: 0;
+}
+
+.ticket-item[data-shopping-density="compact"] .ticket-item__identity-copy > strong,
+.ticket-item[data-shopping-density="compact"] .ticket-item__identity-copy > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ticket-item[data-shopping-density="compact"] .ticket-item__category {
+  display: none;
+}
+
+.shopping-item-compact-summary {
+  color: var(--color-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+}
+
+.shopping-item-disclosure__toggle {
+  grid-area: disclosure;
+  width: var(--touch);
+  min-width: var(--touch);
+  min-height: var(--touch);
+  align-self: center;
+  background: var(--color-surface-container-low);
+}
+
+.shopping-item-disclosure__panel {
+  grid-area: controls;
+  margin-top: var(--space-1);
+  padding-top: var(--space-3);
+  border-top: 1px solid color-mix(in srgb, var(--color-on-surface) 10%, transparent);
+}
+
+.shopping-item-disclosure__panel[hidden] {
+  display: none !important;
+}
+
+@media (max-width: 42rem) {
+  .ticket-item[data-shopping-density="compact"] {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+  }
+
+  .shopping-item-disclosure__panel {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .shopping-item-disclosure__panel .quantity-stepper,
+  .shopping-item-disclosure__panel .ticket-control--store {
+    grid-column: 1 / -1;
+  }
+
+  .shopping-item-disclosure__panel .ticket-item__move {
+    justify-self: start;
+  }
+
+  .shopping-item-disclosure__panel .ticket-item__more {
+    justify-self: end;
+  }
+}
+
+@media (max-width: 22.5rem) {
+  .ticket-item[data-shopping-density="compact"] {
+    padding-inline: var(--space-2);
+  }
+
+  .ticket-item[data-shopping-density="compact"] .ticket-item__product-icon {
+    display: none;
+  }
+
+  .ticket-item[data-shopping-density="compact"] .ticket-item__identity {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ticket-item[data-shopping-density="compact"] .ticket-item__total {
+    font-size: .9rem;
+  }
+}
