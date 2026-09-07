@@ -184,6 +184,54 @@ async function openCaptureDetails(page, index = 0) {
   return details;
 }
 
+
+test('generic swipe restoration rejects invalid identities and restores the matching row', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const { restoreSwipeRow } = await import('/ui.js');
+    const root = document.createElement('div');
+    root.innerHTML = `
+      <div class="swipe-shell" data-swipe-row data-swipe-id="generic" data-swipe-kind="shopping-item" data-swipe-open="false">
+        <div data-swipe-actions aria-hidden="true"><button type="button" tabindex="-1">Editar</button></div>
+        <article data-swipe-content></article>
+        <button type="button" data-swipe-toggle aria-expanded="false">Más</button>
+      </div>
+      <div class="inventory-entity-swipe" data-swipe-row data-swipe-id="inventory" data-swipe-kind="product">
+        <button type="button" data-inventory-swipe-surface>Producto</button>
+      </div>`;
+    document.body.append(root);
+    const generic = root.querySelector('[data-swipe-id="generic"]');
+    const actions = generic.querySelector('[data-swipe-actions]');
+    const action = actions.querySelector('button');
+    const toggle = generic.querySelector('[data-swipe-toggle]');
+    const values = {
+      missing: restoreSwipeRow(root, {}),
+      unknown: restoreSwipeRow(root, { id: 'missing', kind: 'shopping-item' }),
+      inventory: restoreSwipeRow(root, { id: 'inventory', kind: 'product' }),
+      restored: restoreSwipeRow(root, { id: 'generic', kind: 'shopping-item' }),
+      open: generic.dataset.swipeOpen,
+      actionsHidden: actions.getAttribute('aria-hidden'),
+      actionTabIndex: action.tabIndex,
+      expanded: toggle.getAttribute('aria-expanded'),
+      offset: generic.querySelector('[data-swipe-content]').style.getPropertyValue('--swipe-x'),
+    };
+    root.remove();
+    return values;
+  });
+
+  expect(result).toEqual({
+    missing: false,
+    unknown: false,
+    inventory: false,
+    restored: true,
+    open: 'true',
+    actionsHidden: 'false',
+    actionTabIndex: 0,
+    expanded: 'true',
+    offset: '-112px',
+  });
+});
+
 test.afterEach(async ({ page }, testInfo) => {
   if (page.isClosed()) return;
   await page.evaluate(() => window.scrollTo(0, 0));
