@@ -63,6 +63,15 @@ Revert the theme assets, their index/static-shell registrations and tests. No pe
 - Target: `main`
 - Merge, release and deploy require separate authorization.
 
+## Validation evidence
+
+- Code-bearing head `21d1e1e33f5bd4e2e28a36275f85664444fffea2` passed Pull Request Quality run `34130125381`, attempt 2, including Static quality, Unit, Static E2E, both Integration shards, coverage groups, Security, resource budgets, container smoke, linux/amd64, linux/arm64 and all Browser shards.
+- CodeQL run `34130125378` completed successfully for the same code-bearing head.
+- Browser shard 11 passed the explicit-dark and system-following regression and produced `settings-explicit-dark-390.png` plus `home-system-dark-390.png`.
+- Browser shard 24 passed the explicit-light regression at 320 px and produced `settings-explicit-light-320.png`.
+- Visual inspection of all three theme screenshots found a coherent canvas, surfaces, text, header and bottom navigation in both palettes, with no recurrence of the reported light-canvas/dark-surface mix and no horizontal overflow. The fixed bottom navigation appears at the viewport boundary inside full-page Playwright captures as expected.
+- Pull Request Quality attempt 1 was cancelled externally after its completed jobs had passed; the unchanged code-bearing head was retried once and attempt 2 passed, so no product change was made in response to that cancellation.
+
 ## Status
 
-Implementation in progress. Exact-head CI and final responsive/visual review remain mandatory before completion.
+Implementation, automated validation and responsive visual review are complete for the code-bearing head. Any subsequent delivery-only documentation commit must remain behavior-neutral; the PR checks on the final head remain authoritative before reporting completion.
