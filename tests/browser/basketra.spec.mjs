@@ -283,6 +283,7 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await addProduct(page, { name: 'Arroz 1 kg', quantity: '1', unit: 'kg' });
 
   let milkRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Leche entera 1 L' });
+  await milkRow.getByRole('button', { name: 'Mostrar opciones de Leche entera 1 L', exact: true }).click();
   await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Aumentar cantidad de Leche entera 1 L' }).click());
   milkRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Leche entera 1 L' });
   await expect(milkRow.locator('.quantity-chip')).toHaveText('3');
