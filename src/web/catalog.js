@@ -503,6 +503,9 @@ async function openPriceDialog(entry) {
     ? 'Se conservará el precio anterior y se añadirá una observación más reciente.'
     : 'Registra una nueva observación sin sobrescribir el histórico.';
   $('#catalog-price-state').textContent = '';
+  $('#catalog-price-store').replaceChildren(new Option('Selecciona una tienda', ''));
+  $('#catalog-price-store').value = '';
+  $('#catalog-price-value').value = '';
   $('#catalog-price-store').disabled = true;
   $('#catalog-price-save').disabled = true;
   $('#catalog-price-store-help').textContent = 'Cargando tiendas…';
