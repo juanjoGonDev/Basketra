@@ -339,14 +339,10 @@ function renderUnitOptions() {
 
 function latestPrice(product) {
   const prices = Array.isArray(product?.latestPrices) ? product.latestPrices : [];
-  return prices.reduce((latest, entry) => {
-    if (!latest) return entry;
-    const latestTime = Date.parse(latest.observedAt);
-    const entryTime = Date.parse(entry.observedAt);
-    if (Number.isNaN(entryTime)) return latest;
-    if (Number.isNaN(latestTime) || entryTime > latestTime) return entry;
-    return latest;
-  }, null);
+  return prices.reduce(
+    (latest, entry) => latest === null || entry.observedAt > latest.observedAt ? entry : latest,
+    null,
+  );
 }
 
 function syncSelectionControls(selection, pageIds, {
