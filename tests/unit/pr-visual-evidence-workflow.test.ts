@@ -42,7 +42,14 @@ test("visual preparation is read-only, one-minute bounded and consumes all Brows
   assert.match(prepare, /timeout-minutes: 1/u);
   assert.match(prepare, /permissions:\n\s+actions: read\n\s+contents: read/u);
   assert.doesNotMatch(prepare, /contents: write|pull-requests: write|issues: write/u);
-  assert.match(prepare, /--pattern 'basketra-browser-shard-\*'/u);
+  assert.match(
+    prepare,
+    /actions\/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8\.0\.1/u,
+  );
+  assert.match(prepare, /pattern: basketra-browser-evidence-\*/u);
+  assert.match(prepare, /github-token: \${{ github\.token }}/u);
+  assert.match(prepare, /run-id: \${{ env\.RUN_ID }}/u);
+  assert.doesNotMatch(prepare, /gh run download/u);
   assert.match(prepare, /find downloaded -type d -name "\*\$needle\*"/u);
   assert.match(prepare, /Browser evidence must not contain symbolic links/u);
   assert.match(prepare, /name: basketra-prepared-visual-evidence/u);
