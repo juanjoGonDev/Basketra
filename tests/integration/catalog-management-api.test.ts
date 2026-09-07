@@ -127,6 +127,28 @@ test('catalog API lists, relates and labels persisted product variants without a
     assert.equal(retailerFiltered.status, 200);
     assert.equal(expectArray(expectRecord(retailerFiltered.body?.['catalog'])['products']).length, 1);
 
+    const store = await jsonRequest(baseUrl, '/api/v1/inventory/stores', {
+      method: 'POST',
+      body: { retailerName: 'Mercadona', name: 'Mercadona Centro' },
+    });
+    assert.equal(store.status, 201);
+    const storeId = expectString(expectRecord(store.body?.['store'])['id']);
+    const price = await jsonRequest(baseUrl, `/api/v1/products/${encodeURIComponent(milkId)}/prices`, {
+      method: 'POST',
+      body: { retailerName: 'Mercadona', storeId, priceMinor: 119, evidenceType: 'manual' },
+    });
+    assert.equal(price.status, 201);
+    const detailed = await jsonRequest(baseUrl, `/api/v1/products/${encodeURIComponent(milkId)}`);
+    assert.equal(detailed.status, 200);
+    const detailedProduct = expectRecord(detailed.body?.['product']);
+    const detailedNames = expectArray(detailedProduct['retailerNames']);
+    const detailedPrices = expectArray(detailedProduct['latestPrices']);
+    assert.equal(detailedNames.length, 1);
+    assert.equal(detailedPrices.length, 1);
+    assert.equal(expectRecord(detailedPrices[0])['storeId'], storeId);
+    assert.equal(expectRecord(detailedPrices[0])['priceMinor'], 119);
+    assert.equal(detailedProduct['latestPricesTruncated'], false);
+
     const existingParent = await jsonRequest(baseUrl, `/api/v1/catalog/products/${encodeURIComponent(milkId)}/parent`, {
       method: 'PUT',
       body: { canonicalProductId: dairyParentId },
