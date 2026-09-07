@@ -259,6 +259,26 @@ test('inventory quick price editor handles empty and unavailable store inventori
         body: JSON.stringify({ error: { code: 'STORE_READ_UNAVAILABLE', message: 'Tiendas no disponibles' } }),
       });
     }
+    if (storeMode === 'single') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          stores: [{ id: 'store_single', retailerId: 'retailer_single', retailerName: 'Mercado', name: 'Centro' }],
+          total: 1,
+          offset: 0,
+          limit: 100,
+          hasMore: false,
+        }),
+      });
+    }
+    if (storeMode === 'invalid') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ stores: null, total: 0, offset: 0, limit: 100, hasMore: false }),
+      });
+    }
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -276,6 +296,17 @@ test('inventory quick price editor handles empty and unavailable store inventori
   await expect(dialog.locator('#catalog-price-store-help')).toContainText('No hay tiendas guardadas');
   await dialog.getByRole('button', { name: 'Cancelar' }).click();
 
+  storeMode = 'single';
+  await page.locator('#catalog-add-price').click();
+  await expect(dialog.locator('#catalog-price-store-help')).toContainText('nueva observación histórica');
+  await expect(dialog.locator('#catalog-price-store option')).toHaveCount(2);
+  await dialog.getByRole('button', { name: 'Cancelar' }).click();
+
+  storeMode = 'invalid';
+  await page.locator('#catalog-add-price').click();
+  await expect(dialog.locator('#catalog-price-store-help')).toContainText('No hay tiendas guardadas');
+  await dialog.getByRole('button', { name: 'Cancelar' }).click();
+
   storeMode = 'failure';
   await page.locator('#catalog-add-price').click();
   await expect(dialog.locator('#catalog-price-store-help')).toContainText('No se pudieron cargar las tiendas');
@@ -285,4 +316,73 @@ test('inventory quick price editor handles empty and unavailable store inventori
   await page.locator('#catalog-back-list').click();
   await page.locator('#catalog-new-product').click();
   await expect(page.locator('#catalog-price-comparison-card')).toBeHidden();
+  await page.locator('#catalog-add-price').evaluate(button => button.click());
+  await expect(dialog).not.toBeVisible();
+});
+
+test('inventory price comparison covers deterministic equal-price tie breakers and missing store names', async ({ page }) => {
+  const tiedProduct = {
+    ...catalogProduct,
+    id: 'variant_ties',
+    canonicalProductId: 'product_ties',
+    canonicalName: 'Pasta',
+    variantName: 'Pasta 500 g',
+    latestPrices: [],
+  };
+  let mode = 'retailer';
+  const pricesByMode = {
+    retailer: [
+      { retailerId: 'retailer_zulu', retailerName: 'Zulu', storeId: 'store_zulu', storeName: 'Central', priceMinor: 100, observedAt: '2026-09-01T10:00:00.000Z', confidence: 1 },
+      { retailerId: 'retailer_alpha', retailerName: 'Alpha', storeId: 'store_alpha', storeName: 'Central', priceMinor: 100, observedAt: '2026-09-01T10:00:00.000Z', confidence: 1 },
+    ],
+    store: [
+      { retailerId: 'retailer_alpha', retailerName: 'Alpha', storeId: 'store_b', storeName: 'B', priceMinor: 100, observedAt: '2026-09-01T10:00:00.000Z', confidence: 1 },
+      { retailerId: 'retailer_alpha', retailerName: 'Alpha', storeId: 'store_a', storeName: 'A', priceMinor: 100, observedAt: '2026-09-01T10:00:00.000Z', confidence: 1 },
+    ],
+    date: [
+      { retailerId: 'retailer_alpha', retailerName: 'Alpha', storeId: 'store_old', storeName: 'Central', priceMinor: 100, observedAt: '2026-09-01T10:00:00.000Z', confidence: 1 },
+      { retailerId: 'retailer_alpha', retailerName: 'Alpha', storeId: 'store_new', storeName: 'Central', priceMinor: 100, observedAt: '2026-09-02T10:00:00.000Z', confidence: 1 },
+    ],
+    unnamed: [
+      { retailerId: 'retailer_alpha', retailerName: 'Alpha', storeId: 'store_named', storeName: 'Central', priceMinor: 100, observedAt: '2026-09-01T10:00:00.000Z', confidence: 1 },
+      { retailerId: 'retailer_alpha', retailerName: 'Alpha', storeId: 'store_unnamed', priceMinor: 100, observedAt: '2026-09-01T10:00:00.000Z', confidence: 1 },
+    ],
+  };
+
+  await page.route('**/api/v1/catalog?*', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ catalog: { products: [tiedProduct], parents: [], total: 1, offset: 0, limit: 12, hasMore: false } }),
+  }));
+  await page.route('**/api/v1/products/variant_ties', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ product: { ...tiedProduct, latestPrices: pricesByMode[mode] }, priceHistory: [], ticketHistory: [] }),
+  }));
+  await page.route('**/api/v1/inventory/stores?*', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ stores: [], total: 0, offset: 0, limit: 100, hasMore: false }),
+  }));
+
+  await page.goto('/inventory/products/variant_ties');
+  const rows = page.locator('#catalog-latest-prices .catalog-price-comparison-row');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toContainText('Alpha');
+
+  mode = 'store';
+  await page.reload();
+  await expect(rows.nth(0)).toContainText('Alpha · A');
+
+  mode = 'date';
+  await page.reload();
+  await expect(rows.nth(0)).toContainText('2 sept 2026');
+
+  mode = 'unnamed';
+  await page.reload();
+  await expect(rows.nth(0)).toContainText('sin tienda física');
+  await rows.nth(0).getByRole('button', { name: 'Actualizar' }).click();
+  const dialog = page.locator('#catalog-price-dialog');
+  await expect(dialog.locator('#catalog-price-store option:checked')).toHaveText('Alpha · Tienda sin nombre');
+  await dialog.getByRole('button', { name: 'Cancelar' }).click();
 });
