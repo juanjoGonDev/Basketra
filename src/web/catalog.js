@@ -1431,6 +1431,14 @@ function bindInteractions() {
   $('#catalog-delete-product').addEventListener('click', () => void openProductDeleteDialog());
   $('#catalog-delete-cancel').addEventListener('click', () => $('#catalog-delete-dialog').close());
   $('#catalog-delete-confirm').addEventListener('click', event => void confirmProductDelete(event.currentTarget));
+  $('#catalog-add-price').addEventListener('click', () => void openPriceDialog());
+  $('#catalog-price-cancel').addEventListener('click', () => $('#catalog-price-dialog').close());
+  $('#catalog-price-form').addEventListener('submit', event => {
+    event.preventDefault();
+    void savePrice($('#catalog-price-save'));
+  });
+  $('#catalog-price-store').addEventListener('change', () => { $('#catalog-price-state').textContent = ''; });
+  $('#catalog-price-value').addEventListener('input', () => { $('#catalog-price-state').textContent = ''; });
   $('#category-edit').addEventListener('click', () => {
     const category = selectedCategory();
     if (!category) return;
