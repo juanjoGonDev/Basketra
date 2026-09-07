@@ -441,7 +441,67 @@ jobs:
               continue
             fi
 
-            IFS=\t' read -r codeql_run_id codeql_status codeql_conclusion <<<"$codeql"
+            IFS=
+            if [ "$codeql_status" != "completed" ]; then
+              sleep "$FINAL_VERIFIER_POLL_SECONDS"
+              continue
+            fi
+            if [ "$codeql_conclusion" != "success" ]; then
+              echo "CodeQL run $codeql_run_id completed with $codeql_conclusion" >&2
+              exit 1
+            fi
+            break
+          done
+
+          codeql_jobs=$(gh api "repos/$REPOSITORY/actions/runs/$codeql_run_id/jobs?per_page=100")
+          scopes=$(jq -r '
+            .jobs[]
+            | select(.name | test("^Analyze \\(.+\\)$"))
+            | .name
+            | capture("^Analyze \\((?<scope>.+)\\)$").scope
+          ' <<<"$codeql_jobs" | sort -u)
+          test -n "$scopes"
+
+          while true; do
+            analyses=$(gh api --paginate "repos/$REPOSITORY/code-scanning/analyses?per_page=100" | jq -s 'add // []')
+            missing=0
+            while IFS= read -r scope; do
+              if [ "$scope" = "actions" ]; then
+                language="actions"
+              else
+                language="javascript-typescript"
+              fi
+              category="/language:$language/scope:$scope"
+              analysis=$(jq -c \
+                --arg mergeSha "$ANALYSIS_SHA" \
+                --arg headSha "$HEAD_SHA" \
+                --arg ref "$ANALYSIS_REF" \
+                --arg category "$category" \
+                '[
+                  .[]
+                  | select(
+                    (.commit_sha == $mergeSha or .commit_sha == $headSha)
+                    and .ref == $ref
+                    and .category == $category
+                  )
+                ] | sort_by(.created_at) | last // empty' <<<"$analyses")
+              if [ -z "$analysis" ]; then
+                missing=1
+                break
+              fi
+              error=$(jq -r '.error // ""' <<<"$analysis")
+              if [ -n "$error" ]; then
+                echo "Code scanning analysis $category failed processing: $error" >&2
+                exit 1
+              fi
+            done <<<"$scopes"
+
+            if [ "$missing" -eq 0 ]; then
+              break
+            fi
+            sleep "$FINAL_VERIFIER_POLL_SECONDS"
+          done
+\\t' read -r codeql_run_id codeql_status codeql_conclusion <<<"$codeql"
             if [ "$codeql_status" != "completed" ]; then
               sleep "$FINAL_VERIFIER_POLL_SECONDS"
               continue
