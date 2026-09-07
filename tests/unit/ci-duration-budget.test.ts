@@ -5,12 +5,29 @@ import { test } from 'node:test';
 const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
 const codeql = readFileSync('.github/workflows/codeql.yml', 'utf8');
 
-test('every pull-request CI job has a hard one-minute envelope', () => {
+test('every workload job has a hard one-minute envelope while the final verifier is exempt', () => {
   const timeoutValues = [...ci.matchAll(/timeout-minutes:\s*(\d+)/gu)].map(match => Number(match[1]));
-  assert.ok(timeoutValues.length >= 7);
+  assert.equal(timeoutValues.length, 8);
   assert.deepEqual(new Set(timeoutValues), new Set([1]));
   assert.match(ci, /browser-e2e:\n[\s\S]*?timeout-minutes:\s*1/u);
   assert.match(ci, /timeout --signal=TERM --kill-after=5s 45s pnpm exec playwright test --test-list=/u);
+
+  const finalJob = ci.slice(ci.indexOf('\n  final:\n'));
+  assert.match(finalJob, /name: "✅ CI complete"/u);
+  assert.match(finalJob, /if: \$\{\{ always\(\) \}\}/u);
+  assert.doesNotMatch(finalJob, /timeout-minutes:/u);
+  for (const dependency of [
+    'quality',
+    'integration',
+    'security',
+    'browser-runtime',
+    'browser-e2e',
+    'browser-coverage',
+    'container',
+    'container-smoke',
+  ]) {
+    assert.match(finalJob, new RegExp('\\n\\s+- ' + dependency + '\\n', 'u'));
+  }
 });
 
 test('CodeQL keeps full language coverage through one-minute architecture scopes', () => {

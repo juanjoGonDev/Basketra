@@ -367,3 +367,46 @@ jobs:
           docker logs basketra-ci 2>/dev/null || true
           docker rm --force basketra-ci 2>/dev/null || true
           docker volume rm basketra-ci-data 2>/dev/null || true
+
+  final:
+    name: "✅ CI complete"
+    if: ${{ always() }}
+    needs:
+      - quality
+      - integration
+      - security
+      - browser-runtime
+      - browser-e2e
+      - browser-coverage
+      - container
+      - container-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify every required Pull Request Quality job succeeded
+        env:
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          INTEGRATION_RESULT: ${{ needs.integration.result }}
+          SECURITY_RESULT: ${{ needs.security.result }}
+          BROWSER_RUNTIME_RESULT: ${{ needs.browser-runtime.result }}
+          BROWSER_E2E_RESULT: ${{ needs.browser-e2e.result }}
+          BROWSER_COVERAGE_RESULT: ${{ needs.browser-coverage.result }}
+          CONTAINER_RESULT: ${{ needs.container.result }}
+          CONTAINER_SMOKE_RESULT: ${{ needs.container-smoke.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+          for result in \
+            "$QUALITY_RESULT" \
+            "$INTEGRATION_RESULT" \
+            "$SECURITY_RESULT" \
+            "$BROWSER_RUNTIME_RESULT" \
+            "$BROWSER_E2E_RESULT" \
+            "$BROWSER_COVERAGE_RESULT" \
+            "$CONTAINER_RESULT" \
+            "$CONTAINER_SMOKE_RESULT"; do
+            if [ "$result" != "success" ]; then
+              failed=1
+            fi
+          done
+          test "$failed" -eq 0
