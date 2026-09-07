@@ -19,37 +19,36 @@ function restoreTempEnvironment(sqliteTmpDir: string | undefined, tmpDir: string
   else process.env['TMPDIR'] = tmpDir;
 }
 
-test('runtime temp preparation keeps a verified preferred directory', () => {
+test('runtime temp preparation keeps a verified preferred directory', async () => {
   const root = temporaryDirectory('runtime-temp-primary');
   const preferred = join(root, 'preferred');
   const previousSqliteTmpDir = process.env['SQLITE_TMPDIR'];
   const previousTmpDir = process.env['TMPDIR'];
   try {
-    const selection = prepareRuntimeTempStorage(preferred, root);
+    const selection = await prepareRuntimeTempStorage(preferred, root);
     assert.deepEqual(selection, {
       mode: 'primary',
       directory: resolve(preferred),
     });
     assert.equal(process.env['SQLITE_TMPDIR'], resolve(preferred));
     assert.equal(process.env['TMPDIR'], resolve(preferred));
-    probeSqliteTempDirectory(selection.directory);
+    await probeSqliteTempDirectory(selection.directory);
   } finally {
     restoreTempEnvironment(previousSqliteTmpDir, previousTmpDir);
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('runtime temp preparation falls back to private data storage when preferred storage fails', () => {
+test('runtime temp preparation falls back to private data storage when preferred storage fails', async () => {
   const root = temporaryDirectory('runtime-temp-fallback');
   const preferred = resolve(join(root, 'preferred'));
   const fallback = resolve(join(root, 'runtime-tmp'));
   const previousSqliteTmpDir = process.env['SQLITE_TMPDIR'];
   const previousTmpDir = process.env['TMPDIR'];
   try {
-    const selection = prepareRuntimeTempStorage(preferred, root, {
-      probe: (directory) => {
+    const selection = await prepareRuntimeTempStorage(preferred, root, {
+      writableProbe: (directory) => {
         if (directory === preferred) throw new Error('SIMULATED_PRIMARY_FAILURE');
-        probeSqliteTempDirectory(directory);
       },
     });
     assert.deepEqual(selection, {
@@ -65,16 +64,16 @@ test('runtime temp preparation falls back to private data storage when preferred
   }
 });
 
-test('runtime temp preparation fails closed and preserves the previous environment when no candidate works', () => {
+test('runtime temp preparation fails closed and preserves the previous environment when no candidate works', async () => {
   const root = temporaryDirectory('runtime-temp-fail');
   const previousSqliteTmpDir = process.env['SQLITE_TMPDIR'];
   const previousTmpDir = process.env['TMPDIR'];
   process.env['SQLITE_TMPDIR'] = 'previous-sqlite-temp';
   process.env['TMPDIR'] = 'previous-temp';
   try {
-    assert.throws(
-      () => prepareRuntimeTempStorage(join(root, 'preferred'), root, {
-        probe: () => {
+    await assert.rejects(
+      prepareRuntimeTempStorage(join(root, 'preferred'), root, {
+        writableProbe: () => {
           throw new Error('SIMULATED_FAILURE');
         },
       }),

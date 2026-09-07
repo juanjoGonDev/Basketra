@@ -1,5 +1,5 @@
-import { DatabaseSync } from 'node:sqlite';
-import { chmodSync, mkdirSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const SQLITE_TEMP_PROBE_BYTES = 2 * 1024 * 1024;
@@ -12,7 +12,8 @@ export type RuntimeTempStorageSelection = Readonly<{
 }>;
 
 export type RuntimeTempStorageOptions = Readonly<{
-  probe?: (directory: string) => void;
+  writableProbe?: (directory: string) => void;
+  sqliteProbe?: (directory: string) => Promise<void>;
 }>;
 
 function restoreEnvironment(name: 'SQLITE_TMPDIR' | 'TMPDIR', value: string | undefined): void {
@@ -20,16 +21,27 @@ function restoreEnvironment(name: 'SQLITE_TMPDIR' | 'TMPDIR', value: string | un
   else process.env[name] = value;
 }
 
-export function probeSqliteTempDirectory(directory: string): void {
+export function probeWritableTempDirectory(directory: string): void {
+  const probePath = join(resolve(directory), `.basketra-write-probe-${randomUUID()}`);
+  try {
+    writeFileSync(probePath, 'ok', { flag: 'wx', mode: 0o600 });
+  } finally {
+    rmSync(probePath, { force: true });
+  }
+}
+
+export async function probeSqliteTempDirectory(directory: string): Promise<void> {
   const target = resolve(directory);
   const previousSqliteTmpDir = process.env['SQLITE_TMPDIR'];
   const previousTmpDir = process.env['TMPDIR'];
   process.env['SQLITE_TMPDIR'] = target;
   process.env['TMPDIR'] = target;
 
-  let database: DatabaseSync | undefined;
+  let closeDatabase: (() => void) | undefined;
   try {
-    database = new DatabaseSync(':memory:');
+    const { DatabaseSync } = await import('node:sqlite');
+    const database = new DatabaseSync(':memory:');
+    closeDatabase = () => database.close();
     database.exec(
       'PRAGMA temp_store = FILE; PRAGMA temp.cache_size = 1; CREATE TEMP TABLE temp_probe(value BLOB);',
     );
@@ -42,7 +54,7 @@ export function probeSqliteTempDirectory(directory: string): void {
     }
   } finally {
     try {
-      database?.close();
+      closeDatabase?.();
     } finally {
       restoreEnvironment('SQLITE_TMPDIR', previousSqliteTmpDir);
       restoreEnvironment('TMPDIR', previousTmpDir);
@@ -50,31 +62,45 @@ export function probeSqliteTempDirectory(directory: string): void {
   }
 }
 
-export function prepareRuntimeTempStorage(
+export async function prepareRuntimeTempStorage(
   preferredDirectory: string,
   dataDirectory: string,
   options: RuntimeTempStorageOptions = {},
-): RuntimeTempStorageSelection {
+): Promise<RuntimeTempStorageSelection> {
   const preferred = resolve(preferredDirectory);
   const fallback = resolve(join(dataDirectory, 'runtime-tmp'));
-  const probe = options.probe ?? probeSqliteTempDirectory;
+  const writableProbe = options.writableProbe ?? probeWritableTempDirectory;
+  const sqliteProbe = options.sqliteProbe ?? probeSqliteTempDirectory;
+  const previousSqliteTmpDir = process.env['SQLITE_TMPDIR'];
+  const previousTmpDir = process.env['TMPDIR'];
   const candidates: readonly RuntimeTempStorageSelection[] = [
     { mode: 'primary', directory: preferred },
     ...(fallback === preferred ? [] : [{ mode: 'data-fallback' as const, directory: fallback }]),
   ];
 
+  let selected: RuntimeTempStorageSelection | undefined;
   for (const candidate of candidates) {
     try {
       mkdirSync(candidate.directory, { recursive: true, mode: 0o700 });
       if (candidate.mode === 'data-fallback') chmodSync(candidate.directory, 0o700);
-      probe(candidate.directory);
-      process.env['SQLITE_TMPDIR'] = candidate.directory;
-      process.env['TMPDIR'] = candidate.directory;
-      return candidate;
+      writableProbe(candidate.directory);
+      selected = candidate;
+      break;
     } catch {
       // Try the next bounded candidate without exposing filesystem details.
     }
   }
 
-  throw new Error('RUNTIME_TEMP_STORAGE_UNAVAILABLE');
+  if (!selected) throw new Error('RUNTIME_TEMP_STORAGE_UNAVAILABLE');
+
+  process.env['SQLITE_TMPDIR'] = selected.directory;
+  process.env['TMPDIR'] = selected.directory;
+  try {
+    await sqliteProbe(selected.directory);
+    return selected;
+  } catch {
+    restoreEnvironment('SQLITE_TMPDIR', previousSqliteTmpDir);
+    restoreEnvironment('TMPDIR', previousTmpDir);
+    throw new Error('RUNTIME_TEMP_STORAGE_UNAVAILABLE');
+  }
 }

@@ -4,7 +4,7 @@ import {
 } from '../dist/infrastructure/runtime-temp.js';
 
 if (process.argv.includes('--fallback')) {
-  const selection = prepareRuntimeTempStorage('/tmp/basketra', '/data');
+  const selection = await prepareRuntimeTempStorage('/tmp/basketra', '/data');
   if (selection.mode !== 'data-fallback') {
     throw new Error('Expected automatic data fallback for the broken primary temp directory');
   }
@@ -14,7 +14,7 @@ if (process.argv.includes('--fallback')) {
   if (!sqliteTmpDir || sqliteTmpDir !== tmpDir) {
     throw new Error('SQLITE_TMPDIR and TMPDIR must identify the same configured temporary directory');
   }
-  probeSqliteTempDirectory(sqliteTmpDir);
+  await probeSqliteTempDirectory(sqliteTmpDir);
 }
 
 console.log('SQLite temp-file probe passed.');

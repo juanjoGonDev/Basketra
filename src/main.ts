@@ -1,13 +1,19 @@
 import { join } from 'node:path';
-import { installAiRuntimeCapabilitiesCache } from './ai/runtime-capabilities-cache.ts';
 import { loadConfig } from './infrastructure/config.ts';
 import { prepareRuntimeTempStorage } from './infrastructure/runtime-temp.ts';
-import { OperationsGateway } from './operations/gateway.ts';
-import { applyPendingRestore } from './operations/restore.ts';
 
 const bootstrapConfig = loadConfig();
-const runtimeTempStorage = prepareRuntimeTempStorage(bootstrapConfig.tempDir, bootstrapConfig.dataDir);
+const runtimeTempStorage = await prepareRuntimeTempStorage(bootstrapConfig.tempDir, bootstrapConfig.dataDir);
 const config = { ...bootstrapConfig, tempDir: runtimeTempStorage.directory };
+const [
+  { installAiRuntimeCapabilitiesCache },
+  { OperationsGateway },
+  { applyPendingRestore },
+] = await Promise.all([
+  import('./ai/runtime-capabilities-cache.ts'),
+  import('./operations/gateway.ts'),
+  import('./operations/restore.ts'),
+]);
 const restore = await applyPendingRestore(config.dataDir);
 if (restore.status === 'applied') {
   console.log(JSON.stringify({ level: 'info', event: 'restore_applied', importedName: restore.importedName }));
@@ -22,7 +28,7 @@ if (restore.status === 'failed') {
 }
 
 let shuttingDown = false;
-let gateway: OperationsGateway;
+let gateway: InstanceType<typeof OperationsGateway>;
 let uninstallAiRuntimeCapabilitiesCache: (() => void) | undefined;
 
 async function shutdown(signal: string): Promise<void> {
