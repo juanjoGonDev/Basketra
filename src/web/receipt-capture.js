@@ -87,7 +87,10 @@ function pageDetectedItems(page) {
 }
 
 function detectedItemsSnapshot() {
-  if (state.extraction && Array.isArray(state.items)) {
+  if (
+    Array.isArray(state.items)
+    && (state.extraction || (state.captures.length === 0 && state.items.length > 0))
+  ) {
     return {
       items: state.items,
       provisional: false,
@@ -462,16 +465,7 @@ export function formatMegabytes(bytes) {
 }
 
 function ensureReceiptAiLimitHelp() {
-  let help = $('#receipt-ai-limit-help');
-  if (help) return help;
-  const anchor = $('#receipt-ai-help');
-  if (!anchor) return null;
-  help = document.createElement('p');
-  help.id = 'receipt-ai-limit-help';
-  help.className = 'field-help';
-  help.setAttribute('role', 'status');
-  anchor.insertAdjacentElement('afterend', help);
-  return help;
+  return $('#receipt-ai-limit-help');
 }
 
 function renderReceiptAiLimits(runtimeCapabilities) {
@@ -487,7 +481,7 @@ function renderReceiptAiLimits(runtimeCapabilities) {
 
 function renderReceiptAiLimitsUnavailable() {
   const help = ensureReceiptAiLimitHelp();
-  if (help) help.textContent = 'No se pudieron consultar los límites actuales de WebAPI. El OCR local seguirá disponible y no se usará un límite funcional de Basketra como sustituto.';
+  if (help) help.textContent = 'No se pudieron consultar los límites actuales de WebAPI. El servidor validará el archivo al iniciar el análisis.';
 }
 
 async function readReceiptAiRuntimeCapabilities() {
@@ -525,7 +519,7 @@ async function readAiSizeWarning(files) {
     }
   } catch {
     renderReceiptAiLimitsUnavailable();
-    return 'No se pudieron consultar los límites actuales de WebAPI; el OCR local continúa y la IA validará el límite antes de enviar.';
+    return 'No se pudieron consultar los límites actuales de WebAPI; el servidor validará el límite al iniciar el análisis.';
   }
   return '';
 }
@@ -537,7 +531,7 @@ export async function uploadFiles(fileList) {
   const hadBackgroundJob = Boolean(state.activeJobId);
   try {
     files.forEach(file => validateFile(file));
-    const aiSizeWarning = state.aiConfigured && $('#verify-receipt-ai')?.checked
+    const aiSizeWarning = state.aiConfigured
       ? await readAiSizeWarning(files)
       : '';
     for (const [index, file] of files.entries()) {
