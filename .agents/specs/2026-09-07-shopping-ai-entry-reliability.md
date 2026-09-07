@@ -58,3 +58,43 @@ Status: implementation complete. Final delivery remains gated by the exact-head 
 - The final code head before this evidence-only specification update passed Static quality, Unit, Integration, Security, Changed coverage, Domain coverage, Web coverage, Build, Resource budgets, Browser runtime/shards/coverage, container smoke, linux/amd64 and linux/arm64.
 - CodeQL Advanced run `34135991813` completed successfully.
 - The browser regression verifies 390 px and 320 px entry layouts without horizontal document overflow, bootstrap AI recovery without page reload, editable chat proposals, and stale category-option refresh.
+
+
+## Scope extension: Inventory store-price comparison
+
+### Request
+
+Add a responsive product-price comparison in Inventory and a fast way to add/update a store price directly from a product detail.
+
+### Evidence
+
+- `POST /api/v1/products/:id/prices` already owns canonical manual price observation creation.
+- Price observations are immutable historical evidence; an "update" must append a newer observation rather than overwrite an older row.
+- Catalog `latestPrices` already de-duplicates by product + retailer + physical-store identity, selecting the newest observation per location.
+- The existing query ranks those latest-per-location rows by observation recency, which is unsuitable for direct cheapest-to-most-expensive comparison.
+
+### Decision
+
+1. Keep immutable `price_observations` as the single price history owner.
+2. Reuse `POST /api/v1/products/:id/prices`; do not create a parallel Inventory price API.
+3. Keep one latest price per location identity and order the resulting comparison by `priceMinor ASC`, then deterministic retailer/store identity.
+4. Display retailer-only observations explicitly as no physical store rather than merging them with a named store.
+5. Add a compact product-detail price editor using canonical stores from `GET /api/v1/stores/suggestions`.
+6. Saving a price appends evidence with `evidenceType=manual`, then reloads the canonical product detail so comparison and history update from the server response path.
+7. "Update" pre-fills the selected store and its latest price, but still appends a new observation.
+8. Prevent duplicate submit, validate positive euro input and store selection, and preserve usable loading/error states.
+9. The comparison must be responsive with no horizontal page overflow at 320/390 px and accessible without relying on color.
+
+### Acceptance
+
+- Multiple observations for the same physical store render once using the newest observation.
+- Two physical stores of the same retailer remain distinct.
+- Latest store prices are ordered cheapest to most expensive with deterministic tie-breaking.
+- Retailer-only/no-store evidence cannot suppress or duplicate a physical-store row.
+- The cheapest row is identifiable by text, not color alone.
+- Add price opens a fast editor with store and price.
+- Update on a comparison row pre-fills that location and price.
+- Saving creates a new immutable observation through the existing endpoint and refreshes comparison/history.
+- Invalid empty store, zero/negative/invalid monetary input, duplicate submit and API failure are covered.
+- Playwright covers desktop and 390/320 px mobile states plus no-horizontal-overflow.
+- Changed code maintains 100% changed-code coverage including branches/edge cases under the repository coverage gates.
