@@ -590,6 +590,10 @@ function scheduleRealtimeResync(event) {
   if (model.realtimeTimer) clearTimeout(model.realtimeTimer);
   model.realtimeTimer = setTimeout(async () => {
     model.realtimeTimer = null;
+    if (document.documentElement.classList.contains('is-swipe-pointer-active')) {
+      scheduleRealtimeResync(event);
+      return;
+    }
     try {
       const shouldReloadDetail = model.activeListId && (
         !event?.listId
