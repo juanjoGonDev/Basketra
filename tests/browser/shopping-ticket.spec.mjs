@@ -100,12 +100,14 @@ test('shopping ticket estimates by effective Store and converges between devices
   await expect(row.locator('.ticket-item__product-icon')).toBeVisible();
   await expect(row).toContainText('Mercado Centro');
 
-  const disclosure = row.getByRole('button', { name: 'Mostrar opciones de Leche entera 1 L', exact: true });
+  const disclosure = row.locator('[data-shopping-item-toggle]');
+  await expect(disclosure).toHaveAccessibleName('Mostrar opciones de Leche entera 1 L');
   await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
   await expect(row.locator('[data-shopping-item-options]')).toBeHidden();
   const compactHeight = await row.locator('.ticket-item').evaluate(element => element.getBoundingClientRect().height);
   expect(compactHeight).toBeLessThanOrEqual(112);
   await disclosure.click();
+  await expect(disclosure).toHaveAccessibleName('Ocultar opciones de Leche entera 1 L');
   await expect(disclosure).toHaveAttribute('aria-expanded', 'true');
   await expect(row.locator('[data-shopping-item-options]')).toBeVisible();
 
