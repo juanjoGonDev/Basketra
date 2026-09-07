@@ -91,10 +91,18 @@ export function syncStickyReviewSummary() {
 
   const total = review.querySelector('.review-total') || sticky.querySelector('.review-total');
   const status = review.querySelector('.review-summary .status-pill') || sticky.querySelector('.status-pill');
+  const summaryMeta = $('#receipt-review-summary-meta');
   if (!total || !status) {
     sticky.hidden = true;
     sticky.replaceChildren(...[expand, confirm].filter(Boolean));
+    if (summaryMeta) summaryMeta.textContent = 'Pendiente';
     return;
+  }
+
+  if (summaryMeta) {
+    const amount = total.querySelector('strong')?.textContent?.trim() || '';
+    const label = status.textContent?.trim() || '';
+    summaryMeta.textContent = [amount, label].filter(Boolean).join(' · ');
   }
 
   if (!status.querySelector('.icon')) {
