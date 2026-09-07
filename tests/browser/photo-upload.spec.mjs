@@ -113,7 +113,7 @@ test('camera and gallery photos upload, deduplicate and persist after reload', a
   await expect(captureCards(page)).toHaveCount(3);
   await expectLoadedImages(page, 3);
   const queue = page.locator('#receipt-source-queue');
-  await queue.locator(':scope > summary').click();
+  await expect(queue).toHaveAttribute('open', '');
   const firstDetails = page.locator('.capture-card__details').first();
   if (!(await firstDetails.evaluate(element => element.open))) {
     await firstDetails.locator(':scope > summary').click();
