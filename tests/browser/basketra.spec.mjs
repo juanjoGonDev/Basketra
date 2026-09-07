@@ -239,6 +239,7 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   let riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
   await actAndWaitForListReads(page, 1, () => swipe(page, riceRow, 'right'));
   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() || '')).toBe('');
+  await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
   const completedSection = page.locator('#completed-section');
   await expect(completedSection).toBeVisible();
   await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Devolver Arroz 1 kg a pendientes' }).click());
@@ -258,13 +259,20 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await expect(page.locator('#pending-items')).toContainText('Arroz 1 kg');
 
   const restoredRice = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
-  await page.getByRole('button', { name: 'Mostrar acciones de Arroz 1 kg' }).click();
+  await restoredRice.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
+  await expect(restoredRice).toBeVisible();
+  await restoredRice.getByRole('button', { name: 'Mostrar acciones de Arroz 1 kg' }).click();
   await expect(restoredRice).toHaveAttribute('data-swipe-open', 'true');
   await page.keyboard.press('Escape');
   await expect(restoredRice).toHaveAttribute('data-swipe-open', 'false');
-  await page.getByRole('button', { name: 'Mostrar acciones de Arroz 1 kg' }).click();
-  await page.getByRole('button', { name: 'Eliminar Arroz 1 kg' }).click();
-  await page.locator('#delete-item-dialog').getByRole('button', { name: 'Eliminar producto', exact: true }).click();
+  await restoredRice.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
+  await restoredRice.getByRole('button', { name: 'Mostrar acciones de Arroz 1 kg' }).click();
+  const deleteRice = restoredRice.getByRole('button', { name: 'Eliminar Arroz 1 kg' });
+  await expect(deleteRice).toBeVisible();
+  await deleteRice.click();
+  await actAndWaitForListReads(page, 1, () =>
+    page.locator('#delete-item-dialog').getByRole('button', { name: 'Eliminar producto', exact: true }).click()
+  );
   await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
 
   const listPath = new URL(page.url()).pathname;
