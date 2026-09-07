@@ -208,12 +208,18 @@ test('durable AI failure retries from server OCR without replaying browser OCR',
   expect(browserOcrCalls).toBe(0);
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
   await expect(page.getByText('private upstream detail')).toHaveCount(0);
-  await page.locator('#receipt-source-queue > summary').click();
-  await page.locator('.capture-card__details > summary').click();
-  await expect(page.getByRole('button', { name: 'Revisar manualmente', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Volver a analizar con IA', exact: true })).toBeVisible();
+  const queue = page.locator('#receipt-source-queue');
+  if (!(await queue.evaluate(element => element.open))) {
+    await queue.locator(':scope > summary').click();
+  }
+  const details = page.locator('.capture-card__details').first();
+  if (!(await details.evaluate(element => element.open))) {
+    await details.locator(':scope > summary').click();
+  }
+  await expect(details.getByRole('button', { name: 'Revisar manualmente', exact: true })).toBeVisible();
+  await expect(details.getByRole('button', { name: 'Volver a analizar con IA', exact: true })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Volver a analizar con IA', exact: true }).click();
+  await details.getByRole('button', { name: 'Volver a analizar con IA', exact: true }).click();
   await expect.poll(() => jobCreates).toBe(2);
   expect(browserOcrCalls).toBe(0);
   expect(createPayloads[0]).not.toHaveProperty('retryOfJobId');
