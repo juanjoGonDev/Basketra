@@ -104,34 +104,34 @@ Excluded:
 
 ## Final validation evidence
 
-Validated implementation head before the final main synchronization: `798873b87b815a7c5a7e1e3924e7a53f0b12e5f8`.
+Final synchronized validation head: `bd14c27b1f263642a101ad67488e6b5387ca8d48`.
 
-- Pull Request Quality `34118555989`: success after one evidence-based retry of an external runner-allocation cancellation.
+- Pull Request Quality `34119378833`: success on the synchronized head without retries.
   - 56 duration-aware Browser groups represented all 154 tests exactly once.
-  - Slowest successful Browser check: 58 s.
-  - Browser 42/56 first attempt was cancelled at 64 s only because GitHub held the job 37 s between `started_at` and `Set up job`; all three tests then passed in 11.8 s. Retrying only that externally affected job succeeded in 34 s.
-  - Browser aggregate coverage: 8 s on the retry path.
-  - Final `✅ CI complete` aggregate verifier: 9 s and success.
-  - Browser runtime: 28 s.
-  - Integration shards: 23 s and 27 s.
-  - Container smoke: 38 s.
-  - linux/amd64 container: 24 s.
+  - Slowest Browser check: 55 s.
+  - Browser aggregate coverage: 12 s.
+  - Final `✅ CI complete` aggregate verifier: 13 s and success; it is intentionally outside the one-minute workload budget.
+  - Browser runtime: 27 s.
+  - Integration shards: 24 s and 30 s.
+  - Container smoke: 29 s.
+  - linux/amd64 container: 35 s.
   - native linux/arm64 container: 24 s.
-  - Unit: 19 s; Static quality: 17 s; Domain coverage: 19 s; Changed coverage: 15 s; Web coverage: 15 s; Build: 20 s; Resource budgets: 22 s; Security: 12 s.
-- CodeQL `34118556014`: success with server-side SARIF processing delegated to the aggregate verifier.
-  - Actions: 30 s.
-  - JavaScript/TypeScript automation: 42 s.
-  - JavaScript/TypeScript web commerce: 50 s.
-  - JavaScript/TypeScript web receipts: 48 s.
-  - JavaScript/TypeScript backend catalog: 53 s.
-  - JavaScript/TypeScript backend platform: 47 s.
-  - JavaScript/TypeScript backend operations: 45 s.
-  - JavaScript/TypeScript receipt runtime: 49 s.
-  - JavaScript/TypeScript receipt AI/OCR: 42 s.
+  - Unit: 20 s; Static quality: 17 s; Domain coverage: 20 s; Changed coverage: 16 s; Web coverage: 14 s; Build: 20 s; Resource budgets: 25 s; Security: 13 s.
+- CodeQL `34119378769`: success with server-side SARIF processing delegated to the aggregate verifier.
+  - Actions: 34 s.
+  - JavaScript/TypeScript automation: 46 s.
+  - JavaScript/TypeScript web commerce: 53 s.
+  - JavaScript/TypeScript web receipts: 44 s.
+  - JavaScript/TypeScript backend catalog: 57 s.
+  - JavaScript/TypeScript backend platform: 38 s.
+  - JavaScript/TypeScript backend operations: 47 s.
+  - JavaScript/TypeScript receipt runtime: 53 s.
+  - JavaScript/TypeScript receipt AI/OCR: 44 s.
 - Every repository-controlled workload still has a hard one-minute workflow budget. The final `✅ CI complete` verifier is intentionally exempt from that budget and has a 15-minute safety timeout because it only validates dependency state and waits for exact-head CodeQL processing.
 - The visual `workflow_run` definition cannot execute from a PR branch because GitHub resolves that trigger from the default branch. Its read/write trust boundary, artifact contract and no-polling behavior are validated statically/unit-level in this PR; operational execution becomes available after the workflow definition exists on `main`.
 - A direct local `pnpm quality` run is not claimed because this connector environment does not provide a local repository checkout. Its constituent gates are represented by the successful CI jobs above.
 - Latest `main` synchronized for final validation: `379dc4f8c84279ddfef8eb15d86c79021bf859f7`.
+- All observed repository-controlled workload checks on the final synchronized head completed within 60 s.
 
 ## Rollback
 
@@ -145,4 +145,4 @@ Revert the CI optimization commits. No database migration, release or deployment
 
 ## Status
 
-In progress. The final synchronization with the latest `main` must pass Pull Request Quality, CodeQL and the aggregate verifier before handoff.
+Done. The latest `main` is synchronized, Pull Request Quality and CodeQL are green on the synchronized head, and the aggregate verifier confirms the complete pipeline.
