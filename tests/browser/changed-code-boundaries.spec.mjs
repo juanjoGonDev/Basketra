@@ -24,6 +24,54 @@ function catalogProduct(id = 'variant_one', overrides = {}) {
   };
 }
 
+test('swipe commit uses the last tracked horizontal movement when pointerup coordinates drift', async ({ page }) => {
+  await page.goto('/settings');
+  const result = await page.evaluate(async () => {
+    const { bindSwipeActions } = await import('/ui.js');
+    const root = document.createElement('div');
+    root.style.width = '320px';
+    root.innerHTML = `
+      <div data-swipe-row data-swipe-kind="shopping-item" data-swipe-id="synthetic" data-swipe-start-action="complete">
+        <div data-swipe-content style="width:320px;height:80px">Synthetic swipe row</div>
+      </div>
+    `;
+    document.body.append(root);
+    bindSwipeActions(root);
+
+    const row = root.querySelector('[data-swipe-row]');
+    let action = '';
+    row.addEventListener('basketra:swipe-action', event => {
+      action = event.detail?.action || '';
+    });
+
+    const pointer = (type, clientX) => row.dispatchEvent(new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      pointerId: 41,
+      clientX,
+      clientY: 40,
+    }));
+
+    pointer('pointerdown', 80);
+    pointer('pointermove', 250);
+    pointer('pointerup', 0);
+    await Promise.resolve();
+
+    const output = {
+      action,
+      open: row.dataset.swipeOpen,
+      offset: row.querySelector('[data-swipe-content]').style.getPropertyValue('--swipe-x'),
+    };
+    root.remove();
+    return output;
+  });
+
+  expect(result.action).toBe('complete');
+  expect(result.open).toBe('false');
+  expect(result.offset).toBe('0px');
+});
+
 test('shell, breadcrumb and receipt Store adapters cover defensive browser boundaries', async ({ page }) => {
   await page.route('**/api/v1/retailers/suggestions?*', route => json(route, {
     suggestions: [{ name: 'ALCAMPO', receiptCount: 2 }],

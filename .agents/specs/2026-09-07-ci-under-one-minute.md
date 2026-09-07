@@ -114,6 +114,10 @@ Revert the CI optimization commits. No product data, schema or runtime contract 
 
 In progress.
 
+### Latest validation finding
+
+The one-test-per-shard run exposed a reproducible swipe-completion defect rather than a coverage or sharding failure. The Browser trace shows the pointermove crossed the completion threshold, but no completion PATCH followed. The swipe owner recalculated displacement from `pointerup.clientX` instead of the already tracked horizontal movement, so a drifting terminal pointer coordinate could cancel a gesture that visibly crossed the threshold. The fix makes the last tracked horizontal displacement canonical and adds a regression where `pointerup` reports a deliberately inconsistent coordinate.
+
 ### Iteration evidence
 
 - First decomposition: all non-Browser/non-ARM64 quality jobs completed in 13-40 s; CodeQL Actions completed in 49 s and JavaScript/TypeScript in 53 s.

@@ -299,8 +299,8 @@ export function bindSwipeActions(root = document) {
 
   const finish = (event, cancelled = false) => {
     if (!gesture || event.pointerId !== gesture.pointerId) return;
-    const { row: gestureRow, width, horizontal, initialOffset, x, lockToken } = gesture;
-    const finalDeltaX = event.clientX - x;
+    const { row: gestureRow, width, horizontal, initialOffset, deltaX, lockToken } = gesture;
+    const finalDeltaX = horizontal ? deltaX : 0;
     gesture = undefined;
     const row = resolveCurrentSwipeRow(root, gestureRow);
     gestureRow.classList.remove('is-pointer-active', 'is-dragging');
