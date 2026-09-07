@@ -149,9 +149,9 @@ jobs:
               package.json
               pnpm-lock.yaml
               pnpm-workspace.yaml
-          - scope: web-receipts
+          - scope: web-receipt-ui
             language: javascript-typescript
-            config: ./.github/codeql/codeql-web-receipts.yml
+            config: ./.github/codeql/codeql-web-receipt-ui.yml
             sparse_checkout: |
               .github/codeql
               src/web/app.js
@@ -160,14 +160,23 @@ jobs:
               src/web/routes.js
               src/web/routes.d.ts
               src/web/state.js
-              src/web/entity-selection.js
-              src/web/category-suggestion.js
               src/web/ticket-history.js
               src/web/ticket-history-values.js
               src/web/receipt-review.js
-              src/web/receipt-lifecycle.js
               src/web/receipt-editor-invoice.js
               src/web/receipt-capture.js
+              package.json
+              pnpm-lock.yaml
+              pnpm-workspace.yaml
+          - scope: web-receipt-processing
+            language: javascript-typescript
+            config: ./.github/codeql/codeql-web-receipt-processing.yml
+            sparse_checkout: |
+              .github/codeql
+              src/web/app.js
+              src/web/api.js
+              src/web/state.js
+              src/web/receipt-lifecycle.js
               src/web/receipt-processing.js
               src/web/receipts.js
               src/web/receipt-ai-recovery.js

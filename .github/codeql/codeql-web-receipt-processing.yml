@@ -1,0 +1,12 @@
+name: Basketra browser receipt processing scope
+
+paths:
+  - src/web/app.js
+  - src/web/api.js
+  - src/web/state.js
+  - src/web/receipt-lifecycle.js
+  - src/web/receipt-processing.js
+  - src/web/receipts.js
+  - src/web/receipt-ai-recovery.js
+  - src/web/receipt-state.js
+  - src/web/operations.js
