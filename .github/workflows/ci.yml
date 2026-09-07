@@ -111,6 +111,8 @@ jobs:
     name: "🌐 Browser runtime"
     runs-on: ubuntu-latest
     timeout-minutes: 1
+    env:
+      BASKETRA_BROWSER_SHARD_COUNT: "48"
     outputs:
       shards: ${{ steps.shard-plan.outputs.shards }}
       total: ${{ steps.shard-plan.outputs.total }}
@@ -139,21 +141,15 @@ jobs:
           set -euo pipefail
           listing="$RUNNER_TEMP/playwright-list.txt"
           pnpm exec playwright test --list > "$listing"
-          test_count=$(awk '/^Total: [0-9]+ tests? / { print $2 }' "$listing")
-          if ! [[ "$test_count" =~ ^[1-9][0-9]*$ ]]; then
-            echo "Unable to resolve Browser test count from Playwright --list" >&2
-            cat "$listing" >&2
-            exit 1
-          fi
-          shard_count=$test_count
-          if [ "$shard_count" -gt 256 ]; then
-            echo "Browser suite requires $shard_count shards, above GitHub's 256-job matrix limit" >&2
-            exit 1
-          fi
-          shards=$(node -e 'const n=Number(process.argv[1]); process.stdout.write(JSON.stringify(Array.from({length:n},(_,i)=>i+1)))' "$shard_count")
-          echo "total=$shard_count" >> "$GITHUB_OUTPUT"
+          rm -rf .ci/browser-shards
+          plan=$(node scripts/plan-browser-shards.mjs "$listing" "$BASKETRA_BROWSER_SHARD_COUNT" .ci/browser-shards)
+          total=$(jq -r '.total' <<<"$plan")
+          shards=$(jq -c '.shards' <<<"$plan")
+          test_count=$(jq -r '.testCount' <<<"$plan")
+          max_estimated=$(jq -r '.maxEstimatedSeconds' <<<"$plan")
+          echo "total=$total" >> "$GITHUB_OUTPUT"
           echo "shards=$shards" >> "$GITHUB_OUTPUT"
-          echo "Planned $shard_count Browser shards for $test_count tests (exactly one test per shard)."
+          echo "Planned $total duration-aware Browser groups for $test_count tests; max estimated group ${max_estimated}s."
       - name: Build browser runtime once
         run: pnpm build
       - name: Restore exact Chromium cache
@@ -171,7 +167,9 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: basketra-browser-runtime
-          path: dist
+          path: |
+            dist
+            .ci/browser-shards
           if-no-files-found: error
           retention-days: 1
 
@@ -179,10 +177,10 @@ jobs:
     name: "🌐 Browser ${{ matrix.shard }}/${{ needs.browser-runtime.outputs.total }}"
     needs: browser-runtime
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 1
     strategy:
       fail-fast: false
-      max-parallel: 256
+      max-parallel: 48
       matrix:
         shard: ${{ fromJSON(needs.browser-runtime.outputs.shards) }}
     steps:
@@ -212,18 +210,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          rm -rf dist
-          mkdir -p dist
+          rm -rf dist .ci/browser-shards
           gh run download "$GITHUB_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
             --name basketra-browser-runtime \
-            --dir dist
+            --dir .
           test -f dist/main.js
+          test -f ".ci/browser-shards/shard-${{ matrix.shard }}.txt"
       - name: Run Chromium shard
         env:
           BASKETRA_BROWSER_COVERAGE_COLLECT_ONLY: "1"
           BASKETRA_BROWSER_PREBUILT: "1"
-        run: timeout --signal=TERM --kill-after=5s 55s pnpm exec playwright test --shard=${{ matrix.shard }}/${{ needs.browser-runtime.outputs.total }}
+        run: timeout --signal=TERM --kill-after=5s 45s pnpm exec playwright test --test-list=".ci/browser-shards/shard-${{ matrix.shard }}.txt"
       - name: Upload shard coverage
         if: success()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
