@@ -55,6 +55,7 @@ test('shell defensive branches keep receipt Store options and generic swipe fail
         },
       },
     });
+    document.querySelector('#receipt-review-panel').open = true;
   });
 
   const retailer = page.locator('#receipt-retailer');
