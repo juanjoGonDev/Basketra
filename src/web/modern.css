@@ -2568,7 +2568,9 @@ summary {
       "complete identity total settings-toggle"
       "settings settings settings settings";
   }
+}
 
+@media (max-width: 22rem) {
   .ticket-item:not(.ticket-item--select) .ticket-item__product-icon {
     display: none;
   }
