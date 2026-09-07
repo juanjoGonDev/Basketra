@@ -16,7 +16,7 @@ const run = spawnSync(
     '--rm',
     '--read-only',
     '--tmpfs',
-    '/tmp/basketra:rw,noexec,nosuid,size=32m',
+    '/tmp/basketra:rw,noexec,nosuid,size=32m,mode=0700,uid=1000,gid=1000',
     'basketra:smoke',
     'node',
     'scripts/sqlite-temp-probe.mjs',

@@ -157,7 +157,7 @@ jobs:
           test "$version" = "$RELEASE_VERSION"
           docker run --detach --name "$container" \
             --read-only \
-            --tmpfs /tmp/basketra:rw,noexec,nosuid,size=32m \
+            --tmpfs /tmp/basketra:rw,noexec,nosuid,size=32m,mode=0700,uid=1000,gid=1000 \
             --cap-drop ALL \
             --security-opt no-new-privileges \
             --pids-limit 128 \

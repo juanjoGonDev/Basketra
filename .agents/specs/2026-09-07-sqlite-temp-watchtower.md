@@ -11,6 +11,7 @@ Receipt confirmation still fails after PR #54 was merged. Production diagnostics
 - The image did not define `SQLITE_TMPDIR` or `TMPDIR`, so SQLite's Unix temporary-directory search could skip the writable Basketra tmpfs and exhaust the read-only standard locations.
 - SQLite extended code `6410` is `SQLITE_IOERR_GETTEMPPATH`, which is specifically the failure to resolve a usable temporary-file directory.
 - The local Docker smoke used a writable `/tmp`, unlike production, so it could not reproduce this deployment class.
+- Exact-head PR run `34100435315` later proved the new file-backed probe reproduces the same `ERR_SQLITE_ERROR` / extended code `6410` when the CI tmpfs omits the production ownership/mode options. The production Compose already owns `/tmp/basketra` as `uid=1000,gid=1000,mode=0700`; CI/local/publisher smokes must preserve those options instead of testing a different mount contract.
 - Protected-main publication already builds a multi-architecture immutable candidate, smoke-tests it, and promotes the same digest to `stable`; Watchtower watches that stable image.
 
 ## Decision
@@ -19,7 +20,7 @@ Route both SQLite-specific and general process temporary files to the existing w
 
 Do not change the Raspberry Compose contract for this fix. Watchtower re-creates containers from new images but does not re-read repository Compose changes, so an image-owned runtime fix is the only zero-touch path for an already-running correctly scoped Watchtower.
 
-Own the SQLite temporary-file regression in one canonical `scripts/sqlite-temp-probe.mjs`. The local Docker smoke, PR container smoke and immutable GHCR candidate all execute that same probe under the hardened runtime before delivery or `stable` promotion. The probe forces file-backed TEMP storage with a tiny temp cache and a 2 MiB value so it cannot pass only because a trivial temporary table stayed in memory.
+Own the SQLite temporary-file regression in one canonical `scripts/sqlite-temp-probe.mjs`. The local Docker smoke, PR container smoke and immutable GHCR candidate all execute that same probe under the hardened runtime with the same `mode=0700,uid=1000,gid=1000` tmpfs ownership as production before delivery or `stable` promotion. The probe forces file-backed TEMP storage with a tiny temp cache and a 2 MiB value so it cannot pass only because a trivial temporary table stayed in memory.
 
 ## Scope
 
@@ -81,4 +82,4 @@ No merge, release, deployment, or remote data mutation is authorized by this tas
 
 ## Status
 
-Canonical probe consolidated during final review; exact-head CI validation pending.
+Canonical probe consolidated during final review. PR run `34100435315` reproduced `6410` in the intentionally strengthened probe and exposed missing production tmpfs ownership parity in CI/local/publisher runners; parity fix prepared and exact-head revalidation pending.
