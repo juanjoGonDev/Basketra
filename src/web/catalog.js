@@ -55,6 +55,7 @@ const state = {
   bulkProductDeleteIds: [],
   priceStores: [],
   priceStoreOptionsTruncated: false,
+  priceSavePending: false,
 };
 
 function injectStylesheet() {
@@ -519,19 +520,27 @@ async function savePrice(button) {
   const product = state.productDetail;
   const storeId = $('#catalog-price-store').value;
   const store = state.priceStores.find(candidate => candidate.id === storeId);
-  const priceMinor = euroInputToMinor($('#catalog-price-value').value);
-  if (!product) return;
+  if (!product || state.priceSavePending) return;
   if (!store) {
     $('#catalog-price-state').textContent = 'Selecciona una tienda válida.';
     $('#catalog-price-store').focus();
     return;
   }
-  if (!Number.isSafeInteger(priceMinor) || priceMinor <= 0) {
+  let priceMinor;
+  try {
+    priceMinor = euroInputToMinor($('#catalog-price-value').value);
+  } catch {
+    $('#catalog-price-state').textContent = 'Introduce un precio válido con hasta dos decimales.';
+    $('#catalog-price-value').focus();
+    return;
+  }
+  if (priceMinor <= 0) {
     $('#catalog-price-state').textContent = 'Introduce un precio mayor que 0,00 €.';
     $('#catalog-price-value').focus();
     return;
   }
 
+  state.priceSavePending = true;
   setBusy(button, true);
   $('#catalog-price-state').textContent = 'Guardando precio…';
   try {
@@ -551,6 +560,7 @@ async function savePrice(button) {
   } catch (error) {
     $('#catalog-price-state').textContent = error.message;
   } finally {
+    state.priceSavePending = false;
     setBusy(button, false);
   }
 }
