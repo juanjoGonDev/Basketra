@@ -179,8 +179,12 @@ async function expectNoHorizontalOverflow(page) {
 }
 
 async function openCaptureDetails(page, index = 0) {
+  const queue = page.locator('#receipt-source-queue');
+  if (!(await queue.evaluate(element => element.open))) {
+    await queue.locator(':scope > summary').click();
+  }
   const details = page.locator('.capture-card__details').nth(index);
-  if (!(await details.evaluate(element => element.open))) await details.locator('summary').click();
+  if (!(await details.evaluate(element => element.open))) await details.locator(':scope > summary').click();
   return details;
 }
 
@@ -398,7 +402,8 @@ test('automatic local OCR creates editable euro rows with source context and imp
   await expect(page.locator('#capture-list li')).toHaveCount(2);
   await expect(page.locator('#capture-list img[data-capture-preview-image]')).toHaveCount(2);
   await expect(page.locator('#receipt-state')).toContainText('Todas las imágenes están combinadas');
-  await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
+  await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
+  await page.locator('#receipt-review-panel > summary').click();
   await expect(page.locator('#receipt-review-reference-image')).toBeVisible();
   await expect(page.locator('.receipt-item')).toHaveCount(1);
   await expect(page.getByLabel('Precio unitario (€)').first()).toHaveValue('1.20');
