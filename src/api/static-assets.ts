@@ -18,6 +18,8 @@ export const STATIC_ASSETS = new Set([
   'operations.css',
   'state.js',
   'lists.js',
+  'shopping-list-density.js',
+  'shopping-list-density.css',
   'receipts.js',
   'receipt-state.js',
   'receipt-capture.js',
