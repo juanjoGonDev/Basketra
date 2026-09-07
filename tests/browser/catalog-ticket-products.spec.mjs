@@ -343,7 +343,11 @@ test('inventory price comparison covers deterministic equal-price tie breakers a
       { retailerId: 'retailer_alpha', retailerName: 'Alpha', storeId: 'store_old', storeName: 'Central', priceMinor: 100, observedAt: '2026-09-01T10:00:00.000Z', confidence: 1 },
       { retailerId: 'retailer_alpha', retailerName: 'Alpha', storeId: 'store_new', storeName: 'Central', priceMinor: 100, observedAt: '2026-09-02T10:00:00.000Z', confidence: 1 },
     ],
-    unnamed: [
+    unnamedLeft: [
+      { retailerId: 'retailer_alpha', retailerName: 'Alpha', storeId: 'store_named', storeName: 'Central', priceMinor: 100, observedAt: '2026-09-01T10:00:00.000Z', confidence: 1 },
+      { retailerId: 'retailer_alpha', retailerName: 'Alpha', storeId: 'store_unnamed', priceMinor: 100, observedAt: '2026-09-01T10:00:00.000Z', confidence: 1 },
+    ],
+    unnamedRight: [
       { retailerId: 'retailer_alpha', retailerName: 'Alpha', storeId: 'store_unnamed', priceMinor: 100, observedAt: '2026-09-01T10:00:00.000Z', confidence: 1 },
       { retailerId: 'retailer_alpha', retailerName: 'Alpha', storeId: 'store_named', storeName: 'Central', priceMinor: 100, observedAt: '2026-09-01T10:00:00.000Z', confidence: 1 },
     ],
@@ -378,7 +382,11 @@ test('inventory price comparison covers deterministic equal-price tie breakers a
   await page.reload();
   await expect(rows.nth(0)).toContainText('2 sept 2026');
 
-  mode = 'unnamed';
+  mode = 'unnamedLeft';
+  await page.reload();
+  await expect(rows.nth(0)).toContainText('sin tienda física');
+
+  mode = 'unnamedRight';
   await page.reload();
   await expect(rows.nth(0)).toContainText('sin tienda física');
   await rows.nth(0).getByRole('button', { name: 'Actualizar' }).click();
