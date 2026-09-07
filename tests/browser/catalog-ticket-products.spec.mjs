@@ -164,7 +164,9 @@ test('inventory product compares latest store prices and appends manual updates 
   await page.goto('/');
   await page.getByRole('button', { name: 'Inventario', exact: true }).first().click();
   await page.locator('.view[data-view="inventory"]').getByRole('button', { name: 'Productos', exact: true }).first().click();
-  await page.locator('[data-catalog-product-id="variant_compare"]').click();
+  const catalogRow = page.locator('[data-catalog-product-id="variant_compare"]');
+  await expect(catalogRow).toContainText('1,30');
+  await catalogRow.click();
 
   const comparison = page.locator('#catalog-latest-prices .catalog-price-comparison-row');
   await expect(comparison).toHaveCount(3);
