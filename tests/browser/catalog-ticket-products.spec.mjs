@@ -91,6 +91,7 @@ test('inventory product compares latest store prices and appends manual updates 
     canonicalProductId: 'product_compare',
     canonicalName: 'Arroz',
     variantName: 'Arroz largo 1 kg',
+    latestPricesTruncated: true,
     latestPrices: [
       { retailerId: 'retailer_market', retailerName: 'Mercado', storeId: south.id, storeName: south.name, priceMinor: 110, observedAt: '2026-09-02T10:00:00.000Z', confidence: 1 },
       { retailerId: 'retailer_market', retailerName: 'Mercado', storeId: north.id, storeName: north.name, priceMinor: 125, observedAt: '2026-09-03T10:00:00.000Z', confidence: 1 },
@@ -176,6 +177,7 @@ test('inventory product compares latest store prices and appends manual updates 
   await expect(comparison.nth(1)).toContainText('Mercado · Norte');
   await expect(comparison.nth(2)).toContainText('sin tienda física');
   await expect(comparison.nth(2).getByRole('button', { name: 'Actualizar' })).toHaveCount(0);
+  await expect(page.locator('#catalog-latest-prices')).toContainText('100 tiendas');
   await expectNoHorizontalOverflow(page);
 
   await comparison.nth(1).getByRole('button', { name: 'Actualizar' }).click();
