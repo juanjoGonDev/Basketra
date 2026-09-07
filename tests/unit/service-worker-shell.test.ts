@@ -175,6 +175,15 @@ test('service worker installs a versioned shell and handles cached, degraded and
     assert.equal(await (await responseWork)?.text(), 'fresh-navigation');
     assert.ok(cacheWrites.includes(htmlRequest.url));
 
+    responseWork = undefined;
+    fetchImplementation = async () => { throw new TypeError('offline navigation'); };
+    const cachedNavigation = new Request('http://basketra.test/lists/list_cached', { headers: { accept: 'text/html' } });
+    matchImplementation = async request => requestAddress(request) === cachedNavigation.url
+      ? new Response('cached-navigation', { status: 200 })
+      : undefined;
+    fetchListener({ request: cachedNavigation, respondWith });
+    assert.equal(await (await responseWork)?.text(), 'cached-navigation');
+
     let navigationAborted = false;
     Object.defineProperty(globalThis, 'setTimeout', {
       configurable: true,
