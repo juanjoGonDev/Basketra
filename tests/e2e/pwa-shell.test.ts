@@ -141,7 +141,8 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.match(lists, /completed/);
 
   assert.match(receipts, /startAutomaticCaptureProcessing/);
-  assert.match(receipts, /Opciones de análisis/);
+  assert.doesNotMatch(receipts, /Opciones de análisis|verify-receipt-ai/);
+  assert.match(receipts, /data-receipt-capture-mode/);
   assert.doesNotMatch(receipts, /extract-receipt/);
   assert.match(receiptState, /PAGE_CONCURRENCY = 2/);
   assert.match(receiptCapture, /\/api\/v1\/files\//);
