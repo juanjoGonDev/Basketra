@@ -34,6 +34,7 @@ export function bindCategorySuggestion({
   requiredFields,
   watch = [],
   buildPayload,
+  refreshOptions,
   request = (payload, signal) => api('/api/v1/categories/suggest', {
     method: 'POST',
     signal,
@@ -127,9 +128,27 @@ export function bindCategorySuggestion({
         status.textContent = 'La IA no devolvió una categoría válida.';
         return;
       }
-      const option = [...select.options].find((candidate) => candidate.value === categoryId);
+      let option = [...select.options].find((candidate) => candidate.value === categoryId);
+      if (!option && refreshOptions) {
+        status.textContent = 'Actualizando categorías…';
+        try {
+          await refreshOptions();
+        } catch {
+          status.textContent = 'No se pudieron actualizar las categorías. Puedes elegir una manualmente.';
+          return;
+        }
+        if (nextController.signal.aborted || requestGeneration !== generation) return;
+        let refreshedSignature = '';
+        try {
+          refreshedSignature = JSON.stringify({ surface, ...buildPayload() });
+        } catch {
+          return;
+        }
+        if (refreshedSignature !== signature) return;
+        option = [...select.options].find((candidate) => candidate.value === categoryId);
+      }
       if (!option) {
-        status.textContent = 'La categoría sugerida ya no está disponible.';
+        status.textContent = 'La categoría sugerida ya no está disponible. Actualiza las categorías o elige otra manualmente.';
         return;
       }
       select.value = categoryId;
