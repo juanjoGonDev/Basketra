@@ -11,6 +11,7 @@ import {
   handleCaptureAction,
   persistAndRenderCaptures,
   refreshReceiptAiLimitHelp,
+  renderProgressiveDetectedItems,
   showPreview,
   uploadFiles,
 } from './receipt-capture.js';
@@ -29,6 +30,7 @@ import {
   deleteReceiptLine,
   handleReceiptAction,
   hideRetailerSuggestions,
+  readReceiptItems,
   renderReviewReference,
   scheduleRetailerSuggestions,
   selectRetailerSuggestion,
@@ -467,6 +469,15 @@ export function bindEvents() {
     deleteReceiptLine(index, { undoable: false });
     if (state.items.length === 0 && state.captures.length === 0 && !state.extraction) {
       $('#receipt-state').textContent = '';
+    }
+  });
+
+  $('#receipt-review')?.addEventListener('basketra:receipt-line-saved', () => {
+    try {
+      state.items = readReceiptItems();
+      renderProgressiveDetectedItems();
+    } catch {
+      // Keep the last valid model while an incomplete value is still being edited.
     }
   });
 
