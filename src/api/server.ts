@@ -1315,7 +1315,7 @@ export class BasketraServer {
     const mime = extname(file) === '.html' ? 'text/html; charset=utf-8' : extname(file) === '.js' ? 'text/javascript; charset=utf-8' : extname(file) === '.css' ? 'text/css; charset=utf-8' : extname(file) === '.svg' ? 'image/svg+xml' : extname(file) === '.webmanifest' ? 'application/manifest+json; charset=utf-8' : 'application/octet-stream';
     response.writeHead(200, { 'content-type': mime, 'cache-control': requested === 'index.html' ? 'no-cache' : 'public, max-age=3600' });
     if (requested === 'index.html') {
-      response.end(this.renderApplicationShell(readFileSync(file, 'utf8')));
+      response.end(this.renderApplicationShell(Buffer.from(readFileSync(file)).toString('utf8')));
       return;
     }
     response.end(readFileSync(file));

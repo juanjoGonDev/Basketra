@@ -14,7 +14,7 @@ test('shopping list Store selection, overrides and estimates use the latest save
   });
 
   try {
-    assert.equal(CURRENT_SCHEMA_VERSION, 15);
+    assert.equal(CURRENT_SCHEMA_VERSION, 16);
     const mercadona = database.saveStore({ retailerName: 'Mercadona', name: 'Mercadona Centro' });
     const lidl = database.saveStore({ retailerName: 'Lidl', name: 'Lidl Centro' });
     const milk = database.createProduct({
