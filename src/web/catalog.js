@@ -114,7 +114,7 @@ function installCatalogView() {
         </section>
         <aside class="inventory-detail-aside">
           <section class="surface"><div class="section-header"><div><p class="eyebrow">Producto padre</p><h2 id="catalog-parent-name">—</h2></div></div><p>Las variantes comparten nombre canónico, categoría y descripción.</p></section>
-          <section class="surface catalog-price-comparison-card"><div class="section-header"><div><p class="eyebrow">Comparar precios</p><h2>Último precio por tienda</h2></div><button id="catalog-add-price" class="button secondary" type="button"><span data-icon="plus"></span>Añadir precio</button></div><p class="field-help">Una fila por ubicación, usando siempre su observación más reciente y ordenada de menor a mayor.</p><div id="catalog-latest-prices" class="catalog-retailer-names" aria-live="polite"></div></section>
+          <section id="catalog-price-comparison-card" class="surface catalog-price-comparison-card"><div class="section-header"><div><p class="eyebrow">Comparar precios</p><h2>Último precio por tienda</h2></div><button id="catalog-add-price" class="button secondary" type="button"><span data-icon="plus"></span>Añadir precio</button></div><p class="field-help">Una fila por ubicación, usando siempre su observación más reciente y ordenada de menor a mayor.</p><div id="catalog-latest-prices" class="catalog-retailer-names" aria-live="polite"></div></section>
           <section class="surface"><div class="section-header"><div><p class="eyebrow">Comercios</p><h2>Nombres asociados</h2></div></div><div id="catalog-retailer-names" class="catalog-retailer-names" aria-live="polite"></div></section>
         </aside>
       </div>
@@ -509,6 +509,15 @@ async function openPriceDialog(entry) {
   if (!dialog.open) dialog.showModal();
   try {
     await loadPriceStores();
+    if (entry?.storeId && !state.priceStores.some(store => store.id === entry.storeId)) {
+      const selectedStore = {
+        id: entry.storeId,
+        retailerName: entry.retailerName,
+        name: entry.storeName || 'Tienda sin nombre',
+      };
+      state.priceStores.push(selectedStore);
+      $('#catalog-price-store').append(new Option(`${selectedStore.retailerName} · ${selectedStore.name}`, selectedStore.id));
+    }
     $('#catalog-price-store').disabled = false;
     $('#catalog-price-save').disabled = false;
     $('#catalog-price-store').value = entry?.storeId || '';
@@ -803,6 +812,7 @@ function renderProductDetail(product, { creating = false } = {}) {
   populateProductForm(product, { creating });
   $('#catalog-edit-product').hidden = creating;
   $('#catalog-delete-product').hidden = creating;
+  $('#catalog-price-comparison-card').hidden = creating;
 }
 
 function productFromCanonicalRecord(record, priceHistory = [], ticketHistory = []) {
