@@ -11,6 +11,7 @@ import {
   escapeHtml,
   euroInputToMinor,
   minorToEuroInput,
+  restoreSwipeRow,
   shoppingListItem,
 } from './ui.js';
 import { applicationPathForRoute, readApplicationLocation, writeApplicationLocation } from './routes.js';
@@ -472,6 +473,10 @@ function renderBulkSelection() {
 }
 
 function renderItems() {
+  const openSwipeRow = $('#list-detail [data-swipe-row][data-swipe-open="true"]');
+  const openSwipeIdentity = openSwipeRow
+    ? { id: openSwipeRow.dataset.swipeId || '', kind: openSwipeRow.dataset.swipeKind || '' }
+    : null;
   const pending = model.items.filter(item => !item.completed);
   const completed = model.items.filter(item => item.completed);
   const pendingRoot = $('#pending-items');
@@ -484,6 +489,9 @@ function renderItems() {
     'Los productos comprados aparecerán aquí.',
     model.multiSelectMode ? bulkCompletedItem : shoppingListItem,
   );
+  if (!model.multiSelectMode && openSwipeIdentity) {
+    restoreSwipeRow(document, openSwipeIdentity);
+  }
   $('#pending-count').textContent = String(pending.length);
   $('#completed-count').textContent = String(completed.length);
   $('#completed-section').hidden = completed.length === 0;
