@@ -36,7 +36,7 @@ The baseline Browser suite passed 142 tests in 15.1 minutes. A multi-viewport vi
 8. Collect Browser changed-code coverage per group, upload it separately from screenshots/videos, download all lightweight coverage artifacts in parallel, and enforce the canonical differential coverage gate once on the merged evidence.
 9. Keep Browser evidence separate from coverage so the coverage aggregation path never downloads video or screenshot payloads.
 10. Replace emulated ARM64 builds with GitHub's native `ubuntu-24.04-arm` runner while retaining the amd64 build, SBOM and provenance gates.
-11. Keep CodeQL Actions and JavaScript/TypeScript enabled, partition JavaScript/TypeScript by explicit architecture scopes that together cover the existing production/automation surface; the large browser surface is split into commerce/inventory and receipts/operations scopes with shared shell files, and enforce the same one-minute timeout.
+11. Keep CodeQL Actions and JavaScript/TypeScript enabled, partition JavaScript/TypeScript by explicit architecture scopes that together cover the existing production/automation surface; consolidate the redundant receipt-runtime scope because each of its paths is already owned by receipt-AI, platform or operations analysis; split the large browser surface into commerce/inventory and receipts/operations scopes; and enforce the same one-minute workload timeout.
 12. Remove the visual-evidence polling loop. Trusted publication starts from successful `Pull Request Quality` via `workflow_run`, validates the exact same-repository PR/head and trusted author association, downloads Browser evidence artifacts in parallel, prepares media in a read-only job, and reserves write permissions for the final publisher.
 13. Preserve the real swipe behavior exposed by the new scheduling. The Browser run reproduced a pre-existing completion race where `pointerup.clientX` could contradict an already-crossed threshold; the smallest fix makes the last tracked horizontal displacement canonical and adds a regression.\n14. Publish one stable `✅ CI complete` aggregate job after every Pull Request Quality workload. It performs no build/test work, runs with `always()`, fails if any required upstream job did not succeed, waits for the exact-head CodeQL workflow and its code-scanning analyses to finish server-side processing, and uses a 15-minute safety timeout instead of the one-minute workload budget.
 
@@ -64,6 +64,7 @@ Excluded:
 ## Risks
 
 - Timing hints are intentionally non-authoritative optimization data. Unknown or renamed tests receive the conservative default and remain covered exactly once; CI failure, not the hint file, is authoritative.
+- CodeQL scopes are allowed to overlap at architecture boundaries, but no scope should be retained if it adds no unique source path. The removed `backend-receipt-runtime` scope was proven to be a strict subset of `backend-receipt-ai`, `backend-platform` and `backend-operations` combined.
 - Excessive group count increases runner queue pressure. Fifty-six groups provide the validated timing margin: every Browser check in the final code run completed in 54 s or less while preserving one-worker isolation.
 - Playwright test-list execution is CI orchestration only; Browser behavior remains owned by the canonical tests and one-worker process isolation.
 - Browser changed-code coverage must be aggregated across all groups; enforcing it per group would produce false failures.
@@ -125,9 +126,8 @@ Final synchronized validation head: `bd14c27b1f263642a101ad67488e6b5387ca8d48`.
   - JavaScript/TypeScript backend catalog: 57 s.
   - JavaScript/TypeScript backend platform: 38 s.
   - JavaScript/TypeScript backend operations: 47 s.
-  - JavaScript/TypeScript receipt runtime: 53 s.
   - JavaScript/TypeScript receipt AI/OCR: 44 s.
-- Every repository-controlled workload still has a hard one-minute workflow budget. The final `✅ CI complete` verifier is intentionally exempt from that budget and has a 15-minute safety timeout because it only validates dependency state and waits for exact-head CodeQL processing.
+- Every repository-controlled workload still has a hard one-minute workflow budget. The redundant `backend-receipt-runtime` CodeQL job was removed after an exact-head run showed it could exceed the budget while adding no unique source-path coverage. The final `✅ CI complete` verifier is intentionally exempt from that budget and has a 15-minute safety timeout because it only validates dependency state and waits for exact-head CodeQL processing.
 - The visual `workflow_run` definition cannot execute from a PR branch because GitHub resolves that trigger from the default branch. Its read/write trust boundary, artifact contract and no-polling behavior are validated statically/unit-level in this PR; operational execution becomes available after the workflow definition exists on `main`.
 - A direct local `pnpm quality` run is not claimed because this connector environment does not provide a local repository checkout. Its constituent gates are represented by the successful CI jobs above.
 - Latest `main` synchronized for final validation: `379dc4f8c84279ddfef8eb15d86c79021bf859f7`.
@@ -145,4 +145,4 @@ Revert the CI optimization commits. No database migration, release or deployment
 
 ## Status
 
-Done. The latest `main` is synchronized, Pull Request Quality and CodeQL are green on the synchronized head, and the aggregate verifier confirms the complete pipeline.
+In progress. The redundant CodeQL scope has been consolidated without reducing source-path coverage; the exact head must revalidate Pull Request Quality, CodeQL and the aggregate verifier before handoff.
