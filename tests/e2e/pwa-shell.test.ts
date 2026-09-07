@@ -55,7 +55,7 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.match(html, /id="completed-items"/);
   assert.match(html, /id="realtime-state"/);
   assert.match(html, /id="open-ai-assistant"/);
-  assert.match(html, /id="verify-receipt-ai"/);
+  assert.doesNotMatch(html, /id="verify-receipt-ai"/);
   assert.match(html, /id="receipt-camera"[^>]*accept="image\/jpeg,image\/png"[^>]*capture="environment"/);
   assert.match(html, /id="receipt-files"[^>]*application\/pdf/);
   assert.match(html, /id="capture-preview-dialog"/);
