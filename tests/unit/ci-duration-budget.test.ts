@@ -5,14 +5,18 @@ import { test } from 'node:test';
 const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
 const codeql = readFileSync('.github/workflows/codeql.yml', 'utf8');
 
-test('repository-controlled pull request jobs enforce a one-minute timeout', () => {
+test('repository work remains one-minute bounded while Browser gets cleanup headroom', () => {
   const timeoutValues = [...ci.matchAll(/timeout-minutes:\s*(\d+)/gu)].map(match => Number(match[1]));
   assert.ok(timeoutValues.length >= 7);
-  assert.deepEqual(new Set(timeoutValues), new Set([1]));
+  assert.deepEqual(new Set(timeoutValues), new Set([1, 2]));
+  assert.match(ci, /browser-e2e:\n[\s\S]*?timeout-minutes:\s*2/u);
+  assert.match(ci, /timeout --signal=TERM --kill-after=5s 55s pnpm exec playwright test/u);
 });
 
-test('CodeQL remains enabled for both security languages under the same one-minute budget', () => {
+test('CodeQL remains enabled with production-only sparse checkout and cleanup headroom', () => {
   assert.match(codeql, /- actions\n\s+- javascript-typescript/u);
-  assert.match(codeql, /timeout-minutes:\s*1/u);
+  assert.match(codeql, /timeout-minutes:\s*2/u);
   assert.match(codeql, /config-file:\s+\.\/\.github\/codeql\/codeql-config\.yml/u);
+  assert.match(codeql, /sparse-checkout:\s*\|[\s\S]*?\.github[\s\S]*?scripts[\s\S]*?src/u);
+  assert.doesNotMatch(codeql, /\n\s+tests\n/u);
 });

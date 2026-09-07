@@ -27,12 +27,14 @@ test('pull request quality decomposes the canonical serial gate into bounded par
 test('browser runtime is primed once and every deterministic shard has the one-minute budget', () => {
   assert.match(workflow, /browser-runtime:\n[\s\S]*?timeout-minutes:\s*1/u);
   assert.match(workflow, /actions\/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9/u);
-  assert.match(workflow, /basketra-playwright-\$\{\{ runner\.os \}\}-1\.59\.1-\$\{\{ github\.event\.pull_request\.head\.sha \}\}/u);
+  assert.match(workflow, /basketra-playwright-\$\{\{ runner\.os \}\}-1\.59\.1-\$\{\{ github\.event\.pull_request\.head\.repo\.id \}\}/u);
+  assert.match(workflow, /restore-keys:\s*\|\n\s+basketra-playwright-\$\{\{ runner\.os \}\}-1\.59\.1-/u);
   assert.match(workflow, /outputs:\n\s+shards: \$\{\{ steps\.shard-plan\.outputs\.shards \}\}\n\s+total: \$\{\{ steps\.shard-plan\.outputs\.total \}\}/u);
   assert.match(workflow, /exactly one test per shard/u);
   assert.match(workflow, /shard: \$\{\{ fromJSON\(needs\.browser-runtime\.outputs\.shards\) \}\}/u);
   assert.match(workflow, /name: "🌐 Browser \$\{\{ matrix\.shard \}\}\/\$\{\{ needs\.browser-runtime\.outputs\.total \}\}"/u);
-  assert.match(workflow, /pnpm exec playwright test --shard=\$\{\{ matrix\.shard \}\}\/\$\{\{ needs\.browser-runtime\.outputs\.total \}\}/u);
+  assert.match(workflow, /browser-e2e:\n[\s\S]*?timeout-minutes:\s*2/u);
+  assert.match(workflow, /timeout --signal=TERM --kill-after=5s 55s pnpm exec playwright test --shard=\$\{\{ matrix\.shard \}\}\/\$\{\{ needs\.browser-runtime\.outputs\.total \}\}/u);
   assert.match(workflow, /BASKETRA_BROWSER_COVERAGE_COLLECT_ONLY:\s*"1"/u);
   assert.match(workflow, /name:\s+basketra-browser-runtime/u);
   assert.match(workflow, /BASKETRA_BROWSER_PREBUILT:\s*"1"/u);

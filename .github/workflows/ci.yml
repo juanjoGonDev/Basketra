@@ -133,7 +133,9 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: basketra-playwright-${{ runner.os }}-1.59.1-${{ github.event.pull_request.head.sha }}
+          key: basketra-playwright-${{ runner.os }}-1.59.1-${{ github.event.pull_request.head.repo.id }}
+          restore-keys: |
+            basketra-playwright-${{ runner.os }}-1.59.1-
       - name: Install exact Chromium binary
         if: steps.browser-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install chromium
@@ -149,7 +151,7 @@ jobs:
     name: "🌐 Browser ${{ matrix.shard }}/${{ needs.browser-runtime.outputs.total }}"
     needs: browser-runtime
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 2
     strategy:
       fail-fast: false
       max-parallel: 256
@@ -175,7 +177,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: basketra-playwright-${{ runner.os }}-1.59.1-${{ github.event.pull_request.head.sha }}
+          key: basketra-playwright-${{ runner.os }}-1.59.1-${{ github.event.pull_request.head.repo.id }}
           fail-on-cache-miss: true
       - name: Download prebuilt browser runtime
         env:
@@ -193,7 +195,7 @@ jobs:
         env:
           BASKETRA_BROWSER_COVERAGE_COLLECT_ONLY: "1"
           BASKETRA_BROWSER_PREBUILT: "1"
-        run: pnpm exec playwright test --shard=${{ matrix.shard }}/${{ needs.browser-runtime.outputs.total }}
+        run: timeout --signal=TERM --kill-after=5s 55s pnpm exec playwright test --shard=${{ matrix.shard }}/${{ needs.browser-runtime.outputs.total }}
       - name: Upload shard output
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

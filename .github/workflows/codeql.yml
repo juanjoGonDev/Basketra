@@ -16,7 +16,7 @@ jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 1
+    timeout-minutes: 2
     permissions:
       actions: read
       contents: read
@@ -33,6 +33,17 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+          sparse-checkout: |
+            .github
+            scripts
+            src
+            package.json
+            playwright.config.mjs
+            pnpm-lock.yaml
+            pnpm-workspace.yaml
+            tsconfig.json
+            tsconfig.build.json
+          sparse-checkout-cone-mode: false
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@f205ea1c3313d32999d8d6a48b4f6530d4437b38
