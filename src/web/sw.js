@@ -108,7 +108,7 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET' || !sameOrigin || url.pathname.startsWith('/api/')) return;
 
   const navigation = event.request.mode === 'navigate'
-    || event.request.headers?.get?.('accept')?.includes('text/html') === true;
+    || event.request.headers.get('accept')?.includes('text/html') === true;
   if (navigation) {
     event.respondWith(boundedNavigation(event.request));
     return;
