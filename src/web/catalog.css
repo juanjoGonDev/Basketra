@@ -263,6 +263,7 @@
   justify-content: space-between;
   align-items: center;
   gap: var(--space-3);
+  box-sizing: border-box;
   width: 100%;
   padding: .8rem;
   border: 1px solid var(--border);
