@@ -110,23 +110,28 @@ async function stableBoundingBox(locator) {
 
 async function swipe(page, locator, direction, { long = false } = {}) {
   await expect(locator).toBeVisible();
-  const anchor = locator.locator('.list-row__content').first();
+  const surface = locator.locator('[data-inventory-swipe-surface]').first();
+  await expect(surface).toBeVisible();
   const expectedId = await locator.getAttribute('data-swipe-id');
   const expectedKind = await locator.getAttribute('data-swipe-kind');
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await locator.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
     const box = await stableBoundingBox(locator);
-    const anchorBox = await stableBoundingBox(anchor);
-    const startX = direction === 'left' ? anchorBox.x + anchorBox.width * 0.8 : anchorBox.x + anchorBox.width * 0.2;
-    const y = anchorBox.y + anchorBox.height / 2;
-    await page.mouse.move(startX, y);
+    const surfaceBox = await stableBoundingBox(surface);
+    const position = {
+      x: surfaceBox.width * (direction === 'left' ? 0.8 : 0.2),
+      y: surfaceBox.height / 2,
+    };
+    await surface.hover({ position });
 
-    const hitsRow = await locator.evaluate((element, point) => {
+    const startX = surfaceBox.x + position.x;
+    const y = surfaceBox.y + position.y;
+    const hitsSurface = await surface.evaluate((element, point) => {
       const target = document.elementFromPoint(point.x, point.y);
       return Boolean(target && element.contains(target));
     }, { x: startX, y });
-    if (!hitsRow) continue;
+    if (!hitsSurface) continue;
 
     await page.evaluate(({ id, kind }) => {
       window.__basketraSwipePointerDownHit = false;
@@ -155,7 +160,7 @@ async function swipe(page, locator, direction, { long = false } = {}) {
     return;
   }
 
-  expect(false, 'swipe pointerdown must target the current swipe row').toBe(true);
+  expect(false, 'swipe pointerdown must target the current swipe surface').toBe(true);
 }
 
 async function expectNoHorizontalOverflow(page) {
