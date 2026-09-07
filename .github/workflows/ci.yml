@@ -112,7 +112,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 1
     env:
-      BASKETRA_BROWSER_SHARD_COUNT: "48"
+      BASKETRA_BROWSER_SHARD_COUNT: "56"
     outputs:
       shards: ${{ steps.shard-plan.outputs.shards }}
       total: ${{ steps.shard-plan.outputs.total }}
@@ -180,7 +180,7 @@ jobs:
     timeout-minutes: 1
     strategy:
       fail-fast: false
-      max-parallel: 48
+      max-parallel: 56
       matrix:
         shard: ${{ fromJSON(needs.browser-runtime.outputs.shards) }}
     steps:

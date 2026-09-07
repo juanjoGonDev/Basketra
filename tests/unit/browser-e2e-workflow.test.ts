@@ -37,13 +37,13 @@ test('browser runtime is primed once and every deterministic shard is execution-
   assert.match(workflow, /restore-keys:\s*\|\n\s+basketra-playwright-\$\{\{ runner\.os \}\}-1\.59\.1-/u);
   assert.match(workflow, /outputs:\n\s+shards: \$\{\{ steps\.shard-plan\.outputs\.shards \}\}\n\s+total: \$\{\{ steps\.shard-plan\.outputs\.total \}\}/u);
   assert.match(workflow, /Plan bounded Browser shards[\s\S]*?BASKETRA_BROWSER_COVERAGE_COLLECT_ONLY:\s*"1"/u);
-  assert.match(workflow, /BASKETRA_BROWSER_SHARD_COUNT:\s*"48"/u);
+  assert.match(workflow, /BASKETRA_BROWSER_SHARD_COUNT:\s*"56"/u);
   assert.match(workflow, /node scripts\/plan-browser-shards\.mjs/u);
   assert.match(workflow, /max estimated group \$\{max_estimated\}s/u);
   assert.match(workflow, /shard: \$\{\{ fromJSON\(needs\.browser-runtime\.outputs\.shards\) \}\}/u);
   assert.match(workflow, /name: "🌐 Browser \$\{\{ matrix\.shard \}\}\/\$\{\{ needs\.browser-runtime\.outputs\.total \}\}"/u);
   assert.match(workflow, /browser-e2e:\n[\s\S]*?timeout-minutes:\s*1/u);
-  assert.match(workflow, /max-parallel:\s*48/u);
+  assert.match(workflow, /max-parallel:\s*56/u);
   assert.match(workflow, /timeout --signal=TERM --kill-after=5s 45s pnpm exec playwright test --test-list=/u);
   assert.match(workflow, /\.ci\/browser-shards\/shard-\$\{\{ matrix\.shard \}\}\.txt/u);
   assert.match(workflow, /BASKETRA_BROWSER_COVERAGE_COLLECT_ONLY:\s*"1"/u);
