@@ -390,8 +390,8 @@ test('automatic local OCR creates editable euro rows with source context and imp
   await expect(page.locator('#receipt-camera')).toHaveAttribute('accept', 'image/jpeg,image/png');
   await expect(page.locator('#receipt-files')).toHaveAttribute('accept', 'image/jpeg,image/png,application/pdf');
   await expect(page.locator('#receipt-text')).toHaveCount(0);
-  await expect(page.getByLabel('Corregir OCR con IA')).toBeDisabled();
-  await expect(page.locator('#receipt-ai-help')).toContainText('OCR local en español activo');
+  await expect(page.locator('#verify-receipt-ai')).toHaveCount(0);
+  await expect(page.locator('#receipt-analysis-options')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Leer con OCR local', exact: true })).toHaveCount(0);
 
   await page.locator('#receipt-files').setInputFiles([
