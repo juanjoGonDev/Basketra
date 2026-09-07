@@ -98,3 +98,13 @@ Add a responsive product-price comparison in Inventory and a fast way to add/upd
 - Invalid empty store, zero/negative/invalid monetary input, duplicate submit and API failure are covered.
 - Playwright covers desktop and 390/320 px mobile states plus no-horizontal-overflow.
 - Changed code maintains 100% changed-code coverage including branches/edge cases under the repository coverage gates.
+
+
+### Price comparison implementation evidence
+
+- `getCatalogProductRelations()` is the shared server-side projection for product-detail retailer names and latest location prices; `GET /api/v1/products/:id` consumes it instead of rebuilding the query.
+- The catalog list remains bounded to 12 latest-location rows per product for payload control. Product detail uses a separate bounded ceiling of 100 comparison rows and returns `latestPricesTruncated=true` when more locations exist.
+- The comparison projection first selects the newest immutable observation per product + retailer + physical-store identity, then orders those current-location rows by `priceMinor ASC` with deterministic identity tie-breakers.
+- The catalog list's existing “Precio reciente” semantics are intentionally independent of comparison order: the browser selects the newest `observedAt` for that column.
+- Manual add/update reuses `POST /api/v1/products/:id/prices`; updates append evidence and never overwrite prior observations.
+- The quick editor is unavailable until a product exists, prevents duplicate writes, preserves the selected comparison store even when it falls outside the first 100 store-selector results, and reloads canonical detail after a successful save.
