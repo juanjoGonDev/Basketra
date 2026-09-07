@@ -302,6 +302,7 @@
 
 .catalog-price-comparison-row {
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .catalog-price-comparison-row__value {
@@ -309,6 +310,10 @@
   flex: 0 0 auto;
   align-items: center;
   gap: .55rem;
+  max-width: 100%;
+  margin-left: auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .catalog-price-comparison-row__value > strong {
