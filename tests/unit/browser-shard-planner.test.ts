@@ -12,7 +12,7 @@ import {
   writeBrowserShardFiles,
 } from '../../scripts/plan-browser-shards.mjs';
 
-const heavyTitle = 'catalog residual branches cover rich history, nested categories and destructive outcomes';
+const heavyTitle = 'catalog product detail residuals cover rich history, relations and destructive outcomes';
 
 function listing() {
   return [
@@ -33,7 +33,7 @@ test('browser shard planner parses exact Playwright test-list entries and timing
     normalizeTestListEntry(tests[0].entry),
     'tests/browser/changed-code-residuals.spec.mjs › ' + heavyTitle,
   );
-  assert.equal(tests[0].estimatedSeconds, 34);
+  assert.equal(tests[0].estimatedSeconds, 18);
   assert.equal(normalizeTestListEntry(tests[1].entry), 'tests/browser/example-a.spec.mjs › quick A');
   assert.equal(tests[1].estimatedSeconds, DEFAULT_ESTIMATED_SECONDS);
 });
