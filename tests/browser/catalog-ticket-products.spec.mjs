@@ -226,7 +226,7 @@ test('inventory product compares latest store prices and appends manual updates 
   await expect(page.locator('#catalog-price-history-count')).toHaveText('1');
   await expectNoHorizontalOverflow(page);
   await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
-  await page.screenshot({ path: testInfo.outputPath('catalog-store-price-comparison-390.png'), fullPage: true });
+  await page.locator('#catalog-price-comparison-card').screenshot({ path: testInfo.outputPath('catalog-store-price-comparison-390.png') });
 
   await page.locator('#catalog-latest-prices .catalog-price-comparison-row').nth(1).getByRole('button', { name: 'Actualizar' }).click();
   await dialog.locator('#catalog-price-value').fill('1,20');
@@ -239,12 +239,12 @@ test('inventory product compares latest store prices and appends manual updates 
   await dialog.getByRole('button', { name: 'Cancelar' }).click();
   await expectNoHorizontalOverflow(page);
   await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
-  await page.screenshot({ path: testInfo.outputPath('catalog-store-price-comparison-320.png'), fullPage: true });
+  await page.locator('#catalog-price-comparison-card').screenshot({ path: testInfo.outputPath('catalog-store-price-comparison-320.png') });
 
   await page.setViewportSize({ width: 1280, height: 900 });
   await expectNoHorizontalOverflow(page);
   await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
-  await page.screenshot({ path: testInfo.outputPath('catalog-store-price-comparison-desktop.png'), fullPage: true });
+  await page.locator('#catalog-price-comparison-card').screenshot({ path: testInfo.outputPath('catalog-store-price-comparison-desktop.png') });
 });
 
 test('inventory quick price editor handles empty and unavailable store inventories', async ({ page }) => {
