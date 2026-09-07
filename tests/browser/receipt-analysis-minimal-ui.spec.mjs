@@ -111,6 +111,8 @@ test('receipt analysis is minimal, responsive and exposes one three-path floatin
     await expect(dial.getByText('IA', { exact: true })).toBeVisible();
     await expect(dial.getByText('Manual', { exact: true })).toBeVisible();
     await expect(dial.getByText('Scan', { exact: true })).toBeVisible();
+    await expect(page.locator('#receipt-analysis-options')).toHaveCount(0);
+    await expect(page.locator('#verify-receipt-ai')).toHaveCount(0);
 
     if (viewport.width === 390 || viewport.width === 1280) {
       await page.screenshot({
@@ -246,7 +248,7 @@ test('queue cancel-all preserves uploaded captures and marks active work cancell
   await expectNoHorizontalOverflow(page);
 });
 
-test('manual floating action opens the existing review editor and focuses the new line', async ({ page }) => {
+test('manual floating action uses a cancellable modal without fake capture preview', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
@@ -256,16 +258,36 @@ test('manual floating action opens the existing review editor and focuses the ne
 
   await page.goto('/');
   await navigate(page, 'Tickets');
-  await page.getByRole('button', { name: 'Añadir al ticket', exact: true }).click();
+  const add = page.getByRole('button', { name: 'Añadir al ticket', exact: true });
+  await add.click();
   await page.locator('#receipt-add-manual').click();
 
   const reviewPanel = page.locator('#receipt-review-panel');
-  await expect(reviewPanel).toBeVisible();
-  await expect(reviewPanel).toHaveAttribute('open', '');
-  await expect(page.locator('.receipt-item')).toHaveCount(1);
-
-  const description = page.locator('.receipt-item').first().locator('[data-field="description"]');
-  await expect(description).toBeFocused();
+  const dialog = page.locator('#receipt-line-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: 'Añadir producto', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Cancelar', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Eliminar', exact: true })).toBeHidden();
+  await expect(dialog.locator('[data-field="description"]')).toBeFocused();
+  await expect(reviewPanel).not.toHaveAttribute('open', '');
+  await expect(page.locator('.receipt-review-evidence')).toBeHidden();
+  await expect(page.locator('#receipt-review-panel-title')).toHaveText('Revisión y validación');
   await expect(page.locator('#receipt-add-menu')).toBeHidden();
+
+  await dialog.getByRole('button', { name: 'Cancelar', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('.receipt-item')).toHaveCount(0);
+  await expect(reviewPanel).toBeHidden();
+
+  await add.click();
+  await page.locator('#receipt-add-manual').click();
+  await expect(dialog).toBeVisible();
+  await dialog.locator('[data-field="description"]').fill('PAN MANUAL');
+  await dialog.getByRole('button', { name: 'Guardar línea', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('#receipt-detected-list')).toContainText('PAN MANUAL');
+  await expect(reviewPanel).toBeVisible();
+  await expect(reviewPanel).not.toHaveAttribute('open', '');
+  await expect(page.locator('.receipt-review-evidence')).toBeHidden();
   await expectNoHorizontalOverflow(page);
 });
