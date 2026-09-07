@@ -87,7 +87,7 @@ function pageDetectedItems(page) {
 }
 
 function detectedItemsSnapshot() {
-  if (state.extraction && Array.isArray(state.items) && state.items.length > 0) {
+  if (state.extraction && Array.isArray(state.items)) {
     return {
       items: state.items,
       provisional: false,
@@ -105,7 +105,10 @@ function detectedItemsSnapshot() {
 
 function detectedItemMeta(item, provisional) {
   const parts = [];
-  if (Number.isFinite(item?.quantity)) parts.push(`${item.quantity} ud`);
+  if (Number.isFinite(item?.quantity)) {
+    const unit = typeof item?.unit === 'string' && item.unit.trim() ? item.unit.trim() : 'ud';
+    parts.push(`${item.quantity} ${unit}`);
+  }
   if (Number.isSafeInteger(item?.unitPriceMinor)) parts.push(formatEuroMinor(item.unitPriceMinor));
   parts.push(provisional ? 'provisional' : 'listo para validar');
   return parts.join(' · ');
@@ -244,9 +247,9 @@ export function renderCaptureProgress(card, capture, index) {
   const summaryCopy = document.createElement('span');
   summaryCopy.className = 'capture-card__summary-copy';
   const position = document.createElement('strong');
-  position.textContent = `Imagen ${index + 1} de ${state.captures.length}`;
+  position.textContent = capture.name;
   const stage = document.createElement('small');
-  stage.textContent = pageStageDescription(page);
+  stage.textContent = `Página ${index + 1} de ${state.captures.length} · ${pageStageDescription(page)}`;
   summaryCopy.append(position, stage);
   const status = document.createElement('span');
   status.className = `status-pill ${pageStatusClass(page)}`;
