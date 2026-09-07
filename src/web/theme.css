@@ -1,5 +1,17 @@
 html[data-theme="light"] {
   color-scheme: only light;
+  --bg: #f4f7f5;
+  --surface: #ffffff;
+  --surface-soft: #eef6f2;
+  --text: #13231d;
+  --text-soft: #4b6258;
+  --muted: #71837b;
+  --primary: #0b6b57;
+  --primary-strong: #075443;
+  --primary-soft: #d9f3e9;
+  --contrast: #ffffff;
+  --border: #d7e2dc;
+  --shadow: 0 12px 36px rgba(19, 35, 29, 0.08);
   --color-bg: #f3fcf5;
   --color-surface: #ffffff;
   --color-surface-container-low: #edf6ef;
@@ -30,6 +42,18 @@ html[data-theme="light"] {
 
 html[data-theme="dark"] {
   color-scheme: only dark;
+  --bg: #0c1512;
+  --surface: #14221c;
+  --surface-soft: #183028;
+  --text: #f0faf5;
+  --text-soft: #c2d4cc;
+  --muted: #91a79e;
+  --primary: #5eead4;
+  --primary-strong: #99f6e4;
+  --primary-soft: #153c33;
+  --contrast: #062a25;
+  --border: #2b443a;
+  --shadow: none;
   --color-bg: #0f1713;
   --color-surface: #151d19;
   --color-surface-container-low: #19231e;
