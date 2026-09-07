@@ -24,8 +24,6 @@ jobs:
             command: pnpm format:check && pnpm lint && pnpm typecheck && pnpm deadcode && pnpm deps:check
           - name: Unit
             command: pnpm test
-          - name: Integration
-            command: pnpm test:integration
           - name: Static E2E
             command: pnpm test:e2e
           - name: Domain coverage
@@ -56,6 +54,34 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Run quality group
         run: ${{ matrix.command }}
+
+  integration:
+    name: "✅ Integration ${{ matrix.shard }}/2"
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - 1
+          - 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.23.1
+      - name: Pin pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.0 --activate
+      - name: Frozen install
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Run integration shard
+        run: node --experimental-strip-types --test --test-concurrency=1 --test-shard=${{ matrix.shard }}/2 tests/integration/*.test.ts
 
   security:
     name: "🔒 Security"
@@ -107,6 +133,8 @@ jobs:
       - name: Plan bounded Browser shards
         id: shard-plan
         shell: bash
+        env:
+          BASKETRA_BROWSER_COVERAGE_COLLECT_ONLY: "1"
         run: |
           set -euo pipefail
           listing="$RUNNER_TEMP/playwright-list.txt"
