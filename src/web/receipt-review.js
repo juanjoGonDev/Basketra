@@ -532,6 +532,7 @@ export function addBlankLine() {
   renderReview();
   const input = $(`.receipt-item[data-item-index="${state.items.length - 1}"] [data-field="description"]`);
   input?.focus();
+  requestAnimationFrame(() => input?.focus());
 }
 
 export function restoreReceiptLine(index, item, original) {
