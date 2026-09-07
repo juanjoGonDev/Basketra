@@ -13,8 +13,6 @@ ARG BASKETRA_REVISION=
 ENV NODE_ENV=production \
     BASKETRA_VERSION=${BASKETRA_VERSION} \
     BASKETRA_REVISION=${BASKETRA_REVISION} \
-    SQLITE_TMPDIR=/tmp/basketra \
-    TMPDIR=/tmp/basketra \
     OMP_THREAD_LIMIT=1 \
     OMP_NUM_THREADS=1
 LABEL org.opencontainers.image.version=${BASKETRA_VERSION} \
@@ -41,6 +39,8 @@ RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack 
         /usr/local/bin/pnpm /usr/local/bin/yarn /usr/local/bin/yarnpkg \
     && mkdir -p /data /tmp/basketra \
     && chown -R node:node /data /tmp/basketra /app
+ENV SQLITE_TMPDIR=/tmp/basketra \
+    TMPDIR=/tmp/basketra
 USER node
 EXPOSE 3000
 VOLUME ["/data"]
