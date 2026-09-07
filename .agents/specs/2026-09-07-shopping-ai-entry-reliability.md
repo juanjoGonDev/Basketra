@@ -48,7 +48,7 @@ Fix the Shopping List product-category AI suggestion flow that can report the AI
 
 Branch: `agent/fix-shopping-ai-entry`
 
-Status: implementation complete. Final delivery remains gated by the exact-head PR checks.
+Status: implementation and final review complete. Exact-head Pull Request Quality and CodeQL are green; PR #60 is ready for human review.
 
 ## Validation evidence
 
@@ -108,3 +108,15 @@ Add a responsive product-price comparison in Inventory and a fast way to add/upd
 - The catalog list's existing “Precio reciente” semantics are intentionally independent of comparison order: the browser selects the newest `observedAt` for that column.
 - Manual add/update reuses `POST /api/v1/products/:id/prices`; updates append evidence and never overwrite prior observations.
 - The quick editor is unavailable until a product exists, prevents duplicate writes, preserves the selected comparison store even when it falls outside the first 100 store-selector results, and reloads canonical detail after a successful save.
+
+
+## Final validation
+
+- Final reviewed head before this documentation-only closeout: `6c7fab18e6ae45e38ef8b1b3d8b3c6c91db6ac9c`.
+- Pull Request Quality run `34147412621` completed successfully after a targeted retry of externally cancelled Browser shard `14/56`.
+- Browser changed-code coverage completed successfully at the repository-required 100% threshold; no coverage thresholds or assertions were weakened.
+- CodeQL Advanced run `34147412627` completed successfully.
+- The final Browser matrix passed, including the previously sensitive swipe, price-editor and product-detail layout shards.
+- Final product-price comparison evidence was reviewed at 320 px, 390 px and desktop. The comparison remains within the viewport, preserves readable store/price hierarchy, exposes the cheapest row by text, and keeps update actions available.
+- PR #60 has no unresolved review threads, reviews or comments.
+- No merge, release or deploy was performed.
