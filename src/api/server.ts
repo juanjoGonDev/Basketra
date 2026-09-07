@@ -19,7 +19,7 @@ import { optimizeBasket, type ShoppingRequirement } from '../domain/optimization
 import type { Offer } from '../domain/offers.ts';
 import { parseReceiptLineDiscount, validateReceiptLine, validateReceiptTotal, type ReceiptLineInput } from '../domain/receipt.ts';
 import { ApiError, mapError } from './errors.ts';
-import { handleCatalogManagementRequest } from './catalog-management.ts';
+import { getCatalogProductRelations, handleCatalogManagementRequest } from './catalog-management.ts';
 import { handleReceiptCalculationRequest } from './receipt-calculation.ts';
 import { STATIC_ASSETS } from './static-assets.ts';
 import { isApplicationPath } from '../web/routes.js';
@@ -822,8 +822,14 @@ export class BasketraServer {
   private getProduct(response: ServerResponse, variantId: string): void {
     const product = this.#database.getProductVariant(variantId);
     if (!product) throw new ApiError(404, 'PRODUCT_VARIANT_NOT_FOUND', 'Product variant was not found');
+    const relations = getCatalogProductRelations(this.#database.path, variantId);
     this.json(response, 200, {
-      product,
+      product: {
+        ...product,
+        retailerNames: relations.retailerNames,
+        latestPrices: relations.latestPrices,
+        latestPricesTruncated: relations.latestPricesTruncated,
+      },
       priceHistory: this.#database.listPriceObservations(variantId),
       ticketHistory: this.#database.listProductTicketHistory(variantId),
     });
