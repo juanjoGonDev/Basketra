@@ -51,7 +51,8 @@ declare module 'node:fs' {
     on(event: 'error', listener: (error: Error) => void): this;
     pipe(destination: import('node:http').ServerResponse): void;
   }
-  export function mkdirSync(path: string, options?: { recursive?: boolean }): string | undefined;
+  export function mkdirSync(path: string, options?: { recursive?: boolean; mode?: number }): string | undefined;
+  export function chmodSync(path: string, mode: number): void;
   export function copyFileSync(source: string, destination: string): void;
   export function statSync(path: string): { size: number; mtimeMs: number; mode: number; dev: number };
   export function readFileSync(path: string): Uint8Array;
