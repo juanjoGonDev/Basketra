@@ -26,6 +26,18 @@ Baseline: `b841518ce82f39a9edb73fdda09c2f48340237a0` on `main`.
 - the baseline `src/web/icon.svg` was scalable but used a coarse solid cart silhouette.
 - the service worker intentionally does not cache `/api/` responses. Keeping data mutation and conflict resolution online avoids introducing an unreviewed offline-write source of truth in this focused change.
 
+## Duplicate PR review
+
+PR #61 (branch `agent/feat-pwa-offline-compact-items`) was reviewed against this implementation before consolidation.
+
+- Its direct Shopping List renderer/disclosure and keyboard/persistence intent is already covered here; the missing persistence/keyboard browser assertions were ported to this PR.
+- Its runtime `/sw.js?version=<metadata>` registration is not carried over because this PR stamps the worker/cache from the image-owned `BASKETRA_VERSION` at build time. That keeps release identity independent of a successful `/api/v1/meta` request and avoids two version owners.
+- Its global read-cache for metadata/categories/lists/stores is not carried over. Exact-head CI on #61 exposed stale category state in unrelated category/ticket-history flows, and the same head failed the compact-row height assertion at 127.6 px against its 88 px target. The bounded API fallback therefore demonstrated a correctness regression under CI load and is not safe to merge as-is.
+- Its background refresh of already-cached shell assets is not carried over: this PR deliberately serves current-release shell assets without starting a degraded network request. Release freshness is provided by the versioned cache namespace and install-time precache.
+- Icon, offline shell, accessibility and weak-network goals are already present here with the stronger build-time version contract and stable manifest identity.
+
+PR #61 is superseded by this PR and may be closed without deleting its branch/history.
+
 ## Decision
 
 ### Compact shopping rows
