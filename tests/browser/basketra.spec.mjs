@@ -307,6 +307,8 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Devolver Arroz 1 kg a pendientes' }).click());
   await expect(page.locator('#pending-items')).toContainText('Arroz 1 kg');
 
+  riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
+  await riceRow.getByRole('button', { name: 'Mostrar opciones de Arroz 1 kg', exact: true }).click();
   await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Subir Arroz 1 kg' }).click());
   await expect(page.locator('#pending-items [data-swipe-kind="shopping-item"]').first()).toContainText('Arroz 1 kg');
 
