@@ -1,0 +1,75 @@
+.theme-settings-card {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.theme-options {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.theme-options legend {
+  margin-bottom: var(--space-2);
+  color: var(--color-on-surface-variant);
+  font-size: .82rem;
+  font-weight: 650;
+}
+
+.theme-option {
+  min-height: var(--touch);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: center;
+  padding: .75rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--color-on-surface) 12%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-on-surface);
+  cursor: pointer;
+}
+
+.theme-option:hover {
+  background: var(--color-surface-container-low);
+}
+
+.theme-option:has(input:checked) {
+  border-color: color-mix(in srgb, var(--color-primary) 55%, transparent);
+  background: color-mix(in srgb, var(--color-primary-container) 28%, var(--color-surface));
+}
+
+.theme-option input {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+  accent-color: var(--color-primary);
+}
+
+.theme-option:has(input:focus-visible) {
+  outline: .1875rem solid var(--color-focus);
+  outline-offset: .1875rem;
+}
+
+.theme-option span {
+  min-width: 0;
+  display: grid;
+  gap: .1rem;
+}
+
+.theme-option small {
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 40rem) {
+  .theme-options {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .theme-options legend {
+    grid-column: 1 / -1;
+  }
+}

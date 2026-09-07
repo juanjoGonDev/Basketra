@@ -31,6 +31,8 @@ export const STATIC_ASSETS = new Set([
   'ui.js',
   'styles.css',
   'modern.css',
+  'theme.js',
+  'theme.css',
   'manifest.webmanifest',
   'sw.js',
   'icon.svg',
