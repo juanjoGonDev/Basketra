@@ -11,6 +11,7 @@ import {
   escapeHtml,
   euroInputToMinor,
   minorToEuroInput,
+  restoreSwipeRow,
   shoppingListItem,
 } from './ui.js';
 import { applicationPathForRoute, readApplicationLocation, writeApplicationLocation } from './routes.js';
@@ -83,6 +84,29 @@ let aiConfigured = false;
 let shoppingCategorySuggestion;
 
 const $ = selector => document.querySelector(selector);
+
+async function refreshAiConfiguration() {
+  try {
+    aiConfigured = (await api('/api/v1/settings/ai-provider')).configured === true;
+    return aiConfigured;
+  } catch {
+    return null;
+  }
+}
+
+async function openAiAssistant() {
+  $('#list-menu-panel').hidden = true;
+  $('#ai-proposals').hidden = true;
+  $('#ai-state').textContent = 'Comprobando IA…';
+  openDialog($('#ai-assistant-dialog'), '#ai-text');
+  const configured = await refreshAiConfiguration();
+  if (!$('#ai-assistant-dialog').open) return;
+  $('#ai-state').textContent = configured === false
+    ? 'La IA no está configurada; puedes seguir usando la lista manualmente.'
+    : configured === null
+      ? 'No se pudo comprobar la configuración. Puedes intentar enviar el mensaje igualmente.'
+      : '';
+}
 
 function listIdFromRoute(route) {
   const value = String(route || '');
@@ -180,6 +204,7 @@ function bindShoppingCategorySuggestion() {
       $('#global-item-unit'),
       $('#global-price'),
     ],
+    refreshOptions: loadCategories,
     buildPayload() {
       const canonicalName = $('#global-canonical-name').value.trim() || $('#global-parent-search').value.trim();
       const variantName = $('#global-variant-name').value.trim();
@@ -448,6 +473,10 @@ function renderBulkSelection() {
 }
 
 function renderItems() {
+  const openSwipeRow = $('#list-detail [data-swipe-row][data-swipe-open="true"]');
+  const openSwipeIdentity = openSwipeRow
+    ? { id: openSwipeRow.dataset.swipeId || '', kind: openSwipeRow.dataset.swipeKind || '' }
+    : null;
   const pending = model.items.filter(item => !item.completed);
   const completed = model.items.filter(item => item.completed);
   const pendingRoot = $('#pending-items');
@@ -460,6 +489,9 @@ function renderItems() {
     'Los productos comprados aparecerán aquí.',
     model.multiSelectMode ? bulkCompletedItem : shoppingListItem,
   );
+  if (!model.multiSelectMode && openSwipeIdentity) {
+    restoreSwipeRow(document, openSwipeIdentity);
+  }
   $('#pending-count').textContent = String(pending.length);
   $('#completed-count').textContent = String(completed.length);
   $('#completed-section').hidden = completed.length === 0;
@@ -558,6 +590,10 @@ function scheduleRealtimeResync(event) {
   if (model.realtimeTimer) clearTimeout(model.realtimeTimer);
   model.realtimeTimer = setTimeout(async () => {
     model.realtimeTimer = null;
+    if (document.documentElement.classList.contains('is-swipe-pointer-active')) {
+      scheduleRealtimeResync(event);
+      return;
+    }
     try {
       const shouldReloadDetail = model.activeListId && (
         !event?.listId
@@ -1323,11 +1359,12 @@ async function handleProductPhoto(file, source = 'item') {
   state.textContent = 'Preparando imagen…';
   try {
     const storageKey = await uploadProductImage(file);
-    state.textContent = aiConfigured
-      ? 'Analizando imagen…'
-      : 'Imagen guardada. La IA no está configurada; completa los datos manualmente.';
+    const configured = await refreshAiConfiguration();
+    state.textContent = configured === false
+      ? 'Imagen guardada. La IA no está configurada; completa los datos manualmente.'
+      : 'Analizando imagen…';
     if (source !== 'global' && !$('#item-dialog').open) openItemCreate();
-    if (!aiConfigured) {
+    if (configured === false) {
       model.photoStorageKey = storageKey;
       if (source === 'ai') closeDialog($('#ai-assistant-dialog'));
       if (!$('#global-product-dialog').open) await openGlobalProductEditor(true);
@@ -1848,15 +1885,17 @@ async function analyzeWithAi() {
     $('#ai-state').textContent = 'Describe lo que quieres añadir o adjunta una foto.';
     return;
   }
-  if (!aiConfigured) {
-    $('#ai-state').textContent = 'La IA no está configurada. La lista y el alta manual siguen disponibles.';
-    return;
-  }
   const button = $('#analyze-ai');
   setBusy(button, true);
-  $('#ai-state').textContent = 'Preparando propuesta…';
+  $('#ai-state').textContent = 'Comprobando IA…';
   $('#ai-proposals').hidden = true;
   try {
+    const configured = await refreshAiConfiguration();
+    if (configured === false) {
+      $('#ai-state').textContent = 'La IA no está configurada. La lista y el alta manual siguen disponibles.';
+      return;
+    }
+    $('#ai-state').textContent = 'Preparando propuesta…';
     const result = await api('/api/v1/ai/shopping-list-analysis', { method: 'POST', body: JSON.stringify({ text }) });
     renderAiProposal(result.proposal);
     $('#ai-state').textContent = 'Revisa y edita antes de añadir.';
@@ -2153,12 +2192,8 @@ function bindDialogs() {
   });
   $('#close-item-dialog').addEventListener('click', () => { closeDialog($('#item-dialog')); resetItemForm(); });
   $('#cancel-item-edit').addEventListener('click', () => { closeDialog($('#item-dialog')); resetItemForm(); });
-  $('#open-ai-assistant').addEventListener('click', () => {
-    $('#list-menu-panel').hidden = true;
-    $('#ai-state').textContent = aiConfigured ? '' : 'La IA no está configurada; puedes seguir usando la lista manualmente.';
-    $('#ai-proposals').hidden = true;
-    openDialog($('#ai-assistant-dialog'), '#ai-text');
-  });
+  $('#open-ai-assistant').addEventListener('click', () => void openAiAssistant());
+  $('#open-ai-item-assistant').addEventListener('click', () => void openAiAssistant());
 }
 
 function bindEvents() {

@@ -16,6 +16,16 @@ function clearControl(control, invalidControls) {
   invalidControls.delete(control);
 }
 
+function categorySuggestionFailureMessage(error) {
+  if (error?.code === 'AI_NOT_CONFIGURED') {
+    return 'La IA no está configurada. Puedes elegir una categoría manualmente.';
+  }
+  if (typeof error?.code === 'string' && error.code.startsWith('AI_')) {
+    return 'El proveedor de IA no está disponible ahora. Puedes elegir una categoría manualmente o reintentar.';
+  }
+  return 'No se pudo sugerir una categoría. Puedes elegirla manualmente.';
+}
+
 export function bindCategorySuggestion({
   button,
   status,
@@ -24,6 +34,7 @@ export function bindCategorySuggestion({
   requiredFields,
   watch = [],
   buildPayload,
+  refreshOptions,
   request = (payload, signal) => api('/api/v1/categories/suggest', {
     method: 'POST',
     signal,
@@ -117,16 +128,34 @@ export function bindCategorySuggestion({
         status.textContent = 'La IA no devolvió una categoría válida.';
         return;
       }
-      const option = [...select.options].find((candidate) => candidate.value === categoryId);
+      let option = [...select.options].find((candidate) => candidate.value === categoryId);
+      if (!option && refreshOptions) {
+        status.textContent = 'Actualizando categorías…';
+        try {
+          await refreshOptions();
+        } catch {
+          status.textContent = 'No se pudieron actualizar las categorías. Puedes elegir una manualmente.';
+          return;
+        }
+        if (nextController.signal.aborted || requestGeneration !== generation) return;
+        let refreshedSignature = '';
+        try {
+          refreshedSignature = JSON.stringify({ surface, ...buildPayload() });
+        } catch {
+          return;
+        }
+        if (refreshedSignature !== signature) return;
+        option = [...select.options].find((candidate) => candidate.value === categoryId);
+      }
       if (!option) {
-        status.textContent = 'La categoría sugerida ya no está disponible.';
+        status.textContent = 'La categoría sugerida ya no está disponible. Actualiza las categorías o elige otra manualmente.';
         return;
       }
       select.value = categoryId;
       status.textContent = `Categoría sugerida: ${option.textContent || categoryId}. Revisa y guarda cuando quieras.`;
     } catch (error) {
       if (error?.name === 'AbortError' || requestGeneration !== generation) return;
-      status.textContent = 'No se pudo sugerir una categoría. Puedes elegirla manualmente.';
+      status.textContent = categorySuggestionFailureMessage(error);
     } finally {
       if (requestGeneration === generation) {
         controller = null;

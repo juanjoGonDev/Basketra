@@ -263,6 +263,7 @@
   justify-content: space-between;
   align-items: center;
   gap: var(--space-3);
+  box-sizing: border-box;
   width: 100%;
   padding: .8rem;
   border: 1px solid var(--border);
@@ -284,6 +285,76 @@
 .catalog-retailer-row small {
   margin-top: .15rem;
   color: var(--muted);
+}
+
+.catalog-price-comparison-card {
+  min-width: 0;
+}
+
+.catalog-price-comparison-card .section-header {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.catalog-price-comparison-card .section-header > * {
+  min-width: 0;
+}
+
+.catalog-price-comparison-row {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.catalog-price-comparison-row__value {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: .55rem;
+  max-width: 100%;
+  margin-left: auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.catalog-price-comparison-row__value > strong {
+  min-width: 4.75rem;
+  text-align: right;
+}
+
+.catalog-price-update {
+  min-height: 2.25rem;
+  padding: .45rem .65rem;
+  white-space: nowrap;
+}
+
+.catalog-price-dialog .dialog-content {
+  width: min(30rem, calc(100vw - 2rem));
+}
+
+@media (max-width: 32rem) {
+  .catalog-price-comparison-card .section-header {
+    display: grid;
+    gap: .65rem;
+  }
+
+  .catalog-price-comparison-card .section-header .button {
+    width: 100%;
+  }
+
+  .catalog-price-comparison-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .catalog-price-comparison-row__value {
+    justify-content: space-between;
+  }
+
+  .catalog-price-comparison-row__value > strong {
+    min-width: 0;
+    text-align: left;
+  }
 }
 
 .inventory-editor {

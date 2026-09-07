@@ -141,6 +141,102 @@ test('shopping ticket estimates by effective Store and converges between devices
   await second.close();
 });
 
+test('shopping AI recovers from stale bootstrap availability and refreshes stale category options', async ({ page, request }, testInfo) => {
+  test.setTimeout(45_000);
+  let settingsReads = 0;
+  let analysisRequests = 0;
+  let categoryRequests = 0;
+  let suggestedCategoryId = '';
+
+  await page.route('**/api/v1/settings/ai-provider', route => {
+    settingsReads += 1;
+    if (settingsReads === 1) {
+      return route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: { code: 'AI_UNREACHABLE', message: 'temporary bootstrap failure' } }),
+      });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ configured: true, baseUrl: 'http://webapi.test/v1/', model: 'default' }),
+    });
+  });
+  await page.route('**/api/v1/ai/shopping-list-analysis', route => {
+    analysisRequests += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        proposal: { items: [{ text: 'Leche', quantityMinor: 2, unit: 'unit' }] },
+        attempts: 1,
+      }),
+    });
+  });
+  await page.route('**/api/v1/categories/suggest', route => {
+    categoryRequests += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ categoryId: suggestedCategoryId, attempts: 1 }),
+    });
+  });
+
+  const listResponse = await request.post('/api/v1/shopping-lists', { data: { name: 'Compra IA recuperable' } });
+  expect(listResponse.ok()).toBeTruthy();
+  const list = (await listResponse.json()).list;
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/lists/${encodeURIComponent(list.id)}`);
+  await expect(page.getByRole('button', { name: 'Añadir chateando con IA', exact: true })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({ path: testInfo.outputPath('shopping-ai-entry-mobile-390.png'), fullPage: true });
+
+  // Create this category after the page loaded so the product editor starts with stale options.
+  const categoryResponse = await request.post('/api/v1/categories', { data: { name: 'Categoría IA test' } });
+  expect(categoryResponse.ok()).toBeTruthy();
+  suggestedCategoryId = (await categoryResponse.json()).category.id;
+
+  await page.getByRole('button', { name: 'Añadir chateando con IA', exact: true }).click();
+  const assistant = page.locator('#ai-assistant-dialog');
+  await expect(assistant.getByRole('heading', { name: 'Añadir chateando con IA', exact: true })).toBeVisible();
+  await expect.poll(() => settingsReads).toBeGreaterThanOrEqual(2);
+  await assistant.locator('#ai-text').fill('Añade dos leches');
+  await assistant.locator('#analyze-ai').click();
+  await expect.poll(() => analysisRequests).toBe(1);
+  await expect(assistant.locator('[data-ai-field="text"]')).toHaveValue('Leche');
+  await expect(assistant.locator('#ai-state')).toContainText('Revisa y edita');
+  await page.screenshot({ path: testInfo.outputPath('shopping-ai-chat-mobile-390.png'), fullPage: true });
+
+  await assistant.getByRole('button', { name: 'Cerrar', exact: true }).click();
+  await page.getByRole('button', { name: 'Crear ítem', exact: true }).click();
+  await page.locator('#item-text').fill('Arroz largo');
+  await expect(page.getByRole('button', { name: /Crear nuevo producto/ })).toBeVisible();
+  await page.getByRole('button', { name: /Crear nuevo producto/ }).click();
+
+  const productDialog = page.locator('#global-product-dialog');
+  await expect(productDialog).toBeVisible();
+  await expect(productDialog.locator('#global-category')).not.toHaveValue(suggestedCategoryId);
+  await productDialog.locator('#global-canonical-name').fill('Arroz');
+  await productDialog.locator('#global-variant-name').fill('Arroz largo');
+  await productDialog.locator('#global-suggest-category').click();
+  await expect.poll(() => categoryRequests).toBe(1);
+  await expect(productDialog.locator('#global-category')).toHaveValue(suggestedCategoryId);
+  await expect(productDialog.locator('#global-category-suggestion-state')).toContainText('Categoría sugerida');
+  await page.screenshot({ path: testInfo.outputPath('shopping-ai-category-mobile-390.png'), fullPage: true });
+
+  await productDialog.getByRole('button', { name: 'Cerrar', exact: true }).click();
+  const itemDialog = page.locator('#item-dialog');
+  if (await itemDialog.isVisible()) {
+    await itemDialog.getByRole('button', { name: 'Cerrar', exact: true }).click();
+  }
+  await page.setViewportSize({ width: 320, height: 700 });
+  await expectNoHorizontalOverflow(page);
+  await expect(page.getByRole('button', { name: 'Añadir chateando con IA', exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('shopping-ai-entry-mobile-320.png'), fullPage: true });
+});
+
 test('scan choice routes tickets separately and product photo AI hydrates the canonical product form', async ({ page, request }, testInfo) => {
   test.setTimeout(45_000);
   const errors = runtimeErrors(page);

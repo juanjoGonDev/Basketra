@@ -6,6 +6,7 @@ import { createId } from '../infrastructure/ids.ts';
 import { ApiError } from './errors.ts';
 
 const MAX_LATEST_PRICES_PER_PRODUCT = 12;
+const MAX_DETAIL_PRICE_LOCATIONS = 100;
 const MAX_BULK_PRODUCT_DELETE = 100;
 const CATALOG_SORTS = ['name', 'recent', 'price-desc', 'price-asc'] as const;
 const CATALOG_PRICE_FILTERS = ['all', 'with-price', 'without-price'] as const;
@@ -258,7 +259,7 @@ function loadRetailerNames(database: DatabaseSync, productIds: readonly string[]
   return result;
 }
 
-function loadLatestPrices(database: DatabaseSync, productIds: readonly string[]): Map<string, CatalogLatestPriceRecord[]> {
+function loadLatestPrices(database: DatabaseSync, productIds: readonly string[], limitPerProduct = MAX_LATEST_PRICES_PER_PRODUCT): Map<string, CatalogLatestPriceRecord[]> {
   const result = new Map<string, CatalogLatestPriceRecord[]>();
   if (productIds.length === 0) return result;
   const rows = database.prepare(`
@@ -293,7 +294,7 @@ function loadLatestPrices(database: DatabaseSync, productIds: readonly string[])
         confidence,
         ROW_NUMBER() OVER (
           PARTITION BY productVariantId
-          ORDER BY observedAt DESC, retailerName COLLATE NOCASE, COALESCE(storeName, '') COLLATE NOCASE
+          ORDER BY priceMinor ASC, retailerName COLLATE NOCASE, COALESCE(storeName, '') COLLATE NOCASE, observedAt DESC
         ) AS productRank
       FROM latest_per_location
       WHERE locationRank = 1
@@ -302,7 +303,7 @@ function loadLatestPrices(database: DatabaseSync, productIds: readonly string[])
     FROM ranked
     WHERE productRank <= ?
     ORDER BY productVariantId, productRank
-  `).all(...productIds, MAX_LATEST_PRICES_PER_PRODUCT) as LatestPriceRow[];
+  `).all(...productIds, limitPerProduct) as LatestPriceRow[];
   for (const row of rows) {
     const prices = result.get(row.productVariantId) ?? [];
     prices.push({
@@ -317,6 +318,26 @@ function loadLatestPrices(database: DatabaseSync, productIds: readonly string[])
     result.set(row.productVariantId, prices);
   }
   return result;
+}
+
+export type CatalogProductRelations = Readonly<{
+  retailerNames: readonly CatalogRetailerNameRecord[];
+  latestPrices: readonly CatalogLatestPriceRecord[];
+  latestPricesTruncated: boolean;
+}>;
+
+export function getCatalogProductRelations(databasePath: string, productVariantId: string): CatalogProductRelations {
+  return withDatabase(databasePath, (database) => {
+    const exists = database.prepare('SELECT 1 FROM product_variants WHERE id = ?').get(productVariantId);
+    if (!exists) throw new ApiError(404, 'PRODUCT_VARIANT_NOT_FOUND', 'Product variant was not found');
+    const retailerNames = loadRetailerNames(database, [productVariantId]).get(productVariantId) ?? [];
+    const latestPrices = loadLatestPrices(database, [productVariantId], MAX_DETAIL_PRICE_LOCATIONS + 1).get(productVariantId) ?? [];
+    return {
+      retailerNames,
+      latestPrices: latestPrices.slice(0, MAX_DETAIL_PRICE_LOCATIONS),
+      latestPricesTruncated: latestPrices.length > MAX_DETAIL_PRICE_LOCATIONS,
+    };
+  }, true);
 }
 
 function mapProduct(

@@ -1,5 +1,5 @@
 import { api, setBusy } from './api.js';
-import { breadcrumb, escapeHtml, formatEuroMinor, hydrateIcons, setFieldFeedback } from './ui.js';
+import { breadcrumb, escapeHtml, euroInputToMinor, formatEuroMinor, hydrateIcons, minorToEuroInput, setFieldFeedback } from './ui.js';
 import { createPagedSelection, syncPagedSelectionDom } from './entity-selection.js';
 import { bindCategorySuggestion } from './category-suggestion.js';
 import {
@@ -53,6 +53,9 @@ const state = {
   productSelection: createPagedSelection(),
   categorySelection: createPagedSelection(),
   bulkProductDeleteIds: [],
+  priceStores: [],
+  priceStoreOptionsTruncated: false,
+  priceSavePending: false,
 };
 
 function injectStylesheet() {
@@ -111,7 +114,7 @@ function installCatalogView() {
         </section>
         <aside class="inventory-detail-aside">
           <section class="surface"><div class="section-header"><div><p class="eyebrow">Producto padre</p><h2 id="catalog-parent-name">—</h2></div></div><p>Las variantes comparten nombre canónico, categoría y descripción.</p></section>
-          <section class="surface"><div class="section-header"><div><p class="eyebrow">Precios</p><h2>Últimas observaciones</h2></div></div><div id="catalog-latest-prices" class="catalog-retailer-names" aria-live="polite"></div></section>
+          <section id="catalog-price-comparison-card" class="surface catalog-price-comparison-card"><div class="section-header"><div><p class="eyebrow">Comparar precios</p><h2>Último precio por tienda</h2></div><button id="catalog-add-price" class="button secondary" type="button"><span data-icon="plus"></span>Añadir precio</button></div><p class="field-help">Una fila por ubicación, usando siempre su observación más reciente y ordenada de menor a mayor.</p><div id="catalog-latest-prices" class="catalog-retailer-names" aria-live="polite"></div></section>
           <section class="surface"><div class="section-header"><div><p class="eyebrow">Comercios</p><h2>Nombres asociados</h2></div></div><div id="catalog-retailer-names" class="catalog-retailer-names" aria-live="polite"></div></section>
         </aside>
       </div>
@@ -168,7 +171,8 @@ function installCatalogView() {
         </div>
       </section>
     </section>
-    <dialog id="catalog-delete-dialog" class="confirm-dialog" aria-labelledby="catalog-delete-title"><div class="dialog-content"><span class="dialog-icon" data-icon="alert"></span><h2 id="catalog-delete-title">Eliminar producto</h2><p id="catalog-delete-impact">Comprobando dependencias…</p><p class="inline-status" role="status" id="catalog-delete-state"></p><div class="dialog-actions"><button id="catalog-delete-cancel" class="button secondary" type="button">Cancelar</button><button id="catalog-delete-confirm" class="button danger" type="button" disabled>Eliminar producto</button></div></div></dialog>`;
+    <dialog id="catalog-price-dialog" class="confirm-dialog catalog-price-dialog" aria-labelledby="catalog-price-dialog-title"><form id="catalog-price-form" class="dialog-content"><span class="dialog-icon" data-icon="prices"></span><p class="eyebrow">Precio manual</p><h2 id="catalog-price-dialog-title">Añadir precio</h2><p id="catalog-price-dialog-copy">Registra una nueva observación sin sobrescribir el histórico.</p><label class="field"><span>Tienda</span><select id="catalog-price-store" required><option value="">Selecciona una tienda</option></select></label><label class="field"><span>Precio (€)</span><input id="catalog-price-value" inputmode="decimal" autocomplete="off" placeholder="0,00" required></label><p id="catalog-price-store-help" class="field-help"></p><p id="catalog-price-state" class="inline-status" role="alert" aria-live="assertive"></p><div class="dialog-actions"><button id="catalog-price-cancel" class="button secondary" type="button">Cancelar</button><button id="catalog-price-save" class="button primary" type="submit"><span data-icon="check"></span>Guardar precio</button></div></form></dialog>
+        <dialog id="catalog-delete-dialog" class="confirm-dialog" aria-labelledby="catalog-delete-title"><div class="dialog-content"><span class="dialog-icon" data-icon="alert"></span><h2 id="catalog-delete-title">Eliminar producto</h2><p id="catalog-delete-impact">Comprobando dependencias…</p><p class="inline-status" role="status" id="catalog-delete-state"></p><div class="dialog-actions"><button id="catalog-delete-cancel" class="button secondary" type="button">Cancelar</button><button id="catalog-delete-confirm" class="button danger" type="button" disabled>Eliminar producto</button></div></div></dialog>`;
   main.append(view);
   hydrateIcons(view);
 }
@@ -334,7 +338,11 @@ function renderUnitOptions() {
 }
 
 function latestPrice(product) {
-  return product.latestPrices?.[0] || null;
+  const prices = Array.isArray(product?.latestPrices) ? product.latestPrices : [];
+  return prices.reduce(
+    (latest, entry) => latest === null || entry.observedAt > latest.observedAt ? entry : latest,
+    null,
+  );
 }
 
 function syncSelectionControls(selection, pageIds, {
@@ -470,21 +478,141 @@ function renderCategoryList() {
   syncCategorySelection();
 }
 
+async function loadPriceStores() {
+  const result = await api('/api/v1/inventory/stores?limit=100&offset=0&sort=name');
+  state.priceStores = Array.isArray(result?.stores) ? result.stores : [];
+  state.priceStoreOptionsTruncated = result?.hasMore === true;
+  const select = $('#catalog-price-store');
+  select.replaceChildren(new Option('Selecciona una tienda', ''));
+  for (const store of state.priceStores) {
+    select.append(new Option(`${store.retailerName} · ${store.name}`, store.id));
+  }
+  $('#catalog-price-store-help').textContent = state.priceStoreOptionsTruncated
+    ? 'Se muestran las primeras 100 tiendas. Usa Inventario · Tiendas para localizar otras.'
+    : state.priceStores.length
+      ? 'El guardado añade una nueva observación histórica para la tienda seleccionada.'
+      : 'No hay tiendas guardadas. Crea una desde Inventario · Tiendas antes de registrar precios.';
+}
+
+async function openPriceDialog(entry) {
+  const product = state.productDetail;
+  if (!product) return;
+  const dialog = $('#catalog-price-dialog');
+  $('#catalog-price-dialog-title').textContent = entry?.storeId ? 'Actualizar precio' : 'Añadir precio';
+  $('#catalog-price-dialog-copy').textContent = entry?.storeId
+    ? 'Se conservará el precio anterior y se añadirá una observación más reciente.'
+    : 'Registra una nueva observación sin sobrescribir el histórico.';
+  $('#catalog-price-state').textContent = '';
+  $('#catalog-price-store').replaceChildren(new Option('Selecciona una tienda', ''));
+  $('#catalog-price-store').value = '';
+  $('#catalog-price-value').value = Number.isSafeInteger(entry?.priceMinor) ? minorToEuroInput(entry.priceMinor) : '';
+  $('#catalog-price-store').disabled = true;
+  $('#catalog-price-save').disabled = true;
+  $('#catalog-price-store-help').textContent = 'Cargando tiendas…';
+  if (!dialog.open) dialog.showModal();
+  try {
+    await loadPriceStores();
+    if (entry?.storeId && !state.priceStores.some(store => store.id === entry.storeId)) {
+      const selectedStore = {
+        id: entry.storeId,
+        retailerName: entry.retailerName,
+        name: entry.storeName || 'Tienda sin nombre',
+      };
+      state.priceStores.push(selectedStore);
+      $('#catalog-price-store').append(new Option(`${selectedStore.retailerName} · ${selectedStore.name}`, selectedStore.id));
+    }
+    $('#catalog-price-store').disabled = false;
+    $('#catalog-price-save').disabled = false;
+    $('#catalog-price-store').value = entry?.storeId || '';
+    requestAnimationFrame(() => (entry?.storeId ? $('#catalog-price-value') : $('#catalog-price-store')).focus());
+  } catch (error) {
+    $('#catalog-price-store-help').textContent = 'No se pudieron cargar las tiendas.';
+    $('#catalog-price-state').textContent = error.message;
+  }
+}
+
+async function savePrice(button) {
+  const product = state.productDetail;
+  const storeId = $('#catalog-price-store').value;
+  const store = state.priceStores.find(candidate => candidate.id === storeId);
+  if (!product || state.priceSavePending) return;
+  if (!store) {
+    $('#catalog-price-state').textContent = 'Selecciona una tienda válida.';
+    $('#catalog-price-store').focus();
+    return;
+  }
+  let priceMinor;
+  try {
+    priceMinor = euroInputToMinor($('#catalog-price-value').value);
+  } catch {
+    $('#catalog-price-state').textContent = 'Introduce un precio válido con hasta dos decimales.';
+    $('#catalog-price-value').focus();
+    return;
+  }
+  if (priceMinor <= 0) {
+    $('#catalog-price-state').textContent = 'Introduce un precio mayor que 0,00 €.';
+    $('#catalog-price-value').focus();
+    return;
+  }
+
+  state.priceSavePending = true;
+  setBusy(button, true);
+  $('#catalog-price-state').textContent = 'Guardando precio…';
+  try {
+    await api(`/api/v1/products/${encodeURIComponent(product.id)}/prices`, {
+      method: 'POST',
+      body: JSON.stringify({
+        retailerName: store.retailerName,
+        storeId: store.id,
+        priceMinor,
+        evidenceType: 'manual',
+      }),
+    });
+    const refreshed = await fetchProductDetail(product.id);
+    renderProductDetail(refreshed);
+    $('#catalog-price-dialog').close();
+    void loadProducts();
+  } catch (error) {
+    $('#catalog-price-state').textContent = error.message;
+  } finally {
+    state.priceSavePending = false;
+    setBusy(button, false);
+  }
+}
+
 function renderLatestPrices(product) {
   const container = $('#catalog-latest-prices');
   if (!container) return;
   container.replaceChildren();
-  if (!product?.latestPrices?.length) {
+  const prices = Array.isArray(product?.latestPrices)
+    ? [...product.latestPrices].sort((left, right) =>
+        Number(left.priceMinor) - Number(right.priceMinor)
+        || String(left.retailerName).localeCompare(String(right.retailerName), 'es')
+        || String(left.storeName || '').localeCompare(String(right.storeName || ''), 'es')
+        || Date.parse(right.observedAt) - Date.parse(left.observedAt))
+    : [];
+  if (!prices.length) {
     container.innerHTML = '<p class="field-help">Todavía no hay precios confirmados.</p>';
     return;
   }
-  for (const entry of product.latestPrices) {
+  prices.forEach((entry, index) => {
     const row = document.createElement('div');
-    row.className = 'catalog-retailer-row';
-    const location = entry.storeName ? `${entry.retailerName} · ${entry.storeName}` : entry.retailerName;
+    row.className = 'catalog-retailer-row catalog-price-comparison-row';
+    const location = entry.storeName
+      ? `${entry.retailerName} · ${entry.storeName}`
+      : `${entry.retailerName} · sin tienda física`;
     const date = Number.isNaN(Date.parse(entry.observedAt)) ? entry.observedAt : DATE_FORMATTER.format(new Date(entry.observedAt));
-    row.innerHTML = `<span><strong>${escapeHtml(location)}</strong><small>${escapeHtml(date)}</small></span><strong>${escapeHtml(formatEuroMinor(entry.priceMinor))}</strong>`;
+    row.innerHTML = `<span><strong>${escapeHtml(location)}</strong><small>${index === 0 ? 'Más barato · ' : ''}${escapeHtml(date)}</small></span><span class="catalog-price-comparison-row__value"><strong>${escapeHtml(formatEuroMinor(entry.priceMinor))}</strong>${entry.storeId ? `<button type="button" class="button secondary catalog-price-update" data-price-store-id="${escapeHtml(entry.storeId)}">Actualizar</button>` : ''}</span>`;
+    if (entry.storeId) {
+      row.querySelector('[data-price-store-id]')?.addEventListener('click', () => void openPriceDialog(entry));
+    }
     container.append(row);
+  });
+  if (product?.latestPricesTruncated) {
+    const note = document.createElement('p');
+    note.className = 'field-help';
+    note.textContent = 'Se muestran las 100 tiendas con menor precio reciente. La comparación está limitada para mantener una carga acotada.';
+    container.append(note);
   }
 }
 
@@ -686,6 +814,7 @@ function renderProductDetail(product, { creating = false } = {}) {
   populateProductForm(product, { creating });
   $('#catalog-edit-product').hidden = creating;
   $('#catalog-delete-product').hidden = creating;
+  $('#catalog-price-comparison-card').hidden = creating;
 }
 
 function productFromCanonicalRecord(record, priceHistory = [], ticketHistory = []) {
@@ -1340,6 +1469,14 @@ function bindInteractions() {
   $('#catalog-delete-product').addEventListener('click', () => void openProductDeleteDialog());
   $('#catalog-delete-cancel').addEventListener('click', () => $('#catalog-delete-dialog').close());
   $('#catalog-delete-confirm').addEventListener('click', event => void confirmProductDelete(event.currentTarget));
+  $('#catalog-add-price').addEventListener('click', () => void openPriceDialog());
+  $('#catalog-price-cancel').addEventListener('click', () => $('#catalog-price-dialog').close());
+  $('#catalog-price-form').addEventListener('submit', event => {
+    event.preventDefault();
+    void savePrice($('#catalog-price-save'));
+  });
+  $('#catalog-price-store').addEventListener('change', () => { $('#catalog-price-state').textContent = ''; });
+  $('#catalog-price-value').addEventListener('input', () => { $('#catalog-price-state').textContent = ''; });
   $('#category-edit').addEventListener('click', () => {
     const category = selectedCategory();
     if (!category) return;
