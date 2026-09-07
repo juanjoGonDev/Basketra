@@ -6,7 +6,7 @@ RUN npm install --global --ignore-scripts typescript@5.8.3
 COPY package.json tsconfig.json tsconfig.build.json ./
 COPY scripts/build.mjs ./scripts/build.mjs
 COPY src ./src
-RUN BASKETRA_VERSION="$BASKETRA_VERSION" node scripts/build.mjs
+RUN node scripts/build.mjs
 
 FROM node:22.23.1-alpine3.24 AS runtime
 ARG BASKETRA_VERSION=0.0.0-dev
