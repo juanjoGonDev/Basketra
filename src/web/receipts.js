@@ -1,6 +1,7 @@
 import { api } from './api.js';
 import {
   $,
+  $,
   closeDialog,
   configureReceiptContext,
   ensurePageStates,
@@ -429,7 +430,7 @@ export function bindEvents() {
   }
 
   $('#receipt-add-trigger')?.addEventListener('click', () => {
-    setReceiptAddMenuOpen($('#receipt-add-menu')?.hidden !== true);
+    setReceiptAddMenuOpen($('#receipt-add-menu')?.hidden === true);
   });
   $$('[data-receipt-capture-mode]').forEach(action => {
     action.addEventListener('click', prepareAiAssistedCapture);
