@@ -36,7 +36,8 @@ test('workload jobs stay at one minute while the final verifier may wait for glo
 });
 
 test('CodeQL keeps full language coverage through one-minute architecture scopes', () => {
-  assert.match(codeql, /timeout-minutes:\s*1/u);\n  assert.match(codeql, /wait-for-processing:\s*false/u);
+  assert.match(codeql, /timeout-minutes:\s*1/u);
+  assert.match(codeql, /wait-for-processing:\s*false/u);
   for (const scope of ['actions', 'backend-catalog', 'backend-platform', 'backend-operations', 'backend-receipt-runtime', 'backend-receipt-ai', 'web', 'automation']) {
     assert.match(codeql, new RegExp('scope: ' + scope, 'u'));
   }
