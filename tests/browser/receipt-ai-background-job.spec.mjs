@@ -198,10 +198,16 @@ test('failed durable AI job exposes a copyable redacted diagnostic', async ({ pa
 
   await prepareReceipt(page, secretFilename);
 
-  await page.locator('#receipt-source-queue > summary').click();
-  await page.locator('.capture-card__details > summary').click();
-  await expect(page.getByRole('button', { name: 'Copiar diagnóstico', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Copiar diagnóstico', exact: true }).click();
+  const queue = page.locator('#receipt-source-queue');
+  if (!(await queue.evaluate(element => element.open))) {
+    await queue.locator(':scope > summary').click();
+  }
+  const details = page.locator('.capture-card__details').first();
+  if (!(await details.evaluate(element => element.open))) {
+    await details.locator(':scope > summary').click();
+  }
+  await expect(details.getByRole('button', { name: 'Copiar diagnóstico', exact: true })).toBeVisible();
+  await details.getByRole('button', { name: 'Copiar diagnóstico', exact: true }).click();
   const diagnostic = await page.evaluate(() => window.__copiedReceiptDiagnostic);
   expect(diagnostic).toContain('AI_PROVIDER_FAILED');
   expect(diagnostic).toContain('receiptextractionjob_diag123');
