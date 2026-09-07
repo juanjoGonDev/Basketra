@@ -98,7 +98,7 @@ test('receipt analysis is minimal, mobile-first and exposes one three-path float
     const queue = page.locator('#receipt-source-queue');
     await expect(queue).toBeVisible();
     await expect(queue).not.toHaveAttribute('open', '');
-    await expect(queue.locator('summary')).toContainText('0 archivos');
+    await expect(queue.locator(':scope > summary')).toContainText('0 archivos');
 
     const add = page.getByRole('button', { name: 'Añadir al ticket', exact: true });
     await expect(add).toBeVisible();
@@ -169,8 +169,8 @@ test('durable OCR evidence appears progressively in the body while source detail
   await expect(page.locator('#receipt-progress')).toBeVisible();
 
   const queue = page.locator('#receipt-source-queue');
-  await expect(queue.locator('summary')).toContainText('1 archivo');
-  await queue.locator('summary').click();
+  await expect(queue.locator(':scope > summary')).toContainText('1 archivo');
+  await queue.locator(':scope > summary').click();
   await expect(queue).toHaveAttribute('open', '');
   await expect(queue.locator('.capture-card')).toHaveCount(1);
   await expect(queue.locator('.capture-card .status-pill')).toContainText('Verificando con IA');
@@ -207,7 +207,7 @@ test('queue cancel-all preserves uploaded captures and marks active work cancell
   });
 
   const queue = page.locator('#receipt-source-queue');
-  await queue.locator('summary').click();
+  await queue.locator(':scope > summary').click();
   await page.getByRole('button', { name: 'Cancelar todo el análisis', exact: true }).click();
   releaseOcr();
 
