@@ -1,0 +1,10 @@
+name: Basketra backend receipt scope
+
+paths:
+  - src/ai
+  - src/api
+  - src/domain
+  - src/infrastructure
+  - src/receipts
+  - src/types
+  - src/ocr

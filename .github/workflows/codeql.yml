@@ -31,12 +31,53 @@ jobs:
             config: ./.github/codeql/codeql-actions.yml
             sparse_checkout: |
               .github
-          - scope: backend
+          - scope: backend-http-data
             language: javascript-typescript
-            config: ./.github/codeql/codeql-backend.yml
+            config: ./.github/codeql/codeql-backend-http-data.yml
             sparse_checkout: |
               .github/codeql
-              src
+              src/api
+              src/domain
+              src/infrastructure
+              src/types
+              src/main.ts
+              src/public-api.ts
+              package.json
+              pnpm-lock.yaml
+              pnpm-workspace.yaml
+              tsconfig.json
+              tsconfig.build.json
+          - scope: backend-receipts
+            language: javascript-typescript
+            config: ./.github/codeql/codeql-backend-receipts.yml
+            sparse_checkout: |
+              .github/codeql
+              src/ai
+              src/api
+              src/domain
+              src/infrastructure
+              src/receipts
+              src/types
+              src/ocr
+              package.json
+              pnpm-lock.yaml
+              pnpm-workspace.yaml
+              tsconfig.json
+              tsconfig.build.json
+          - scope: backend-services
+            language: javascript-typescript
+            config: ./.github/codeql/codeql-backend-services.yml
+            sparse_checkout: |
+              .github/codeql
+              src/api
+              src/domain
+              src/infrastructure
+              src/offers
+              src/operations
+              src/products
+              src/realtime
+              src/stores
+              src/types
               package.json
               pnpm-lock.yaml
               pnpm-workspace.yaml

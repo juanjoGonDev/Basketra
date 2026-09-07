@@ -1,0 +1,9 @@
+name: Basketra backend HTTP and data scope
+
+paths:
+  - src/api
+  - src/domain
+  - src/infrastructure
+  - src/types
+  - src/main.ts
+  - src/public-api.ts

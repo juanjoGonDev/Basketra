@@ -1,0 +1,12 @@
+name: Basketra backend services scope
+
+paths:
+  - src/api
+  - src/domain
+  - src/infrastructure
+  - src/offers
+  - src/operations
+  - src/products
+  - src/realtime
+  - src/stores
+  - src/types

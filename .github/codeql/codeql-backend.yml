@@ -1,6 +1,0 @@
-name: Basketra backend scope
-
-paths:
-  - src
-paths-ignore:
-  - src/web
