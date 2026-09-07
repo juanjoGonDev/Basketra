@@ -187,13 +187,26 @@ Before handoff:
 - inspect CI on the exact head and fix evidence-based failures;
 - perform final request/spec/acceptance review after CI is green.
 
+## Validation evidence
+
+- Pull Request Quality run `34170520439` passed on production head `17b3d6ad78dae523edee34da3298ff6462b0606d` after one infrastructure-only rerun of Browser 6/56; that shard had already completed both tests and every job step successfully before GitHub marked the first attempt cancelled.
+- CodeQL Advanced run `34170520574` passed all nine matrices on the same production head.
+- Browser changed-code coverage passed after explicit guard-branch regressions were added; no threshold or gate was weakened.
+- Exact-head visual artifacts reviewed:
+  - `basketra-browser-evidence-49`: manual modal at 390 px exposes ×, Cancel and Save, with no capture selector/preview; cancelling returns to the minimal workspace.
+  - `basketra-browser-evidence-51`: floating IA / Manual / Scan actions fit at 390 and 1280 px without collision or clipping.
+  - `basketra-browser-evidence-48`: progressive source queue exposes file state, global progress and detected items while processing.
+  - `basketra-browser-evidence-39`: unrelated receipt discount visual regression remained clean.
+- 320/390/768/1280 responsive contracts and horizontal-overflow assertions pass in Playwright.
+- PR #63 is non-draft, mergeable and contains no API, database, dependency or persistence-format change.
+
 ## Status
 
 - [x] Recon complete against `main` at `6fc25b3af3c26e59fa905bb4c672a438a630120f`.
 - [x] User-approved prototype translated into executable acceptance criteria.
 - [x] Implementation.
-- [ ] Local/CI-equivalent validation.
-- [ ] Browser visual review.
-- [ ] PR created.
-- [ ] CI green.
-- [ ] Final review complete.
+- [x] Local/CI-equivalent validation.
+- [x] Browser visual review.
+- [x] PR created.
+- [x] CI green on the production head.
+- [x] Final request/spec/diff/visual review complete.
