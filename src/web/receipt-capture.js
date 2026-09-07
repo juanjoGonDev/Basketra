@@ -1,8 +1,9 @@
 import { api } from './api.js';
 import { saveCaptures } from './state.js';
-import { captureItem } from './ui.js';
+import { captureItem, formatEuroMinor } from './ui.js';
 import {
   ACTIVE_PAGE_STATUSES,
+  REVIEWABLE_PAGE_STATUSES,
   PAGE_LABELS,
   $,
   captureKey,
@@ -31,6 +32,127 @@ import {
 const MAX_PROGRESSIVE_OCR_ITEMS = 5;
 const MAX_PROGRESSIVE_OCR_TEXT_CHARS = 4000;
 
+function pluralFiles(count) {
+  return `${count} ${count === 1 ? 'archivo' : 'archivos'}`;
+}
+
+export function renderReceiptQueueStatus() {
+  const queue = $('#receipt-source-queue');
+  const summary = $('#receipt-source-queue-summary');
+  const detail = $('#receipt-source-queue-detail');
+  if (!queue || !summary || !detail) return;
+
+  const pages = state.captures.map(capture => state.pageStates.get(captureKey(capture)) ?? createPageState());
+  const total = pages.length;
+  const active = pages.filter(page => ACTIVE_PAGE_STATUSES.has(page.status)).length;
+  const pending = pages.filter(page => page.status === 'pending' || page.status === 'preparing').length;
+  const completed = pages.filter(page => REVIEWABLE_PAGE_STATUSES.has(page.status)).length;
+  const failed = pages.filter(page => page.status === 'error').length;
+  const cancelled = pages.filter(page => page.status === 'cancelled').length;
+
+  const suffix = failed
+    ? `${failed} con error`
+    : active
+      ? `${active} procesando`
+      : pending
+        ? `${pending} pendientes`
+        : total > 0 && completed === total
+          ? 'listos para revisar'
+          : cancelled
+            ? `${cancelled} cancelados`
+            : '';
+
+  summary.textContent = [pluralFiles(total), suffix].filter(Boolean).join(' · ');
+  detail.textContent = total === 0
+    ? 'Añade imágenes o PDF con el botón +'
+    : `${completed} de ${total} ${total === 1 ? 'página procesada' : 'páginas procesadas'}`;
+
+  queue.dataset.state = failed
+    ? 'error'
+    : active || pending || state.finalizing
+      ? 'working'
+      : total > 0 && completed === total
+        ? 'complete'
+        : 'idle';
+}
+
+function pageDetectedItems(page) {
+  if (Array.isArray(page?.result?.final?.items) && page.result.final.items.length > 0) {
+    return page.result.final.items;
+  }
+  if (Array.isArray(page?.ocrEvidence?.deterministic?.items)) {
+    return page.ocrEvidence.deterministic.items;
+  }
+  return [];
+}
+
+function detectedItemsSnapshot() {
+  if (state.extraction && Array.isArray(state.items) && state.items.length > 0) {
+    return {
+      items: state.items,
+      provisional: false,
+    };
+  }
+
+  return {
+    items: state.captures.flatMap(capture => {
+      const page = state.pageStates.get(captureKey(capture));
+      return pageDetectedItems(page);
+    }),
+    provisional: true,
+  };
+}
+
+function detectedItemMeta(item, provisional) {
+  const parts = [];
+  if (Number.isFinite(item?.quantity)) parts.push(`${item.quantity} ud`);
+  if (Number.isSafeInteger(item?.unitPriceMinor)) parts.push(formatEuroMinor(item.unitPriceMinor));
+  parts.push(provisional ? 'provisional' : 'listo para validar');
+  return parts.join(' · ');
+}
+
+export function renderProgressiveDetectedItems() {
+  const list = $('#receipt-detected-list');
+  const count = $('#receipt-detected-count');
+  const empty = $('#receipt-detected-empty');
+  const help = $('#receipt-detected-help');
+  if (!list || !count || !empty || !help) return;
+
+  const snapshot = detectedItemsSnapshot();
+  list.replaceChildren();
+  for (const item of snapshot.items) {
+    const row = document.createElement('li');
+    row.className = 'receipt-detected-item';
+    row.dataset.provisional = String(snapshot.provisional);
+
+    const copy = document.createElement('span');
+    copy.className = 'receipt-detected-item__copy';
+    const description = document.createElement('strong');
+    description.textContent = typeof item?.description === 'string' && item.description.trim()
+      ? item.description.trim()
+      : 'Producto sin descripción legible';
+    const meta = document.createElement('small');
+    meta.textContent = detectedItemMeta(item, snapshot.provisional);
+    copy.append(description, meta);
+
+    const amount = document.createElement('strong');
+    amount.className = 'receipt-detected-item__amount';
+    amount.textContent = Number.isSafeInteger(item?.lineTotalMinor)
+      ? formatEuroMinor(item.lineTotalMinor)
+      : '—';
+
+    row.append(copy, amount);
+    list.append(row);
+  }
+
+  count.textContent = String(snapshot.items.length);
+  empty.hidden = snapshot.items.length > 0;
+  help.textContent = snapshot.provisional
+    ? 'Las líneas son provisionales hasta completar la revisión conjunta.'
+    : 'Resultado combinado listo. Abre la vista previa para validar y corregir.';
+}
+
+
 export function persistAndRenderCaptures() {
   ensurePageStates();
   saveCaptures(state.captures);
@@ -53,6 +175,8 @@ export function persistAndRenderCaptures() {
     }, { once: true });
   });
   updateGlobalProgress();
+  renderReceiptQueueStatus();
+  renderProgressiveDetectedItems();
 }
 
 function pageDiagnostic(page) {
@@ -228,6 +352,12 @@ export function renderCaptureProgress(card, capture, index) {
     }
 
     section.append(actions);
+  }
+
+  const secondaryActions = card.querySelector('.capture-card__actions');
+  if (secondaryActions) {
+    secondaryActions.classList.add('capture-card__secondary-actions');
+    section.append(secondaryActions);
   }
 
   details.append(summary, section);
