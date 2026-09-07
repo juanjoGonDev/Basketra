@@ -49,8 +49,6 @@ async function enableAiUploadPreflight(page) {
   await page.evaluate(async () => {
     const { state } = await import('/receipt-state.js');
     state.aiConfigured = true;
-    const checkbox = document.querySelector('#verify-receipt-ai');
-    if (checkbox instanceof HTMLInputElement) checkbox.checked = true;
   });
 }
 
