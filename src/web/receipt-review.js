@@ -9,7 +9,7 @@ import {
   state,
   toast,
 } from './receipt-state.js';
-import { persistAndRenderCaptures } from './receipt-capture.js';
+import { persistAndRenderCaptures, renderProgressiveDetectedItems } from './receipt-capture.js';
 import { abortPageWork, clearReceiptExtractionJob } from './receipt-lifecycle.js';
 
 let receiptLineEnhancementsInstalled = false;
@@ -485,16 +485,18 @@ function enhanceReceiptLines(lines) {
 
 export function renderReview(lines = [], total) {
   const review = $('#receipt-review');
+  const panel = $('#receipt-review-panel');
+  const keepPanelOpen = panel?.open === true;
   review.hidden = false;
   review.innerHTML = receiptReview(state.items, lines, total, state.extraction?.final?.categories ?? []);
   enhanceReceiptLines(lines);
   $('#confirm-receipt').hidden = state.items.length === 0;
-  const panel = $('#receipt-review-panel');
   if (panel) {
     panel.hidden = false;
-    panel.open = true;
+    panel.open = keepPanelOpen;
   }
   renderReviewReference();
+  renderProgressiveDetectedItems();
 }
 
 export function applyExtraction(extraction, originalText = extraction.originalText || '') {
