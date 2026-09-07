@@ -22,23 +22,23 @@ Baseline measured from PR #53 on validated head `a0dd1c3a31406a6d6e6bcfd2b693ffb
   - Actions: 35 s.
   - JavaScript/TypeScript: 72 s.
 
-The Browser suite passed 142 tests in 15.1 minutes. One current visual-regression test loops all five viewports and seven routes in one Playwright test and alone takes about 1.2 minutes. Other individual Browser tests reach roughly 52 s and 36 s.
-
-The existing local `pnpm quality` remains canonical and currently runs format, lint, typecheck, dead-code, dependency checks, unit tests, integration tests, static E2E, coverage gates and build sequentially.
+The baseline Browser suite passed 142 tests in 15.1 minutes. A multi-viewport visual regression test alone exceeded one minute and several other Browser scenarios were large enough that equal-count sharding still produced slow checks.
 
 ## Decision
 
 1. Keep `pnpm quality` unchanged as the canonical local aggregate command.
-2. In pull-request CI, execute the same constituent gates as independent jobs so the serial aggregate no longer defines the CI critical path.
-3. Shard Browser E2E deterministically with Playwright's native shard contract. Use one worker per shard so each shard has an isolated application process and no new shared-database races.
-4. Enable Playwright full-parallel test partitioning so sharding can divide tests inside large spec files while preserving one worker inside each shard.
-5. Refactor only Browser tests whose single-test runtime can exceed the one-minute budget, splitting existing assertions by viewport or responsibility without deleting coverage.
-6. Browser shard jobs collect coverage instead of individually enforcing changed-code coverage. A dedicated aggregation job downloads every shard coverage artifact and applies the existing canonical `scripts/check-browser-diff-coverage.mjs` once across the merged evidence.
-7. Keep Browser screenshots, videos and traces. Upload shard evidence under unique artifact names so visual publication can reconstruct the complete suite.
-8. Remove the cross-workflow polling delay from visual evidence. Trusted publication will start from the completed authoritative Quality workflow, validate the exact PR/head, and process evidence in bounded stages rather than spending most of its runtime waiting.
-9. Preserve the same-repository/trusted-author gate and fail closed before any privileged publication.
-10. Bound CI jobs with a one-minute timeout where the workload is under repository control. Do not weaken mandatory gates if external GitHub service overhead makes a fixed platform action occasionally exceed that wall-clock; instead record that as a platform-bound exception with evidence.
-11. Reduce CodeQL JavaScript/TypeScript scope only to production and executable repository code that is security relevant; do not drop JavaScript/TypeScript analysis from pull requests.
+2. Execute its constituent pull-request gates as independent jobs so the serial aggregate no longer defines the CI critical path.
+3. Split integration tests into two deterministic Node test shards with one-minute job envelopes.
+4. Configure Browser CI with one number, `BASKETRA_BROWSER_SHARD_COUNT=48`. A deterministic planner parses Playwright's exact test list, applies measured timing hints plus an 8 s default for unknown tests, and greedily assigns tests to the least-loaded group.
+5. Run each Browser group through Playwright `--test-list`, one worker per group, with a 45 s repository-work watchdog and a one-minute GitHub job timeout.
+6. Keep the Browser application build and exact Chromium cache shared: build the application once, reuse the browser cache across commits of the same repository PR, and distribute only the prebuilt runtime plus group plan.
+7. Split large Browser scenarios only where a single test itself threatened the budget; preserve their assertions, supported viewports and evidence.
+8. Collect Browser changed-code coverage per group, upload it separately from screenshots/videos, download all lightweight coverage artifacts in parallel, and enforce the canonical differential coverage gate once on the merged evidence.
+9. Keep Browser evidence separate from coverage so the coverage aggregation path never downloads video or screenshot payloads.
+10. Replace emulated ARM64 builds with GitHub's native `ubuntu-24.04-arm` runner while retaining the amd64 build, SBOM and provenance gates.
+11. Keep CodeQL Actions and JavaScript/TypeScript enabled, sparse-check out only production/automation inputs, and enforce the same one-minute timeout.
+12. Remove the visual-evidence polling loop. Trusted publication starts from successful `Pull Request Quality` via `workflow_run`, validates the exact same-repository PR/head and trusted author association, downloads Browser evidence artifacts in parallel, prepares media in a read-only job, and reserves write permissions for the final publisher.
+13. Preserve the real swipe behavior exposed by the new scheduling. The Browser run reproduced a pre-existing completion race where `pointerup.clientX` could contradict an already-crossed threshold; the smallest fix makes the last tracked horizontal displacement canonical and adds a regression.
 
 ## Scope
 
@@ -46,83 +46,94 @@ Included:
 
 - `.github/workflows/ci.yml`
 - `.github/workflows/pr-visual-evidence.yml`
-- `.github/workflows/codeql.yml` when a safe scope reduction is supported
-- Browser coverage/reporting glue needed for sharding
-- Browser test decomposition required to keep individual test bodies below the budget
-- Workflow regression tests
+- `.github/workflows/codeql.yml` and its CodeQL scope configuration
+- Browser grouping, coverage/reporting and prebuilt-runtime glue
+- Browser test decomposition needed to respect the check budget
+- The narrowly scoped swipe regression fix required to preserve the existing Browser contract exposed by the new scheduling
+- Workflow/planner regression tests
 - This specification
 
 Excluded:
 
-- Product behavior
-- Runtime API contracts
+- New product features or UX redesign
+- API contract changes unrelated to the reproduced swipe regression
 - Database schema or migrations
 - Release/deploy behavior
 - Removal of required tests, coverage, security scanning, container validation or visual evidence
 
 ## Risks
 
-- Excessive shard count can reduce per-check latency while increasing queue pressure and UI noise. Prefer the smallest count that satisfies the measured one-minute budget.
-- Playwright sharding can expose tests that accidentally rely on suite order. Full-parallel partitioning is acceptable only with one worker per isolated shard and must be validated in CI.
-- Browser changed-code coverage must be aggregated across shards; enforcing it per shard would create false failures.
-- A `workflow_run` visual publisher has elevated trust and must never execute PR code. It must use workflow code from the protected default branch, validate the exact successful CI head and treat downloaded artifacts as untrusted input.
-- CodeQL action startup and hosted-runner overhead are partly outside repository control. Any optimization must preserve the PR CodeQL gate.
+- Timing hints are intentionally non-authoritative optimization data. Unknown or renamed tests receive the conservative default and remain covered exactly once; CI failure, not the hint file, is authoritative.
+- Excessive group count increases runner queue pressure. Forty-eight groups are the smallest configuration validated in this PR with every observed Browser check below 60 s.
+- Playwright test-list execution is CI orchestration only; Browser behavior remains owned by the canonical tests and one-worker process isolation.
+- Browser changed-code coverage must be aggregated across all groups; enforcing it per group would produce false failures.
+- A `workflow_run` publisher has elevated trust and must never execute PR code. It checks out policy code from the default branch, validates the successful source run and current PR head, and treats downloaded artifacts as untrusted input.
+- GitHub-hosted runner provisioning is outside repository control, so the workflow also contains hard one-minute job timeouts rather than merely relying on observed warm-run timings.
 
 ## Acceptance criteria
 
-1. Branch starts from the current `main` head.
-2. No existing mandatory test, coverage, security, container or visual-evidence requirement is removed.
+1. The branch contains the latest `main` before final validation.
+2. No mandatory test, coverage, security, container or visual-evidence requirement is removed.
 3. `pnpm quality` remains available and semantically unchanged for local/pre-push validation.
-4. Pull-request quality work is decomposed into parallel jobs instead of one serial 81-second gate.
-5. Browser E2E uses deterministic matrix sharding and all 142 baseline scenarios remain represented.
-6. Browser changed-code coverage is checked once from the union of all shard coverage.
+4. Pull-request quality work is decomposed into parallel checks instead of one serial 81-second gate.
+5. Browser E2E uses deterministic duration-aware grouping configured only by group count and represents all 152 tests in the validated suite exactly once.
+6. Browser changed-code coverage is checked once from the union of all group coverage artifacts.
 7. Long multi-viewport Browser scenarios are decomposed without deleting assertions or supported viewports.
 8. Visual publication no longer waits inside a PR job for the Browser workflow to finish.
 9. Privileged visual publication validates successful authoritative CI, same repository, trusted PR author association and exact current head before writes.
-10. CI regression tests validate the sharding, coverage aggregation and visual-publication trust contract.
-11. Every repository-controlled PR job is targeted to complete within 60 seconds on a warm normal GitHub-hosted run; CI evidence records actual durations.
-12. CodeQL PR analysis remains enabled.
+10. Workflow and planner regression tests validate grouping, coverage aggregation, one-minute limits and the visual-publication trust contract.
+11. Every observed repository-controlled PR check on the validated code head completes within 60 seconds.
+12. CodeQL PR analysis remains enabled for both Actions and JavaScript/TypeScript and completes within 60 seconds.
 13. Final PR is non-draft, CI is green and no merge/release/deploy is performed.
 
 ## Checks
 
-- `pnpm quality`
+- `pnpm quality` contract preserved; constituent CI gates executed independently
 - `pnpm resource:measure`
-- workflow/unit regression tests
-- Browser shard matrix
+- unit/workflow/planner regressions
+- 48-group Browser matrix covering 152 tests
 - Browser aggregated changed-code coverage
 - Security
 - Container smoke
 - linux/amd64 image build
-- linux/arm64 image build
+- native linux/arm64 image build
 - CodeQL Actions
 - CodeQL JavaScript/TypeScript
 - visual-evidence workflow policy tests
-- actual GitHub Actions job-duration review
+- GitHub Actions job-duration review
+
+## Final validation evidence
+
+Validated code head before this documentation-only update: `cdf275d79abc2caed1b897b7536f20bf453c56b6`.
+
+- Pull Request Quality `34098063621`: success.
+  - 63 jobs completed successfully.
+  - 48 Browser groups represented all 152 tests; planner reported a 34 s maximum estimated group.
+  - Slowest observed Browser check: 56 s.
+  - Browser runtime: 31 s.
+  - Browser aggregate coverage: 11 s, including 2 s parallel artifact download.
+  - Integration shards: 27 s and 25 s.
+  - Container smoke: 35 s.
+  - linux/amd64 container: 23 s.
+  - native linux/arm64 container: 27 s.
+  - Unit: 19 s; Static quality: 15 s; Domain coverage: 24 s; Changed coverage: 22 s; Web coverage: 14 s; Build: 21 s; Resource budgets: 22 s; Security: 14 s.
+- CodeQL `34098063641`: success.
+  - Actions: 46 s.
+  - JavaScript/TypeScript: 55 s.
+- The one-minute outer timeout is now enforced by workflow regression tests for every Pull Request Quality job and both CodeQL languages.
+- The visual `workflow_run` definition cannot execute from a PR branch because GitHub resolves that trigger from the default branch. Its read/write trust boundary, artifact contract and no-polling behavior are therefore validated statically/unit-level in this PR; operational execution becomes available only after the workflow definition exists on `main`.
+- A direct local `pnpm quality` run was not claimed because this connector environment does not provide a local repository checkout. Its constituent gates are represented by the successful CI jobs above.
 
 ## Rollback
 
-Revert the CI optimization commits. No product data, schema or runtime contract changes are involved.
+Revert the CI optimization commits. No database migration, release or deployment is involved.
 
 ## Delivery
 
 - Branch: `agent/perf-ci-under-one-minute`
-- Pull request to `main`
+- Pull request: #55 to `main`
 - No merge, release or deploy without explicit approval.
 
 ## Status
 
-In progress.
-
-### Latest validation finding
-
-The one-test-per-shard run exposed a reproducible swipe-completion defect rather than a coverage or sharding failure. The Browser trace shows the pointermove crossed the completion threshold, but no completion PATCH followed. The swipe owner recalculated displacement from `pointerup.clientX` instead of the already tracked horizontal movement, so a drifting terminal pointer coordinate could cancel a gesture that visibly crossed the threshold. The fix makes the last tracked horizontal displacement canonical and adds a regression where `pointerup` reports a deliberately inconsistent coordinate.
-
-### Iteration evidence
-
-- First decomposition: all non-Browser/non-ARM64 quality jobs completed in 13-40 s; CodeQL Actions completed in 49 s and JavaScript/TypeScript in 53 s.
-- Browser with 76 shards (maximum two tests each) left four timeout cancellations. Logs showed the slowest cancelled shards completed their Playwright assertions in roughly 43-46 s but exceeded the one-minute wall clock after runner/setup/artifact overhead.
-- ARM64 under QEMU reached 75 s and was cancelled during Buildx.
-- The one-test-per-shard run validated 149/151 Browser shards and the native ARM64 container in 32 s. One Browser scenario exposed a real synchronization race after a completion swipe; another shard executed its 6 s Playwright scenario successfully but GitHub runner/action provisioning consumed enough external wall clock to trip the one-minute job envelope during cleanup.
-- CodeQL JavaScript/TypeScript similarly completed analysis and uploaded results successfully before a one-minute outer timeout cancelled post-job cleanup.
-- The next iteration keeps repository work bounded below one minute (Playwright command watchdog 55 s), gives Browser and CodeQL a two-minute outer cleanup envelope for GitHub-hosted overhead, stabilizes the completion-swipe synchronization, reuses the exact Playwright cache across updates of the same repository PR, and sparse-checks out only production/automation CodeQL inputs.
+Done. Final documentation-only head still requires the same GitHub Actions gates before handoff.
