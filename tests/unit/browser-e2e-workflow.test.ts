@@ -30,7 +30,7 @@ test('integration tests are deterministically split into two one-minute shards',
   assert.match(workflow, /--test-concurrency=1 --test-shard=\$\{\{ matrix\.shard \}\}\/2 tests\/integration\/\*\.test\.ts/u);
 });
 
-test('browser runtime is primed once and every deterministic shard has the one-minute budget', () => {
+test('browser runtime is primed once and every deterministic shard is execution-bounded', () => {
   assert.match(workflow, /browser-runtime:\n[\s\S]*?timeout-minutes:\s*1/u);
   assert.match(workflow, /actions\/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9/u);
   assert.match(workflow, /basketra-playwright-\$\{\{ runner\.os \}\}-1\.59\.1-\$\{\{ github\.event\.pull_request\.head\.repo\.id \}\}/u);
@@ -58,19 +58,24 @@ test('browser sharding reuses one prebuilt application and keeps one isolated wo
   assert.match(playwrightConfig, /video:\s*inCi \? 'retain-on-failure' : 'on'/u);
 });
 
-test('changed-code browser coverage is collected per shard and enforced once after aggregation', () => {
+test('changed-code browser coverage uses lightweight shard artifacts and parallel download before one aggregate gate', () => {
   assert.match(coverageReporter, /BASKETRA_BROWSER_COVERAGE_COLLECT_ONLY/u);
   assert.match(coverageReporter, /result\.status !== 'passed' \|\| COLLECT_ONLY/u);
-  assert.match(workflow, /name:\s+basketra-browser-shard-\$\{\{ matrix\.shard \}\}/u);
-  assert.match(workflow, /--pattern 'basketra-browser-shard-\*'/u);
+  assert.match(workflow, /name:\s+basketra-browser-coverage-\$\{\{ matrix\.shard \}\}/u);
+  assert.match(workflow, /name:\s+basketra-browser-evidence-\$\{\{ matrix\.shard \}\}/u);
+  assert.match(workflow, /actions\/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c/u);
+  assert.match(workflow, /pattern:\s+basketra-browser-coverage-\*/u);
   assert.match(workflow, /include-hidden-files:\s*true/u);
   assert.match(workflow, /compression-level:\s*0/u);
   assert.match(workflow, /node scripts\/check-browser-diff-coverage\.mjs/u);
+  assert.doesNotMatch(workflow, /gh run download "\$GITHUB_RUN_ID"[\s\S]*?--pattern 'basketra-browser-shard-\*'/u);
 });
 
-test('browser output uses one low-overhead artifact per shard', () => {
-  assert.match(workflow, /name:\s+basketra-browser-shard-\$\{\{ matrix\.shard \}\}/u);
-  assert.match(workflow, /\.coverage\/browser\n\s+test-results/u);
+test('browser evidence remains separate from coverage so aggregation never downloads videos or screenshots', () => {
+  const coverageJob = workflow.slice(workflow.indexOf('  browser-coverage:'), workflow.indexOf('  container:'));
+  assert.doesNotMatch(coverageJob, /test-results/u);
+  assert.match(workflow, /name:\s+basketra-browser-evidence-\$\{\{ matrix\.shard \}\}/u);
+  assert.match(workflow, /path:\s+test-results/u);
   assert.doesNotMatch(workflow, /basketra-invoice-visual-evidence|basketra-category-visual-evidence|basketra-visual-screenshot-evidence/u);
 });
 

@@ -224,16 +224,23 @@ jobs:
           BASKETRA_BROWSER_COVERAGE_COLLECT_ONLY: "1"
           BASKETRA_BROWSER_PREBUILT: "1"
         run: timeout --signal=TERM --kill-after=5s 55s pnpm exec playwright test --shard=${{ matrix.shard }}/${{ needs.browser-runtime.outputs.total }}
-      - name: Upload shard output
+      - name: Upload shard coverage
+        if: success()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: basketra-browser-coverage-${{ matrix.shard }}
+          path: .coverage/browser
+          if-no-files-found: error
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 1
+      - name: Upload shard evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: basketra-browser-shard-${{ matrix.shard }}
-          path: |
-            .coverage/browser
-            test-results
-          if-no-files-found: error
-          include-hidden-files: true
+          name: basketra-browser-evidence-${{ matrix.shard }}
+          path: test-results
+          if-no-files-found: warn
           compression-level: 0
           retention-days: 7
 
@@ -245,25 +252,25 @@ jobs:
     permissions:
       actions: read
       contents: read
-    env:
-      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Download shard coverage
+      - name: Download Browser coverage shards in parallel
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: basketra-browser-coverage-*
+          path: downloaded-coverage
+      - name: Merge shard coverage
+        shell: bash
         run: |
           set -euo pipefail
-          gh run download "$GITHUB_RUN_ID" \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern 'basketra-browser-shard-*' \
-            --dir downloaded-coverage
           mkdir -p .coverage/browser
           while IFS= read -r file; do
             artifact=$(printf '%s' "$file" | sed 's#^downloaded-coverage/##; s#/.*##')
             cp "$file" ".coverage/browser/$artifact-$(basename "$file")"
-          done < <(find downloaded-coverage -type f -path '*/.coverage/browser/*.json' -print | sort)
+          done < <(find downloaded-coverage -type f -name '*.json' -print | sort)
           test "$(find .coverage/browser -type f -name '*.json' | wc -l)" -gt 0
       - name: Enforce aggregate changed-code coverage
         run: node scripts/check-browser-diff-coverage.mjs
