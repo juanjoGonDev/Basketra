@@ -60,7 +60,7 @@ async function openTickets(page, allowExpectedServerError = false) {
   await expect(page.locator('#connection-state')).toContainText('Conectado');
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
   await expect(
-    page.locator('[data-view="scan"].active').getByRole('heading', { name: 'Captura y revisa', exact: true }),
+    page.locator('[data-view="scan"].active').getByRole('heading', { name: 'Análisis de ticket', exact: true }),
   ).toBeVisible();
   return failures;
 }
@@ -108,6 +108,12 @@ test('camera and gallery photos upload, deduplicate and persist after reload', a
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
   await expect(captureCards(page)).toHaveCount(3);
   await expectLoadedImages(page, 3);
+  const queue = page.locator('#receipt-source-queue');
+  await queue.locator(':scope > summary').click();
+  const firstDetails = page.locator('.capture-card__details').first();
+  if (!(await firstDetails.evaluate(element => element.open))) {
+    await firstDetails.locator(':scope > summary').click();
+  }
   await page.getByRole('button', { name: 'Ampliar camera.png' }).click();
   await expect.poll(() => page.locator('#capture-preview-image').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
   await page.getByRole('button', { name: 'Cerrar vista previa' }).click();
