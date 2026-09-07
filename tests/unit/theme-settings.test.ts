@@ -36,11 +36,15 @@ test('theme preference owns one device-local key and exposes system, light and d
   assert.match(themeScript, /name="basketra-theme" value="dark"/u);
 });
 
-test('explicit themes pin browser color scheme and reuse the canonical semantic palette values', () => {
+test('explicit themes pin browser color scheme and override both existing palette systems', () => {
   assert.match(themeStyles, /html\[data-theme="light"\][\s\S]*color-scheme: only light/u);
   assert.match(themeStyles, /html\[data-theme="dark"\][\s\S]*color-scheme: only dark/u);
+  assert.match(themeStyles, /--bg: #f4f7f5/u);
+  assert.match(themeStyles, /--text: #13231d/u);
   assert.match(themeStyles, /--color-bg: #f3fcf5/u);
   assert.match(themeStyles, /--color-on-surface: #151d19/u);
+  assert.match(themeStyles, /--bg: #0c1512/u);
+  assert.match(themeStyles, /--text: #f0faf5/u);
   assert.match(themeStyles, /--color-bg: #0f1713/u);
   assert.match(themeStyles, /--color-on-surface: #e7f0e9/u);
   assert.match(themeStyles, /min-height: var\(--touch\)/u);
