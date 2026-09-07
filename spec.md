@@ -103,7 +103,7 @@ Suposiciones explícitas: una única instalación personal compartida por los di
 3. Validar tipo, tamaño, base64, firma real y clave de almacenamiento.
 4. Mostrar miniaturas persistentes de imágenes y alternativa accesible para PDF.
 5. Reordenar o retirar capturas del borrador sin borrar evidencia persistente.
-6. Extraer JPEG/PNG con OCR local español sin proveedor externo; PDF usa proveedor compatible o revisión manual.
+6. JPEG/PNG conserva OCR local español como primera etapa y evidencia recuperable, pero el análisis automático no expone un toggle: cuando hay proveedor configurado siempre continúa con verificación IA; PDF usa proveedor compatible o revisión manual.
 7. Mantener el borrador ante fallo de OCR o IA.
 8. Presentar cada producto como una fila editable con descripción, cantidad, precio unitario y total en euros.
 9. Permitir añadir, editar y retirar filas sin depender de un textarea de transcripción como interfaz principal.
@@ -195,8 +195,8 @@ La migración 2 registra backups previos a migraciones. La migración 3 añade `
 - La URL del proveedor procede exclusivamente de configuración administrativa; no se acepta por petición.
 - En Docker, `127.0.0.1` apunta al contenedor Basketra. Un proveedor del host usa `host.docker.internal` con mapeo explícito al host gateway.
 - Cambiar `.env` requiere validar Compose y recrear el contenedor; la aplicación no finge que una configuración no inyectada está activa.
-- La IA es opcional para verificar OCR, ayudar con listas o procesar PDF/fotos de producto cuando el proveedor lo soporte.
-- La ausencia o fallo de IA no bloquea OCR local de imágenes, corrección, validación, listas ni captura manual de productos.
+- La IA sigue siendo una capacidad opcional de la instalación, pero el análisis automático de tickets no ofrece un modo seleccionable sin IA: si el proveedor está configurado, la verificación IA se ejecuta siempre.
+- La ausencia o fallo de IA no borra capturas ni OCR local ya obtenido y mantiene recuperación/revisión manual; listas y captura manual de productos siguen funcionando sin proveedor.
 - El OCR local no rasteriza PDF; se mantiene el proveedor sustituible y la edición manual como rutas explícitas.
 
 ## Ubicación y servicios externos
@@ -320,8 +320,8 @@ Los diagnósticos IA diferencian `AI_NOT_CONFIGURED`, `AI_LOOPBACK_CONTAINER`, `
 - Foto/galería produce propuesta estructurada editable y cancelar no persiste.
 - Ubicación es opt-in, local-first y degradable sobre HTTP; nearby lookup sólo es explícito, OSM/Overpass y sin servicios de pago.
 - Swipe móvil progresivo conserva Undo y alternativas accesibles sin una segunda implementación.
-- Cámara, galería, previews, OCR local de imágenes y revisión mediante filas en euros funcionan sin depender de IA.
-- PDF conserva proveedor opcional y revisión manual sin perder evidencia.
+- Cámara, galería, previews y OCR local preservan evidencia aunque falle IA; con proveedor configurado el análisis automático de tickets usa siempre la verificación IA y no muestra un toggle para desactivarla.
+- PDF usa proveedor cuando está disponible y conserva revisión manual/evidencia ante fallo.
 - Diagnóstico IA explica configuración ausente, loopback Docker incorrecto y fallos de conexión sin exponer la clave.
 - Uptime, versión y logs acotados aparecen en Ajustes.
 - La conexión se recupera tras volver la VPN sin recarga y el heartbeat no se usa para sincronización de dominio.
