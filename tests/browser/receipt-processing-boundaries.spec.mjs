@@ -188,7 +188,8 @@ test('cancel processing marks active automatic work cancelled and keeps the uplo
   await navigate(page, 'Tickets');
   await uploadReceipt(page, 'cancel-all.png');
   await expect(page.locator('.capture-card .status-pill')).toHaveText('OCR local');
-  await page.getByRole('button', { name: 'Cancelar procesamiento', exact: true }).click();
+  await page.locator('#receipt-source-queue > summary').click();
+  await page.getByRole('button', { name: 'Cancelar todo el análisis', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Cancelada');
   await expect(page.locator('#receipt-state')).toContainText('Análisis cancelado');
   await expect(page.locator('.capture-card')).toHaveCount(1);
@@ -223,7 +224,7 @@ test('a persisted legacy AI failure falls forward to current automatic OCR inste
   await navigate(page, 'Tickets');
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada');
   await expect(page.locator('.receipt-item')).toHaveCount(1);
-  await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
+  await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
 });
 
 test('an interrupted persisted background job reports recovery failure without discarding the draft', async ({ page }) => {
@@ -283,7 +284,7 @@ test('a persisted completion tolerates absent per-page evidence and restores a r
   await navigate(page, 'Tickets');
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada');
   await expect(page.locator('#receipt-state')).toHaveText('Ticket preparado. Revisa las líneas, cantidades y total antes de confirmar.');
-  await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
+  await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
 });
 
 test('a stale persisted job response with a different identifier is ignored', async ({ page }) => {
