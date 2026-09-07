@@ -287,6 +287,7 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Aumentar cantidad de Leche entera 1 L' }).click());
   milkRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Leche entera 1 L' });
   await expect(milkRow.locator('.quantity-chip')).toHaveText('3');
+  await milkRow.getByRole('button', { name: 'Ocultar opciones de Leche entera 1 L', exact: true }).click();
 
   await swipe(page, milkRow, 'left');
   await expect(milkRow).toHaveAttribute('data-swipe-open', 'true');
