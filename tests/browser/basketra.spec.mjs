@@ -532,3 +532,35 @@ test('offline shell reloads and keyboard focus remains visible', async ({ page, 
   await context.setOffline(false);
   expect(failures).toEqual([]);
 });
+
+test('a previously loaded Shopping List remains readable while fully offline', async ({ page, context }) => {
+  const failures = monitorRuntime(page, { allowOfflineErrors: true });
+  await page.goto('/');
+  await createList(page, 'Compra sin cobertura');
+  await addProduct(page, { name: 'Agua 1,5 L', quantity: '2', unit: 'l' });
+  await expect(page.locator('#pending-items')).toContainText('Agua 1,5 L');
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
+
+  await page.reload();
+  await expect(page.locator('#active-list-title')).toHaveText('Compra sin cobertura');
+  await expect(page.locator('#pending-items')).toContainText('Agua 1,5 L');
+  const cachedPaths = await page.evaluate(async () => {
+    const cache = await caches.open('basketra-offline-data-v1');
+    return (await cache.keys()).map(request => {
+      const url = new URL(request.url);
+      return `${url.pathname}${url.search}`;
+    });
+  });
+  expect(cachedPaths).toContain('/api/v1/meta');
+  expect(cachedPaths).toContain('/api/v1/shopping-lists');
+  expect(cachedPaths.some(path => /^\/api\/v1\/shopping-lists\/[^/]+$/u.test(path))).toBeTruthy();
+
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.locator('#active-list-title')).toHaveText('Compra sin cobertura');
+  await expect(page.locator('#pending-items')).toContainText('Agua 1,5 L');
+  await expect(page.locator('#connection-state')).toContainText('Desconectado', { timeout: 7000 });
+  await context.setOffline(false);
+  expect(failures).toEqual([]);
+});

@@ -78,8 +78,11 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   ]) {
     assert.ok(serviceWorker.includes(`'${asset}'`));
   }
+  assert.match(serviceWorker, /const DATA_CACHE = 'basketra-offline-data-v1'/);
+  assert.match(serviceWorker, /isOfflineDataRequest/);
   assert.match(serviceWorker, /url\.pathname\.startsWith\('\/api\/'\)/);
-  assert.match(serviceWorker, /if \(event\.request\.method !== 'GET' \|\| !sameOrigin \|\| url\.pathname\.startsWith\('\/api\/'\)\) return;/);
+  assert.match(serviceWorker, /if \(!isOfflineDataRequest\(url\)\) return;/);
+  assert.match(serviceWorker, /url\.search === '\?limit=12'/);
 
   assert.match(app, /initLists/);
   assert.match(app, /initReceipts/);
