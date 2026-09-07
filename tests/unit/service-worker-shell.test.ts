@@ -122,14 +122,14 @@ test('service worker installs a versioned shell and handles cached, degraded and
     assert.equal(responseWork, undefined);
 
     responseWork = undefined;
-    fetchImplementation = async () => new Promise(() => {});
     matchImplementation = async request => requestAddress(request).endsWith('/app.js')
       ? new Response('cached-shell', { status: 200 })
       : undefined;
+    fetchImplementation = async () => { throw new Error('cached shell must not touch network'); };
     const cachedShell = new Request('http://basketra.test/app.js');
     fetchListener({ request: cachedShell, respondWith });
     assert.equal(await (await responseWork)?.text(), 'cached-shell');
-    assert.ok(fetchRequests.includes(cachedShell.url));
+    assert.equal(fetchRequests.includes(cachedShell.url), false);
 
     responseWork = undefined;
     matchImplementation = async () => undefined;

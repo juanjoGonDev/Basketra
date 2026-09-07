@@ -54,7 +54,7 @@ async function putSuccessfulResponse(request, response) {
   }
 }
 
-async function fetchAndRefresh(request, options) {
+async function fetchAndCache(request, options) {
   const response = await fetch(request, options);
   await putSuccessfulResponse(request, response);
   return response;
@@ -62,16 +62,14 @@ async function fetchAndRefresh(request, options) {
 
 async function cachedShellAsset(request) {
   const cached = await caches.match(request);
-  if (!cached) return fetchAndRefresh(request);
-  void fetchAndRefresh(request).catch(() => {});
-  return cached;
+  return cached || fetchAndCache(request);
 }
 
 async function boundedNavigation(request) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), NAVIGATION_TIMEOUT_MS);
   try {
-    return await fetchAndRefresh(request, { signal: controller.signal });
+    return await fetchAndCache(request, { signal: controller.signal });
   } catch {
     return (await caches.match(request)) || caches.match('/index.html');
   } finally {
@@ -81,7 +79,7 @@ async function boundedNavigation(request) {
 
 async function networkWithFallback(request) {
   try {
-    return await fetchAndRefresh(request);
+    return await fetchAndCache(request);
   } catch {
     return (await caches.match(request)) || caches.match('/index.html');
   }
