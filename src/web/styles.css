@@ -55,6 +55,17 @@ html[data-route-pending="true"] .bottom-nav {
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
 html { background: var(--bg); scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
 body { margin: 0; min-width: 20rem; min-height: 100dvh; overflow-x: hidden; background: var(--bg); color: var(--text); padding-bottom: calc(var(--nav) + env(safe-area-inset-bottom) + var(--space-5)); }
 button, input, select, textarea { font: inherit; }

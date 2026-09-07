@@ -159,6 +159,7 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.match(ui, /export function receiptReview/);
   assert.match(ui, /data-capture-preview-image/);
 
+  assert.match(css, /\.sr-only\s*\{[\s\S]*clip-path:\s*inset\(50%\)/);
   assert.match(css, /--touch:\s*3rem/);
   assert.match(css, /min-height:\s*var\(--touch\)/);
   assert.match(css, /safe-area-inset-bottom/);

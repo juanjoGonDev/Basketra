@@ -99,6 +99,8 @@ test('shopping ticket estimates by effective Store and converges between devices
   const row = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Leche entera 1 L' });
   await expect(row.locator('.ticket-item__product-icon')).toBeVisible();
   await expect(row).toContainText('Mercado Centro');
+  await expect(row.locator('.ticket-item__position')).toBeHidden();
+  await expect(page.locator('.list-store-panel__select .sr-only')).toBeHidden();
 
   const disclosure = row.locator('[data-shopping-item-toggle]');
   await expect(disclosure).toHaveAccessibleName('Mostrar opciones de Leche entera 1 L');
@@ -120,6 +122,8 @@ test('shopping ticket estimates by effective Store and converges between devices
   await second.setViewportSize({ width: 320, height: 700 });
   await second.goto(`/lists/${encodeURIComponent(list.id)}`);
   await expect(second.locator('#estimate-total')).toHaveText(/1,09/);
+  await expect(second.locator('.ticket-item__position')).toBeHidden();
+  await expect(second.locator('.list-store-panel__select .sr-only')).toBeHidden();
   await expect(second.getByRole('button', { name: 'Mostrar opciones de Leche entera 1 L', exact: true })).toBeVisible();
   await expectNoHorizontalOverflow(second);
 
