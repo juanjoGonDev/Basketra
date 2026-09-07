@@ -82,6 +82,7 @@ test('inventory product compares latest store prices and appends manual updates 
   test.setTimeout(45_000);
   await page.setViewportSize({ width: 390, height: 844 });
   let pricePosts = 0;
+  let storeReads = 0;
   let refreshed = false;
   const north = { id: 'store_north', retailerId: 'retailer_market', retailerName: 'Mercado', name: 'Norte' };
   const south = { id: 'store_south', retailerId: 'retailer_market', retailerName: 'Mercado', name: 'Sur' };
@@ -132,11 +133,20 @@ test('inventory product compares latest store prices and appends manual updates 
       ticketHistory: [],
     }),
   }));
-  await page.route('**/api/v1/inventory/stores?*', route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({ stores: [north, south], total: 101, offset: 0, limit: 100, hasMore: true }),
-  }));
+  await page.route('**/api/v1/inventory/stores?*', route => {
+    storeReads += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        stores: storeReads === 1 ? [south] : [north, south],
+        total: 101,
+        offset: 0,
+        limit: 100,
+        hasMore: true,
+      }),
+    });
+  });
   await page.route('**/api/v1/products/variant_compare/prices', async route => {
     pricePosts += 1;
     if (pricePosts === 2) {
@@ -185,6 +195,7 @@ test('inventory product compares latest store prices and appends manual updates 
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('heading', { name: 'Actualizar precio' })).toBeVisible();
   await expect(dialog.locator('#catalog-price-store')).toHaveValue(north.id);
+  await expect(dialog.locator('#catalog-price-store option:checked')).toHaveText('Mercado · Norte');
   await expect(dialog.locator('#catalog-price-value')).toHaveValue('1.25');
   await expect(dialog.locator('#catalog-price-store-help')).toContainText('primeras 100 tiendas');
   await dialog.getByRole('button', { name: 'Cancelar' }).click();
