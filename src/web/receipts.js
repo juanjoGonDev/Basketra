@@ -1,7 +1,7 @@
 import { api } from './api.js';
 import {
   $,
-  $,
+  $$,
   closeDialog,
   configureReceiptContext,
   ensurePageStates,
