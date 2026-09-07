@@ -1,7 +1,7 @@
 # Receipt confirmation SQLite failure
 
 Date: 2026-09-06
-Status: implementation complete; final PR CI and affected-device verification remain
+Status: implementation and PR validation complete; affected-device verification remains after merge/deploy
 
 ## Request
 
@@ -96,7 +96,18 @@ The code-bearing head `cdab531fded30bee30cac9709138c840dd869744` passed Quality 
 - post-upgrade receipt confirmation regression: pass;
 - ALCAMPO receipt-to-Store database proof: pass.
 
-Earlier branch validation also passed Browser E2E with 142/142 scenarios, Security, container smoke, linux/amd64, linux/arm64 and CodeQL. The final PR head must preserve those gates; the GitHub PR is the delivery source of truth for their current state.
+Exact-head validation at `c5bb2421d4772db573bfeec7174b3844ecbdc8c5` also passed:
+
+- Pull Request Quality `34066497040`: success;
+- Browser E2E: 142/142 passed in 15.5 minutes;
+- Security: success;
+- container smoke: success;
+- linux/amd64: success;
+- linux/arm64: success;
+- CodeQL Advanced `34066497041`: success;
+- Publish PR visual evidence `34066497059`: success.
+
+The Browser suite explicitly covers Store-required receipt review and successful desktop confirmation.
 
 ## Runtime verification
 
