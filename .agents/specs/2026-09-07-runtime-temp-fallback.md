@@ -12,12 +12,15 @@ Receipt confirmation still fails after PR #56 was merged and the verified `stabl
 - Current `compose.raspberry.yml` gives `/tmp/basketra` `mode=0700,uid=1000,gid=1000`, but Watchtower updates an existing container from an image and does not fetch/re-apply repository Compose definitions.
 - The application currently trusts `config.tempDir` without proving it is usable before restore/database bootstrap.
 - PR #56 already provides a strong file-backed SQLite TEMP probe which reproduces extended code 6410 when the temporary directory is unusable.
+- PR #57 CI reproduced and rejected an intermediate design that attempted fallback after SQLite had already been loaded; the hardened broken-primary container failed with `RUNTIME_TEMP_STORAGE_UNAVAILABLE`. The bootstrap was then moved before SQLite imports, and the final design isolates the strong candidate probe in a child process.
+- Implementation head `34364f77d9894ae925e8f7be1c11eb4849e4dffd` passed Pull Request Quality `34119170212`, including Quality, resource/growth budgets, Security, linux/amd64, linux/arm64, Browser E2E, primary SQLite storage, and the deliberately broken-primary automatic fallback container.
+- CodeQL run `34119170177` passed for Actions and JavaScript/TypeScript. Visual-impact run `34119170184` passed classification and correctly skipped direct visual evidence because the task has no UI impact.
 
 ## Decision
 
 Prepare runtime temporary storage before any restore or SQLite database is opened.
 
-Use the configured `tempDir` as the preferred location. Prove it with the same canonical file-backed SQLite TEMP behavior used by container publication. If that location is unavailable or unwritable, create a private `runtime-tmp` directory under the persistent Basketra data directory, set `SQLITE_TMPDIR` and `TMPDIR` to it, and pass that effective temporary directory to the application runtime.
+Use the configured `tempDir` as the preferred location. Prove each candidate with a bounded filesystem write probe and the same canonical file-backed SQLite TEMP behavior used by container publication. Run the strong SQLite candidate probe in an isolated child process so the parent process does not load SQLite until after a directory has been selected. If the preferred location is unavailable, unwritable, or rejected by the SQLite probe, create and verify a private `runtime-tmp` directory under the persistent Basketra data directory, set `SQLITE_TMPDIR` and `TMPDIR` to it, and pass that effective temporary directory to the application runtime.
 
 The fallback is runtime-owned and image-delivered. It therefore works when Watchtower updates a container whose inherited host mount contract is stale, without requiring a Raspberry rebuild or Compose recreation.
 
@@ -54,7 +57,7 @@ Excluded:
 ## Acceptance
 
 1. Runtime verifies the preferred temporary directory before `applyPendingRestore` or any application database bootstrap.
-2. Verification uses a file-backed SQLite TEMP operation strong enough to reproduce code 6410 for an unusable directory.
+2. Verification uses a file-backed SQLite TEMP operation strong enough to reproduce code 6410 for an unusable directory, executed in an isolated child process for each candidate before the parent loads SQLite.
 3. If preferred storage passes, `SQLITE_TMPDIR`, `TMPDIR`, and effective `AppConfig.tempDir` use it.
 4. If preferred storage fails, Basketra creates a mode-0700 fallback under `dataDir`, verifies it, updates both environment variables, and uses it as effective `AppConfig.tempDir`.
 5. If both candidates fail, startup fails rather than silently continuing with an unverified location.
@@ -92,4 +95,4 @@ Do not merge, release, deploy, mutate the Raspberry, or perform destructive data
 
 ## Status
 
-Implementation complete on branch pending exact-head CI. The runtime now verifies temporary storage before restore/database bootstrap, automatically falls back to a mode-0700 directory under `dataDir`, propagates the effective temporary directory to application services, exposes only the mode through runtime metadata/logs, and includes broken-primary container regressions in local smoke, PR CI, and protected-main publication.
+Implementation acceptance is satisfied on head `34364f77d9894ae925e8f7be1c11eb4849e4dffd`: Pull Request Quality `34119170212`, CodeQL `34119170177`, and visual-impact classification `34119170184` are green. The strong SQLite probe is isolated per candidate, the hardened broken-primary container reaches readiness in `data-fallback` mode, and Browser E2E is terminal green. This documentation-only synchronization follows that validated implementation head and must itself retain the repository's standard exact-head CI before delivery.
