@@ -159,7 +159,8 @@ test('cancelling during durable job creation deletes the late-created job withou
 
   await prepareReceipt(page, 'cancel-during-create.png');
   await expect.poll(() => jobCreates).toBe(1);
-  await page.getByRole('button', { name: 'Cancelar procesamiento', exact: true }).click();
+  await page.locator('#receipt-source-queue > summary').click();
+  await page.getByRole('button', { name: 'Cancelar todo el análisis', exact: true }).click();
   releaseCreation();
 
   await expect.poll(() => jobDeletes).toBe(1);
@@ -197,6 +198,8 @@ test('failed durable AI job exposes a copyable redacted diagnostic', async ({ pa
 
   await prepareReceipt(page, secretFilename);
 
+  await page.locator('#receipt-source-queue > summary').click();
+  await page.locator('.capture-card__details > summary').click();
   await expect(page.getByRole('button', { name: 'Copiar diagnóstico', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Copiar diagnóstico', exact: true }).click();
   const diagnostic = await page.evaluate(() => window.__copiedReceiptDiagnostic);
