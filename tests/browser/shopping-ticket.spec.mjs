@@ -141,11 +141,12 @@ test('shopping ticket estimates by effective Store and converges between devices
   await second.close();
 });
 
-test('shopping AI recovers from stale bootstrap availability and category suggestion remains live', async ({ page, request }) => {
+test('shopping AI recovers from stale bootstrap availability and refreshes stale category options', async ({ page, request }) => {
   test.setTimeout(45_000);
   let settingsReads = 0;
   let analysisRequests = 0;
   let categoryRequests = 0;
+  let suggestedCategoryId = '';
 
   await page.route('**/api/v1/settings/ai-provider', route => {
     settingsReads += 1;
@@ -178,23 +179,7 @@ test('shopping AI recovers from stale bootstrap availability and category sugges
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ categoryId: 'category_ai_test', attempts: 1 }),
-    });
-  });
-
-  const categoryResponse = await request.post('/api/v1/categories', { data: { name: 'Categoría IA test' } });
-  expect(categoryResponse.ok()).toBeTruthy();
-  const createdCategory = (await categoryResponse.json()).category;
-  expect(createdCategory.id).toBeTruthy();
-
-  // The browser mock must return an id that exists in the current select.
-  await page.unroute('**/api/v1/categories/suggest');
-  await page.route('**/api/v1/categories/suggest', route => {
-    categoryRequests += 1;
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ categoryId: createdCategory.id, attempts: 1 }),
+      body: JSON.stringify({ categoryId: suggestedCategoryId, attempts: 1 }),
     });
   });
 
@@ -207,16 +192,22 @@ test('shopping AI recovers from stale bootstrap availability and category sugges
   await expect(page.getByRole('button', { name: 'Añadir chateando con IA', exact: true })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
-  await page.getByRole('button', { name: 'Añadir chateando con IA', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Añadir chateando con IA', exact: true })).toBeVisible();
-  await expect.poll(() => settingsReads).toBeGreaterThanOrEqual(2);
-  await page.locator('#ai-text').fill('Añade dos leches');
-  await page.locator('#analyze-ai').click();
-  await expect.poll(() => analysisRequests).toBe(1);
-  await expect(page.locator('#ai-proposals')).toContainText('Leche');
-  await expect(page.locator('#ai-state')).toContainText('Revisa y edita');
+  // Create this category after the page loaded so the product editor starts with stale options.
+  const categoryResponse = await request.post('/api/v1/categories', { data: { name: 'Categoría IA test' } });
+  expect(categoryResponse.ok()).toBeTruthy();
+  suggestedCategoryId = (await categoryResponse.json()).category.id;
 
-  await page.getByRole('button', { name: 'Cerrar', exact: true }).click();
+  await page.getByRole('button', { name: 'Añadir chateando con IA', exact: true }).click();
+  const assistant = page.locator('#ai-assistant-dialog');
+  await expect(assistant.getByRole('heading', { name: 'Añadir chateando con IA', exact: true })).toBeVisible();
+  await expect.poll(() => settingsReads).toBeGreaterThanOrEqual(2);
+  await assistant.locator('#ai-text').fill('Añade dos leches');
+  await assistant.locator('#analyze-ai').click();
+  await expect.poll(() => analysisRequests).toBe(1);
+  await expect(assistant.locator('#ai-proposals')).toContainText('Leche');
+  await expect(assistant.locator('#ai-state')).toContainText('Revisa y edita');
+
+  await assistant.getByRole('button', { name: 'Cerrar', exact: true }).click();
   await page.getByRole('button', { name: 'Crear ítem', exact: true }).click();
   await page.locator('#item-text').fill('Arroz largo');
   await expect(page.getByRole('button', { name: /Crear nuevo producto/ })).toBeVisible();
@@ -224,11 +215,12 @@ test('shopping AI recovers from stale bootstrap availability and category sugges
 
   const productDialog = page.locator('#global-product-dialog');
   await expect(productDialog).toBeVisible();
+  await expect(productDialog.locator('#global-category')).not.toHaveValue(suggestedCategoryId);
   await productDialog.locator('#global-canonical-name').fill('Arroz');
   await productDialog.locator('#global-variant-name').fill('Arroz largo');
   await productDialog.locator('#global-suggest-category').click();
   await expect.poll(() => categoryRequests).toBe(1);
-  await expect(productDialog.locator('#global-category')).toHaveValue(createdCategory.id);
+  await expect(productDialog.locator('#global-category')).toHaveValue(suggestedCategoryId);
   await expect(productDialog.locator('#global-category-suggestion-state')).toContainText('Categoría sugerida');
 
   await page.setViewportSize({ width: 320, height: 700 });
