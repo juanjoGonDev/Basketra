@@ -110,29 +110,36 @@ async function stableBoundingBox(locator) {
 
 async function swipe(page, locator, direction, { long = false } = {}) {
   await expect(locator).toBeVisible();
-  const surface = locator.locator('[data-inventory-swipe-surface]').first();
-  await expect(surface).toBeVisible();
   const expectedId = await locator.getAttribute('data-swipe-id');
   const expectedKind = await locator.getAttribute('data-swipe-kind');
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await locator.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
     const box = await stableBoundingBox(locator);
-    const surfaceBox = await stableBoundingBox(surface);
-    const position = {
-      x: surfaceBox.width * (direction === 'left' ? 0.8 : 0.2),
-      y: surfaceBox.height / 2,
-    };
-    await surface.hover({ position });
+    const point = await locator.evaluate((element, swipeDirection) => {
+      const surface = element.querySelector('[data-inventory-swipe-surface], [data-swipe-content]');
+      if (!(surface instanceof HTMLElement)) return null;
+      const rect = surface.getBoundingClientRect();
+      const xRatios = swipeDirection === 'left'
+        ? [0.82, 0.7, 0.58, 0.46, 0.34]
+        : [0.18, 0.3, 0.42, 0.54, 0.66];
+      const yRatios = [0.35, 0.5, 0.65];
+      const genericSurface = surface.matches('[data-swipe-content]');
+      for (const yRatio of yRatios) {
+        for (const xRatio of xRatios) {
+          const x = rect.left + rect.width * xRatio;
+          const y = rect.top + rect.height * yRatio;
+          const target = document.elementFromPoint(x, y);
+          if (!(target instanceof Element) || !surface.contains(target)) continue;
+          if (genericSurface && target.closest('button,a,summary,input:not(:disabled),select:not(:disabled),textarea:not(:disabled)')) continue;
+          return { x, y };
+        }
+      }
+      return null;
+    }, direction);
+    if (!point) continue;
 
-    const startX = surfaceBox.x + position.x;
-    const y = surfaceBox.y + position.y;
-    const hitsSurface = await surface.evaluate((element, point) => {
-      const target = document.elementFromPoint(point.x, point.y);
-      return Boolean(target && element.contains(target));
-    }, { x: startX, y });
-    if (!hitsSurface) continue;
-
+    await page.mouse.move(point.x, point.y);
     await page.evaluate(({ id, kind }) => {
       window.__basketraSwipePointerDownHit = false;
       document.addEventListener('pointerdown', event => {
@@ -154,8 +161,8 @@ async function swipe(page, locator, direction, { long = false } = {}) {
     }
 
     const distance = box.width * (long ? 0.72 : direction === 'right' ? 0.46 : 0.34);
-    const endX = direction === 'left' ? startX - distance : startX + distance;
-    await page.mouse.move(endX, y, { steps: 14 });
+    const endX = direction === 'left' ? point.x - distance : point.x + distance;
+    await page.mouse.move(endX, point.y, { steps: 14 });
     await page.mouse.up();
     return;
   }
