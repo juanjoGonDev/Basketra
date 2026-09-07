@@ -24,7 +24,7 @@ The supplied Android screenshot shows a mixed palette on Home: the app bar, quic
 - an accessible Appearance control in Settings > General;
 - immediate application after a successful save;
 - first-render application from the persisted server setting so reloads do not depend on a second browser-side source of truth;
-- explicit CSS selectors for manual light/dark overrides while preserving `prefers-color-scheme` only for `system`;
+- one semantic light/dark token definition using CSS `light-dark()`, with `color-scheme` pinned by the persisted `data-theme` value and adaptive only for `system`;
 - regression coverage for persistence, invalid values, API projection, rendered application shell, manual overrides, system fallback, mobile layout, and contrast-sensitive Home rendering.
 
 ### Excluded
@@ -43,15 +43,15 @@ Settings > General will expose a labelled `Tema` select with:
 - `Claro` — forces the complete light token set;
 - `Oscuro` — forces the complete dark token set.
 
-The selection is part of the existing runtime settings form and uses the existing `Guardar cambios` action. Saving applies the returned canonical value immediately. A failed save leaves the current theme unchanged and surfaces the existing inline error state.
+The selection lives in its own compact Appearance form inside Settings > General and reuses the existing field, button and status patterns. `Guardar apariencia` sends a partial update through the canonical runtime-settings endpoint, so changing the theme never requires visiting or submitting the IA tab. Saving applies only the canonical value returned by the server. A failed save leaves the active theme unchanged, restores the persisted selection and surfaces an inline error.
 
 ## Data and rendering decision
 
 SQLite remains authoritative. Add one non-destructive migration that adds `theme TEXT NOT NULL DEFAULT 'system'` with an enum check to `runtime_settings`.
 
-The HTML shell is rendered with `data-theme="light"` or `data-theme="dark"` when the persisted value is explicit. `system` omits the attribute. This prevents an initial flash or a conflicting local-storage copy while retaining the existing static shell architecture.
+The HTML shell is rendered with `data-theme="system"`, `data-theme="light"` or `data-theme="dark"` directly from SQLite before it is sent to the browser. This prevents an initial flash or a conflicting local-storage copy while retaining the existing shell architecture.
 
-CSS uses the explicit attribute as the highest-priority selector. The media-query dark palette applies only when no explicit theme attribute exists. `color-scheme` is also pinned to the chosen manual mode so native controls do not independently choose the opposite palette.
+The modern semantic palette defines each color once with CSS `light-dark(light, dark)`. `data-theme="light"` pins `color-scheme: light`, `data-theme="dark"` pins `color-scheme: dark`, and `data-theme="system"` keeps `color-scheme: light dark` so the browser follows the device preference. The structural compatibility aliases continue to consume those semantic tokens rather than owning a second palette.
 
 ## Acceptance
 
@@ -100,4 +100,4 @@ CSS uses the explicit attribute as the highest-priority selector. The media-quer
 
 ## Status
 
-Specification accepted by the user's explicit instruction to continue with the Settings-based theme plan. Implementation and exact-head validation are pending.
+Specification accepted by the user's explicit instruction to continue with the Settings-based theme plan. Implementation is committed on the delivery branch; exact-head CI and final visual review remain pending.
