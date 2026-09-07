@@ -150,6 +150,17 @@ test('service worker versions and serves the complete shell cache-first without 
     assert.deepEqual(cacheWrites, [cachedRequest.url]);
 
     responseWork = undefined;
+    const weakNetworkRequest = new Request('http://basketra.test/lists.js');
+    matchImplementation = async request => requestAddress(request) === weakNetworkRequest.url
+      ? new Response('cached while network fails', { status: 200 })
+      : undefined;
+    fetchImplementation = async () => { throw new TypeError('weak network'); };
+    fetchListener({ request: weakNetworkRequest, respondWith, waitUntil });
+    assert.equal(await (await responseWork)?.text(), 'cached while network fails');
+    await backgroundWork.at(-1);
+    assert.deepEqual(cacheWrites, [cachedRequest.url]);
+
+    responseWork = undefined;
     cachePutFails = true;
     matchImplementation = async () => undefined;
     fetchImplementation = async () => new Response('fresh despite cache failure', { status: 200 });
