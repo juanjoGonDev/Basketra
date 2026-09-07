@@ -149,6 +149,16 @@ test('durable OCR evidence appears progressively in the body while source detail
     contentType: 'application/json',
     body: JSON.stringify({ configured: true }),
   }));
+  await page.route('**/api/v1/ai/runtime-capabilities', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      attachments: {
+        maxImageBytes: 20 * 1024 * 1024,
+        maxFileBytes: 512 * 1024 * 1024,
+      },
+    }),
+  }));
 
   const jobId = 'receiptextractionjob_minimalui';
   const progress = {
