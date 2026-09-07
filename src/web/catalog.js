@@ -505,7 +505,7 @@ async function openPriceDialog(entry) {
   $('#catalog-price-state').textContent = '';
   $('#catalog-price-store').replaceChildren(new Option('Selecciona una tienda', ''));
   $('#catalog-price-store').value = '';
-  $('#catalog-price-value').value = '';
+  $('#catalog-price-value').value = Number.isSafeInteger(entry?.priceMinor) ? minorToEuroInput(entry.priceMinor) : '';
   $('#catalog-price-store').disabled = true;
   $('#catalog-price-save').disabled = true;
   $('#catalog-price-store-help').textContent = 'Cargando tiendas…';
@@ -524,7 +524,6 @@ async function openPriceDialog(entry) {
     $('#catalog-price-store').disabled = false;
     $('#catalog-price-save').disabled = false;
     $('#catalog-price-store').value = entry?.storeId || '';
-    $('#catalog-price-value').value = Number.isSafeInteger(entry?.priceMinor) ? minorToEuroInput(entry.priceMinor) : '';
     requestAnimationFrame(() => (entry?.storeId ? $('#catalog-price-value') : $('#catalog-price-store')).focus());
   } catch (error) {
     $('#catalog-price-store-help').textContent = 'No se pudieron cargar las tiendas.';
