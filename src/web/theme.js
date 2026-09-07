@@ -2,8 +2,8 @@
   const STORAGE_KEY = 'basketra.theme';
   const THEME_VALUES = new Set(['system', 'light', 'dark']);
   const media = window.matchMedia('(prefers-color-scheme: dark)');
-  let preference = readPreference();
   let storageWritable = true;
+  let preference = readPreference();
 
   function readPreference() {
     try {
@@ -35,16 +35,13 @@
   }
 
   function persistPreference(value) {
-    let persisted = true;
     try {
       localStorage.setItem(STORAGE_KEY, value);
       storageWritable = true;
     } catch {
-      persisted = false;
       storageWritable = false;
     }
     applyPreference(value);
-    return persisted;
   }
 
   function updateControls() {
