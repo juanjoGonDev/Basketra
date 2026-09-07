@@ -300,12 +300,14 @@ export function retryCaptureProcessing(index) {
   clearCombinedReview();
   const page = createPageState(previous);
   state.pageStates.set(key, page);
-  state.verifyWithAi = state.aiConfigured && $('#verify-receipt-ai').checked;
+  state.verifyWithAi = state.aiConfigured;
   state.processing = true;
   if (!state.progressTimer) startReceiptProgress();
   enqueueCapture(capture, state.verifyWithAi);
   persistAndRenderCaptures();
-  $('#receipt-state').textContent = `Reintentando la imagen ${index + 1}. Primero se ejecutará OCR local${state.verifyWithAi ? ' y después la corrección opcional con IA' : ''}.`;
+  $('#receipt-state').textContent = state.verifyWithAi
+    ? `Reintentando la imagen ${index + 1} con OCR y análisis IA.`
+    : `Reintentando la imagen ${index + 1} con OCR local porque no hay proveedor de IA configurado.`;
   pumpPageQueue();
 }
 
