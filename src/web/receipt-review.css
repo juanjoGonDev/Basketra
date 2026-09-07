@@ -1,15 +1,10 @@
-.receipt-analysis-options,
 .receipt-review-panel {
   border: 1px solid var(--color-outline-variant);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
 }
 
-.receipt-analysis-options {
-  margin-bottom: var(--space-4);
-}
 
-.receipt-analysis-options > summary,
 .receipt-review-panel > summary {
   display: flex;
   min-height: var(--touch);
@@ -21,13 +16,11 @@
   padding: var(--space-3) var(--space-4);
 }
 
-.receipt-analysis-options > summary::-webkit-details-marker,
 .receipt-review-panel > summary::-webkit-details-marker,
 .capture-card__summary::-webkit-details-marker {
   display: none;
 }
 
-.receipt-analysis-options > summary::after,
 .receipt-review-panel > summary::after,
 .capture-card__summary::after {
   content: "⌄";
@@ -38,26 +31,19 @@
   transform-origin: center;
 }
 
-.receipt-analysis-options[open] > summary::after,
 .receipt-review-panel[open] > summary::after,
 .capture-card__details[open] > .capture-card__summary::after {
   transform: rotate(180deg);
 }
 
-.receipt-analysis-options > summary > strong,
 .receipt-review-panel > summary strong {
   display: block;
 }
 
-.receipt-analysis-options > summary > small,
 .receipt-review-panel > summary small {
   color: var(--color-on-surface-variant);
 }
 
-.receipt-analysis-options > .details-body {
-  border-top: 1px solid var(--color-outline-variant);
-  padding: var(--space-3) var(--space-4);
-}
 
 .capture-card__details {
   grid-column: 1 / -1;
@@ -369,13 +355,8 @@
     justify-self: start;
   }
 
-  .receipt-analysis-options > summary,
   .receipt-review-panel > summary {
     align-items: flex-start;
-  }
-
-  .receipt-analysis-options > summary {
-    flex-direction: column;
   }
 
   .receipt-review-sticky-summary {
@@ -394,7 +375,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .receipt-analysis-options > summary::after,
   .receipt-review-panel > summary::after,
   .capture-card__summary::after {
     transition: none;
@@ -707,6 +687,17 @@
   color: var(--color-error);
 }
 
+.receipt-source-queue__limit-help {
+  margin: 0;
+  padding: var(--space-2) var(--space-4) 0;
+  color: var(--color-on-surface-variant);
+  font-size: .7rem;
+}
+
+.receipt-source-queue__limit-help:empty {
+  display: none;
+}
+
 .receipt-source-queue__body {
   min-width: 0;
 }
@@ -813,14 +804,6 @@
   gap: var(--space-1);
 }
 
-.receipt-source-queue .receipt-analysis-options {
-  margin: var(--space-2) 0 0;
-}
-
-.receipt-source-queue .receipt-analysis-options > summary {
-  min-height: var(--touch);
-  padding: var(--space-2) var(--space-3);
-}
 
 .receipt-progress--compact {
   position: sticky;
