@@ -1,27 +1,23 @@
-import { DatabaseSync } from 'node:sqlite';
+import { existsSync } from 'node:fs';
 
-const EXPECTED_TEMP_DIR = '/tmp/basketra';
-const REQUIRED_TEMP_ENV = ['SQLITE_TMPDIR', 'TMPDIR'];
+const compiledModule = new URL('../dist/infrastructure/runtime-temp.js', import.meta.url);
+const sourceModule = new URL('../src/infrastructure/runtime-temp.ts', import.meta.url);
+const runtimeTemp = await import(existsSync(compiledModule) ? compiledModule.href : sourceModule.href);
 
-for (const name of REQUIRED_TEMP_ENV) {
-  if (process.env[name] !== EXPECTED_TEMP_DIR) {
-    throw new Error(`${name} must target the writable Basketra tmpfs`);
+if (process.argv.includes('--fallback')) {
+  const selection = await runtimeTemp.prepareRuntimeTempStorage('/tmp/basketra', '/data');
+  if (selection.mode !== 'data-fallback') {
+    throw new Error('Expected automatic data fallback for the broken primary temp directory');
   }
+} else {
+  const sqliteTmpDir = process.env.SQLITE_TMPDIR?.trim();
+  const tmpDir = process.env.TMPDIR?.trim();
+  if (!sqliteTmpDir || sqliteTmpDir !== tmpDir) {
+    throw new Error('SQLITE_TMPDIR and TMPDIR must identify the same configured temporary directory');
+  }
+  await runtimeTemp.probeSqliteTempDirectory(sqliteTmpDir);
 }
 
-const expectedBytes = 2 * 1024 * 1024;
-const database = new DatabaseSync(':memory:');
-try {
-  database.exec(
-    'PRAGMA temp_store = FILE; PRAGMA temp.cache_size = 1; CREATE TEMP TABLE temp_probe(value BLOB);',
-  );
-  database.prepare('INSERT INTO temp_probe(value) VALUES (zeroblob(?))').run(expectedBytes);
-  const row = database.prepare('SELECT length(value) AS bytes FROM temp_probe').get();
-  if (row?.bytes !== expectedBytes) {
-    throw new Error('SQLite temporary-file probe returned unexpected data');
-  }
-} finally {
-  database.close();
+if (!process.argv.includes('--isolated')) {
+  console.log('SQLite temp-file probe passed.');
 }
-
-console.log('SQLite temp-file probe passed.');

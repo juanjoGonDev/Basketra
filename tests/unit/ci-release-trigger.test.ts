@@ -95,11 +95,19 @@ test("stable promotion is blocked until the canonical SQLite temp probe passes",
   const runtimeProbeIndex = publishWorkflow.indexOf(
     'docker exec "$container" node scripts/sqlite-temp-probe.mjs',
   );
+  const fallbackProbeIndex = publishWorkflow.indexOf(
+    'docker run --detach --name "$fallback_container"',
+  );
+  const fallbackRuntimeIndex = publishWorkflow.indexOf(
+    'runtime.tempStorage?.mode!=="data-fallback"',
+  );
   const promotionIndex = publishWorkflow.indexOf(
     "- name: Promote verified digest to stable",
   );
 
   assert.ok(runtimeProbeIndex >= 0);
-  assert.ok(promotionIndex > runtimeProbeIndex);
+  assert.ok(fallbackProbeIndex > runtimeProbeIndex);
+  assert.ok(fallbackRuntimeIndex > fallbackProbeIndex);
+  assert.ok(promotionIndex > fallbackRuntimeIndex);
   assert.doesNotMatch(publishWorkflow, /PRAGMA temp_store = FILE/u);
 });
