@@ -55,6 +55,18 @@ async function seedFailedDurableDraft(page, captures, jobId, onCancel) {
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
 }
 
+async function openCaptureDetails(page, index = 0) {
+  const queue = page.locator('#receipt-source-queue');
+  if (!(await queue.evaluate(element => element.open))) {
+    await queue.locator(':scope > summary').click();
+  }
+  const details = page.locator('.capture-card__details').nth(index);
+  if (!(await details.evaluate(element => element.open))) {
+    await details.locator(':scope > summary').click();
+  }
+  return details;
+}
+
 test('explicit capture reorder invalidates the durable job bound to the previous order', async ({ page }) => {
   const jobId = 'receiptextractionjob_reorder1';
   const captures = ['a', 'b'].map(capture);
@@ -63,7 +75,8 @@ test('explicit capture reorder invalidates the durable job bound to the previous
   await expect(page.locator('.capture-card')).toHaveCount(2);
   await expect(page.locator('.capture-card .status-pill')).toHaveText(['Error', 'Error']);
 
-  await page.locator('[data-capture-action="down"]').first().click();
+  const reorderDetails = await openCaptureDetails(page, 0);
+  await reorderDetails.locator('[data-capture-action="down"]').click();
 
   await expect.poll(() => cancellations).toBe(1);
   await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.receiptExtractionJobId'))).toBeNull();
@@ -82,7 +95,8 @@ test('explicit capture deletion invalidates the durable job bound to the previou
   await expect(page.locator('.capture-card')).toHaveCount(1);
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
 
-  await page.locator('[data-capture-action="delete"]').click();
+  const deleteDetails = await openCaptureDetails(page, 0);
+  await deleteDetails.locator('[data-capture-action="delete"]').click();
 
   await expect.poll(() => cancellations).toBe(1);
   await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.receiptExtractionJobId'))).toBeNull();
