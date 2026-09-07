@@ -15,10 +15,10 @@ test('every pull-request CI job has a hard one-minute envelope', () => {
 
 test('CodeQL keeps full language coverage through one-minute architecture scopes', () => {
   assert.match(codeql, /timeout-minutes:\s*1/u);
-  for (const scope of ['actions', 'backend-http-data', 'backend-receipts', 'backend-services', 'web', 'automation']) {
+  for (const scope of ['actions', 'backend-http-data', 'backend-receipt-runtime', 'backend-receipt-ai', 'backend-services', 'web', 'automation']) {
     assert.match(codeql, new RegExp('scope: ' + scope, 'u'));
   }
-  assert.equal((codeql.match(/language: javascript-typescript/gu) || []).length, 5);
+  assert.equal((codeql.match(/language: javascript-typescript/gu) || []).length, 6);
   assert.match(codeql, /language: actions/u);
   assert.match(codeql, /config-file:\s+\$\{\{ matrix\.config \}\}/u);
   assert.match(codeql, /category:\s+\/language:\$\{\{ matrix\.language \}\}\/scope:\$\{\{ matrix\.scope \}\}/u);
@@ -26,14 +26,16 @@ test('CodeQL keeps full language coverage through one-minute architecture scopes
 
   const actionsConfig = readFileSync('.github/codeql/codeql-actions.yml', 'utf8');
   const backendHttpDataConfig = readFileSync('.github/codeql/codeql-backend-http-data.yml', 'utf8');
-  const backendReceiptsConfig = readFileSync('.github/codeql/codeql-backend-receipts.yml', 'utf8');
+  const backendReceiptRuntimeConfig = readFileSync('.github/codeql/codeql-backend-receipt-runtime.yml', 'utf8');
+  const backendReceiptAiConfig = readFileSync('.github/codeql/codeql-backend-receipt-ai.yml', 'utf8');
   const backendServicesConfig = readFileSync('.github/codeql/codeql-backend-services.yml', 'utf8');
   const webConfig = readFileSync('.github/codeql/codeql-web.yml', 'utf8');
   const automationConfig = readFileSync('.github/codeql/codeql-automation.yml', 'utf8');
 
   assert.match(actionsConfig, /\.github\/workflows/u);
   assert.match(backendHttpDataConfig, /src\/api[\s\S]*src\/infrastructure/u);
-  assert.match(backendReceiptsConfig, /src\/ai[\s\S]*src\/receipts/u);
+  assert.match(backendReceiptRuntimeConfig, /src\/api\/server\.ts[\s\S]*src\/infrastructure\/database\.ts[\s\S]*src\/receipts/u);
+  assert.match(backendReceiptAiConfig, /src\/ai[\s\S]*src\/ocr[\s\S]*src\/receipts/u);
   assert.match(backendServicesConfig, /src\/operations[\s\S]*src\/stores/u);
   assert.match(webConfig, /paths:\n\s+- src\/web/u);
   assert.match(automationConfig, /paths:\n\s+- scripts\n\s+- playwright\.config\.mjs/u);

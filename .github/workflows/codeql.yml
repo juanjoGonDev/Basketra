@@ -47,18 +47,43 @@ jobs:
               pnpm-workspace.yaml
               tsconfig.json
               tsconfig.build.json
-          - scope: backend-receipts
+          - scope: backend-receipt-runtime
             language: javascript-typescript
-            config: ./.github/codeql/codeql-backend-receipts.yml
+            config: ./.github/codeql/codeql-backend-receipt-runtime.yml
+            sparse_checkout: |
+              .github/codeql
+              src/api/errors.ts
+              src/api/inventory-ticket-management.ts
+              src/api/receipt-calculation.ts
+              src/api/server.ts
+              src/domain
+              src/infrastructure/config.ts
+              src/infrastructure/database.ts
+              src/infrastructure/files.ts
+              src/infrastructure/runtime-settings.ts
+              src/receipts
+              src/types
+              package.json
+              pnpm-lock.yaml
+              pnpm-workspace.yaml
+              tsconfig.json
+              tsconfig.build.json
+          - scope: backend-receipt-ai
+            language: javascript-typescript
+            config: ./.github/codeql/codeql-backend-receipt-ai.yml
             sparse_checkout: |
               .github/codeql
               src/ai
-              src/api
+              src/api/errors.ts
+              src/api/receipt-calculation.ts
+              src/api/server.ts
               src/domain
-              src/infrastructure
+              src/infrastructure/config.ts
+              src/infrastructure/files.ts
+              src/infrastructure/runtime-settings.ts
+              src/ocr
               src/receipts
               src/types
-              src/ocr
               package.json
               pnpm-lock.yaml
               pnpm-workspace.yaml

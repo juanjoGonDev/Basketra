@@ -1,0 +1,14 @@
+name: Basketra receipt persistence and HTTP scope
+
+paths:
+  - src/api/errors.ts
+  - src/api/inventory-ticket-management.ts
+  - src/api/receipt-calculation.ts
+  - src/api/server.ts
+  - src/domain
+  - src/infrastructure/config.ts
+  - src/infrastructure/database.ts
+  - src/infrastructure/files.ts
+  - src/infrastructure/runtime-settings.ts
+  - src/receipts
+  - src/types
