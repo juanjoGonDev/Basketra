@@ -536,11 +536,12 @@ function organizeSettingsOperations() {
   const settings = $('.view[data-view="settings"]');
   const stack = $('#runtime-operations');
   if (!settings || !stack || stack.dataset.disclosureInstalled === 'true') return Boolean(stack?.dataset.disclosureInstalled);
+  const appearanceCard = stack.querySelector('[aria-labelledby="appearance-title"]');
   const runtimeCard = stack.querySelector('[aria-labelledby="runtime-title"]');
   const aiCard = stack.querySelector('[aria-labelledby="ai-config-title"]');
   const logsCard = stack.querySelector('[aria-labelledby="logs-title"]');
   const backupCard = stack.querySelector('[aria-labelledby="backup-title"]');
-  if (!runtimeCard || !aiCard || !logsCard || !backupCard) return false;
+  if (!appearanceCard || !runtimeCard || !aiCard || !logsCard || !backupCard) return false;
 
   wrapProviderTechnicalDetails(aiCard);
   const { root, panels } = createTabGroup('settings', 'Secciones de ajustes', [
@@ -553,7 +554,7 @@ function organizeSettingsOperations() {
   root.id = 'runtime-operations';
   root.classList.add('operations-stack', 'settings-tabs-shell');
   root.dataset.disclosureInstalled = 'true';
-  panels.get('general').append(runtimeCard);
+  panels.get('general').append(appearanceCard, runtimeCard);
   panels.get('ai').append(aiCard);
   panels.get('diagnostics').append(logsCard);
   panels.get('data').append(backupCard);

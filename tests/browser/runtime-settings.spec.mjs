@@ -14,6 +14,7 @@ async function openRuntimeSettings(page) {
 
 function publicRuntime(overrides = {}) {
   return {
+    theme: 'system',
     ai: {
       configured: true,
       baseUrl: 'http://host.docker.internal:3001/v1/',
@@ -51,20 +52,25 @@ function aiStatus(runtime) {
 }
 
 function nextRuntime(current, patch) {
+  const has = key => Object.hasOwn(patch, key);
   const replacingToken = typeof patch.aiApiKey === 'string';
   const clearingToken = patch.aiApiKey === null;
+  const baseUrl = has('aiBaseUrl') ? patch.aiBaseUrl : current.ai?.baseUrl ?? null;
+  const model = has('aiModel') ? patch.aiModel : current.ai?.model ?? null;
+  const maxRetries = has('aiMaxRetries') ? patch.aiMaxRetries : current.ai?.maxRetries ?? 1;
   return {
+    theme: has('theme') ? patch.theme : current.theme ?? 'system',
     ai: {
-      configured: Boolean(patch.aiBaseUrl && patch.aiModel),
-      baseUrl: patch.aiBaseUrl,
-      model: patch.aiModel,
-      maxRetries: patch.aiMaxRetries,
-      apiKeyConfigured: clearingToken ? false : replacingToken ? true : current.ai.apiKeyConfigured,
-      apiKeyMask: clearingToken ? null : replacingToken ? '••••alue' : current.ai.apiKeyMask,
+      configured: Boolean(baseUrl && model),
+      baseUrl,
+      model,
+      maxRetries,
+      apiKeyConfigured: clearingToken ? false : replacingToken ? true : current.ai?.apiKeyConfigured ?? false,
+      apiKeyMask: clearingToken ? null : replacingToken ? '••••alue' : current.ai?.apiKeyMask ?? null,
     },
-    overpassBaseUrl: patch.overpassBaseUrl,
-    maxBodyBytes: patch.maxBodyBytes,
-    idleHibernateAfterMs: patch.idleHibernateAfterMs,
+    overpassBaseUrl: has('overpassBaseUrl') ? patch.overpassBaseUrl : current.overpassBaseUrl,
+    maxBodyBytes: has('maxBodyBytes') ? patch.maxBodyBytes : current.maxBodyBytes,
+    idleHibernateAfterMs: has('idleHibernateAfterMs') ? patch.idleHibernateAfterMs : current.idleHibernateAfterMs,
     updatedAt: '2026-09-02T19:01:00.000Z',
   };
 }
@@ -286,6 +292,90 @@ test('runtime save guards duplicate submissions, survives missing diagnostics co
   await expect(page.locator('#runtime-settings-save-state')).toContainText('No se pudo guardar la configuración');
   await expect(page.locator('#runtime-settings-save-state')).toHaveAttribute('data-state', 'error');
   await expect(page.getByRole('button', { name: 'Guardar cambios', exact: true })).toBeEnabled();
+});
+
+test('appearance setting persists explicit themes and overrides the opposite device preference', async ({ page }) => {
+  let runtime = publicRuntime();
+  const writes = [];
+  let failSave = false;
+
+  await page.route('**/api/v1/settings/runtime', async route => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ settings: runtime }) });
+      return;
+    }
+    const patch = route.request().postDataJSON();
+    writes.push(patch);
+    if (failSave) {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: { code: 'SAVE_FAILED', message: 'No se pudo guardar el tema' } }),
+      });
+      return;
+    }
+    runtime = nextRuntime(runtime, patch);
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ settings: runtime }) });
+  });
+  await installAuxiliaryRoutes(page, () => aiStatus(runtime));
+
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto('/');
+  await navigate(page, 'Ajustes');
+
+  const theme = page.locator('#runtime-theme');
+  await expect(theme).toHaveValue('system');
+  await expect(page.getByRole('heading', { name: 'Tema', exact: true })).toBeVisible();
+
+  await theme.selectOption('dark');
+  await page.getByRole('button', { name: 'Guardar apariencia', exact: true }).click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0]).toEqual({ theme: 'dark' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(theme).toHaveValue('dark');
+
+  const darkColors = await page.locator('body').evaluate(element => {
+    const style = getComputedStyle(element);
+    return { background: style.backgroundColor, color: style.color };
+  });
+  expect(darkColors.background).toBe('rgb(15, 23, 19)');
+  expect(darkColors.color).toBe('rgb(231, 240, 233)');
+
+  failSave = true;
+  await theme.selectOption('light');
+  await page.getByRole('button', { name: 'Guardar apariencia', exact: true }).click();
+  await expect.poll(() => writes.length).toBe(2);
+  await expect(page.locator('#theme-settings-save-state')).toContainText('No se pudo guardar el tema');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(theme).toHaveValue('dark');
+});
+
+test('system appearance follows the device preference without a mixed Home palette', async ({ page }) => {
+  const runtime = publicRuntime({ theme: 'system' });
+  await page.route('**/api/v1/settings/runtime', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ settings: runtime }),
+  }));
+  await installAuxiliaryRoutes(page, () => aiStatus(runtime));
+
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto('/');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'system');
+
+  const colors = await page.evaluate(() => {
+    const body = getComputedStyle(document.body);
+    const heading = getComputedStyle(document.querySelector('.hero h1'));
+    const card = getComputedStyle(document.querySelector('.dashboard-card'));
+    return {
+      bodyBackground: body.backgroundColor,
+      headingColor: heading.color,
+      cardBackground: card.backgroundColor,
+    };
+  });
+  expect(colors.bodyBackground).toBe('rgb(15, 23, 19)');
+  expect(colors.headingColor).toBe('rgb(231, 240, 233)');
+  expect(colors.cardBackground).toBe('rgb(21, 29, 25)');
 });
 
 test('runtime editor remains usable without horizontal overflow on compact mobile', async ({ page }) => {

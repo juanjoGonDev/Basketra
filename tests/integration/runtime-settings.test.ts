@@ -43,6 +43,7 @@ test('runtime settings persist provider identity and secret without exposing the
   let store = new RuntimeSettingsStore(databasePath);
   try {
     const updated = store.update({
+      theme: 'dark',
       aiBaseUrl: 'http://webapi:3000/v1/',
       aiApiKey: TEST_API_CREDENTIAL,
       aiModel: 'default',
@@ -52,6 +53,7 @@ test('runtime settings persist provider identity and secret without exposing the
       idleHibernateAfterMs: 120_000,
     });
     assert.equal(updated.aiApiKey, TEST_API_CREDENTIAL);
+    assert.equal(toPublicRuntimeSettings(updated).theme, 'dark');
     assert.deepEqual(toPublicRuntimeSettings(updated).ai, {
       configured: true,
       baseUrl: 'http://webapi:3000/v1/',
@@ -67,6 +69,7 @@ test('runtime settings persist provider identity and secret without exposing the
   store = new RuntimeSettingsStore(databasePath);
   try {
     const reopened = store.read();
+    assert.equal(reopened.theme, 'dark');
     assert.equal(reopened.aiBaseUrl, 'http://webapi:3000/v1/');
     assert.equal(reopened.aiApiKey, TEST_API_CREDENTIAL);
     assert.equal(reopened.aiModel, 'default');
@@ -92,6 +95,7 @@ test('runtime settings reject unknown, malformed and out-of-range input before p
   try {
     const before = store.read();
     assert.throws(() => store.update({ unexpected: true }), /Unknown runtime setting/);
+    assert.throws(() => store.update({ theme: 'sepia' }), /Theme must be one of/);
     assert.throws(() => store.update({ aiBaseUrl: 'file:///tmp/provider' }), /HTTP or HTTPS/);
     assert.throws(() => store.update({ maxBodyBytes: 1 }), /Local request limit/);
     assert.throws(() => store.update({ aiMaxRetries: 11 }), /AI max retries/);

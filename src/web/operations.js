@@ -24,6 +24,7 @@ const state = {
   runtimeSettings: null,
   runtimeSettingsDirty: false,
   runtimeSettingsSaving: false,
+  themeSettingSaving: false,
 };
 
 const $ = selector => document.querySelector(selector);
@@ -257,8 +258,24 @@ function renderAiSettings(settings) {
   detail.textContent = `${settings.model} · ${settings.baseUrl}${settings.apiKeyMask ? ` · token ${settings.apiKeyMask}` : ''} · ${settings.maxRetries ?? 1} reintentos máx.`;
 }
 
+function normalizeTheme(theme) {
+  return theme === 'light' || theme === 'dark' ? theme : 'system';
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = normalizeTheme(theme);
+}
+
+function renderThemeSetting(settings) {
+  const theme = normalizeTheme(settings?.theme);
+  const control = $('#runtime-theme');
+  if (control) control.value = theme;
+  applyTheme(theme);
+}
+
 function renderRuntimeSettings(settings, force = false) {
   state.runtimeSettings = settings;
+  renderThemeSetting(settings);
   if (state.runtimeSettingsDirty && !force) return;
   const ai = settings.ai || {};
   $('#runtime-ai-base-url').value = ai.baseUrl || '';
@@ -306,6 +323,42 @@ function setRuntimeSettingsSaving(saving) {
     $('#runtime-ai-api-key').disabled = $('#runtime-ai-clear-token').checked;
   }
   renderAiTestStatus($('#ai-test-state').dataset.state || 'idle', $('#ai-test-state').textContent || '');
+}
+
+async function saveThemeSetting(event) {
+  event.preventDefault();
+  const form = $('#theme-settings-form');
+  const button = $('#save-theme-setting');
+  const status = $('#theme-settings-save-state');
+  if (!form.reportValidity() || state.themeSettingSaving) return;
+
+  const previousTheme = normalizeTheme(state.runtimeSettings?.theme);
+  const requestedTheme = $('#runtime-theme').value;
+  state.themeSettingSaving = true;
+  button.disabled = true;
+  button.setAttribute('aria-busy', 'true');
+  $('#runtime-theme').disabled = true;
+  status.dataset.state = 'saving';
+  status.textContent = 'Guardando apariencia…';
+  try {
+    const result = await requestJson('/api/v1/settings/runtime', {
+      method: 'PUT',
+      body: JSON.stringify({ theme: requestedTheme }),
+    });
+    state.runtimeSettings = result.settings;
+    renderThemeSetting(result.settings);
+    status.dataset.state = 'success';
+    status.textContent = 'Tema guardado en SQLite y aplicado.';
+  } catch (error) {
+    $('#runtime-theme').value = previousTheme;
+    status.dataset.state = 'error';
+    status.textContent = error.message;
+  } finally {
+    state.themeSettingSaving = false;
+    button.disabled = false;
+    button.removeAttribute('aria-busy');
+    $('#runtime-theme').disabled = false;
+  }
 }
 
 async function saveRuntimeSettings(event) {
@@ -646,6 +699,19 @@ function installOperationsUi() {
   section.id = 'runtime-operations';
   section.className = 'operations-stack';
   section.innerHTML = `
+    <section class="surface operations-card" aria-labelledby="appearance-title">
+      <div class="panel-heading"><div><p class="eyebrow">Apariencia</p><h2 id="appearance-title">Tema</h2></div></div>
+      <p class="operations-help">Elige cómo debe verse Basketra. “Sistema” sigue la preferencia de este dispositivo; Claro y Oscuro fuerzan una paleta completa y coherente.</p>
+      <form id="theme-settings-form" class="runtime-settings-form">
+        <label class="field"><span>Tema</span><select id="runtime-theme" required>
+          <option value="system">Sistema</option>
+          <option value="light">Claro</option>
+          <option value="dark">Oscuro</option>
+        </select><small>La elección se guarda para esta instalación de Basketra.</small></label>
+        <button id="save-theme-setting" class="button primary full" type="submit">${icon('checkCircle')}<span>Guardar apariencia</span></button>
+        <p id="theme-settings-save-state" class="inline-status runtime-settings-state" role="status" aria-live="polite"></p>
+      </form>
+    </section>
     <section class="surface operations-card" aria-labelledby="runtime-title">
       <div class="panel-heading"><div><p class="eyebrow">Ejecución</p><h2 id="runtime-title">Servidor y versión</h2></div></div>
       <div class="operations-metrics">
@@ -721,6 +787,7 @@ function installOperationsUi() {
       <p id="restore-state" class="inline-status" role="status"></p>
     </section>`;
   settings.append(section);
+  $('#theme-settings-form').addEventListener('submit', event => void saveThemeSetting(event));
   $('#runtime-settings-form').addEventListener('submit', event => void saveRuntimeSettings(event));
   $('#runtime-settings-form').addEventListener('input', event => {
     if (event.target?.id === 'runtime-ai-api-key' && event.target.value) {

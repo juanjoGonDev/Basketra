@@ -46,6 +46,15 @@ test('server exposes every service-worker shell asset through the explicit stati
 
   try {
     const assets = shellAssets();
+    const defaultShell = await fetch(`${baseUrl}/`);
+    assert.equal(defaultShell.status, 200);
+    assert.match(await defaultShell.text(), /data-theme="system"/u);
+
+    server.updateRuntimeSettings({ theme: 'dark' });
+    const darkShell = await fetch(`${baseUrl}/settings`);
+    assert.equal(darkShell.status, 200);
+    assert.match(await darkShell.text(), /data-theme="dark"/u);
+
     assert.ok(assets.includes('/receipt-ai-recovery.js'));
     assert.ok(assets.includes('/receipt-review.css'));
 

@@ -1314,7 +1314,13 @@ export class BasketraServer {
     if (!existsSync(file)) throw new ApiError(404, 'NOT_FOUND', 'Resource was not found');
     const mime = extname(file) === '.html' ? 'text/html; charset=utf-8' : extname(file) === '.js' ? 'text/javascript; charset=utf-8' : extname(file) === '.css' ? 'text/css; charset=utf-8' : extname(file) === '.svg' ? 'image/svg+xml' : extname(file) === '.webmanifest' ? 'application/manifest+json; charset=utf-8' : 'application/octet-stream';
     response.writeHead(200, { 'content-type': mime, 'cache-control': requested === 'index.html' ? 'no-cache' : 'public, max-age=3600' });
-    response.end(readFileSync(file));
+    const content = readFileSync(file);
+    response.end(requested === 'index.html' ? this.renderApplicationShell(content.toString('utf8')) : content);
+  }
+
+  private renderApplicationShell(html: string): string {
+    const theme = this.runtimeSettings().theme;
+    return html.replace('data-theme="system"', `data-theme="${theme}"`);
   }
 
   private empty(response: ServerResponse, status = 204): void {

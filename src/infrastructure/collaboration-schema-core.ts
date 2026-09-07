@@ -619,4 +619,13 @@ export const COLLABORATION_MIGRATIONS: readonly MigrationDefinition[] = [
       );
     `,
   },
+  {
+    version: 16,
+    kind: 'safe',
+    sql: `
+      ALTER TABLE runtime_settings
+      ADD COLUMN theme TEXT NOT NULL DEFAULT 'system'
+      CHECK(theme IN ('system', 'light', 'dark'));
+    `,
+  },
 ] as const;

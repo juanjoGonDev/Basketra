@@ -1,7 +1,11 @@
 import { DatabaseSync } from 'node:sqlite';
 import { validateOverpassBaseUrl, validateProviderBaseUrl } from './config.ts';
 
+export const THEME_VALUES = ['system', 'light', 'dark'] as const;
+export type ThemePreference = typeof THEME_VALUES[number];
+
 export const DEFAULT_RUNTIME_SETTINGS = Object.freeze({
+  theme: 'system' as ThemePreference,
   aiMaxRetries: 1,
   overpassBaseUrl: 'https://overpass-api.de/api/',
   maxBodyBytes: 32 * 1024 * 1024,
@@ -14,6 +18,7 @@ export const RUNTIME_IDLE_HIBERNATE_MAX_MS = 24 * 60 * 60 * 1000;
 export const RUNTIME_AI_MAX_RETRIES = 10;
 
 export type RuntimeSettings = Readonly<{
+  theme: ThemePreference;
   aiBaseUrl?: string;
   aiApiKey?: string;
   aiModel?: string;
@@ -25,6 +30,7 @@ export type RuntimeSettings = Readonly<{
 }>;
 
 export type PublicRuntimeSettings = Readonly<{
+  theme: ThemePreference;
   ai: Readonly<{
     configured: boolean;
     baseUrl: string | null;
@@ -40,6 +46,7 @@ export type PublicRuntimeSettings = Readonly<{
 }>;
 
 export type RuntimeSettingsUpdate = Readonly<{
+  theme?: ThemePreference;
   aiBaseUrl?: string | null;
   aiApiKey?: string | null;
   aiModel?: string | null;
@@ -50,6 +57,7 @@ export type RuntimeSettingsUpdate = Readonly<{
 }>;
 
 type RuntimeSettingsRow = Readonly<{
+  theme: string;
   aiBaseUrl: string | null;
   aiApiKey: string | null;
   aiModel: string | null;
@@ -71,6 +79,7 @@ export class RuntimeSettingsStore {
   read(): RuntimeSettings {
     const row = this.#database.prepare(`
       SELECT
+        theme,
         ai_base_url AS aiBaseUrl,
         ai_api_key AS aiApiKey,
         ai_model AS aiModel,
@@ -94,6 +103,7 @@ export class RuntimeSettingsStore {
     this.#database.prepare(`
       UPDATE runtime_settings
       SET
+        theme = ?,
         ai_base_url = ?,
         ai_api_key = ?,
         ai_model = ?,
@@ -104,6 +114,7 @@ export class RuntimeSettingsStore {
         updated_at = ?
       WHERE id = 'instance'
     `).run(
+      next.theme,
       next.aiBaseUrl ?? null,
       next.aiApiKey ?? null,
       next.aiModel ?? null,
@@ -123,6 +134,7 @@ export class RuntimeSettingsStore {
 
 export function toPublicRuntimeSettings(settings: RuntimeSettings): PublicRuntimeSettings {
   return {
+    theme: settings.theme,
     ai: {
       configured: Boolean(settings.aiBaseUrl && settings.aiModel),
       baseUrl: settings.aiBaseUrl ?? null,
@@ -141,6 +153,7 @@ export function toPublicRuntimeSettings(settings: RuntimeSettings): PublicRuntim
 export function parseRuntimeSettingsUpdate(value: unknown): RuntimeSettingsUpdate {
   if (!isRecord(value)) throw new TypeError('Runtime settings update must be an object');
   const allowed = new Set([
+    'theme',
     'aiBaseUrl',
     'aiApiKey',
     'aiModel',
@@ -154,6 +167,7 @@ export function parseRuntimeSettingsUpdate(value: unknown): RuntimeSettingsUpdat
   }
 
   const patch: {
+    theme?: ThemePreference;
     aiBaseUrl?: string | null;
     aiApiKey?: string | null;
     aiModel?: string | null;
@@ -162,6 +176,7 @@ export function parseRuntimeSettingsUpdate(value: unknown): RuntimeSettingsUpdat
     maxBodyBytes?: number;
     idleHibernateAfterMs?: number;
   } = {};
+  if (Object.hasOwn(value, 'theme')) patch.theme = themePreference(value['theme']);
   if (Object.hasOwn(value, 'aiBaseUrl')) patch.aiBaseUrl = optionalUrl(value['aiBaseUrl'], 'AI provider');
   if (Object.hasOwn(value, 'aiApiKey')) patch.aiApiKey = optionalSecret(value['aiApiKey']);
   if (Object.hasOwn(value, 'aiModel')) patch.aiModel = optionalText(value['aiModel'], 'AI model', 240);
@@ -196,6 +211,7 @@ function runtimeSettingsFromRow(row: RuntimeSettingsRow): RuntimeSettings {
   if (row.aiBaseUrl) validateProviderBaseUrl(row.aiBaseUrl);
   validateOverpassBaseUrl(row.overpassBaseUrl);
   return {
+    theme: themePreference(row.theme),
     ...(row.aiBaseUrl ? { aiBaseUrl: row.aiBaseUrl } : {}),
     ...(row.aiApiKey ? { aiApiKey: row.aiApiKey } : {}),
     ...(row.aiModel ? { aiModel: row.aiModel } : {}),
@@ -225,6 +241,7 @@ function mergeRuntimeSettings(
   const aiApiKey = Object.hasOwn(patch, 'aiApiKey') ? patch.aiApiKey ?? undefined : current.aiApiKey;
   const aiModel = Object.hasOwn(patch, 'aiModel') ? patch.aiModel ?? undefined : current.aiModel;
   return {
+    theme: patch.theme ?? current.theme,
     ...(aiBaseUrl ? { aiBaseUrl } : {}),
     ...(aiApiKey ? { aiApiKey } : {}),
     ...(aiModel ? { aiModel } : {}),
@@ -234,6 +251,13 @@ function mergeRuntimeSettings(
     idleHibernateAfterMs: patch.idleHibernateAfterMs ?? current.idleHibernateAfterMs,
     updatedAt: current.updatedAt,
   };
+}
+
+function themePreference(value: unknown): ThemePreference {
+  if (typeof value !== 'string' || !THEME_VALUES.includes(value as ThemePreference)) {
+    throw new RangeError(`Theme must be one of: ${THEME_VALUES.join(', ')}`);
+  }
+  return value as ThemePreference;
 }
 
 function optionalUrl(value: unknown, label: string): string | null {
