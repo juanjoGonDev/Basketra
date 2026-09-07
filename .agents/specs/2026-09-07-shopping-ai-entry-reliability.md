@@ -6,11 +6,13 @@ Fix the Shopping List product-category AI suggestion flow that can report the AI
 
 ## Evidence
 
-- Shopping List currently receives one `aiConfigured` boolean during application bootstrap.
-- A transient failure while reading `GET /api/v1/settings/ai-provider` is converted to `false` and remains stale for the lifetime of the page.
+- Shopping List receives one `aiConfigured` boolean during application bootstrap.
+- A transient failure while reading `GET /api/v1/settings/ai-provider` is converted to `false` and can remain stale for the lifetime of the page.
 - The existing multi-item AI flow already owns `POST /api/v1/ai/shopping-list-analysis`, editable proposals, and canonical Shopping List item creation.
-- That flow is currently hidden behind the list overflow menu as `Añadir varios con IA`.
-- Existing category suggestion already calls the canonical server endpoint `POST /api/v1/categories/suggest` and must continue using the configured provider and server-owned Category inventory.
+- That flow was hidden behind the list overflow menu as `Añadir varios con IA`.
+- Existing category suggestion already calls the canonical server endpoint `POST /api/v1/categories/suggest` and continues using the configured provider and server-owned Category inventory.
+- The reproduced category failure was a stale browser option set: the AI can return a valid category id that exists in SQLite after the page loaded, while the product editor still lacks that option and previously reported `La categoría sugerida ya no está disponible`.
+- WebAPI accepts Basketra's current nested Chat Completions reasoning-effort shape, so reasoning serialization was ruled out as the cause.
 
 ## Decision
 
@@ -46,4 +48,13 @@ Fix the Shopping List product-category AI suggestion flow that can report the AI
 
 Branch: `agent/fix-shopping-ai-entry`
 
-Status: implementation in progress.
+Status: implementation complete. Final delivery remains gated by the exact-head PR checks.
+
+## Validation evidence
+
+- Pull Request Quality run `34135991795` completed successfully after a targeted retry of external Docker registry failures.
+- The initial container failures were upstream HTTP 500 responses while resolving Docker Hub / BuildKit resources before application build evaluation; the targeted rerun passed linux/amd64, linux/arm64 and container smoke.
+- Browser shard `11/56` initially exposed a test assertion defect: generated product text lives in an editable input value rather than form text content. The assertion was corrected without product-code changes, and the rerun passed.
+- The final code head before this evidence-only specification update passed Static quality, Unit, Integration, Security, Changed coverage, Domain coverage, Web coverage, Build, Resource budgets, Browser runtime/shards/coverage, container smoke, linux/amd64 and linux/arm64.
+- CodeQL Advanced run `34135991813` completed successfully.
+- The browser regression verifies 390 px and 320 px entry layouts without horizontal document overflow, bootstrap AI recovery without page reload, editable chat proposals, and stale category-option refresh.
