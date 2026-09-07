@@ -90,3 +90,16 @@ test("unclassifiable protected-main pushes fail safe to publication", () => {
     /GHCR publication required: previous main SHA is unavailable; failing safe/u,
   );
 });
+
+test("stable promotion is blocked until the canonical SQLite temp probe passes", () => {
+  const runtimeProbeIndex = publishWorkflow.indexOf(
+    'docker exec "$container" node scripts/sqlite-temp-probe.mjs',
+  );
+  const promotionIndex = publishWorkflow.indexOf(
+    "- name: Promote verified digest to stable",
+  );
+
+  assert.ok(runtimeProbeIndex >= 0);
+  assert.ok(promotionIndex > runtimeProbeIndex);
+  assert.doesNotMatch(publishWorkflow, /PRAGMA temp_store = FILE/u);
+});

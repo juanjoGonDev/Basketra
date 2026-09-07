@@ -61,6 +61,7 @@ The reviewed production service contract is encoded directly in `compose.raspber
 - all Linux capabilities dropped;
 - `no-new-privileges`;
 - bounded tmpfs and Docker logs;
+- SQLite and general process temporary files routed by the image to the writable `/tmp/basketra` tmpfs;
 - readiness health check and bounded shutdown grace period.
 
 These are deployment-code controls, not mutable application settings.
@@ -253,6 +254,8 @@ The optional `autoupdate` profile uses Watchtower 1.7.1 with fixed Compose-owned
 - bounded memory, CPU, PID, tmpfs, and Docker logs.
 
 It mounts `/var/run/docker.sock` read-only and repository-local `./.docker` as `/config`. Authenticate that directory as described above before enabling the profile.
+
+For normal application/runtime updates, no Raspberry-side rebuild is required. A protected `main` push publishes and smoke-tests the exact multi-architecture image, promotes it to `stable` only after the hardened SQLite temporary-file probe succeeds, and the running scoped Watchtower replaces Basketra while preserving `basketra-data`. Watchtower updates the image; it does not fetch repository files or re-read changed Compose definitions. Runtime fixes that do not require a host deployment-contract change therefore belong in the image so they remain zero-touch after merge.
 
 Before starting it, inspect any existing Watchtower attached to the same Docker daemon. An unscoped/global Watchtower can conflict with the scoped Basketra instance and must be reviewed separately; this repository does not mutate that external host configuration.
 

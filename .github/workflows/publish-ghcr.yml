@@ -157,7 +157,7 @@ jobs:
           test "$version" = "$RELEASE_VERSION"
           docker run --detach --name "$container" \
             --read-only \
-            --tmpfs /tmp/basketra:rw,noexec,nosuid,size=32m \
+            --tmpfs /tmp/basketra:rw,noexec,nosuid,size=32m,mode=0700,uid=1000,gid=1000 \
             --cap-drop ALL \
             --security-opt no-new-privileges \
             --pids-limit 128 \
@@ -178,6 +178,7 @@ jobs:
           done
           curl --fail --silent http://127.0.0.1:3001/api/v1/runtime | \
             node -e 'let text="";process.stdin.on("data",chunk=>text+=chunk).on("end",()=>{const runtime=JSON.parse(text);if(runtime.version!==process.env.RELEASE_VERSION||runtime.revision!==process.env.VALIDATED_SHA)process.exit(1)})'
+          docker exec "$container" node scripts/sqlite-temp-probe.mjs
           started=$(date +%s)
           docker stop --time 20 "$container"
           elapsed=$(($(date +%s)-started))
