@@ -9,6 +9,7 @@ import { COLLABORATION_MIGRATIONS } from './collaboration-schema.ts';
 import { createId } from './ids.ts';
 import { ShoppingEstimateReadModel } from './shopping-estimate.ts';
 import { ShoppingRepository } from './shopping-repository.ts';
+import { RUNTIME_SETTINGS_MIGRATIONS } from './runtime-settings-schema.ts';
 
 export type {
   PriceObservationRecord,
@@ -157,7 +158,11 @@ const BASE_MIGRATIONS: readonly MigrationDefinition[] = [
   },
 ] as const;
 
-const MIGRATIONS: readonly MigrationDefinition[] = [...BASE_MIGRATIONS, ...COLLABORATION_MIGRATIONS];
+const MIGRATIONS: readonly MigrationDefinition[] = [
+  ...BASE_MIGRATIONS,
+  ...COLLABORATION_MIGRATIONS,
+  ...RUNTIME_SETTINGS_MIGRATIONS,
+];
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
 
 const DESTRUCTIVE_SQL = /\b(?:DROP\s+(?:TABLE|INDEX|VIEW|TRIGGER)|ALTER\s+TABLE\s+\S+\s+DROP\s+COLUMN|DELETE\s+FROM|TRUNCATE)\b/i;
