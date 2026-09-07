@@ -157,8 +157,7 @@ export function installReceiptEnhancements() {
   const review = $('#receipt-review');
   const confirm = $('#confirm-receipt');
   const receiptState = $('#receipt-state');
-  const aiSwitch = workflow?.querySelector('.switch-row') || captureSource?.querySelector('.switch-row');
-  if (!scanView || !pageHeader || !captureSource || !workflow || !manualEntry || !review || !confirm || !receiptState || !aiSwitch) return;
+  if (!scanView || !pageHeader || !captureSource || !workflow || !manualEntry || !review || !confirm || !receiptState) return;
 
   pageHeader.classList.add('receipt-analysis-header');
   const eyebrow = pageHeader.querySelector('.eyebrow');
@@ -170,27 +169,6 @@ export function installReceiptEnhancements() {
 
   if (!confirm.querySelector('.confirm-receipt__label-expanded')) {
     confirm.innerHTML = `${icon('check')}<span class="confirm-receipt__label-expanded">Confirmar e importar</span><span class="confirm-receipt__label-compact">Validar</span>`;
-  }
-
-  aiSwitch.querySelector('strong').textContent = 'Corregir OCR con IA';
-  const aiInput = aiSwitch.querySelector('#verify-receipt-ai');
-  aiInput.setAttribute('aria-label', 'Corregir OCR con IA');
-
-  if (!$('#receipt-analysis-options')) {
-    const analysisOptions = document.createElement('details');
-    analysisOptions.id = 'receipt-analysis-options';
-    analysisOptions.className = 'receipt-analysis-options';
-    const summary = document.createElement('summary');
-    const summaryTitle = document.createElement('strong');
-    summaryTitle.textContent = 'Opciones de análisis';
-    const summaryHelp = document.createElement('small');
-    summaryHelp.textContent = 'La IA es opcional y nunca bloquea el OCR';
-    summary.append(summaryTitle, summaryHelp);
-    const body = document.createElement('div');
-    body.className = 'details-body';
-    body.append(aiSwitch);
-    analysisOptions.append(summary, body);
-    captureSource.insertBefore(analysisOptions, captureSource.querySelector('.capture-actions'));
   }
 
   if (!$('#receipt-source-queue')) {
@@ -231,7 +209,11 @@ export function installReceiptEnhancements() {
     const queueBody = document.createElement('div');
     queueBody.className = 'receipt-source-queue__body';
     queueHeader.append(queueHeading, cancelAll);
-    queuePanel.append(queueHeader, queueBody);
+    const aiLimitHelp = document.createElement('p');
+    aiLimitHelp.id = 'receipt-ai-limit-help';
+    aiLimitHelp.className = 'field-help receipt-source-queue__limit-help';
+    aiLimitHelp.setAttribute('role', 'status');
+    queuePanel.append(queueHeader, aiLimitHelp, queueBody);
     queue.append(queueSummary, queuePanel);
     pageHeader.append(queue);
     queueBody.append(captureSource);
@@ -275,8 +257,10 @@ export function installReceiptEnhancements() {
     const summary = document.createElement('summary');
     const summaryCopy = document.createElement('span');
     const title = document.createElement('strong');
+    title.id = 'receipt-review-panel-title';
     title.textContent = 'Vista previa y validación';
     const help = document.createElement('small');
+    help.id = 'receipt-review-panel-help';
     help.textContent = 'Revisa captura, líneas e importes antes de importar';
     summaryCopy.append(title, help);
     const summaryMeta = document.createElement('span');
@@ -373,9 +357,6 @@ export function installReceiptEnhancements() {
 
     menu.append(aiAction, manualAction, scanAction);
 
-    const analysisOptions = $('#receipt-analysis-options');
-    if (analysisOptions?.parentElement === captureSource) captureSource.append(analysisOptions);
-
     const trigger = document.createElement('button');
     trigger.id = 'receipt-add-trigger';
     trigger.className = 'receipt-add-trigger';
@@ -423,10 +404,8 @@ function setReceiptAddMenuOpen(open) {
 }
 
 function prepareAiAssistedCapture() {
-  const aiToggle = $('#verify-receipt-ai');
-  if (aiToggle) aiToggle.checked = state.aiConfigured;
   if (!state.aiConfigured) {
-    $('#receipt-state').textContent = 'IA no disponible. La captura continuará con OCR local y podrás revisarla manualmente.';
+    $('#receipt-state').textContent = 'No hay proveedor de IA configurado. La captura se conservará y seguirá disponible para recuperación manual.';
   }
   setReceiptAddMenuOpen(false);
 }
@@ -448,12 +427,16 @@ export function bindEvents() {
   });
   $('#receipt-add-manual')?.addEventListener('click', () => {
     setReceiptAddMenuOpen(false);
-    const panel = $('#receipt-review-panel');
-    if (panel) {
-      panel.hidden = false;
-      panel.open = true;
+    const index = addBlankLine({ focus: false });
+    const reviewPanel = $('#receipt-review-panel');
+    if (reviewPanel) {
+      reviewPanel.hidden = false;
+      reviewPanel.open = false;
     }
-    addBlankLine();
+    $('#receipt-review')?.dispatchEvent(new CustomEvent('basketra:receipt-edit-line', {
+      bubbles: true,
+      detail: { index, draftNew: true },
+    }));
   });
 
   document.addEventListener('pointerdown', event => {
@@ -476,6 +459,15 @@ export function bindEvents() {
     const queue = $('#receipt-source-queue');
     if (queue?.open) queue.open = false;
     setReceiptAddMenuOpen(false);
+  });
+
+  $('#receipt-review')?.addEventListener('basketra:receipt-cancel-new-line', event => {
+    const index = Number(event.detail?.index);
+    if (!Number.isInteger(index) || index < 0) return;
+    deleteReceiptLine(index, { undoable: false });
+    if (state.items.length === 0 && state.captures.length === 0 && !state.extraction) {
+      $('#receipt-state').textContent = '';
+    }
   });
 
   $('#capture-list').addEventListener('click', handleCaptureAction);
@@ -566,12 +558,6 @@ async function recoverPersistedReceiptDraft() {
 export function initReceipts(options) {
   configureReceiptContext(options);
   installReceiptEnhancements();
-  const aiToggle = $('#verify-receipt-ai');
-  aiToggle.checked = state.aiConfigured;
-  aiToggle.disabled = !state.aiConfigured;
-  $('#receipt-ai-help').textContent = state.aiConfigured
-    ? 'Opcional y no bloqueante en fotos: primero conservamos el OCR local y la IA sólo intenta corregirlo. Los PDF usan el proveedor para leer el documento; cualquier fallo conserva la captura y permite revisión manual.'
-    : 'OCR local en español activo para fotos. Los PDF quedan disponibles para revisión manual sin proveedor de IA.';
   if (state.aiConfigured) void refreshReceiptAiLimitHelp();
   bindEvents();
   ensurePageStates();
