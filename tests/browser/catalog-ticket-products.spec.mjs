@@ -344,8 +344,8 @@ test('inventory price comparison covers deterministic equal-price tie breakers a
       { retailerId: 'retailer_alpha', retailerName: 'Alpha', storeId: 'store_new', storeName: 'Central', priceMinor: 100, observedAt: '2026-09-02T10:00:00.000Z', confidence: 1 },
     ],
     unnamed: [
-      { retailerId: 'retailer_alpha', retailerName: 'Alpha', storeId: 'store_named', storeName: 'Central', priceMinor: 100, observedAt: '2026-09-01T10:00:00.000Z', confidence: 1 },
       { retailerId: 'retailer_alpha', retailerName: 'Alpha', storeId: 'store_unnamed', priceMinor: 100, observedAt: '2026-09-01T10:00:00.000Z', confidence: 1 },
+      { retailerId: 'retailer_alpha', retailerName: 'Alpha', storeId: 'store_named', storeName: 'Central', priceMinor: 100, observedAt: '2026-09-01T10:00:00.000Z', confidence: 1 },
     ],
   };
 
