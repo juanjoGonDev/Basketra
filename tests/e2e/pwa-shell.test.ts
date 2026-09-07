@@ -79,11 +79,13 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
     assert.ok(serviceWorker.includes(`'${asset}'`));
   }
   assert.match(serviceWorker, /url\.pathname\.startsWith\('\/api\/'\)/);
-  assert.doesNotMatch(serviceWorker, /cache\.put[\s\S]*\/api\//);
+  assert.match(serviceWorker, /if \(event\.request\.method !== 'GET' \|\| !sameOrigin \|\| url\.pathname\.startsWith\('\/api\/'\)\) return;/);
 
   assert.match(app, /initLists/);
   assert.match(app, /initReceipts/);
   assert.match(app, /hydrateIcons\(\)/);
+  assert.match(app, /\/sw\.js\?version=/);
+  assert.match(app, /metadata\.application\.version/);
   assert.doesNotMatch(app, /runDemoComparison|optimizationPlan|renderPlanTabs/);
   assert.doesNotMatch(app, /basketra\.authToken|authorization/i);
   assert.doesNotMatch(api, /localStorage|Bearer|authorization/i);
