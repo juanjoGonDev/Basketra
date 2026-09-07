@@ -141,7 +141,7 @@ test('shopping ticket estimates by effective Store and converges between devices
   await second.close();
 });
 
-test('shopping AI recovers from stale bootstrap availability and refreshes stale category options', async ({ page, request }) => {
+test('shopping AI recovers from stale bootstrap availability and refreshes stale category options', async ({ page, request }, testInfo) => {
   test.setTimeout(45_000);
   let settingsReads = 0;
   let analysisRequests = 0;
@@ -191,6 +191,7 @@ test('shopping AI recovers from stale bootstrap availability and refreshes stale
   await page.goto(`/lists/${encodeURIComponent(list.id)}`);
   await expect(page.getByRole('button', { name: 'Añadir chateando con IA', exact: true })).toBeVisible();
   await expectNoHorizontalOverflow(page);
+  await page.screenshot({ path: testInfo.outputPath('shopping-ai-entry-mobile-390.png'), fullPage: true });
 
   // Create this category after the page loaded so the product editor starts with stale options.
   const categoryResponse = await request.post('/api/v1/categories', { data: { name: 'Categoría IA test' } });
@@ -206,6 +207,7 @@ test('shopping AI recovers from stale bootstrap availability and refreshes stale
   await expect.poll(() => analysisRequests).toBe(1);
   await expect(assistant.locator('[data-ai-field="text"]')).toHaveValue('Leche');
   await expect(assistant.locator('#ai-state')).toContainText('Revisa y edita');
+  await page.screenshot({ path: testInfo.outputPath('shopping-ai-chat-mobile-390.png'), fullPage: true });
 
   await assistant.getByRole('button', { name: 'Cerrar', exact: true }).click();
   await page.getByRole('button', { name: 'Crear ítem', exact: true }).click();
@@ -222,9 +224,17 @@ test('shopping AI recovers from stale bootstrap availability and refreshes stale
   await expect.poll(() => categoryRequests).toBe(1);
   await expect(productDialog.locator('#global-category')).toHaveValue(suggestedCategoryId);
   await expect(productDialog.locator('#global-category-suggestion-state')).toContainText('Categoría sugerida');
+  await page.screenshot({ path: testInfo.outputPath('shopping-ai-category-mobile-390.png'), fullPage: true });
 
+  await productDialog.getByRole('button', { name: 'Cerrar', exact: true }).click();
+  const itemDialog = page.locator('#item-dialog');
+  if (await itemDialog.isVisible()) {
+    await itemDialog.getByRole('button', { name: 'Cerrar', exact: true }).click();
+  }
   await page.setViewportSize({ width: 320, height: 700 });
   await expectNoHorizontalOverflow(page);
+  await expect(page.getByRole('button', { name: 'Añadir chateando con IA', exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('shopping-ai-entry-mobile-320.png'), fullPage: true });
 });
 
 test('scan choice routes tickets separately and product photo AI hydrates the canonical product form', async ({ page, request }, testInfo) => {
