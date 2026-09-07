@@ -1,5 +1,5 @@
 import { api, setBusy } from './api.js';
-import { breadcrumb, escapeHtml, formatEuroMinor, hydrateIcons, setFieldFeedback } from './ui.js';
+import { breadcrumb, escapeHtml, euroInputToMinor, formatEuroMinor, hydrateIcons, minorToEuroInput, setFieldFeedback } from './ui.js';
 import { createPagedSelection, syncPagedSelectionDom } from './entity-selection.js';
 import { bindCategorySuggestion } from './category-suggestion.js';
 import {
@@ -53,6 +53,8 @@ const state = {
   productSelection: createPagedSelection(),
   categorySelection: createPagedSelection(),
   bulkProductDeleteIds: [],
+  priceStores: [],
+  priceStoreOptionsTruncated: false,
 };
 
 function injectStylesheet() {
@@ -111,7 +113,7 @@ function installCatalogView() {
         </section>
         <aside class="inventory-detail-aside">
           <section class="surface"><div class="section-header"><div><p class="eyebrow">Producto padre</p><h2 id="catalog-parent-name">—</h2></div></div><p>Las variantes comparten nombre canónico, categoría y descripción.</p></section>
-          <section class="surface"><div class="section-header"><div><p class="eyebrow">Precios</p><h2>Últimas observaciones</h2></div></div><div id="catalog-latest-prices" class="catalog-retailer-names" aria-live="polite"></div></section>
+          <section class="surface catalog-price-comparison-card"><div class="section-header"><div><p class="eyebrow">Comparar precios</p><h2>Último precio por tienda</h2></div><button id="catalog-add-price" class="button secondary" type="button"><span data-icon="plus"></span>Añadir precio</button></div><p class="field-help">Una fila por ubicación, usando siempre su observación más reciente y ordenada de menor a mayor.</p><div id="catalog-latest-prices" class="catalog-retailer-names" aria-live="polite"></div></section>
           <section class="surface"><div class="section-header"><div><p class="eyebrow">Comercios</p><h2>Nombres asociados</h2></div></div><div id="catalog-retailer-names" class="catalog-retailer-names" aria-live="polite"></div></section>
         </aside>
       </div>
@@ -168,7 +170,8 @@ function installCatalogView() {
         </div>
       </section>
     </section>
-    <dialog id="catalog-delete-dialog" class="confirm-dialog" aria-labelledby="catalog-delete-title"><div class="dialog-content"><span class="dialog-icon" data-icon="alert"></span><h2 id="catalog-delete-title">Eliminar producto</h2><p id="catalog-delete-impact">Comprobando dependencias…</p><p class="inline-status" role="status" id="catalog-delete-state"></p><div class="dialog-actions"><button id="catalog-delete-cancel" class="button secondary" type="button">Cancelar</button><button id="catalog-delete-confirm" class="button danger" type="button" disabled>Eliminar producto</button></div></div></dialog>`;
+    <dialog id="catalog-price-dialog" class="confirm-dialog catalog-price-dialog" aria-labelledby="catalog-price-dialog-title"><form id="catalog-price-form" class="dialog-content"><span class="dialog-icon" data-icon="prices"></span><p class="eyebrow">Precio manual</p><h2 id="catalog-price-dialog-title">Añadir precio</h2><p id="catalog-price-dialog-copy">Registra una nueva observación sin sobrescribir el histórico.</p><label class="field"><span>Tienda</span><select id="catalog-price-store" required><option value="">Selecciona una tienda</option></select></label><label class="field"><span>Precio (€)</span><input id="catalog-price-value" inputmode="decimal" autocomplete="off" placeholder="0,00" required></label><p id="catalog-price-store-help" class="field-help"></p><p id="catalog-price-state" class="inline-status" role="alert" aria-live="assertive"></p><div class="dialog-actions"><button id="catalog-price-cancel" class="button secondary" type="button">Cancelar</button><button id="catalog-price-save" class="button primary" type="submit"><span data-icon="check"></span>Guardar precio</button></div></form></dialog>
+        <dialog id="catalog-delete-dialog" class="confirm-dialog" aria-labelledby="catalog-delete-title"><div class="dialog-content"><span class="dialog-icon" data-icon="alert"></span><h2 id="catalog-delete-title">Eliminar producto</h2><p id="catalog-delete-impact">Comprobando dependencias…</p><p class="inline-status" role="status" id="catalog-delete-state"></p><div class="dialog-actions"><button id="catalog-delete-cancel" class="button secondary" type="button">Cancelar</button><button id="catalog-delete-confirm" class="button danger" type="button" disabled>Eliminar producto</button></div></div></dialog>`;
   main.append(view);
   hydrateIcons(view);
 }
