@@ -113,3 +113,10 @@ Revert the CI optimization commits. No product data, schema or runtime contract 
 ## Status
 
 In progress.
+
+### Iteration evidence
+
+- First decomposition: all non-Browser/non-ARM64 quality jobs completed in 13-40 s; CodeQL Actions completed in 49 s and JavaScript/TypeScript in 53 s.
+- Browser with 76 shards (maximum two tests each) left four timeout cancellations. Logs showed the slowest cancelled shards completed their Playwright assertions in roughly 43-46 s but exceeded the one-minute wall clock after runner/setup/artifact overhead.
+- ARM64 under QEMU reached 75 s and was cancelled during Buildx.
+- Next iteration therefore uses exactly one Browser test per shard and a native `ubuntu-24.04-arm` GitHub-hosted runner for the ARM64 image build, removing QEMU emulation entirely.

@@ -117,7 +117,7 @@ jobs:
             cat "$listing" >&2
             exit 1
           fi
-          shard_count=$(( (test_count + 1) / 2 ))
+          shard_count=$test_count
           if [ "$shard_count" -gt 256 ]; then
             echo "Browser suite requires $shard_count shards, above GitHub's 256-job matrix limit" >&2
             exit 1
@@ -125,7 +125,7 @@ jobs:
           shards=$(node -e 'const n=Number(process.argv[1]); process.stdout.write(JSON.stringify(Array.from({length:n},(_,i)=>i+1)))' "$shard_count")
           echo "total=$shard_count" >> "$GITHUB_OUTPUT"
           echo "shards=$shards" >> "$GITHUB_OUTPUT"
-          echo "Planned $shard_count Browser shards for $test_count tests (maximum two tests per shard)."
+          echo "Planned $shard_count Browser shards for $test_count tests (exactly one test per shard)."
       - name: Build browser runtime once
         run: pnpm build
       - name: Restore exact Chromium cache
@@ -240,21 +240,21 @@ jobs:
 
   container:
     name: "📦 Container (${{ matrix.platform }})"
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 1
     strategy:
       fail-fast: false
       matrix:
-        platform:
-          - linux/amd64
-          - linux/arm64
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
       - name: Set up Buildx
         uses: docker/setup-buildx-action@5b9cf3909b54a280b6df6eee035755eb1f2fd611 # pinned 2026-07-03
       - name: Build platform with SBOM and provenance

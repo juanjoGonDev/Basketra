@@ -29,7 +29,7 @@ test('browser runtime is primed once and every deterministic shard has the one-m
   assert.match(workflow, /actions\/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9/u);
   assert.match(workflow, /basketra-playwright-\$\{\{ runner\.os \}\}-1\.59\.1-\$\{\{ github\.event\.pull_request\.head\.sha \}\}/u);
   assert.match(workflow, /outputs:\n\s+shards: \$\{\{ steps\.shard-plan\.outputs\.shards \}\}\n\s+total: \$\{\{ steps\.shard-plan\.outputs\.total \}\}/u);
-  assert.match(workflow, /maximum two tests per shard/u);
+  assert.match(workflow, /exactly one test per shard/u);
   assert.match(workflow, /shard: \$\{\{ fromJSON\(needs\.browser-runtime\.outputs\.shards\) \}\}/u);
   assert.match(workflow, /name: "🌐 Browser \$\{\{ matrix\.shard \}\}\/\$\{\{ needs\.browser-runtime\.outputs\.total \}\}"/u);
   assert.match(workflow, /pnpm exec playwright test --shard=\$\{\{ matrix\.shard \}\}\/\$\{\{ needs\.browser-runtime\.outputs\.total \}\}/u);
@@ -63,4 +63,11 @@ test('browser output uses one low-overhead artifact per shard', () => {
   assert.match(workflow, /name:\s+basketra-browser-shard-\$\{\{ matrix\.shard \}\}/u);
   assert.match(workflow, /\.coverage\/browser\n\s+test-results/u);
   assert.doesNotMatch(workflow, /basketra-invoice-visual-evidence|basketra-category-visual-evidence|basketra-visual-screenshot-evidence/u);
+});
+
+test('container validation uses native architectures instead of QEMU emulation', () => {
+  assert.match(workflow, /runner: ubuntu-latest/u);
+  assert.match(workflow, /runner: ubuntu-24\.04-arm/u);
+  assert.match(workflow, /runs-on: \$\{\{ matrix\.runner \}\}/u);
+  assert.doesNotMatch(workflow, /docker\/setup-qemu-action/u);
 });
