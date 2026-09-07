@@ -127,6 +127,15 @@ test('receipt analysis is minimal, responsive and exposes one three-path floatin
     await page.keyboard.press('Escape');
     await expect(queue).not.toHaveAttribute('open', '');
     await expect(page.locator('#receipt-state')).not.toContainText('Análisis cancelado');
+
+    if (viewport.width === 390) {
+      await add.click();
+      await expect(dial).toBeVisible();
+      await navigate(page, 'Inicio');
+      await navigate(page, 'Tickets');
+      await expect(dial).toBeHidden();
+    }
+
     await expectNoHorizontalOverflow(page);
   }
 });
