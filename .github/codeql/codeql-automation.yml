@@ -1,0 +1,5 @@
+name: Basketra automation scope
+
+paths:
+  - scripts
+  - playwright.config.mjs

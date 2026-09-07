@@ -1,0 +1,4 @@
+name: Basketra browser scope
+
+paths:
+  - src/web

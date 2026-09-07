@@ -14,7 +14,7 @@ permissions: read-all
 
 jobs:
   analyze:
-    name: Analyze (${{ matrix.language }})
+    name: Analyze (${{ matrix.scope }})
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     permissions:
@@ -25,24 +25,50 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language:
-          - actions
-          - javascript-typescript
+        include:
+          - scope: actions
+            language: actions
+            config: ./.github/codeql/codeql-actions.yml
+            sparse_checkout: |
+              .github
+          - scope: backend
+            language: javascript-typescript
+            config: ./.github/codeql/codeql-backend.yml
+            sparse_checkout: |
+              .github/codeql
+              src
+              package.json
+              pnpm-lock.yaml
+              pnpm-workspace.yaml
+              tsconfig.json
+              tsconfig.build.json
+          - scope: web
+            language: javascript-typescript
+            config: ./.github/codeql/codeql-web.yml
+            sparse_checkout: |
+              .github/codeql
+              src/web
+              package.json
+              pnpm-lock.yaml
+              pnpm-workspace.yaml
+          - scope: automation
+            language: javascript-typescript
+            config: ./.github/codeql/codeql-automation.yml
+            sparse_checkout: |
+              .github/codeql
+              scripts
+              playwright.config.mjs
+              package.json
+              pnpm-lock.yaml
+              pnpm-workspace.yaml
+              tsconfig.json
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-          sparse-checkout: |
-            .github
-            scripts
-            src
-            package.json
-            playwright.config.mjs
-            pnpm-lock.yaml
-            pnpm-workspace.yaml
-            tsconfig.json
-            tsconfig.build.json
+          sparse-checkout: ${{ matrix.sparse_checkout }}
           sparse-checkout-cone-mode: false
 
       - name: Initialize CodeQL
@@ -50,9 +76,9 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: none
-          config-file: ./.github/codeql/codeql-config.yml
+          config-file: ${{ matrix.config }}
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@f205ea1c3313d32999d8d6a48b4f6530d4437b38
         with:
-          category: /language:${{ matrix.language }}
+          category: /language:${{ matrix.language }}/scope:${{ matrix.scope }}
