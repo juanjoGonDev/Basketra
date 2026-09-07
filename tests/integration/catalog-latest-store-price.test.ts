@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { listCatalog } from '../../src/api/catalog-management.ts';
+import { getCatalogProductRelations, listCatalog } from '../../src/api/catalog-management.ts';
 import { BasketraDatabase } from '../../src/infrastructure/database.ts';
 
 test('catalog latest prices preserve physical store identity when the observation has one', () => {
@@ -123,6 +123,40 @@ test('catalog comparison keeps only the newest observation per location and sort
         { storeId: north.id, storeName: 'Mercado Norte', priceMinor: 125, observedAt: '2026-09-03T10:00:00.000Z' },
       ],
     );
+  } finally {
+    database.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test('product detail relations expose up to 100 cheapest latest locations and report truncation', () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-catalog-detail-prices-'));
+  const databasePath = join(root, 'basketra.db');
+  const database = new BasketraDatabase(databasePath);
+  try {
+    const product = database.createProduct({ canonicalName: 'Agua', variantName: 'Agua 1 L' });
+    for (let index = 0; index < 101; index += 1) {
+      const store = database.saveStore({ retailerName: `Cadena ${index}`, name: `Tienda ${index}` });
+      database.confirmPriceObservation({
+        productVariantId: product.id,
+        retailerName: store.retailerName,
+        storeId: store.id,
+        priceMinor: 1000 - index,
+        packageNumerator: 1,
+        packageDenominator: 1,
+        packageUnit: 'unit',
+        observedAt: new Date(Date.UTC(2026, 8, 1, 0, index)).toISOString(),
+        confidence: 1,
+        evidence: { sourceType: 'manual', sourceReference: `detail-${index}` },
+      });
+    }
+
+    const relations = getCatalogProductRelations(databasePath, product.id);
+    assert.equal(relations.latestPrices.length, 100);
+    assert.equal(relations.latestPricesTruncated, true);
+    assert.equal(relations.latestPrices[0]?.priceMinor, 900);
+    assert.equal(relations.latestPrices.at(-1)?.priceMinor, 999);
   } finally {
     database.close();
     rmSync(root, { recursive: true, force: true });
