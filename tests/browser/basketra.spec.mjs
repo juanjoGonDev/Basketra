@@ -191,7 +191,7 @@ test('generic swipe restoration rejects invalid identities and restores the matc
     const { restoreSwipeRow } = await import('/ui.js');
     const root = document.createElement('div');
     root.innerHTML = `
-      <div class="swipe-shell" data-swipe-row data-swipe-id="generic" data-swipe-kind="shopping-item" data-swipe-open="false">
+      <div class="swipe-shell" style="width:200px" data-swipe-row data-swipe-id="generic" data-swipe-kind="shopping-item" data-swipe-open="false">
         <div data-swipe-actions aria-hidden="true"><button type="button" tabindex="-1">Editar</button></div>
         <article data-swipe-content></article>
         <button type="button" data-swipe-toggle aria-expanded="false">Más</button>
