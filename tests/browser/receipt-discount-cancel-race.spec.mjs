@@ -44,6 +44,10 @@ async function setup(page) {
       },
     });
   });
+  const panel = page.locator('#receipt-review-panel');
+  if (!(await panel.evaluate(element => element.open))) {
+    await panel.locator(':scope > summary').click();
+  }
 }
 
 test('cancel invalidates an edited calculation before a late response can overwrite the restored total', async ({ page }, testInfo) => {
