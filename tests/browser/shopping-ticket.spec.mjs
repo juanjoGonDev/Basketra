@@ -141,6 +141,100 @@ test('shopping ticket estimates by effective Store and converges between devices
   await second.close();
 });
 
+test('shopping AI recovers from stale bootstrap availability and category suggestion remains live', async ({ page, request }) => {
+  test.setTimeout(45_000);
+  let settingsReads = 0;
+  let analysisRequests = 0;
+  let categoryRequests = 0;
+
+  await page.route('**/api/v1/settings/ai-provider', route => {
+    settingsReads += 1;
+    if (settingsReads === 1) {
+      return route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: { code: 'AI_UNREACHABLE', message: 'temporary bootstrap failure' } }),
+      });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ configured: true, baseUrl: 'http://webapi.test/v1/', model: 'default' }),
+    });
+  });
+  await page.route('**/api/v1/ai/shopping-list-analysis', route => {
+    analysisRequests += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        proposal: { items: [{ text: 'Leche', quantityMinor: 2, unit: 'unit' }] },
+        attempts: 1,
+      }),
+    });
+  });
+  await page.route('**/api/v1/categories/suggest', route => {
+    categoryRequests += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ categoryId: 'category_ai_test', attempts: 1 }),
+    });
+  });
+
+  const categoryResponse = await request.post('/api/v1/categories', { data: { name: 'Categoría IA test' } });
+  expect(categoryResponse.ok()).toBeTruthy();
+  const createdCategory = (await categoryResponse.json()).category;
+  expect(createdCategory.id).toBeTruthy();
+
+  // The browser mock must return an id that exists in the current select.
+  await page.unroute('**/api/v1/categories/suggest');
+  await page.route('**/api/v1/categories/suggest', route => {
+    categoryRequests += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ categoryId: createdCategory.id, attempts: 1 }),
+    });
+  });
+
+  const listResponse = await request.post('/api/v1/shopping-lists', { data: { name: 'Compra IA recuperable' } });
+  expect(listResponse.ok()).toBeTruthy();
+  const list = (await listResponse.json()).list;
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/lists/${encodeURIComponent(list.id)}`);
+  await expect(page.getByRole('button', { name: 'Añadir chateando con IA', exact: true })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+
+  await page.getByRole('button', { name: 'Añadir chateando con IA', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Añadir chateando con IA', exact: true })).toBeVisible();
+  await expect.poll(() => settingsReads).toBeGreaterThanOrEqual(2);
+  await page.locator('#ai-text').fill('Añade dos leches');
+  await page.locator('#analyze-ai').click();
+  await expect.poll(() => analysisRequests).toBe(1);
+  await expect(page.locator('#ai-proposals')).toContainText('Leche');
+  await expect(page.locator('#ai-state')).toContainText('Revisa y edita');
+
+  await page.getByRole('button', { name: 'Cerrar', exact: true }).click();
+  await page.getByRole('button', { name: 'Crear ítem', exact: true }).click();
+  await page.locator('#item-text').fill('Arroz largo');
+  await expect(page.getByRole('button', { name: /Crear nuevo producto/ })).toBeVisible();
+  await page.getByRole('button', { name: /Crear nuevo producto/ }).click();
+
+  const productDialog = page.locator('#global-product-dialog');
+  await expect(productDialog).toBeVisible();
+  await productDialog.locator('#global-canonical-name').fill('Arroz');
+  await productDialog.locator('#global-variant-name').fill('Arroz largo');
+  await productDialog.locator('#global-suggest-category').click();
+  await expect.poll(() => categoryRequests).toBe(1);
+  await expect(productDialog.locator('#global-category')).toHaveValue(createdCategory.id);
+  await expect(productDialog.locator('#global-category-suggestion-state')).toContainText('Categoría sugerida');
+
+  await page.setViewportSize({ width: 320, height: 700 });
+  await expectNoHorizontalOverflow(page);
+});
+
 test('scan choice routes tickets separately and product photo AI hydrates the canonical product form', async ({ page, request }, testInfo) => {
   test.setTimeout(45_000);
   const errors = runtimeErrors(page);
