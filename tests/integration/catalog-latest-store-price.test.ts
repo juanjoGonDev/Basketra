@@ -80,3 +80,51 @@ test('product price history is bounded, chronological and includes readable stor
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+
+test('catalog comparison keeps only the newest observation per location and sorts cheapest first', () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-catalog-store-comparison-'));
+  const databasePath = join(root, 'basketra.db');
+  const database = new BasketraDatabase(databasePath);
+  try {
+    const product = database.createProduct({ canonicalName: 'Arroz', variantName: 'Arroz largo 1 kg' });
+    const north = database.saveStore({ retailerName: 'Mercado', name: 'Mercado Norte' });
+    const south = database.saveStore({ retailerName: 'Mercado', name: 'Mercado Sur' });
+    const observe = (storeId: string | undefined, priceMinor: number, observedAt: string, reference: string) => {
+      database.confirmPriceObservation({
+        productVariantId: product.id,
+        retailerName: 'Mercado',
+        ...(storeId ? { storeId } : {}),
+        priceMinor,
+        packageNumerator: 1,
+        packageDenominator: 1,
+        packageUnit: 'unit',
+        observedAt,
+        confidence: 1,
+        evidence: { sourceType: 'manual', sourceReference: reference },
+      });
+    };
+
+    observe(north.id, 160, '2026-09-01T10:00:00.000Z', 'north-old');
+    observe(north.id, 125, '2026-09-03T10:00:00.000Z', 'north-new');
+    observe(south.id, 110, '2026-09-02T10:00:00.000Z', 'south');
+    observe(undefined, 99, '2026-09-04T10:00:00.000Z', 'retailer-only');
+
+    assert.deepEqual(
+      listCatalog(databasePath).products[0]?.latestPrices.map(entry => ({
+        storeId: entry.storeId,
+        storeName: entry.storeName,
+        priceMinor: entry.priceMinor,
+        observedAt: entry.observedAt,
+      })),
+      [
+        { storeId: undefined, storeName: undefined, priceMinor: 99, observedAt: '2026-09-04T10:00:00.000Z' },
+        { storeId: south.id, storeName: 'Mercado Sur', priceMinor: 110, observedAt: '2026-09-02T10:00:00.000Z' },
+        { storeId: north.id, storeName: 'Mercado Norte', priceMinor: 125, observedAt: '2026-09-03T10:00:00.000Z' },
+      ],
+    );
+  } finally {
+    database.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
