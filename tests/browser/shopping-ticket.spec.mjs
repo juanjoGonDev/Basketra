@@ -113,6 +113,7 @@ test('shopping ticket estimates by effective Store and converges between devices
 
   await row.locator('[data-item-control="store"]').selectOption(overrideStore.id);
   await expect(page.locator('#estimate-total')).toHaveText(/1,09/);
+  await expect(row.locator('[data-shopping-item-options]')).toBeVisible();
 
   const second = await context.newPage();
   const secondErrors = runtimeErrors(second);
@@ -125,6 +126,7 @@ test('shopping ticket estimates by effective Store and converges between devices
   await page.getByRole('button', { name: 'Aumentar cantidad de Leche entera 1 L', exact: true }).click();
   await expect(page.locator('#estimate-total')).toHaveText(/2,18/);
   await expect(second.locator('.quantity-chip')).toHaveText('2');
+  await expect(row.locator('[data-shopping-item-options]')).toBeVisible();
   await expect(second.locator('#estimate-total')).toHaveText(/2,18/);
 
   await page.getByRole('button', { name: 'Marcar Leche entera 1 L como comprado', exact: true }).click();
@@ -140,6 +142,12 @@ test('shopping ticket estimates by effective Store and converges between devices
   await expect(row.locator('[data-item-control="store"]')).toHaveValue('');
   await expect(page.locator('#estimate-total')).toHaveText(/2,38/);
   await expect(second.locator('#estimate-total')).toHaveText(/2,38/);
+  await expect(row.locator('[data-shopping-item-options]')).toBeVisible();
+
+  await disclosure.focus();
+  await page.keyboard.press('Enter');
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+  await expect(row.locator('[data-shopping-item-options]')).toBeHidden();
 
   await page.screenshot({ path: testInfo.outputPath('shopping-ticket-mobile-390.png'), fullPage: true });
   await second.screenshot({ path: testInfo.outputPath('shopping-ticket-mobile-320.png'), fullPage: true });
