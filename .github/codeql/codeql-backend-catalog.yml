@@ -1,0 +1,22 @@
+name: Basketra catalog and inventory scope
+
+paths:
+  - src/api/catalog-management-core.ts
+  - src/api/catalog-management.ts
+  - src/api/errors.ts
+  - src/api/inventory-management-core.ts
+  - src/api/inventory-management.ts
+  - src/api/inventory-read-model.ts
+  - src/domain
+  - src/infrastructure/catalog-repository.ts
+  - src/infrastructure/category-repository.ts
+  - src/infrastructure/category-schema.ts
+  - src/infrastructure/config.ts
+  - src/infrastructure/ids.ts
+  - src/infrastructure/inventory-schema.ts
+  - src/infrastructure/shopping-estimate.ts
+  - src/infrastructure/shopping-repository.ts
+  - src/offers
+  - src/products
+  - src/stores
+  - src/types

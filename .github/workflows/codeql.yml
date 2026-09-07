@@ -31,17 +31,55 @@ jobs:
             config: ./.github/codeql/codeql-actions.yml
             sparse_checkout: |
               .github
-          - scope: backend-http-data
+          - scope: backend-catalog
             language: javascript-typescript
-            config: ./.github/codeql/codeql-backend-http-data.yml
+            config: ./.github/codeql/codeql-backend-catalog.yml
             sparse_checkout: |
               .github/codeql
-              src/api
+              src/api/catalog-management-core.ts
+              src/api/catalog-management.ts
+              src/api/errors.ts
+              src/api/inventory-management-core.ts
+              src/api/inventory-management.ts
+              src/api/inventory-read-model.ts
               src/domain
-              src/infrastructure
+              src/infrastructure/catalog-repository.ts
+              src/infrastructure/category-repository.ts
+              src/infrastructure/category-schema.ts
+              src/infrastructure/config.ts
+              src/infrastructure/ids.ts
+              src/infrastructure/inventory-schema.ts
+              src/infrastructure/shopping-estimate.ts
+              src/infrastructure/shopping-repository.ts
+              src/offers
+              src/products
+              src/stores
               src/types
+              package.json
+              pnpm-lock.yaml
+              pnpm-workspace.yaml
+              tsconfig.json
+              tsconfig.build.json
+          - scope: backend-platform
+            language: javascript-typescript
+            config: ./.github/codeql/codeql-backend-platform.yml
+            sparse_checkout: |
+              .github/codeql
+              src/api/errors.ts
+              src/api/server.ts
+              src/api/static-assets.ts
+              src/domain
+              src/infrastructure/collaboration-schema-core.ts
+              src/infrastructure/collaboration-schema.ts
+              src/infrastructure/config.ts
+              src/infrastructure/database.ts
+              src/infrastructure/files.ts
+              src/infrastructure/inventory-schema.ts
+              src/infrastructure/runtime-settings.ts
               src/main.ts
               src/public-api.ts
+              src/realtime
+              src/types
               package.json
               pnpm-lock.yaml
               pnpm-workspace.yaml
@@ -89,19 +127,22 @@ jobs:
               pnpm-workspace.yaml
               tsconfig.json
               tsconfig.build.json
-          - scope: backend-services
+          - scope: backend-operations
             language: javascript-typescript
-            config: ./.github/codeql/codeql-backend-services.yml
+            config: ./.github/codeql/codeql-backend-operations.yml
             sparse_checkout: |
               .github/codeql
-              src/api
+              src/api/errors.ts
+              src/api/inventory-ticket-management.ts
+              src/api/server.ts
               src/domain
-              src/infrastructure
-              src/offers
+              src/infrastructure/collaboration-schema-core.ts
+              src/infrastructure/collaboration-schema.ts
+              src/infrastructure/config.ts
+              src/infrastructure/database.ts
+              src/infrastructure/runtime-settings.ts
               src/operations
-              src/products
               src/realtime
-              src/stores
               src/types
               package.json
               pnpm-lock.yaml
