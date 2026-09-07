@@ -338,7 +338,15 @@ function renderUnitOptions() {
 }
 
 function latestPrice(product) {
-  return product.latestPrices?.[0] || null;
+  const prices = Array.isArray(product?.latestPrices) ? product.latestPrices : [];
+  return prices.reduce((latest, entry) => {
+    if (!latest) return entry;
+    const latestTime = Date.parse(latest.observedAt);
+    const entryTime = Date.parse(entry.observedAt);
+    if (Number.isNaN(entryTime)) return latest;
+    if (Number.isNaN(latestTime) || entryTime > latestTime) return entry;
+    return latest;
+  }, null);
 }
 
 function syncSelectionControls(selection, pageIds, {
@@ -569,7 +577,13 @@ function renderLatestPrices(product) {
   const container = $('#catalog-latest-prices');
   if (!container) return;
   container.replaceChildren();
-  const prices = Array.isArray(product?.latestPrices) ? product.latestPrices : [];
+  const prices = Array.isArray(product?.latestPrices)
+    ? [...product.latestPrices].sort((left, right) =>
+        Number(left.priceMinor) - Number(right.priceMinor)
+        || String(left.retailerName).localeCompare(String(right.retailerName), 'es')
+        || String(left.storeName || '').localeCompare(String(right.storeName || ''), 'es')
+        || Date.parse(right.observedAt) - Date.parse(left.observedAt))
+    : [];
   if (!prices.length) {
     container.innerHTML = '<p class="field-help">Todavía no hay precios confirmados.</p>';
     return;
@@ -587,6 +601,12 @@ function renderLatestPrices(product) {
     }
     container.append(row);
   });
+  if (product?.latestPricesTruncated) {
+    const note = document.createElement('p');
+    note.className = 'field-help';
+    note.textContent = 'Se muestran las 100 tiendas con menor precio reciente. La comparación está limitada para mantener una carga acotada.';
+    container.append(note);
+  }
 }
 
 function renderPriceHistory(product) {
