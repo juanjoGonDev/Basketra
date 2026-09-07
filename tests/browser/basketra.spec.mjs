@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+
+test.use({ trace: 'on', screenshot: 'on', video: 'on' });
 import { fillRequiredReceiptStore } from './helpers/receipt-store.mjs';
 
 const validPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8//8/AwMDEwMDAwMDAwAkBgMB/DXemwAAAABJRU5ErkJggg==', 'base64');
@@ -235,7 +237,7 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await expect(page.locator('#pending-items')).toContainText('Leche semidesnatada 1 L');
 
   let riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
-  await swipe(page, riceRow, 'right');
+  await actAndWaitForListReads(page, 1, () => swipe(page, riceRow, 'right'));
   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() || '')).toBe('');
   const completedSection = page.locator('#completed-section');
   await expect(completedSection).toBeVisible();

@@ -1,0 +1,4 @@
+name: Basketra GitHub Actions scope
+
+paths:
+  - .github/workflows

@@ -125,8 +125,7 @@ test('shell defensive branches keep receipt Store options and generic swipe fail
   expect(defensiveResults.dialogClosed).toBe(true);
 });
 
-test('catalog residual branches cover rich history, nested categories and destructive outcomes', async ({ page }) => {
-  test.setTimeout(60_000);
+async function installCatalogResidualRoutes(page) {
   let products = [
     product('Producto rico', {
       id: 'variant_rich',
@@ -233,6 +232,17 @@ test('catalog residual branches cover rich history, nested categories and destru
     return route.fallback();
   });
 
+
+  return {
+    setProductImpactMode(value) { productImpactMode = value; },
+    setProductDeleteMode(value) { productDeleteMode = value; },
+    setCategoryImpactMode(value) { categoryImpactMode = value; },
+    setCategoryDeleteMode(value) { categoryDeleteMode = value; },
+  };
+}
+
+test('catalog product detail residuals cover rich history, relations and destructive outcomes', async ({ page }) => {
+  const controls = await installCatalogResidualRoutes(page);
   await page.goto('/inventory/products/variant_rich?mode=edit');
   await expect(page.locator('#catalog-price-history-count')).toHaveText('2');
   await expect(page.locator('#catalog-ticket-history-count')).toHaveText('4');
@@ -247,18 +257,18 @@ test('catalog residual branches cover rich history, nested categories and destru
   await page.locator('#catalog-link-parent').click();
   await expect(page.locator('#catalog-parent-select')).toHaveValue('');
 
-  productImpactMode = 'error';
+  controls.setProductImpactMode('error');
   await page.locator('#catalog-delete-product').click();
   await expect(page.locator('#catalog-delete-state')).toContainText('Impact failed');
   await page.locator('#catalog-delete-cancel').click();
 
-  productImpactMode = 'allowed';
-  productDeleteMode = 'error';
+  controls.setProductImpactMode('allowed');
+  controls.setProductDeleteMode('error');
   await page.locator('#catalog-delete-product').click();
   await page.locator('#catalog-delete-confirm').click();
   await expect(page.locator('#catalog-delete-state')).toContainText('Product delete failed');
   await page.locator('#catalog-delete-cancel').click();
-  productDeleteMode = 'success';
+  controls.setProductDeleteMode('success');
 
   await page.goto('/inventory/products/variant_nulls');
   await expect(page.locator('#catalog-latest-prices')).toContainText('Todavía no hay precios');
@@ -266,6 +276,11 @@ test('catalog residual branches cover rich history, nested categories and destru
   await page.goto('/inventory/products/variant_error');
   await expect(page.locator('#catalog-detail-title')).toHaveText('No se pudo abrir el producto');
 
+
+});
+
+test('catalog product list residuals cover bulk deletion, empty payloads and navigation guards', async ({ page }) => {
+  await installCatalogResidualRoutes(page);
   await page.goto('/inventory/products');
   await page.getByRole('checkbox', { name: 'Seleccionar Producto rico' }).check();
   await page.getByRole('checkbox', { name: 'Seleccionar Producto segundo' }).check();
@@ -283,6 +298,11 @@ test('catalog residual branches cover rich history, nested categories and destru
   await page.locator('#catalog-cancel-edit').click();
   await page.locator('#catalog-delete-confirm').dispatchEvent('click');
 
+
+});
+
+test('catalog category residuals cover nested trees, protected states and destructive outcomes', async ({ page }) => {
+  const controls = await installCatalogResidualRoutes(page);
   await page.goto('/inventory/categories/root?mode=edit');
   await expect(page.locator('#category-parent option[value="child"]')).toHaveCount(0);
   await page.locator('#category-add-child').click();
@@ -293,20 +313,20 @@ test('catalog residual branches cover rich history, nested categories and destru
   await expect(page.locator('#category-delete')).toBeDisabled();
   await expect(page.locator('#category-detail-status')).toHaveText('Protegida');
 
-  categoryImpactMode = 'protected';
+  controls.setCategoryImpactMode('protected');
   await page.goto('/inventory/categories/root');
   await page.locator('#category-delete').click();
   await expect(page.locator('#category-delete-state')).toContainText('protegida');
   await page.locator('#category-delete-cancel').click();
 
-  categoryImpactMode = 'error';
+  controls.setCategoryImpactMode('error');
   await page.goto('/inventory/categories/root');
   await page.locator('#category-delete').click();
   await expect(page.locator('#category-delete-state')).toContainText('Category impact failed');
   await page.locator('#category-delete-cancel').click();
 
-  categoryImpactMode = 'allowed';
-  categoryDeleteMode = 'error';
+  controls.setCategoryImpactMode('allowed');
+  controls.setCategoryDeleteMode('error');
   await page.locator('#category-delete').click();
   await page.locator('#category-delete-confirm').click();
   await expect(page.locator('#category-delete-state')).toContainText('Category delete failed');

@@ -13,9 +13,29 @@ concurrency:
 
 jobs:
   quality:
-    name: "✅ Quality"
+    name: "✅ ${{ matrix.name }}"
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Static quality
+            command: pnpm format:check && pnpm lint && pnpm typecheck && pnpm deadcode && pnpm deps:check
+          - name: Unit
+            command: pnpm test
+          - name: Static E2E
+            command: pnpm test:e2e
+          - name: Domain coverage
+            command: pnpm test:coverage
+          - name: Changed coverage
+            command: pnpm test:coverage:receipt-ai-backend
+          - name: Web coverage
+            command: pnpm test:coverage:receipt-ai-recovery && pnpm test:coverage:service-worker
+          - name: Build
+            command: pnpm build
+          - name: Resource budgets
+            command: pnpm resource:measure
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -32,15 +52,41 @@ jobs:
           npm install --global --ignore-scripts typescript@5.8.3
       - name: Frozen install
         run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Run quality gate
-        run: pnpm quality
-      - name: Enforce resource and growth budgets
-        run: pnpm resource:measure
+      - name: Run quality group
+        run: ${{ matrix.command }}
+
+  integration:
+    name: "✅ Integration ${{ matrix.shard }}/2"
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - 1
+          - 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.23.1
+      - name: Pin pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.0 --activate
+      - name: Frozen install
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Run integration shard
+        run: node --experimental-strip-types --test --test-concurrency=1 --test-shard=${{ matrix.shard }}/2 tests/integration/*.test.ts
 
   security:
     name: "🔒 Security"
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 1
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,10 +107,15 @@ jobs:
       - name: Audit production dependencies
         run: pnpm audit --prod --audit-level high
 
-  browser-e2e:
-    name: "🌐 Browser E2E"
+  browser-runtime:
+    name: "🌐 Browser runtime"
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 1
+    env:
+      BASKETRA_BROWSER_SHARD_COUNT: "56"
+    outputs:
+      shards: ${{ steps.shard-plan.outputs.shards }}
+      total: ${{ steps.shard-plan.outputs.total }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -74,71 +125,171 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22.23.1
-      - name: Install exact browser test tooling
-        timeout-minutes: 8
+      - name: Pin pnpm and TypeScript
         run: |
-          if [ -f /etc/apt/apt-mirrors.txt ]; then
-            sudo sed -i \
-              's#http://azure.archive.ubuntu.com/ubuntu#https://archive.ubuntu.com/ubuntu#g' \
-              /etc/apt/apt-mirrors.txt
-          fi
+          corepack enable
+          corepack prepare pnpm@10.15.0 --activate
           npm install --global --ignore-scripts typescript@5.8.3
-          npm install --no-save --ignore-scripts @playwright/test@1.59.1
-          npx playwright install --with-deps chromium
-      - name: Run mobile Chromium flows
-        run: npx playwright test
-      - name: Upload browser evidence
-        if: always()
+      - name: Frozen install
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Plan bounded Browser shards
+        id: shard-plan
+        shell: bash
+        env:
+          BASKETRA_BROWSER_COVERAGE_COLLECT_ONLY: "1"
+        run: |
+          set -euo pipefail
+          listing="$RUNNER_TEMP/playwright-list.txt"
+          pnpm exec playwright test --list > "$listing"
+          rm -rf .ci/browser-shards
+          plan=$(node scripts/plan-browser-shards.mjs "$listing" "$BASKETRA_BROWSER_SHARD_COUNT" .ci/browser-shards)
+          total=$(jq -r '.total' <<<"$plan")
+          shards=$(jq -c '.shards' <<<"$plan")
+          test_count=$(jq -r '.testCount' <<<"$plan")
+          max_estimated=$(jq -r '.maxEstimatedSeconds' <<<"$plan")
+          echo "total=$total" >> "$GITHUB_OUTPUT"
+          echo "shards=$shards" >> "$GITHUB_OUTPUT"
+          echo "Planned $total duration-aware Browser groups for $test_count tests; max estimated group ${max_estimated}s."
+      - name: Build browser runtime once
+        run: pnpm build
+      - name: Restore exact Chromium cache
+        id: browser-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: basketra-playwright-${{ runner.os }}-1.59.1-${{ github.event.pull_request.head.repo.id }}
+          restore-keys: |
+            basketra-playwright-${{ runner.os }}-1.59.1-
+      - name: Install exact Chromium binary
+        if: steps.browser-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install chromium
+      - name: Upload prebuilt browser runtime
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: basketra-browser-evidence
+          name: basketra-browser-runtime
           path: |
-            playwright-report
-            test-results
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Upload compact invoice evidence
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: basketra-invoice-visual-evidence
-          path: test-results/**/invoice-editor-*.png
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Upload compact screenshot evidence
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: basketra-visual-screenshot-evidence
-          path: test-results/**/*.png
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Upload compact category evidence
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: basketra-category-visual-evidence
-          path: test-results/**/categories-*.png
+            dist
+            .ci/browser-shards
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
 
-  container:
-    name: "📦 Container (${{ matrix.platform }})"
+  browser-e2e:
+    name: "🌐 Browser ${{ matrix.shard }}/${{ needs.browser-runtime.outputs.total }}"
+    needs: browser-runtime
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 1
     strategy:
       fail-fast: false
+      max-parallel: 56
       matrix:
-        platform:
-          - linux/amd64
-          - linux/arm64
+        shard: ${{ fromJSON(needs.browser-runtime.outputs.shards) }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.23.1
+      - name: Pin pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.0 --activate
+      - name: Frozen install
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Restore exact Chromium cache
+        id: browser-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: basketra-playwright-${{ runner.os }}-1.59.1-${{ github.event.pull_request.head.repo.id }}
+          fail-on-cache-miss: true
+      - name: Download prebuilt browser runtime
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf dist .ci/browser-shards
+          gh run download "$GITHUB_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name basketra-browser-runtime \
+            --dir .
+          test -f dist/main.js
+          test -f ".ci/browser-shards/shard-${{ matrix.shard }}.txt"
+      - name: Run Chromium shard
+        env:
+          BASKETRA_BROWSER_COVERAGE_COLLECT_ONLY: "1"
+          BASKETRA_BROWSER_PREBUILT: "1"
+        run: timeout --signal=TERM --kill-after=5s 45s pnpm exec playwright test --test-list=".ci/browser-shards/shard-${{ matrix.shard }}.txt"
+      - name: Upload shard coverage
+        if: success()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: basketra-browser-coverage-${{ matrix.shard }}
+          path: .coverage/browser
+          if-no-files-found: error
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 1
+      - name: Upload shard evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: basketra-browser-evidence-${{ matrix.shard }}
+          path: test-results
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7
+
+  browser-coverage:
+    name: "🌐 Browser coverage"
+    needs: browser-e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download Browser coverage shards in parallel
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: basketra-browser-coverage-*
+          path: downloaded-coverage
+      - name: Merge shard coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .coverage/browser
+          while IFS= read -r file; do
+            artifact=$(printf '%s' "$file" | sed 's#^downloaded-coverage/##; s#/.*##')
+            cp "$file" ".coverage/browser/$artifact-$(basename "$file")"
+          done < <(find downloaded-coverage -type f -name '*.json' -print | sort)
+          test "$(find .coverage/browser -type f -name '*.json' | wc -l)" -gt 0
+      - name: Enforce aggregate changed-code coverage
+        run: node scripts/check-browser-diff-coverage.mjs
+
+  container:
+    name: "📦 Container (${{ matrix.platform }})"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Set up Buildx
         uses: docker/setup-buildx-action@5b9cf3909b54a280b6df6eee035755eb1f2fd611 # pinned 2026-07-03
       - name: Build platform with SBOM and provenance
@@ -155,7 +306,7 @@ jobs:
   container-smoke:
     name: "🧪 Container smoke"
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 1
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -247,3 +398,137 @@ jobs:
           docker rm --force basketra-ci 2>/dev/null || true
           docker rm --force basketra-ci-fallback 2>/dev/null || true
           docker volume rm basketra-ci-data 2>/dev/null || true
+
+  final:
+    name: "✅ CI complete"
+    if: ${{ always() }}
+    needs:
+      - quality
+      - integration
+      - security
+      - browser-runtime
+      - browser-e2e
+      - browser-coverage
+      - container
+      - container-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      security-events: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: ${{ github.repository }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      ANALYSIS_SHA: ${{ github.sha }}
+      ANALYSIS_REF: ${{ github.ref }}
+      FINAL_VERIFIER_POLL_SECONDS: "3"
+    steps:
+      - name: Verify every required Pull Request Quality job succeeded
+        env:
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          INTEGRATION_RESULT: ${{ needs.integration.result }}
+          SECURITY_RESULT: ${{ needs.security.result }}
+          BROWSER_RUNTIME_RESULT: ${{ needs.browser-runtime.result }}
+          BROWSER_E2E_RESULT: ${{ needs.browser-e2e.result }}
+          BROWSER_COVERAGE_RESULT: ${{ needs.browser-coverage.result }}
+          CONTAINER_RESULT: ${{ needs.container.result }}
+          CONTAINER_SMOKE_RESULT: ${{ needs.container-smoke.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+          for result in \
+            "$QUALITY_RESULT" \
+            "$INTEGRATION_RESULT" \
+            "$SECURITY_RESULT" \
+            "$BROWSER_RUNTIME_RESULT" \
+            "$BROWSER_E2E_RESULT" \
+            "$BROWSER_COVERAGE_RESULT" \
+            "$CONTAINER_RESULT" \
+            "$CONTAINER_SMOKE_RESULT"; do
+            if [ "$result" != "success" ]; then
+              failed=1
+            fi
+          done
+          test "$failed" -eq 0
+
+      - name: Verify exact-head CodeQL workflow and processed analyses
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          while true; do
+            runs=$(gh api "repos/$REPOSITORY/actions/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=100")
+            codeql=$(jq -r '
+              [.workflow_runs[] | select(.name == "CodeQL Advanced")]
+              | sort_by(.created_at)
+              | last
+              | if . == null then "" else [.id, .status, (.conclusion // "")] | @tsv end
+            ' <<<"$runs")
+            if [ -z "$codeql" ]; then
+              sleep "$FINAL_VERIFIER_POLL_SECONDS"
+              continue
+            fi
+
+            read -r codeql_run_id codeql_status codeql_conclusion <<<"$codeql"
+            if [ "$codeql_status" != "completed" ]; then
+              sleep "$FINAL_VERIFIER_POLL_SECONDS"
+              continue
+            fi
+            if [ "$codeql_conclusion" != "success" ]; then
+              echo "CodeQL run $codeql_run_id completed with $codeql_conclusion" >&2
+              exit 1
+            fi
+            break
+          done
+
+          codeql_jobs=$(gh api "repos/$REPOSITORY/actions/runs/$codeql_run_id/jobs?per_page=100")
+          scopes=$(jq -r '
+            .jobs[]
+            | select(.name | test("^Analyze \\(.+\\)$"))
+            | .name
+            | capture("^Analyze \\((?<scope>.+)\\)$").scope
+          ' <<<"$codeql_jobs" | sort -u)
+          test -n "$scopes"
+
+          while true; do
+            analyses=$(gh api --paginate "repos/$REPOSITORY/code-scanning/analyses?per_page=100" | jq -s 'add // []')
+            missing=0
+            while IFS= read -r scope; do
+              if [ "$scope" = "actions" ]; then
+                language="actions"
+              else
+                language="javascript-typescript"
+              fi
+              category="/language:$language/scope:$scope"
+              analysis=$(jq -c \
+                --arg mergeSha "$ANALYSIS_SHA" \
+                --arg headSha "$HEAD_SHA" \
+                --arg ref "$ANALYSIS_REF" \
+                --arg category "$category" \
+                '[
+                  .[]
+                  | select(
+                    (.commit_sha == $mergeSha or .commit_sha == $headSha)
+                    and .ref == $ref
+                    and .category == $category
+                  )
+                ] | sort_by(.created_at) | last // empty' <<<"$analyses")
+              if [ -z "$analysis" ]; then
+                missing=1
+                break
+              fi
+              error=$(jq -r '.error // ""' <<<"$analysis")
+              if [ -n "$error" ]; then
+                echo "Code scanning analysis $category failed processing: $error" >&2
+                exit 1
+              fi
+            done <<<"$scopes"
+
+            if [ "$missing" -eq 0 ]; then
+              break
+            fi
+            sleep "$FINAL_VERIFIER_POLL_SECONDS"
+          done

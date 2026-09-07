@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 
+test.use({ trace: 'on', screenshot: 'on', video: 'on' });
+
 function navigate(page, name) {
   return page.locator('.bottom-nav').getByRole('button', { name, exact: true }).click();
 }

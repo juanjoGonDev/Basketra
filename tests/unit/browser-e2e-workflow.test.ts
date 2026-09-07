@@ -3,16 +3,89 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
+const playwrightConfig = readFileSync('playwright.config.mjs', 'utf8');
+const coverageReporter = readFileSync('tests/browser/coverage-reporter.mjs', 'utf8');
 
-test('browser E2E setup avoids the flaky Azure Ubuntu mirror and is time-bounded', () => {
-  const installStep = workflow.match(
-    /- name: Install exact browser test tooling[\s\S]*?(?=\n      - name: Run mobile Chromium flows)/u,
-  )?.[0];
+test('pull request quality decomposes the canonical serial gate into bounded parallel groups', () => {
+  for (const command of [
+    'pnpm format:check && pnpm lint && pnpm typecheck && pnpm deadcode && pnpm deps:check',
+    'pnpm test',
+    'pnpm test:e2e',
+    'pnpm test:coverage',
+    'pnpm test:coverage:receipt-ai-backend',
+    'pnpm test:coverage:receipt-ai-recovery && pnpm test:coverage:service-worker',
+    'pnpm build',
+    'pnpm resource:measure',
+  ]) {
+    assert.ok(workflow.includes(command), `missing CI quality group: ${command}`);
+  }
+  assert.doesNotMatch(workflow, /run:\s+pnpm quality/u);
+  assert.match(workflow, /quality:\n[\s\S]*?timeout-minutes:\s*1/u);
+});
 
-  assert.ok(installStep, 'browser tooling step must exist');
-  assert.match(installStep, /timeout-minutes:\s*8/u);
-  assert.match(installStep, /\/etc\/apt\/apt-mirrors\.txt/u);
-  assert.match(installStep, /http:\/\/azure\.archive\.ubuntu\.com\/ubuntu/u);
-  assert.match(installStep, /https:\/\/archive\.ubuntu\.com\/ubuntu/u);
-  assert.match(installStep, /npx playwright install --with-deps chromium/u);
+test('integration tests are deterministically split into two one-minute shards', () => {
+  assert.doesNotMatch(workflow, /command:\s+pnpm test:integration/u);
+  assert.match(workflow, /integration:\n\s+name: "✅ Integration \$\{\{ matrix\.shard \}\}\/2"[\s\S]*?timeout-minutes:\s*1/u);
+  assert.match(workflow, /shard:\n\s+- 1\n\s+- 2/u);
+  assert.match(workflow, /--test-concurrency=1 --test-shard=\$\{\{ matrix\.shard \}\}\/2 tests\/integration\/\*\.test\.ts/u);
+});
+
+test('browser runtime is primed once and every deterministic shard is execution-bounded', () => {
+  assert.match(workflow, /browser-runtime:\n[\s\S]*?timeout-minutes:\s*1/u);
+  assert.match(workflow, /actions\/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9/u);
+  assert.match(workflow, /basketra-playwright-\$\{\{ runner\.os \}\}-1\.59\.1-\$\{\{ github\.event\.pull_request\.head\.repo\.id \}\}/u);
+  assert.match(workflow, /restore-keys:\s*\|\n\s+basketra-playwright-\$\{\{ runner\.os \}\}-1\.59\.1-/u);
+  assert.match(workflow, /outputs:\n\s+shards: \$\{\{ steps\.shard-plan\.outputs\.shards \}\}\n\s+total: \$\{\{ steps\.shard-plan\.outputs\.total \}\}/u);
+  assert.match(workflow, /Plan bounded Browser shards[\s\S]*?BASKETRA_BROWSER_COVERAGE_COLLECT_ONLY:\s*"1"/u);
+  assert.match(workflow, /BASKETRA_BROWSER_SHARD_COUNT:\s*"56"/u);
+  assert.match(workflow, /node scripts\/plan-browser-shards\.mjs/u);
+  assert.match(workflow, /max estimated group \$\{max_estimated\}s/u);
+  assert.match(workflow, /shard: \$\{\{ fromJSON\(needs\.browser-runtime\.outputs\.shards\) \}\}/u);
+  assert.match(workflow, /name: "🌐 Browser \$\{\{ matrix\.shard \}\}\/\$\{\{ needs\.browser-runtime\.outputs\.total \}\}"/u);
+  assert.match(workflow, /browser-e2e:\n[\s\S]*?timeout-minutes:\s*1/u);
+  assert.match(workflow, /max-parallel:\s*56/u);
+  assert.match(workflow, /timeout --signal=TERM --kill-after=5s 45s pnpm exec playwright test --test-list=/u);
+  assert.match(workflow, /\.ci\/browser-shards\/shard-\$\{\{ matrix\.shard \}\}\.txt/u);
+  assert.match(workflow, /BASKETRA_BROWSER_COVERAGE_COLLECT_ONLY:\s*"1"/u);
+  assert.match(workflow, /name:\s+basketra-browser-runtime/u);
+  assert.match(workflow, /BASKETRA_BROWSER_PREBUILT:\s*"1"/u);
+  assert.doesNotMatch(workflow, /playwright install-deps/u);
+});
+
+test('browser sharding reuses one prebuilt application and keeps one isolated worker per shard', () => {
+  const startServer = readFileSync('tests/browser/start-server.mjs', 'utf8');
+  assert.match(startServer, /BASKETRA_BROWSER_PREBUILT/u);
+  assert.match(startServer, /requires dist\/main\.js/u);
+  assert.match(playwrightConfig, /fullyParallel:\s*true/u);
+  assert.match(playwrightConfig, /workers:\s*1/u);
+  assert.match(playwrightConfig, /trace:\s*inCi \? 'retain-on-failure' : 'on'/u);
+  assert.match(playwrightConfig, /video:\s*inCi \? 'retain-on-failure' : 'on'/u);
+});
+
+test('changed-code browser coverage uses lightweight shard artifacts and parallel download before one aggregate gate', () => {
+  assert.match(coverageReporter, /BASKETRA_BROWSER_COVERAGE_COLLECT_ONLY/u);
+  assert.match(coverageReporter, /result\.status !== 'passed' \|\| COLLECT_ONLY/u);
+  assert.match(workflow, /name:\s+basketra-browser-coverage-\$\{\{ matrix\.shard \}\}/u);
+  assert.match(workflow, /name:\s+basketra-browser-evidence-\$\{\{ matrix\.shard \}\}/u);
+  assert.match(workflow, /actions\/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c/u);
+  assert.match(workflow, /pattern:\s+basketra-browser-coverage-\*/u);
+  assert.match(workflow, /include-hidden-files:\s*true/u);
+  assert.match(workflow, /compression-level:\s*0/u);
+  assert.match(workflow, /node scripts\/check-browser-diff-coverage\.mjs/u);
+  assert.doesNotMatch(workflow, /gh run download "\$GITHUB_RUN_ID"[\s\S]*?--pattern 'basketra-browser-shard-\*'/u);
+});
+
+test('browser evidence remains separate from coverage so aggregation never downloads videos or screenshots', () => {
+  const coverageJob = workflow.slice(workflow.indexOf('  browser-coverage:'), workflow.indexOf('  container:'));
+  assert.doesNotMatch(coverageJob, /test-results/u);
+  assert.match(workflow, /name:\s+basketra-browser-evidence-\$\{\{ matrix\.shard \}\}/u);
+  assert.match(workflow, /path:\s+test-results/u);
+  assert.doesNotMatch(workflow, /basketra-invoice-visual-evidence|basketra-category-visual-evidence|basketra-visual-screenshot-evidence/u);
+});
+
+test('container validation uses native architectures instead of QEMU emulation', () => {
+  assert.match(workflow, /runner: ubuntu-latest/u);
+  assert.match(workflow, /runner: ubuntu-24\.04-arm/u);
+  assert.match(workflow, /runs-on: \$\{\{ matrix\.runner \}\}/u);
+  assert.doesNotMatch(workflow, /docker\/setup-qemu-action/u);
 });

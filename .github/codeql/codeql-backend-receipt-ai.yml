@@ -1,0 +1,14 @@
+name: Basketra receipt AI and OCR scope
+
+paths:
+  - src/ai
+  - src/api/errors.ts
+  - src/api/receipt-calculation.ts
+  - src/api/server.ts
+  - src/domain
+  - src/infrastructure/config.ts
+  - src/infrastructure/files.ts
+  - src/infrastructure/runtime-settings.ts
+  - src/ocr
+  - src/receipts
+  - src/types

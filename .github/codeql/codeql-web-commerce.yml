@@ -1,0 +1,16 @@
+name: Basketra browser commerce scope
+
+paths:
+  - src/web/app.js
+  - src/web/api.js
+  - src/web/ui.js
+  - src/web/routes.js
+  - src/web/routes.d.ts
+  - src/web/state.js
+  - src/web/entity-selection.js
+  - src/web/category-suggestion.js
+  - src/web/lists.js
+  - src/web/catalog.js
+  - src/web/inventory.js
+  - src/web/inventory-swipe.js
+  - src/web/sw.js

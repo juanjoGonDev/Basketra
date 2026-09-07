@@ -1,0 +1,14 @@
+name: Basketra browser receipt UI scope
+
+paths:
+  - src/web/app.js
+  - src/web/api.js
+  - src/web/ui.js
+  - src/web/routes.js
+  - src/web/routes.d.ts
+  - src/web/state.js
+  - src/web/ticket-history.js
+  - src/web/ticket-history-values.js
+  - src/web/receipt-review.js
+  - src/web/receipt-editor-invoice.js
+  - src/web/receipt-capture.js

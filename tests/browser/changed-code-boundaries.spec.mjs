@@ -24,6 +24,54 @@ function catalogProduct(id = 'variant_one', overrides = {}) {
   };
 }
 
+test('swipe commit uses the last tracked horizontal movement when pointerup coordinates drift', async ({ page }) => {
+  await page.goto('/settings');
+  const result = await page.evaluate(async () => {
+    const { bindSwipeActions } = await import('/ui.js');
+    const root = document.createElement('div');
+    root.style.width = '320px';
+    root.innerHTML = `
+      <div data-swipe-row data-swipe-kind="shopping-item" data-swipe-id="synthetic" data-swipe-start-action="complete">
+        <div data-swipe-content style="width:320px;height:80px">Synthetic swipe row</div>
+      </div>
+    `;
+    document.body.append(root);
+    bindSwipeActions(root);
+
+    const row = root.querySelector('[data-swipe-row]');
+    let action = '';
+    row.addEventListener('basketra:swipe-action', event => {
+      action = event.detail?.action || '';
+    });
+
+    const pointer = (type, clientX) => row.dispatchEvent(new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      pointerId: 41,
+      clientX,
+      clientY: 40,
+    }));
+
+    pointer('pointerdown', 80);
+    pointer('pointermove', 250);
+    pointer('pointerup', 0);
+    await Promise.resolve();
+
+    const output = {
+      action,
+      open: row.dataset.swipeOpen,
+      offset: row.querySelector('[data-swipe-content]').style.getPropertyValue('--swipe-x'),
+    };
+    root.remove();
+    return output;
+  });
+
+  expect(result.action).toBe('complete');
+  expect(result.open).toBe('false');
+  expect(result.offset).toBe('0px');
+});
+
 test('shell, breadcrumb and receipt Store adapters cover defensive browser boundaries', async ({ page }) => {
   await page.route('**/api/v1/retailers/suggestions?*', route => json(route, {
     suggestions: [{ name: 'ALCAMPO', receiptCount: 2 }],
@@ -113,7 +161,7 @@ test('shell, breadcrumb and receipt Store adapters cover defensive browser bound
   await expect(page.locator('#main')).toBeFocused();
 });
 
-test('catalog covers filters, validation, relations, allowed deletes and error states', async ({ page }) => {
+async function installCatalogBoundaryRoutes(page) {
   test.setTimeout(60_000);
   let products = [
     catalogProduct('variant_one', { variantName: 'Producto Uno' }),
@@ -221,6 +269,18 @@ test('catalog covers filters, validation, relations, allowed deletes and error s
     return route.fallback();
   });
 
+
+  return {
+    setProductSaveMode(value) { productSaveMode = value; },
+    setParentMode(value) { parentMode = value; },
+    setRetailerMode(value) { retailerMode = value; },
+    setBulkImpactMode(value) { bulkImpactMode = value; },
+    setCategoryImpactMode(value) { categoryImpactMode = value; },
+  };
+}
+
+test('catalog product boundaries cover filters, validation, relations, allowed deletes and errors', async ({ page }) => {
+  const controls = await installCatalogBoundaryRoutes(page);
   await page.goto('/inventory/products');
   const one = page.getByRole('checkbox', { name: 'Seleccionar Producto Uno' });
   await one.check();
@@ -269,7 +329,7 @@ test('catalog covers filters, validation, relations, allowed deletes and error s
   await page.locator('#catalog-new-parent-name').fill('Padre nuevo');
   await page.getByRole('button', { name: 'Crear padre y relacionar' }).click();
   await expect(page.locator('#catalog-detail-meta')).toHaveText('Padre nuevo');
-  parentMode = 'error';
+  controls.setParentMode('error');
   await page.locator('#catalog-new-parent-name').fill('Otro padre');
   await page.getByRole('button', { name: 'Crear padre y relacionar' }).click();
   await expect(page.locator('#catalog-parent-state')).toContainText('Parent failed');
@@ -282,14 +342,14 @@ test('catalog covers filters, validation, relations, allowed deletes and error s
   await page.locator('#catalog-retailer-title').fill('Creado Alcampo');
   await page.getByRole('button', { name: 'Guardar nombre del comercio' }).click();
   await expect(page.locator('#catalog-retailer-state')).toContainText('guardado');
-  retailerMode = 'error';
+  controls.setRetailerMode('error');
   await page.getByRole('button', { name: 'Guardar nombre del comercio' }).click();
   await expect(page.locator('#catalog-retailer-state')).toContainText('Retailer failed');
 
-  productSaveMode = 'nested-field-error';
+  controls.setProductSaveMode('nested-field-error');
   await form.getByRole('button', { name: 'Guardar ficha' }).click();
   await expect(page.locator('#catalog-ean-error')).toHaveText('EAN rejected');
-  productSaveMode = 'generic-error';
+  controls.setProductSaveMode('generic-error');
   await page.locator('#catalog-ean').fill('8412345678902');
   await form.getByRole('button', { name: 'Guardar ficha' }).click();
   await expect(page.locator('#catalog-product-form-state')).toContainText('No se pudo guardar');
@@ -306,11 +366,16 @@ test('catalog covers filters, validation, relations, allowed deletes and error s
   await page.getByRole('button', { name: 'Eliminar seleccionados' }).click();
   await expect(deleteDialog.locator('#catalog-delete-state')).toContainText('Bloqueados');
   await deleteDialog.getByRole('button', { name: 'Cancelar' }).click();
-  bulkImpactMode = 'error';
+  controls.setBulkImpactMode('error');
   await page.getByRole('button', { name: 'Eliminar seleccionados' }).click();
   await expect(deleteDialog.locator('#catalog-delete-state')).toContainText('Bulk impact failed');
   await deleteDialog.getByRole('button', { name: 'Cancelar' }).click();
 
+
+});
+
+test('catalog category boundaries cover filters, creation, allowed deletes and errors', async ({ page }) => {
+  const controls = await installCatalogBoundaryRoutes(page);
   await page.goto('/inventory/categories');
   const categoryCheckbox = page.getByRole('checkbox', { name: 'Seleccionar categoría Raíz' });
   await categoryCheckbox.check();
@@ -342,12 +407,11 @@ test('catalog covers filters, validation, relations, allowed deletes and error s
   await categoryDialog.getByRole('button', { name: 'Eliminar categoría' }).click();
   await expect(page.locator('#category-state')).toHaveText('Categoría eliminada.');
 
-  categoryImpactMode = 'error';
+  controls.setCategoryImpactMode('error');
   await page.goto('/inventory/categories/category_root');
   await page.getByRole('button', { name: 'Eliminar', exact: true }).click();
   await expect(categoryDialog.locator('#category-delete-state')).toContainText('Category impact failed');
 });
-
 test('inventory Store CRUD, filters, validation and statistics exercise alternate states', async ({ page }) => {
   let stores = [{
     id: 'store_one',
