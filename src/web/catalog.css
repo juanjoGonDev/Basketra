@@ -286,8 +286,17 @@
   color: var(--muted);
 }
 
+.catalog-price-comparison-card {
+  min-width: 0;
+}
+
 .catalog-price-comparison-card .section-header {
   align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.catalog-price-comparison-card .section-header > * {
+  min-width: 0;
 }
 
 .catalog-price-comparison-row {
