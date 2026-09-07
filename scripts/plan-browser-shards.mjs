@@ -5,7 +5,9 @@ import { pathToFileURL } from 'node:url';
 export const DEFAULT_ESTIMATED_SECONDS = 8;
 
 export const TIMING_HINTS_SECONDS = new Map([
-  ['tests/browser/changed-code-residuals.spec.mjs › catalog residual branches cover rich history, nested categories and destructive outcomes', 34],
+  ['tests/browser/changed-code-residuals.spec.mjs › catalog product detail residuals cover rich history, relations and destructive outcomes', 18],
+  ['tests/browser/changed-code-residuals.spec.mjs › catalog product list residuals cover bulk deletion, empty payloads and navigation guards', 10],
+  ['tests/browser/changed-code-residuals.spec.mjs › catalog category residuals cover nested trees, protected states and destructive outcomes', 14],
   ['tests/browser/changed-code-boundaries.spec.mjs › catalog product boundaries cover filters, validation, relations, allowed deletes and errors', 28],
   ['tests/browser/changed-code-residuals.spec.mjs › catalog and inventory defensive residuals cover partial payloads and alternate route state', 24],
   ['tests/browser/ai-provider-diagnostics.spec.mjs › provider diagnostic renders every stable recovery message and 200-level negative capability', 21],
