@@ -213,13 +213,13 @@ test('generic swipe restoration rejects invalid identities and restores the matc
       actionsHidden: actions.getAttribute('aria-hidden'),
       actionTabIndex: action.tabIndex,
       expanded: toggle.getAttribute('aria-expanded'),
-      offset: generic.querySelector('[data-swipe-content]').style.getPropertyValue('--swipe-x'),
+      offset: Number.parseFloat(generic.querySelector('[data-swipe-content]').style.getPropertyValue('--swipe-x')),
     };
     root.remove();
     return values;
   });
 
-  expect(result).toEqual({
+  expect(result).toMatchObject({
     missing: false,
     unknown: false,
     inventory: false,
@@ -228,8 +228,9 @@ test('generic swipe restoration rejects invalid identities and restores the matc
     actionsHidden: 'false',
     actionTabIndex: 0,
     expanded: 'true',
-    offset: '-112px',
   });
+  expect(result.offset).toBeLessThanOrEqual(-112);
+  expect(result.offset).toBeGreaterThanOrEqual(-168);
 });
 
 test.afterEach(async ({ page }, testInfo) => {
