@@ -27,8 +27,9 @@ export function probeSqliteTempDirectory(directory: string): void {
   process.env['SQLITE_TMPDIR'] = target;
   process.env['TMPDIR'] = target;
 
-  const database = new DatabaseSync(':memory:');
+  let database: DatabaseSync | undefined;
   try {
+    database = new DatabaseSync(':memory:');
     database.exec(
       'PRAGMA temp_store = FILE; PRAGMA temp.cache_size = 1; CREATE TEMP TABLE temp_probe(value BLOB);',
     );
@@ -40,9 +41,12 @@ export function probeSqliteTempDirectory(directory: string): void {
       throw new Error('SQLITE_TEMP_PROBE_INVALID_RESULT');
     }
   } finally {
-    database.close();
-    restoreEnvironment('SQLITE_TMPDIR', previousSqliteTmpDir);
-    restoreEnvironment('TMPDIR', previousTmpDir);
+    try {
+      database?.close();
+    } finally {
+      restoreEnvironment('SQLITE_TMPDIR', previousSqliteTmpDir);
+      restoreEnvironment('TMPDIR', previousTmpDir);
+    }
   }
 }
 
