@@ -473,22 +473,110 @@ function renderCategoryList() {
   syncCategorySelection();
 }
 
+async function loadPriceStores() {
+  const result = await api('/api/v1/inventory/stores?limit=100&offset=0&sort=name');
+  state.priceStores = Array.isArray(result?.stores) ? result.stores : [];
+  state.priceStoreOptionsTruncated = result?.hasMore === true;
+  const select = $('#catalog-price-store');
+  select.replaceChildren(new Option('Selecciona una tienda', ''));
+  for (const store of state.priceStores) {
+    select.append(new Option(`${store.retailerName} · ${store.name}`, store.id));
+  }
+  $('#catalog-price-store-help').textContent = state.priceStoreOptionsTruncated
+    ? 'Se muestran las primeras 100 tiendas. Usa Inventario · Tiendas para localizar otras.'
+    : state.priceStores.length
+      ? 'El guardado añade una nueva observación histórica para la tienda seleccionada.'
+      : 'No hay tiendas guardadas. Crea una desde Inventario · Tiendas antes de registrar precios.';
+}
+
+async function openPriceDialog(entry) {
+  const product = state.productDetail;
+  if (!product) return;
+  const dialog = $('#catalog-price-dialog');
+  $('#catalog-price-dialog-title').textContent = entry?.storeId ? 'Actualizar precio' : 'Añadir precio';
+  $('#catalog-price-dialog-copy').textContent = entry?.storeId
+    ? 'Se conservará el precio anterior y se añadirá una observación más reciente.'
+    : 'Registra una nueva observación sin sobrescribir el histórico.';
+  $('#catalog-price-state').textContent = '';
+  $('#catalog-price-store').disabled = true;
+  $('#catalog-price-save').disabled = true;
+  $('#catalog-price-store-help').textContent = 'Cargando tiendas…';
+  if (!dialog.open) dialog.showModal();
+  try {
+    await loadPriceStores();
+    $('#catalog-price-store').disabled = false;
+    $('#catalog-price-save').disabled = false;
+    $('#catalog-price-store').value = entry?.storeId || '';
+    $('#catalog-price-value').value = Number.isSafeInteger(entry?.priceMinor) ? minorToEuroInput(entry.priceMinor) : '';
+    requestAnimationFrame(() => (entry?.storeId ? $('#catalog-price-value') : $('#catalog-price-store')).focus());
+  } catch (error) {
+    $('#catalog-price-store-help').textContent = 'No se pudieron cargar las tiendas.';
+    $('#catalog-price-state').textContent = error.message;
+  }
+}
+
+async function savePrice(button) {
+  const product = state.productDetail;
+  const storeId = $('#catalog-price-store').value;
+  const store = state.priceStores.find(candidate => candidate.id === storeId);
+  const priceMinor = euroInputToMinor($('#catalog-price-value').value);
+  if (!product) return;
+  if (!store) {
+    $('#catalog-price-state').textContent = 'Selecciona una tienda válida.';
+    $('#catalog-price-store').focus();
+    return;
+  }
+  if (!Number.isSafeInteger(priceMinor) || priceMinor <= 0) {
+    $('#catalog-price-state').textContent = 'Introduce un precio mayor que 0,00 €.';
+    $('#catalog-price-value').focus();
+    return;
+  }
+
+  setBusy(button, true);
+  $('#catalog-price-state').textContent = 'Guardando precio…';
+  try {
+    await api(`/api/v1/products/${encodeURIComponent(product.id)}/prices`, {
+      method: 'POST',
+      body: JSON.stringify({
+        retailerName: store.retailerName,
+        storeId: store.id,
+        priceMinor,
+        evidenceType: 'manual',
+      }),
+    });
+    const refreshed = await fetchProductDetail(product.id);
+    renderProductDetail(refreshed);
+    $('#catalog-price-dialog').close();
+    void loadProducts();
+  } catch (error) {
+    $('#catalog-price-state').textContent = error.message;
+  } finally {
+    setBusy(button, false);
+  }
+}
+
 function renderLatestPrices(product) {
   const container = $('#catalog-latest-prices');
   if (!container) return;
   container.replaceChildren();
-  if (!product?.latestPrices?.length) {
+  const prices = Array.isArray(product?.latestPrices) ? product.latestPrices : [];
+  if (!prices.length) {
     container.innerHTML = '<p class="field-help">Todavía no hay precios confirmados.</p>';
     return;
   }
-  for (const entry of product.latestPrices) {
+  prices.forEach((entry, index) => {
     const row = document.createElement('div');
-    row.className = 'catalog-retailer-row';
-    const location = entry.storeName ? `${entry.retailerName} · ${entry.storeName}` : entry.retailerName;
+    row.className = 'catalog-retailer-row catalog-price-comparison-row';
+    const location = entry.storeName
+      ? `${entry.retailerName} · ${entry.storeName}`
+      : `${entry.retailerName} · sin tienda física`;
     const date = Number.isNaN(Date.parse(entry.observedAt)) ? entry.observedAt : DATE_FORMATTER.format(new Date(entry.observedAt));
-    row.innerHTML = `<span><strong>${escapeHtml(location)}</strong><small>${escapeHtml(date)}</small></span><strong>${escapeHtml(formatEuroMinor(entry.priceMinor))}</strong>`;
+    row.innerHTML = `<span><strong>${escapeHtml(location)}</strong><small>${index === 0 ? 'Más barato · ' : ''}${escapeHtml(date)}</small></span><span class="catalog-price-comparison-row__value"><strong>${escapeHtml(formatEuroMinor(entry.priceMinor))}</strong>${entry.storeId ? `<button type="button" class="button secondary catalog-price-update" data-price-store-id="${escapeHtml(entry.storeId)}">Actualizar</button>` : ''}</span>`;
+    if (entry.storeId) {
+      row.querySelector('[data-price-store-id]')?.addEventListener('click', () => void openPriceDialog(entry));
+    }
     container.append(row);
-  }
+  });
 }
 
 function renderPriceHistory(product) {
