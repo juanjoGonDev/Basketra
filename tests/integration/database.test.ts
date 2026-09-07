@@ -85,6 +85,63 @@ test('SQLite migrations, lists, FTS, receipt evidence and backup work together',
   }
 });
 
+test('receipt import preserves the original SQLite error when SQLite rolls back the transaction', () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-receipt-auto-rollback-'));
+  const databasePath = join(root, 'basketra.db');
+  const database = new BasketraDatabase(databasePath, {
+    migrationBackupDir: join(root, 'migration-backups'),
+    additionalMigrations: [{
+      version: CURRENT_SCHEMA_VERSION + 1,
+      kind: 'safe',
+      sql: `
+        CREATE TRIGGER force_receipt_rollback
+        BEFORE INSERT ON receipt_extractions
+        BEGIN
+          SELECT RAISE(ROLLBACK, 'FORCED_RECEIPT_ROLLBACK');
+        END;
+      `,
+    }],
+  });
+  try {
+    let failure: unknown;
+    try {
+      database.importReceipt({
+        importKey: 'receipt-auto-rollback',
+        declaredTotalMinor: 120,
+        originalText: 'LECHE 1,20',
+        provider: 'test',
+        retailerName: 'ALCAMPO',
+        storeName: 'ALCAMPO ALMERIA',
+        deterministic: { items: [] },
+        items: [{
+          description: 'LECHE',
+          quantity: 1,
+          unitPriceMinor: 120,
+          lineTotalMinor: 120,
+          status: 'confirmed',
+          confidence: 1,
+        }],
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    assert.ok(failure instanceof Error);
+    assert.match(failure.message, /FORCED_RECEIPT_ROLLBACK/);
+    assert.equal((failure as Error & { code?: string }).code, 'ERR_SQLITE_ERROR');
+
+    const raw = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      assert.equal((raw.prepare('SELECT COUNT(*) AS count FROM receipts').get() as { count: number }).count, 0);
+    } finally {
+      raw.close();
+    }
+  } finally {
+    database.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('receipt extraction jobs persist background state and expire on retention', () => {
   const root = mkdtempSync(join(tmpdir(), 'basketra-receipt-job-'));
   let now = new Date('2026-08-17T08:00:00.000Z');
