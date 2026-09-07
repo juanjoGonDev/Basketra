@@ -16,6 +16,16 @@ function clearControl(control, invalidControls) {
   invalidControls.delete(control);
 }
 
+function categorySuggestionFailureMessage(error) {
+  if (error?.code === 'AI_NOT_CONFIGURED') {
+    return 'La IA no está configurada. Puedes elegir una categoría manualmente.';
+  }
+  if (typeof error?.code === 'string' && error.code.startsWith('AI_')) {
+    return 'El proveedor de IA no está disponible ahora. Puedes elegir una categoría manualmente o reintentar.';
+  }
+  return 'No se pudo sugerir una categoría. Puedes elegirla manualmente.';
+}
+
 export function bindCategorySuggestion({
   button,
   status,
@@ -126,7 +136,7 @@ export function bindCategorySuggestion({
       status.textContent = `Categoría sugerida: ${option.textContent || categoryId}. Revisa y guarda cuando quieras.`;
     } catch (error) {
       if (error?.name === 'AbortError' || requestGeneration !== generation) return;
-      status.textContent = 'No se pudo sugerir una categoría. Puedes elegirla manualmente.';
+      status.textContent = categorySuggestionFailureMessage(error);
     } finally {
       if (requestGeneration === generation) {
         controller = null;
