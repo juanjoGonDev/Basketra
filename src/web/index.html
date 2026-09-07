@@ -103,6 +103,7 @@
 
         <div class="list-primary-actions list-primary-actions--split">
           <button id="open-item-dialog" class="button primary list-entry-action" type="button" aria-label="Crear ítem"><span data-icon="edit"></span><span><strong>Crear ítem</strong><small>Escribe o busca</small></span></button>
+          <button id="open-ai-item-assistant" class="button secondary list-entry-action" type="button" aria-label="Añadir chateando con IA"><span data-icon="sparkles"></span><span><strong>Chatear con IA</strong><small>Añade uno o varios</small></span></button>
           <button id="scan-list-item" class="button secondary list-entry-action" type="button" aria-label="Escanear"><span data-icon="camera"></span><span><strong>Escanear</strong><small>Producto o ticket</small></span></button>
           <span id="item-state" class="inline-status" role="status"></span>
         </div>
@@ -342,7 +343,7 @@
 
   <dialog id="ai-assistant-dialog" class="sheet-dialog" aria-labelledby="ai-assistant-title">
     <div class="dialog-content">
-      <div class="dialog-header"><div><p class="eyebrow">Asistencia opcional</p><h2 id="ai-assistant-title">Añadir con IA</h2></div><button class="icon-button" type="button" data-close-dialog="ai-assistant-dialog" aria-label="Cerrar"><span data-icon="close"></span></button></div>
+      <div class="dialog-header"><div><p class="eyebrow">Asistencia opcional</p><h2 id="ai-assistant-title">Añadir chateando con IA</h2></div><button class="icon-button" type="button" data-close-dialog="ai-assistant-dialog" aria-label="Cerrar"><span data-icon="close"></span></button></div>
       <label class="field"><span>Describe lo que necesitas</span><textarea id="ai-text" maxlength="2000" placeholder="Leche, pan integral y dos paquetes de arroz"></textarea></label>
       <div class="capture-actions compact-captures">
         <label class="capture-action"><span data-icon="camera"></span><strong>Foto</strong><input id="ai-product-camera" type="file" accept="image/jpeg,image/png" capture="environment"></label>
