@@ -281,6 +281,7 @@ function installReceiptLineEditor() {
     }
     description.removeAttribute('aria-invalid');
     closeReceiptLineEditor();
+    $('#receipt-review')?.dispatchEvent(new CustomEvent('basketra:receipt-line-saved', { bubbles: true }));
   });
   $('#delete-receipt-line-editor').addEventListener('click', () => closeReceiptLineEditor({ deleteLine: true }));
   dialog.addEventListener('input', event => {
