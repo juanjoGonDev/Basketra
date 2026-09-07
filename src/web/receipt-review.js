@@ -34,6 +34,19 @@ export function renderReviewReference() {
   const selector = $('#receipt-review-capture');
   if (!container || !selector) return;
 
+  const evidence = container.closest('.receipt-review-evidence');
+  const hasCaptures = state.captures.length > 0;
+  if (evidence) evidence.hidden = !hasCaptures;
+  selector.disabled = !hasCaptures;
+  const panelTitle = $('#receipt-review-panel-title');
+  const panelHelp = $('#receipt-review-panel-help');
+  if (panelTitle) panelTitle.textContent = hasCaptures ? 'Vista previa y validación' : 'Revisión y validación';
+  if (panelHelp) {
+    panelHelp.textContent = hasCaptures
+      ? 'Revisa captura, líneas e importes antes de importar'
+      : 'Revisa las líneas e importes antes de importar';
+  }
+
   selector.replaceChildren();
   for (const [index, capture] of state.captures.entries()) {
     const option = document.createElement('option');
@@ -487,13 +500,16 @@ export function renderReview(lines = [], total) {
   const review = $('#receipt-review');
   const panel = $('#receipt-review-panel');
   const keepPanelOpen = panel?.open === true;
-  review.hidden = false;
-  review.innerHTML = receiptReview(state.items, lines, total, state.extraction?.final?.categories ?? []);
-  enhanceReceiptLines(lines);
+  const hasReviewContent = state.items.length > 0 || state.captures.length > 0 || Boolean(state.extraction);
+  review.hidden = !hasReviewContent;
+  review.innerHTML = hasReviewContent
+    ? receiptReview(state.items, lines, total, state.extraction?.final?.categories ?? [])
+    : '';
+  if (hasReviewContent) enhanceReceiptLines(lines);
   $('#confirm-receipt').hidden = state.items.length === 0;
   if (panel) {
-    panel.hidden = false;
-    panel.open = keepPanelOpen;
+    panel.hidden = !hasReviewContent;
+    panel.open = hasReviewContent && keepPanelOpen;
   }
   renderReviewReference();
   renderProgressiveDetectedItems();
@@ -515,7 +531,7 @@ export function applyExtraction(extraction, originalText = extraction.originalTe
   renderReview(extraction.final.review.lines, extraction.final.review.total);
 }
 
-export function addBlankLine() {
+export function addBlankLine({ focus = true } = {}) {
   try {
     if ($('.receipt-item')) state.items = readReceiptItems();
   } catch {
@@ -529,10 +545,14 @@ export function addBlankLine() {
     confidence: 0,
     userConfirmed: true,
   });
+  const index = state.items.length - 1;
   renderReview();
-  const input = $(`.receipt-item[data-item-index="${state.items.length - 1}"] [data-field="description"]`);
-  input?.focus();
-  requestAnimationFrame(() => input?.focus());
+  if (focus) {
+    const input = $(`.receipt-item[data-item-index="${index}"] [data-field="description"]`);
+    input?.focus();
+    requestAnimationFrame(() => input?.focus());
+  }
+  return index;
 }
 
 export function restoreReceiptLine(index, item, original) {
