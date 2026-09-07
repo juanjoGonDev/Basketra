@@ -293,7 +293,7 @@ function loadLatestPrices(database: DatabaseSync, productIds: readonly string[])
         confidence,
         ROW_NUMBER() OVER (
           PARTITION BY productVariantId
-          ORDER BY observedAt DESC, retailerName COLLATE NOCASE, COALESCE(storeName, '') COLLATE NOCASE
+          ORDER BY priceMinor ASC, retailerName COLLATE NOCASE, COALESCE(storeName, '') COLLATE NOCASE, observedAt DESC
         ) AS productRank
       FROM latest_per_location
       WHERE locationRank = 1
