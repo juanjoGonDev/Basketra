@@ -78,7 +78,7 @@ function completedExtraction(description = 'PAN INTEGRAL', lineTotalMinor = 165)
   };
 }
 
-test('receipt analysis is minimal, mobile-first and exposes one three-path floating add action', async ({ page }) => {
+test('receipt analysis is minimal, responsive and exposes one three-path floating add action', async ({ page }, testInfo) => {
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -88,6 +88,8 @@ test('receipt analysis is minimal, mobile-first and exposes one three-path float
   for (const viewport of [
     { width: 320, height: 700 },
     { width: 390, height: 844 },
+    { width: 768, height: 900 },
+    { width: 1280, height: 900 },
   ]) {
     await page.setViewportSize(viewport);
     await page.goto('/');
@@ -110,13 +112,26 @@ test('receipt analysis is minimal, mobile-first and exposes one three-path float
     await expect(dial.getByText('Manual', { exact: true })).toBeVisible();
     await expect(dial.getByText('Scan', { exact: true })).toBeVisible();
 
+    if (viewport.width === 390 || viewport.width === 1280) {
+      await page.screenshot({
+        path: testInfo.outputPath(`receipt-add-menu-${viewport.width}.png`),
+        fullPage: true,
+      });
+    }
+
     await page.keyboard.press('Escape');
     await expect(dial).toBeHidden();
+
+    await queue.locator(':scope > summary').click();
+    await expect(queue).toHaveAttribute('open', '');
+    await page.keyboard.press('Escape');
+    await expect(queue).not.toHaveAttribute('open', '');
+    await expect(page.locator('#receipt-state')).not.toContainText('Análisis cancelado');
     await expectNoHorizontalOverflow(page);
   }
 });
 
-test('durable OCR evidence appears progressively in the body while source details stay in the queue', async ({ page }) => {
+test('durable OCR evidence appears progressively in the body while source details stay in the queue', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
@@ -174,6 +189,10 @@ test('durable OCR evidence appears progressively in the body while source detail
   await expect(queue).toHaveAttribute('open', '');
   await expect(queue.locator('.capture-card')).toHaveCount(1);
   await expect(queue.locator('.capture-card .status-pill')).toContainText('Verificando con IA');
+  await page.screenshot({
+    path: testInfo.outputPath('receipt-progressive-queue-390.png'),
+    fullPage: true,
+  });
 
   await expect(page.locator('#receipt-review-panel')).toBeHidden();
   await expectNoHorizontalOverflow(page);
