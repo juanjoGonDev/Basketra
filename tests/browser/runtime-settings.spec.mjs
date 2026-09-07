@@ -350,6 +350,34 @@ test('appearance setting persists explicit themes and overrides the opposite dev
   await expect(theme).toHaveValue('dark');
 });
 
+test('explicit light appearance stays light against a dark device preference', async ({ page }) => {
+  const runtime = publicRuntime({ theme: 'light' });
+  await page.route('**/api/v1/settings/runtime', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ settings: runtime }),
+  }));
+  await installAuxiliaryRoutes(page, () => aiStatus(runtime));
+
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto('/');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+
+  const colors = await page.evaluate(() => {
+    const body = getComputedStyle(document.body);
+    const heading = getComputedStyle(document.querySelector('.hero h1'));
+    const card = getComputedStyle(document.querySelector('.dashboard-card'));
+    return {
+      bodyBackground: body.backgroundColor,
+      headingColor: heading.color,
+      cardBackground: card.backgroundColor,
+    };
+  });
+  expect(colors.bodyBackground).toBe('rgb(243, 252, 245)');
+  expect(colors.headingColor).toBe('rgb(21, 29, 25)');
+  expect(colors.cardBackground).toBe('rgb(255, 255, 255)');
+});
+
 test('system appearance follows the device preference without a mixed Home palette', async ({ page }) => {
   const runtime = publicRuntime({ theme: 'system' });
   await page.route('**/api/v1/settings/runtime', route => route.fulfill({
