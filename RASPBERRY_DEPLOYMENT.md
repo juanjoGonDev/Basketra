@@ -137,7 +137,7 @@ docker stats --no-stream basketra-basketra-1
 curl --fail --silent http://127.0.0.1:3000/api/v1/runtime
 ```
 
-`/health` proves HTTP liveness. `/readiness` proves database initialization/migrations have completed. `/api/v1/runtime` exposes version, revision, start time, and uptime without exposing credentials or arbitrary process data.
+`/health` proves HTTP liveness. `/readiness` proves database initialization/migrations have completed. `/api/v1/runtime` exposes version, revision, start time, uptime, and the bounded temporary-storage mode without exposing credentials, filesystem paths, or arbitrary process data.
 
 ## Application logs
 
@@ -255,7 +255,9 @@ The optional `autoupdate` profile uses Watchtower 1.7.1 with fixed Compose-owned
 
 It mounts `/var/run/docker.sock` read-only and repository-local `./.docker` as `/config`. Authenticate that directory as described above before enabling the profile.
 
-For normal application/runtime updates, no Raspberry-side rebuild is required. A protected `main` push publishes and smoke-tests the exact multi-architecture image, promotes it to `stable` only after the hardened SQLite temporary-file probe succeeds, and the running scoped Watchtower replaces Basketra while preserving `basketra-data`. Watchtower updates the image; it does not fetch repository files or re-read changed Compose definitions. Runtime fixes that do not require a host deployment-contract change therefore belong in the image so they remain zero-touch after merge.
+For normal application/runtime updates, no Raspberry-side rebuild is required. A protected `main` push publishes and smoke-tests the exact multi-architecture image, promotes it to `stable` only after the hardened SQLite temporary-file probes succeed, and the running scoped Watchtower replaces Basketra while preserving `basketra-data`. Watchtower updates the image; it does not fetch repository files or re-read changed Compose definitions. Runtime fixes that do not require a host deployment-contract change therefore belong in the image so they remain zero-touch after merge.
+
+Basketra verifies temporary storage before restore or database bootstrap. The preferred `/tmp/basketra` tmpfs remains the normal path. If an older container configuration inherited by Watchtower makes that mount unusable, the process automatically switches its SQLite and general temporary storage to a private `runtime-tmp` directory inside `basketra-data`. The public runtime endpoint exposes only `tempStorage.mode` as `primary` or `data-fallback`; it never returns either filesystem path. A `data-fallback` mode is safe for continuity but indicates that the host Compose contract should be reconciled during planned maintenance because persistent storage is being used for transient work.
 
 Before starting it, inspect any existing Watchtower attached to the same Docker daemon. An unscoped/global Watchtower can conflict with the scoped Basketra instance and must be reviewed separately; this repository does not mutate that external host configuration.
 

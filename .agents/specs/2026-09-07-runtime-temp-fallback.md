@@ -92,4 +92,4 @@ Do not merge, release, deploy, mutate the Raspberry, or perform destructive data
 
 ## Status
 
-Implementation pending.
+Implementation complete on branch pending exact-head CI. The runtime now verifies temporary storage before restore/database bootstrap, automatically falls back to a mode-0700 directory under `dataDir`, propagates the effective temporary directory to application services, exposes only the mode through runtime metadata/logs, and includes broken-primary container regressions in local smoke, PR CI, and protected-main publication.
