@@ -551,6 +551,10 @@
 
 
 /* Minimal receipt-analysis workspace. */
+.view[data-view="scan"] {
+  gap: var(--space-4);
+}
+
 .receipt-analysis-header {
   position: relative;
   min-width: 0;
@@ -1030,6 +1034,11 @@
   background: var(--color-surface-container-low);
 }
 
+.receipt-add-action:has(input:focus-visible) {
+  outline: .1875rem solid var(--color-focus);
+  outline-offset: .1875rem;
+}
+
 .receipt-add-action > .icon {
   color: var(--color-primary);
 }
@@ -1136,5 +1145,14 @@
   .receipt-source-queue > summary::after,
   .receipt-add-trigger .icon {
     transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .receipt-source-queue > summary,
+  .receipt-source-queue__panel,
+  .receipt-add-trigger,
+  .receipt-add-action {
+    border: 1px solid CanvasText;
   }
 }
