@@ -36,7 +36,7 @@ The baseline Browser suite passed 142 tests in 15.1 minutes. A multi-viewport vi
 8. Collect Browser changed-code coverage per group, upload it separately from screenshots/videos, download all lightweight coverage artifacts in parallel, and enforce the canonical differential coverage gate once on the merged evidence.
 9. Keep Browser evidence separate from coverage so the coverage aggregation path never downloads video or screenshot payloads.
 10. Replace emulated ARM64 builds with GitHub's native `ubuntu-24.04-arm` runner while retaining the amd64 build, SBOM and provenance gates.
-11. Keep CodeQL Actions and JavaScript/TypeScript enabled, partition JavaScript/TypeScript by explicit architecture scopes that together cover the existing production/automation surface, and enforce the same one-minute timeout.
+11. Keep CodeQL Actions and JavaScript/TypeScript enabled, partition JavaScript/TypeScript by explicit architecture scopes that together cover the existing production/automation surface; the large browser surface is split into commerce/inventory and receipts/operations scopes with shared shell files, and enforce the same one-minute timeout.
 12. Remove the visual-evidence polling loop. Trusted publication starts from successful `Pull Request Quality` via `workflow_run`, validates the exact same-repository PR/head and trusted author association, downloads Browser evidence artifacts in parallel, prepares media in a read-only job, and reserves write permissions for the final publisher.
 13. Preserve the real swipe behavior exposed by the new scheduling. The Browser run reproduced a pre-existing completion race where `pointerup.clientX` could contradict an already-crossed threshold; the smallest fix makes the last tracked horizontal displacement canonical and adds a regression.\n14. Publish one stable `✅ CI complete` aggregate job after every Pull Request Quality workload. It performs no build/test work, runs with `always()`, fails if any required upstream job did not succeed, waits for the exact-head CodeQL workflow and its code-scanning analyses to finish server-side processing, and uses a 15-minute safety timeout instead of the one-minute workload budget.
 
@@ -98,7 +98,7 @@ Excluded:
 - linux/amd64 image build
 - native linux/arm64 image build
 - CodeQL Actions
-- CodeQL JavaScript/TypeScript
+- CodeQL JavaScript/TypeScript architecture scopes, including separate browser commerce and receipt scopes
 - visual-evidence workflow policy tests
 - GitHub Actions job-duration review\n- `✅ CI complete` aggregate verifier with a 15-minute safety bound for exact-head CodeQL processing
 

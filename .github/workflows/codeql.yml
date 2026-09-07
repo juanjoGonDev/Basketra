@@ -149,12 +149,51 @@ jobs:
               pnpm-workspace.yaml
               tsconfig.json
               tsconfig.build.json
-          - scope: web
+          - scope: web-commerce
             language: javascript-typescript
-            config: ./.github/codeql/codeql-web.yml
+            config: ./.github/codeql/codeql-web-commerce.yml
             sparse_checkout: |
               .github/codeql
-              src/web
+              src/web/app.js
+              src/web/api.js
+              src/web/ui.js
+              src/web/routes.js
+              src/web/routes.d.ts
+              src/web/state.js
+              src/web/entity-selection.js
+              src/web/category-suggestion.js
+              src/web/lists.js
+              src/web/catalog.js
+              src/web/inventory.js
+              src/web/inventory-swipe.js
+              src/web/sw.js
+              package.json
+              pnpm-lock.yaml
+              pnpm-workspace.yaml
+          - scope: web-receipts
+            language: javascript-typescript
+            config: ./.github/codeql/codeql-web-receipts.yml
+            sparse_checkout: |
+              .github/codeql
+              src/web/app.js
+              src/web/api.js
+              src/web/ui.js
+              src/web/routes.js
+              src/web/routes.d.ts
+              src/web/state.js
+              src/web/entity-selection.js
+              src/web/category-suggestion.js
+              src/web/ticket-history.js
+              src/web/ticket-history-values.js
+              src/web/receipt-review.js
+              src/web/receipt-lifecycle.js
+              src/web/receipt-editor-invoice.js
+              src/web/receipt-capture.js
+              src/web/receipt-processing.js
+              src/web/receipts.js
+              src/web/receipt-ai-recovery.js
+              src/web/receipt-state.js
+              src/web/operations.js
               package.json
               pnpm-lock.yaml
               pnpm-workspace.yaml

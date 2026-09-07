@@ -38,10 +38,10 @@ test('workload jobs stay at one minute while the final verifier may wait for glo
 test('CodeQL keeps full language coverage through one-minute architecture scopes', () => {
   assert.match(codeql, /timeout-minutes:\s*1/u);
   assert.match(codeql, /wait-for-processing:\s*false/u);
-  for (const scope of ['actions', 'backend-catalog', 'backend-platform', 'backend-operations', 'backend-receipt-runtime', 'backend-receipt-ai', 'web', 'automation']) {
+  for (const scope of ['actions', 'backend-catalog', 'backend-platform', 'backend-operations', 'backend-receipt-runtime', 'backend-receipt-ai', 'web-commerce', 'web-receipts', 'automation']) {
     assert.match(codeql, new RegExp('scope: ' + scope, 'u'));
   }
-  assert.equal((codeql.match(/language: javascript-typescript/gu) || []).length, 7);
+  assert.equal((codeql.match(/language: javascript-typescript/gu) || []).length, 8);
   assert.match(codeql, /language: actions/u);
   assert.match(codeql, /config-file:\s+\$\{\{ matrix\.config \}\}/u);
   assert.match(codeql, /category:\s+\/language:\$\{\{ matrix\.language \}\}\/scope:\$\{\{ matrix\.scope \}\}/u);
@@ -53,7 +53,8 @@ test('CodeQL keeps full language coverage through one-minute architecture scopes
   const backendOperationsConfig = readFileSync('.github/codeql/codeql-backend-operations.yml', 'utf8');
   const backendReceiptRuntimeConfig = readFileSync('.github/codeql/codeql-backend-receipt-runtime.yml', 'utf8');
   const backendReceiptAiConfig = readFileSync('.github/codeql/codeql-backend-receipt-ai.yml', 'utf8');
-  const webConfig = readFileSync('.github/codeql/codeql-web.yml', 'utf8');
+  const webCommerceConfig = readFileSync('.github/codeql/codeql-web-commerce.yml', 'utf8');
+  const webReceiptsConfig = readFileSync('.github/codeql/codeql-web-receipts.yml', 'utf8');
   const automationConfig = readFileSync('.github/codeql/codeql-automation.yml', 'utf8');
 
   assert.match(actionsConfig, /\.github\/workflows/u);
@@ -62,6 +63,7 @@ test('CodeQL keeps full language coverage through one-minute architecture scopes
   assert.match(backendOperationsConfig, /src\/api\/inventory-ticket-management\.ts[\s\S]*src\/operations/u);
   assert.match(backendReceiptRuntimeConfig, /src\/api\/server\.ts[\s\S]*src\/infrastructure\/database\.ts[\s\S]*src\/receipts/u);
   assert.match(backendReceiptAiConfig, /src\/ai[\s\S]*src\/ocr[\s\S]*src\/receipts/u);
-  assert.match(webConfig, /paths:\n\s+- src\/web/u);
+  assert.match(webCommerceConfig, /src\/web\/lists\.js[\s\S]*src\/web\/inventory-swipe\.js/u);
+  assert.match(webReceiptsConfig, /src\/web\/ticket-history\.js[\s\S]*src\/web\/receipt-review\.js[\s\S]*src\/web\/operations\.js/u);
   assert.match(automationConfig, /paths:\n\s+- scripts\n\s+- playwright\.config\.mjs/u);
 });
