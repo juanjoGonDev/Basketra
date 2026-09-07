@@ -20,7 +20,8 @@ test('Tickets initializes even when shopping-list bootstrap fails', async ({ pag
   await expect(queue).toBeVisible();
   await expect(queue).not.toHaveAttribute('open', '');
   await queue.locator(':scope > summary').click();
-  await expect(page.locator('#receipt-analysis-options')).toBeVisible();
+  await expect(page.locator('#receipt-analysis-options')).toHaveCount(0);
+  await expect(page.locator('#verify-receipt-ai')).toHaveCount(0);
   await expect(page.locator('#receipt-progress')).toBeAttached();
   await expect(page.locator('#receipt-review-panel')).toBeAttached();
 });
