@@ -21,6 +21,8 @@ async function uploadPng(page, name) {
 }
 
 async function openCaptureDetails(page) {
+  const queue = page.locator('#receipt-source-queue');
+  if (!(await queue.evaluate(element => element.open))) await queue.locator(':scope > summary').click();
   const details = page.locator('.capture-card__details').first();
   if (!(await details.evaluate(element => element.open))) await details.locator('summary').click();
   return details;
