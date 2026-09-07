@@ -79,7 +79,7 @@ async function expectLoadedImages(page, count) {
 
 async function expectNoOverflow(page) {
   const widths = await page.evaluate(() => ({
-    viewport: document.documentElement.clientWidth,
+    viewport: window.innerWidth,
     content: document.documentElement.scrollWidth,
   }));
   expect(widths.content).toBeLessThanOrEqual(widths.viewport);
