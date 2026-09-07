@@ -281,4 +281,8 @@ test('inventory quick price editor handles empty and unavailable store inventori
   await expect(dialog.locator('#catalog-price-store-help')).toContainText('No se pudieron cargar las tiendas');
   await expect(dialog.locator('#catalog-price-state')).toContainText('Tiendas no disponibles');
   await expect(dialog.locator('#catalog-price-save')).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Cancelar' }).click();
+  await page.locator('#catalog-back-list').click();
+  await page.locator('#catalog-new-product').click();
+  await expect(page.locator('#catalog-price-comparison-card')).toBeHidden();
 });
