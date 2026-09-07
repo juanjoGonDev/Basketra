@@ -309,3 +309,112 @@ test('manual floating action uses a cancellable modal without fake capture previ
   await expect(page.locator('.receipt-review-evidence')).toBeHidden();
   await expectNoHorizontalOverflow(page);
 });
+
+
+test('receipt minimal UI guards remain fail-closed without leaving transient state behind', async ({ page }) => {
+  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ configured: false }),
+  }));
+
+  await page.goto('/');
+  await navigate(page, 'Tickets');
+
+  const review = page.locator('#receipt-review');
+  await review.evaluate(element => {
+    element.dispatchEvent(new CustomEvent('basketra:receipt-edit-line', {
+      bubbles: true,
+      detail: { index: 'invalid' },
+    }));
+    element.dispatchEvent(new CustomEvent('basketra:receipt-edit-line', {
+      bubbles: true,
+      detail: { index: 999 },
+    }));
+  });
+  await expect(page.locator('#receipt-line-dialog')).toBeHidden();
+
+  const add = page.getByRole('button', { name: 'Añadir al ticket', exact: true });
+  const aiAction = page.locator('[data-receipt-capture-mode="ai"]');
+  await add.click();
+  await aiAction.evaluate(element => {
+    element.addEventListener('click', event => event.preventDefault(), { capture: true, once: true });
+    element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  });
+  await expect(page.locator('#receipt-state')).toContainText('No hay proveedor de IA configurado');
+  await expect(page.locator('#receipt-add-menu')).toBeHidden();
+
+  await page.evaluate(async () => {
+    const { state } = await import('/receipt-state.js');
+    const action = document.querySelector('[data-receipt-capture-mode="ai"]');
+    const receiptState = document.querySelector('#receipt-state');
+    state.aiConfigured = true;
+    receiptState.textContent = '';
+    document.querySelector('#receipt-add-trigger').click();
+    action.addEventListener('click', event => event.preventDefault(), { capture: true, once: true });
+    action.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    state.aiConfigured = false;
+  });
+  await expect(page.locator('#receipt-state')).toHaveText('');
+  await expect(page.locator('#receipt-add-menu')).toBeHidden();
+
+  const queue = page.locator('#receipt-source-queue');
+  await queue.evaluate(element => { element.open = true; });
+  await page.evaluate(() => {
+    document.dispatchEvent(new CustomEvent('basketra:view-changed', { detail: { view: 'scan' } }));
+  });
+  await expect(queue).toHaveAttribute('open', '');
+  await page.evaluate(() => {
+    document.dispatchEvent(new CustomEvent('basketra:view-changed'));
+  });
+  await expect(queue).not.toHaveAttribute('open', '');
+
+  await page.evaluate(() => {
+    const trigger = document.querySelector('#receipt-add-trigger');
+    const parent = trigger.parentNode;
+    const next = trigger.nextSibling;
+    trigger.remove();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    parent.insertBefore(trigger, next);
+  });
+  await expect(add).toBeVisible();
+
+  await review.evaluate(element => {
+    element.dispatchEvent(new CustomEvent('basketra:receipt-cancel-new-line', {
+      bubbles: true,
+      detail: { index: 'invalid' },
+    }));
+  });
+
+  await page.evaluate(() => {
+    const reviewElement = document.querySelector('#receipt-review');
+    const invalid = document.createElement('fieldset');
+    invalid.className = 'receipt-item';
+    invalid.dataset.itemIndex = '0';
+    reviewElement.append(invalid);
+    reviewElement.dispatchEvent(new CustomEvent('basketra:receipt-line-saved', { bubbles: true }));
+    invalid.remove();
+  });
+
+  await page.evaluate(async () => {
+    const receiptState = document.querySelector('#receipt-state');
+    const parent = receiptState.parentNode;
+    const next = receiptState.nextSibling;
+    receiptState.remove();
+    const { installReceiptEnhancements } = await import('/receipts.js');
+    installReceiptEnhancements();
+    parent.insertBefore(receiptState, next);
+  });
+  await expect(page.locator('#receipt-state')).toBeAttached();
+
+  await page.evaluate(async () => {
+    const reviewElement = document.querySelector('#receipt-review');
+    reviewElement.hidden = false;
+    reviewElement.innerHTML = '<div class="review-total"></div><div class="review-summary"><span class="status-pill"></span></div>';
+    const { syncStickyReviewSummary } = await import('/receipts.js');
+    syncStickyReviewSummary();
+    reviewElement.replaceChildren();
+    syncStickyReviewSummary();
+  });
+  await expect(page.locator('#receipt-review-summary-meta')).toHaveText('');
+});
