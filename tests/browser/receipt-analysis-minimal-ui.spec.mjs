@@ -248,7 +248,7 @@ test('queue cancel-all preserves uploaded captures and marks active work cancell
   await expectNoHorizontalOverflow(page);
 });
 
-test('manual floating action uses a cancellable modal without fake capture preview', async ({ page }) => {
+test('manual floating action uses a cancellable modal without fake capture preview', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
@@ -273,11 +273,19 @@ test('manual floating action uses a cancellable modal without fake capture previ
   await expect(page.locator('.receipt-review-evidence')).toBeHidden();
   await expect(page.locator('#receipt-review-panel-title')).toHaveText('Revisión y validación');
   await expect(page.locator('#receipt-add-menu')).toBeHidden();
+  await page.screenshot({
+    path: testInfo.outputPath('receipt-manual-modal-390.png'),
+    fullPage: true,
+  });
 
   await dialog.getByRole('button', { name: 'Cancelar', exact: true }).click();
   await expect(dialog).toBeHidden();
   await expect(page.locator('.receipt-item')).toHaveCount(0);
   await expect(reviewPanel).toBeHidden();
+  await page.screenshot({
+    path: testInfo.outputPath('receipt-manual-cancelled-390.png'),
+    fullPage: true,
+  });
 
   await add.click();
   await page.locator('#receipt-add-manual').click();
