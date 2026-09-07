@@ -28,8 +28,7 @@
 
   function applyPreference(value) {
     preference = THEME_VALUES.has(value) ? value : 'system';
-    if (preference === 'system') delete document.documentElement.dataset.theme;
-    else document.documentElement.dataset.theme = preference;
+    document.documentElement.dataset.theme = effectiveTheme(preference);
     updateBrowserThemeColor();
     updateControls();
   }
@@ -107,7 +106,7 @@
   }
 
   media.addEventListener?.('change', () => {
-    if (preference === 'system') updateBrowserThemeColor();
+    if (preference === 'system') applyPreference(preference);
   });
 
   applyPreference(preference);
