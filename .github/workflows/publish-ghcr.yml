@@ -178,6 +178,19 @@ jobs:
           done
           curl --fail --silent http://127.0.0.1:3001/api/v1/runtime | \
             node -e 'let text="";process.stdin.on("data",chunk=>text+=chunk).on("end",()=>{const runtime=JSON.parse(text);if(runtime.version!==process.env.RELEASE_VERSION||runtime.revision!==process.env.VALIDATED_SHA)process.exit(1)})'
+          docker exec "$container" node --input-type=module -e '
+            import { DatabaseSync } from "node:sqlite";
+            if (process.env.SQLITE_TMPDIR !== "/tmp/basketra") process.exit(2);
+            if (process.env.TMPDIR !== "/tmp/basketra") process.exit(3);
+            const database = new DatabaseSync(":memory:");
+            try {
+              database.exec("PRAGMA temp_store = FILE; CREATE TEMP TABLE temp_probe(value TEXT); INSERT INTO temp_probe(value) VALUES (\\"ok\\");");
+              const row = database.prepare("SELECT value FROM temp_probe").get();
+              if (row?.value !== "ok") process.exit(4);
+            } finally {
+              database.close();
+            }
+          '
           started=$(date +%s)
           docker stop --time 20 "$container"
           elapsed=$(($(date +%s)-started))
