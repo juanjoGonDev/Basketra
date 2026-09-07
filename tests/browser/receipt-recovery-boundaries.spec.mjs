@@ -172,6 +172,10 @@ test('unknown page states and stale delegated actions fail closed without mutati
       list.append(button);
     }
   });
+  const queue = page.locator('#receipt-source-queue');
+  if (!(await queue.evaluate(element => element.open))) {
+    await queue.locator(':scope > summary').click();
+  }
   await page.getByRole('button', { name: 'stale-99', exact: true }).click();
   await page.getByRole('button', { name: 'stale-0', exact: true }).click();
 
