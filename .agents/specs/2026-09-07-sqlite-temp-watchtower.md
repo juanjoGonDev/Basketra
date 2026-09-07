@@ -13,6 +13,8 @@ Receipt confirmation still fails after PR #54 was merged. Production diagnostics
 - The local Docker smoke used a writable `/tmp`, unlike production, so it could not reproduce this deployment class.
 - Exact-head PR run `34100435315` later proved the new file-backed probe reproduces the same `ERR_SQLITE_ERROR` / extended code `6410` when the CI tmpfs omits the production ownership/mode options. The production Compose already owns `/tmp/basketra` as `uid=1000,gid=1000,mode=0700`; CI/local/publisher smokes must preserve those options instead of testing a different mount contract.
 - Protected-main publication already builds a multi-architecture immutable candidate, smoke-tests it, and promotes the same digest to `stable`; Watchtower watches that stable image.
+- Exact-head run `34100811290` on `1d4c12b1749a39cc7c86b6622065f0c3804bc764` passed Quality, Security, linux/amd64, linux/arm64, Browser E2E and the hardened container smoke, including `Verify SQLite temporary storage` under the production tmpfs ownership contract.
+- Exact-head CodeQL run `34100811353` passed for Actions and JavaScript/TypeScript. Visual-impact run `34100811293` passed classification and correctly skipped direct visual evidence because this task has no UI impact.
 
 ## Decision
 
@@ -82,4 +84,4 @@ No merge, release, deployment, or remote data mutation is authorized by this tas
 
 ## Status
 
-Canonical probe consolidated during final review. PR run `34100435315` reproduced `6410` in the intentionally strengthened probe and exposed missing production tmpfs ownership parity in CI/local/publisher runners; parity fix prepared and exact-head revalidation pending.
+Acceptance satisfied on implementation head `1d4c12b1749a39cc7c86b6622065f0c3804bc764`: PR Quality `34100811290`, CodeQL `34100811353` and visual-impact classification `34100811293` are green, the strengthened SQLite probe passes under the production tmpfs ownership contract, and Browser E2E is terminal green. Final documentation synchronization is the only change after that validated implementation head and must itself receive exact-head CI before delivery.
