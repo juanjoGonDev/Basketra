@@ -2511,3 +2511,69 @@ summary {
       ". total";
   }
 }
+
+
+/* Shopping-list rows keep the purchase decision compact; configuration is progressive disclosure. */
+.ticket-item:not(.ticket-item--select) {
+  grid-template-columns: auto minmax(0, 1fr) auto var(--touch);
+  grid-template-areas:
+    "complete identity total settings-toggle"
+    "settings settings settings settings";
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+}
+
+.ticket-item:not(.ticket-item--select) .ticket-item__total {
+  align-self: center;
+}
+
+.ticket-item__identity-copy {
+  overflow: hidden;
+}
+
+.ticket-item__compact-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ticket-item__settings-toggle {
+  grid-area: settings-toggle;
+  width: var(--touch);
+  min-width: var(--touch);
+  min-height: var(--touch);
+  align-self: center;
+  background: var(--color-surface-container-low);
+}
+
+.ticket-item__settings-toggle[aria-expanded="true"] .icon {
+  transform: rotate(180deg);
+}
+
+.ticket-item__settings {
+  grid-area: settings;
+  min-width: 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid color-mix(in srgb, var(--color-on-surface) 10%, transparent);
+}
+
+.ticket-item__settings[hidden] {
+  display: none;
+}
+
+@media (max-width: 31rem) {
+  .ticket-item:not(.ticket-item--select) {
+    grid-template-columns: var(--touch) minmax(0, 1fr) auto var(--touch);
+    grid-template-areas:
+      "complete identity total settings-toggle"
+      "settings settings settings settings";
+  }
+
+  .ticket-item:not(.ticket-item--select) .ticket-item__product-icon {
+    display: none;
+  }
+
+  .ticket-item:not(.ticket-item--select) .ticket-item__identity {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

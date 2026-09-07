@@ -745,6 +745,11 @@ async function initialize() {
   });
   try {
     const metadata = await api('/api/v1/meta');
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .register(`/sw.js?version=${encodeURIComponent(metadata.application.version)}`)
+        .catch(() => {});
+    }
     const aiConfigured = await loadAiConfiguration();
     initReceipts({ metadata, toast, aiConfigured });
     await initLists({ metadata, toast, aiConfigured });
@@ -766,7 +771,5 @@ async function initialize() {
     }
   }
 }
-
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
 void initialize();

@@ -99,20 +99,36 @@ test('shopping ticket estimates by effective Store and converges between devices
   const row = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Leche entera 1 L' });
   await expect(row.locator('.ticket-item__product-icon')).toBeVisible();
   await expect(row).toContainText('Mercado Centro');
+  const rowSettings = row.locator('.ticket-item__settings');
+  const configureRow = row.getByRole('button', { name: 'Configurar Leche entera 1 L', exact: true });
+  await expect(configureRow).toHaveAttribute('aria-expanded', 'false');
+  await expect(rowSettings).toBeHidden();
+  expect(await row.locator('.ticket-item').evaluate(element => element.getBoundingClientRect().height)).toBeLessThanOrEqual(88);
 
+  await configureRow.click();
+  await expect(rowSettings).toBeVisible();
+  await expect(row.getByRole('button', { name: 'Ocultar configuración de Leche entera 1 L', exact: true })).toHaveAttribute('aria-expanded', 'true');
   await row.locator('[data-item-control="store"]').selectOption(overrideStore.id);
   await expect(page.locator('#estimate-total')).toHaveText(/1,09/);
+  await expect(rowSettings).toBeVisible();
 
   const second = await context.newPage();
   const secondErrors = runtimeErrors(second);
   await second.setViewportSize({ width: 320, height: 700 });
   await second.goto(`/lists/${encodeURIComponent(list.id)}`);
   await expect(second.locator('#estimate-total')).toHaveText(/1,09/);
+  const secondRow = second.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Leche entera 1 L' });
+  const secondSettings = secondRow.locator('.ticket-item__settings');
+  await expect(secondSettings).toBeHidden();
+  expect(await secondRow.locator('.ticket-item').evaluate(element => element.getBoundingClientRect().height)).toBeLessThanOrEqual(88);
+  await secondRow.getByRole('button', { name: 'Configurar Leche entera 1 L', exact: true }).click();
+  await expect(secondSettings).toBeVisible();
   await expectNoHorizontalOverflow(second);
 
   await page.getByRole('button', { name: 'Aumentar cantidad de Leche entera 1 L', exact: true }).click();
   await expect(page.locator('#estimate-total')).toHaveText(/2,18/);
   await expect(second.locator('.quantity-chip')).toHaveText('2');
+  await expect(secondSettings).toBeVisible();
   await expect(second.locator('#estimate-total')).toHaveText(/2,18/);
 
   await page.getByRole('button', { name: 'Marcar Leche entera 1 L como comprado', exact: true }).click();
@@ -126,14 +142,23 @@ test('shopping ticket estimates by effective Store and converges between devices
 
   await page.locator('#apply-list-store-all').click();
   await expect(row.locator('[data-item-control="store"]')).toHaveValue('');
+  await expect(rowSettings).toBeVisible();
   await expect(page.locator('#estimate-total')).toHaveText(/2,38/);
   await expect(second.locator('#estimate-total')).toHaveText(/2,38/);
 
+  const hideSettings = row.getByRole('button', { name: 'Ocultar configuración de Leche entera 1 L', exact: true });
+  await hideSettings.focus();
+  await page.keyboard.press('Enter');
+  await expect(rowSettings).toBeHidden();
+  await expect(hideSettings).toHaveAttribute('aria-expanded', 'false');
+  await secondRow.getByRole('button', { name: 'Ocultar configuración de Leche entera 1 L', exact: true }).click();
+  await expect(secondSettings).toBeHidden();
   await page.screenshot({ path: testInfo.outputPath('shopping-ticket-mobile-390.png'), fullPage: true });
   await second.screenshot({ path: testInfo.outputPath('shopping-ticket-mobile-320.png'), fullPage: true });
   await expectNoHorizontalOverflow(page);
   await page.setViewportSize({ width: 1280, height: 900 });
   await expect(page.locator('.shopping-ticket')).toBeVisible();
+  expect(await row.locator('.ticket-item').evaluate(element => element.getBoundingClientRect().height)).toBeLessThanOrEqual(88);
   await expectNoHorizontalOverflow(page);
   await page.screenshot({ path: testInfo.outputPath('shopping-ticket-desktop-1280.png'), fullPage: true });
   expect(errors).toEqual([]);

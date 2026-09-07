@@ -1,4 +1,6 @@
-const CACHE = 'basketra-shell-v30';
+const CACHE_PREFIX = 'basketra-shell-';
+const CACHE_VERSION = new URL(self.location.href).searchParams.get('version');
+const CACHE = `${CACHE_PREFIX}${CACHE_VERSION}`;
 const SHELL = [
   '/',
   '/index.html',
@@ -48,26 +50,49 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)));
+    await Promise.all(
+      keys
+        .filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE)
+        .map(key => caches.delete(key)),
+    );
     await self.clients.claim();
   })());
 });
+
+async function fetchAndCache(request) {
+  const response = await fetch(request);
+  if (!response.ok) return response;
+  try {
+    const cache = await caches.open(CACHE);
+    await cache.put(request, response.clone());
+  } catch {
+    // Cache refresh is opportunistic; the network response remains authoritative.
+  }
+  return response;
+}
 
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   const supportedProtocol = url.protocol === 'http:' || url.protocol === 'https:';
   const sameOrigin = supportedProtocol && url.origin === self.location.origin;
   if (event.request.method !== 'GET' || !sameOrigin || url.pathname.startsWith('/api/')) return;
-  event.respondWith(
-    fetch(event.request)
-      .then(response => {
-        if (!response.ok) return response;
-        const copy = response.clone();
-        void caches.open(CACHE)
-          .then(cache => cache.put(event.request, copy))
-          .catch(() => {});
-        return response;
-      })
-      .catch(() => caches.match(event.request).then(cached => cached || caches.match('/index.html'))),
-  );
+
+  event.respondWith((async () => {
+    const cached = await caches.match(event.request);
+    if (cached) {
+      event.waitUntil(fetchAndCache(event.request).then(() => undefined).catch(() => undefined));
+      return cached;
+    }
+
+    try {
+      return await fetchAndCache(event.request);
+    } catch (error) {
+      const lastSegment = url.pathname.slice(url.pathname.lastIndexOf('/') + 1);
+      if (!lastSegment.includes('.')) {
+        const fallback = await caches.match('/index.html');
+        if (fallback) return fallback;
+      }
+      throw error;
+    }
+  })());
 });

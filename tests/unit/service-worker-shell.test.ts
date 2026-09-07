@@ -7,12 +7,13 @@ function requestAddress(request: RequestInfo | URL): string {
   return request instanceof Request ? request.url : String(request);
 }
 
-test('service worker installs the complete shell, cleans old caches and handles every fetch path', async () => {
+test('service worker versions and serves the complete shell cache-first without intercepting APIs', async () => {
   const listeners = new Map<string, Listener>();
   const addedShells: string[][] = [];
   const deletedCaches: string[] = [];
   const cachedRequests: string[] = [];
   const cacheWrites: string[] = [];
+  const backgroundWork: Promise<unknown>[] = [];
   let currentCacheName = '';
   let skipWaitingCalls = 0;
   let claimCalls = 0;
@@ -30,7 +31,10 @@ test('service worker installs the complete shell, cleans old caches and handles 
     },
   };
   const fakeSelf = {
-    location: { origin: 'http://basketra.test' },
+    location: {
+      origin: 'http://basketra.test',
+      href: 'http://basketra.test/sw.js?version=1.4.2-test',
+    },
     addEventListener(name: string, listener: Listener) {
       listeners.set(name, listener);
     },
@@ -45,14 +49,14 @@ test('service worker installs the complete shell, cleans old caches and handles 
   };
   const fakeCaches = {
     async open(name: string) {
-      assert.match(name, /^basketra-shell-v\d+$/);
+      assert.equal(name, 'basketra-shell-1.4.2-test');
       currentCacheName ||= name;
       assert.equal(name, currentCacheName);
       return cache;
     },
     async keys() {
       assert.notEqual(currentCacheName, '');
-      return ['basketra-shell-obsolete', currentCacheName];
+      return ['unrelated-cache', 'basketra-shell-obsolete', currentCacheName];
     },
     async delete(name: string) {
       deletedCaches.push(name);
@@ -92,7 +96,7 @@ test('service worker installs the complete shell, cleans old caches and handles 
     assert.ok(addedShells[0]?.includes('/receipts.js'));
     assert.ok(addedShells[0]?.includes('/modern.css'));
     assert.ok(addedShells[0]?.includes('/catalog.js'));
-    assert.ok(addedShells[0]?.includes('/catalog.css'));
+    assert.ok(addedShells[0]?.includes('/icon.svg'));
 
     let activateWork: Promise<unknown> | undefined;
     activate({ waitUntil(work: Promise<unknown>) { activateWork = work; } });
@@ -100,70 +104,84 @@ test('service worker installs the complete shell, cleans old caches and handles 
     assert.deepEqual(deletedCaches, ['basketra-shell-obsolete']);
     assert.equal(claimCalls, 1);
 
-    let responseWork: Promise<Response | undefined> | undefined;
-    const respondWith = (work: Promise<Response | undefined>) => { responseWork = work; };
+    let responseWork: Promise<Response> | undefined;
+    const respondWith = (work: Promise<Response>) => { responseWork = work; };
+    const waitUntil = (work: Promise<unknown>) => { backgroundWork.push(work); };
 
     fetchListener({
       request: new Request('http://basketra.test/api/v1/meta'),
       respondWith,
+      waitUntil,
     });
     assert.equal(responseWork, undefined);
 
     fetchListener({
       request: new Request('http://basketra.test/', { method: 'POST', body: 'x' }),
       respondWith,
+      waitUntil,
     });
     assert.equal(responseWork, undefined);
 
     fetchListener({
       request: { method: 'GET', url: 'chrome-extension://example/content.js' },
       respondWith,
+      waitUntil,
     });
     assert.equal(responseWork, undefined);
 
     fetchListener({
       request: new Request('https://example.com/third-party.js'),
       respondWith,
+      waitUntil,
     });
     assert.equal(responseWork, undefined);
 
-    fetchImplementation = async () => new Response('fresh', { status: 200 });
-    const freshRequest = new Request('http://basketra.test/operations.js');
-    fetchListener({ request: freshRequest, respondWith });
-    assert.equal((await responseWork)?.status, 200);
-    await new Promise(resolve => setImmediate(resolve));
-    assert.deepEqual(cacheWrites, [freshRequest.url]);
+    let releaseRefresh: ((response: Response) => void) | undefined;
+    const cachedRequest = new Request('http://basketra.test/app.js');
+    matchImplementation = async request => requestAddress(request) === cachedRequest.url
+      ? new Response('cached', { status: 200 })
+      : undefined;
+    fetchImplementation = (() => new Promise<Response>(resolve => { releaseRefresh = resolve; })) as typeof fetch;
+    fetchListener({ request: cachedRequest, respondWith, waitUntil });
+    assert.equal(await (await responseWork)?.text(), 'cached');
+    assert.ok(releaseRefresh, 'background refresh must start');
+    releaseRefresh(new Response('fresh', { status: 200 }));
+    await backgroundWork.at(-1);
+    assert.deepEqual(cacheWrites, [cachedRequest.url]);
 
     responseWork = undefined;
     cachePutFails = true;
-    const cacheFailureRequest = new Request('http://basketra.test/app.js');
-    fetchListener({ request: cacheFailureRequest, respondWith });
-    assert.equal((await responseWork)?.status, 200);
-    await new Promise(resolve => setImmediate(resolve));
-    assert.deepEqual(cacheWrites, [freshRequest.url, cacheFailureRequest.url]);
+    matchImplementation = async () => undefined;
+    fetchImplementation = async () => new Response('fresh despite cache failure', { status: 200 });
+    const cacheFailureRequest = new Request('http://basketra.test/operations.js');
+    fetchListener({ request: cacheFailureRequest, respondWith, waitUntil });
+    assert.equal(await (await responseWork)?.text(), 'fresh despite cache failure');
+    assert.deepEqual(cacheWrites, [cachedRequest.url, cacheFailureRequest.url]);
     cachePutFails = false;
 
     responseWork = undefined;
     fetchImplementation = async () => new Response('missing', { status: 404 });
-    fetchListener({ request: new Request('http://basketra.test/missing.js'), respondWith });
+    fetchListener({ request: new Request('http://basketra.test/missing.js'), respondWith, waitUntil });
     assert.equal((await responseWork)?.status, 404);
-    assert.deepEqual(cacheWrites, [freshRequest.url, cacheFailureRequest.url]);
+    assert.deepEqual(cacheWrites, [cachedRequest.url, cacheFailureRequest.url]);
 
     responseWork = undefined;
     fetchImplementation = async () => { throw new TypeError('offline'); };
-    matchImplementation = async request => requestAddress(request).includes('cached.js')
-      ? new Response('cached', { status: 200 })
-      : undefined;
-    fetchListener({ request: new Request('http://basketra.test/cached.js'), respondWith });
-    assert.equal(await (await responseWork)?.text(), 'cached');
-
-    responseWork = undefined;
     matchImplementation = async request => requestAddress(request) === '/index.html'
       ? new Response('fallback', { status: 200 })
       : undefined;
-    fetchListener({ request: new Request('http://basketra.test/unknown-route'), respondWith });
+    fetchListener({ request: new Request('http://basketra.test/unknown-route'), respondWith, waitUntil });
     assert.equal(await (await responseWork)?.text(), 'fallback');
     assert.ok(cachedRequests.some(value => value === '/index.html'));
+
+    responseWork = undefined;
+    matchImplementation = async () => undefined;
+    fetchListener({ request: new Request('http://basketra.test/another-route'), respondWith, waitUntil });
+    await assert.rejects(responseWork, /offline/);
+
+    responseWork = undefined;
+    fetchListener({ request: new Request('http://basketra.test/uncached.js'), respondWith, waitUntil });
+    await assert.rejects(responseWork, /offline/);
   } finally {
     if (originalSelf) Object.defineProperty(globalThis, 'self', originalSelf);
     else Reflect.deleteProperty(globalThis, 'self');

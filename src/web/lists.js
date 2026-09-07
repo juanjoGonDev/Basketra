@@ -49,6 +49,7 @@ const model = {
   editingItemId: '',
   deletingItemId: '',
   swipeDeletingItemIds: new Set(),
+  expandedItemIds: new Set(),
   multiSelectMode: false,
   selectedItemIds: new Set(),
   selectedProductVariantId: '',
@@ -316,6 +317,26 @@ function selectionButton(item, name) {
   return `<button type="button" class="multi-select-check${selected ? ' is-selected' : ''}" data-select-item data-item-id="${escapeHtml(item.id)}" aria-label="${selected ? 'Quitar' : 'Seleccionar'} ${name}" aria-pressed="${String(selected)}"><span data-icon="check"></span></button>`;
 }
 
+function effectiveItemStoreName(item, line) {
+  return line?.effectiveStoreName
+    || model.stores.find(store => store.id === (item.storeOverrideId || model.list?.referenceStoreId))?.name
+    || 'Sin tienda';
+}
+
+function toggleItemSettings(button, itemId) {
+  const item = model.items.find(candidate => candidate.id === itemId);
+  if (!item) return;
+  const expanded = !model.expandedItemIds.has(itemId);
+  if (expanded) model.expandedItemIds.add(itemId);
+  else model.expandedItemIds.delete(itemId);
+  button.setAttribute('aria-expanded', String(expanded));
+  button.setAttribute('aria-label', `${expanded ? 'Ocultar configuración de' : 'Configurar'} ${item.text}`);
+  const controlsId = button.getAttribute('aria-controls');
+  const controls = controlsId ? document.getElementById(controlsId) : null;
+  if (controls) controls.hidden = !expanded;
+  button.closest('.ticket-item')?.classList.toggle('is-settings-expanded', expanded);
+}
+
 function ticketItem(item, index, total) {
   const line = estimateLine(item.id);
   const name = escapeHtml(item.text);
@@ -326,10 +347,8 @@ function ticketItem(item, index, total) {
     : escapeHtml(unpricedLabel(line?.reason));
   const totalText = priced ? formatEuroMinor(line.estimatedTotalMinor) : '—';
   const category = item.categoryName ? `<small class="ticket-item__category">${escapeHtml(item.categoryName)}</small>` : '';
+  const storeName = effectiveItemStoreName(item, line);
   if (model.multiSelectMode) {
-    const storeName = line?.effectiveStoreName
-      || model.stores.find(store => store.id === (item.storeOverrideId || model.list?.referenceStoreId))?.name
-      || 'Sin tienda';
     return `<div class="shopping-ticket-row bulk-select-row${model.selectedItemIds.has(item.id) ? ' is-selected' : ''}">
       <article class="ticket-item ticket-item--select" data-select-row data-item-id="${id}">
         ${selectionButton(item, name)}
@@ -338,6 +357,9 @@ function ticketItem(item, index, total) {
       </article>
     </div>`;
   }
+  const expanded = model.expandedItemIds.has(item.id);
+  const settingsId = `ticket-item-settings-${id}`;
+  const compactMeta = `${item.quantityMinor} ${escapeHtml(UNIT_LABELS[item.unit] || item.unit)} · ${escapeHtml(storeName)} · ${priceContext}`;
   const editAttributes = `data-item-action="edit" data-item-id="${id}" aria-label="Editar ${name}"`;
   const deleteAttributes = `data-item-action="delete" data-item-id="${id}" aria-label="Eliminar ${name}"`;
   return `<div class="shopping-ticket-row swipe-shell" data-swipe-row data-swipe-kind="shopping-item" data-swipe-id="${id}" data-swipe-start-action="complete" data-swipe-end-action="delete" data-swipe-open="false">
@@ -347,11 +369,12 @@ function ticketItem(item, index, total) {
       <button type="button" class="swipe-rail__action swipe-rail__action--danger" data-destructive-action ${deleteAttributes} tabindex="-1"><span data-icon="trash"></span><span>Eliminar</span></button>
       <span class="swipe-rail__commit" aria-hidden="true"><span data-icon="trash"></span><strong>Suelta para eliminar</strong></span>
     </div>
-    <article class="ticket-item swipe-content" data-swipe-content>
+    <article class="ticket-item swipe-content${expanded ? ' is-settings-expanded' : ''}" data-swipe-content>
       <button type="button" class="completion-button" data-item-action="complete" data-item-id="${id}" aria-label="Marcar ${name} como comprado" aria-pressed="false"><span data-icon="check"></span></button>
-      <div class="ticket-item__identity list-row__content"><span class="ticket-item__product-icon" data-icon="cart" aria-hidden="true"></span><span class="ticket-item__identity-copy"><strong>${name}</strong>${category}<small class="${priced ? '' : 'ticket-item__warning'}">${priceContext}</small></span></div>
+      <div class="ticket-item__identity list-row__content"><span class="ticket-item__product-icon" data-icon="cart" aria-hidden="true"></span><span class="ticket-item__identity-copy"><strong>${name}</strong><small class="ticket-item__compact-meta${priced ? '' : ' ticket-item__warning'}">${compactMeta}</small></span></div>
       <strong class="ticket-item__total">${totalText}</strong>
-      <div class="ticket-item__controls">
+      <button type="button" class="icon-button ticket-item__settings-toggle" data-item-action="toggle-settings" data-item-id="${id}" aria-expanded="${String(expanded)}" aria-controls="${settingsId}" aria-label="${expanded ? 'Ocultar configuración de' : 'Configurar'} ${name}"><span data-icon="chevronDown"></span></button>
+      <div id="${settingsId}" class="ticket-item__controls ticket-item__settings"${expanded ? '' : ' hidden'}>
         <div class="quantity-stepper quantity-stepper--compact" aria-label="Cantidad de ${name}">
           <button type="button" data-item-action="quantity" data-item-id="${id}" data-delta="-1" ${item.quantityMinor <= 1 ? 'disabled' : ''} aria-label="Reducir cantidad de ${name}">−</button>
           <span class="quantity-chip" aria-label="Cantidad actual">${item.quantityMinor}</span>
@@ -1741,6 +1764,10 @@ async function handleItemAction(event) {
   const button = event.target.closest('[data-item-action]');
   if (!button) return;
   const itemId = button.dataset.itemId;
+  if (button.dataset.itemAction === 'toggle-settings') {
+    toggleItemSettings(button, itemId);
+    return;
+  }
   try {
     if (button.dataset.itemAction === 'edit') await beginItemEdit(itemId);
     if (button.dataset.itemAction === 'delete') showDeleteItemDialog(itemId);

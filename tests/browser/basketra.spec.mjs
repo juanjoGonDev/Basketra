@@ -256,6 +256,15 @@ test('mobile PWA loads with private-network messaging and touch-safe navigation'
   const manifest = await manifestResponse.json();
   expect(manifest).toMatchObject({ name: 'Basketra', short_name: 'Basketra', display: 'standalone' });
   expect(manifest.icons.length).toBeGreaterThan(0);
+  const iconResponse = await request.get('/icon.svg');
+  expect(iconResponse.ok()).toBeTruthy();
+  const iconSvg = await iconResponse.text();
+  expect(iconSvg).toContain('viewBox="0 0 512 512"');
+  expect(iconSvg).toContain('fill="#0b6b57"');
+  await expect.poll(async () => page.evaluate(async () => {
+    const registration = await navigator.serviceWorker.ready;
+    return registration.active?.scriptURL || '';
+  })).toContain('version=1.4.2-test');
   await expect(page.getByText('Sólo en tu red privada')).toBeVisible();
   await expect(page.locator('.bottom-nav button')).toHaveCount(5);
   const heights = await page.locator('button:visible').evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().height));
@@ -283,6 +292,7 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   await addProduct(page, { name: 'Arroz 1 kg', quantity: '1', unit: 'kg' });
 
   let milkRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Leche entera 1 L' });
+  await milkRow.getByRole('button', { name: 'Configurar Leche entera 1 L', exact: true }).click();
   await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Aumentar cantidad de Leche entera 1 L' }).click());
   milkRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Leche entera 1 L' });
   await expect(milkRow.locator('.quantity-chip')).toHaveText('3');
