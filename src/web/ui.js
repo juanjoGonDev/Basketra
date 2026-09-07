@@ -175,6 +175,16 @@ function openSwipeRow(root, row) {
   setActionsAccessible(currentRow, true);
 }
 
+export function restoreSwipeRow(root, identity) {
+  if (!identity?.id || !identity?.kind) return false;
+  const row = [...root.querySelectorAll('[data-swipe-row]')].find(candidate => (
+    candidate.dataset.swipeId === identity.id && candidate.dataset.swipeKind === identity.kind
+  ));
+  if (!isGenericSwipeRow(row)) return false;
+  openSwipeRow(root, row);
+  return true;
+}
+
 function dispatchSwipeAction(root, row, action) {
   const currentRow = resolveCurrentSwipeRow(root, row);
   const pending = [];
