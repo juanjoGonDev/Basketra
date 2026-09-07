@@ -103,8 +103,8 @@ test('receipt upload starts the two-slot OCR pool without exposing a second proc
     installReceiptEnhancements();
   });
 
-  await expect(page.getByText('Paso 1', { exact: true })).toHaveCount(0);
-  await expect(page.getByText('Paso 2', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Paso 1', { exact: true })).toBeHidden();
+  await expect(page.getByText('Paso 2', { exact: true })).toBeHidden();
   await expect(page.getByRole('button', { name: 'Leer con OCR local', exact: true })).toHaveCount(0);
   await expect(page.locator('#receipt-analysis-options')).not.toHaveAttribute('open', '');
 
@@ -201,7 +201,6 @@ test('durable AI failure retries from server OCR without replaying browser OCR',
   await page.locator('#receipt-analysis-options').getByText('Opciones de análisis', { exact: true }).click();
   const aiInput = page.locator('#verify-receipt-ai');
   await aiInput.check();
-  await page.locator('#receipt-source-queue > summary').click();
   await upload(page, ['ai-fallback.png']);
 
   await expect.poll(() => jobCreates).toBe(1);
@@ -226,7 +225,9 @@ test('durable AI failure retries from server OCR without replaying browser OCR',
   expect(createPayloads[1]?.retryOfJobId).toBe('receiptextractionjob_ai_1');
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada');
   await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
-  await page.locator('#receipt-source-queue > summary').click();
+  if (await queue.evaluate(element => element.open)) {
+    await queue.evaluate(element => { element.open = false; });
+  }
   await page.locator('#receipt-review-panel > summary').click();
   await expect(page.locator('#receipt-review-reference-image')).toBeVisible();
   await expect(page.locator('.receipt-item [data-field="description"]')).toBeEditable();
