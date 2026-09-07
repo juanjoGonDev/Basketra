@@ -129,8 +129,8 @@ test('automatic AI analysis uses one durable whole-ticket job and receipt Store 
   await page.goto('/');
   await navigate(page, 'Tickets');
   await expect(page.getByRole('button', { name: 'Leer con OCR local', exact: true })).toHaveCount(0);
-  await expect(page.locator('#receipt-analysis-options')).not.toHaveAttribute('open', '');
-  await expect(page.locator('#verify-receipt-ai')).toBeChecked();
+  await expect(page.locator('#receipt-analysis-options')).toHaveCount(0);
+  await expect(page.locator('#verify-receipt-ai')).toHaveCount(0);
 
   await page.locator('#receipt-files').setInputFiles([0, 1, 2].map(index => ({
     name: `alcampo-${index + 1}.png`,
