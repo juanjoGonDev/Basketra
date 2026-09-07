@@ -143,6 +143,16 @@ PR: `https://github.com/juanjoGonDev/Basketra/pull/62`.
 
 Keep the PR normal and non-draft against `main`; do not merge, release or deploy without explicit user approval.
 
+## Final verification
+
+The implementation-bearing head `5b522870502b9686240c879c4d8d33e9999a0d30` passed the complete required PR pipeline in Pull Request Quality run `34161839805` and CodeQL run `34161839925`.
+
+Final Browser evidence was reviewed at 320 px, 390 px and 1280 px. The review found one real accessibility/visual regression: elements already marked `.sr-only`, including the shopping-row ordinal and hidden Store labels, had no shared visually-hidden utility and therefore rendered as normal text. The shared utility was restored in `src/web/styles.css`, preserving the text for assistive technology while clipping it visually. Browser coverage now asserts the clipping contract at both 390 px and 320 px, and the final screenshots confirm the ordinal/hidden labels no longer consume row space or appear visually.
+
+The Browser matrix also exposed a duplicate residual-coverage click that could spend the entire 45-second shard budget waiting for pointer actionability after unrelated catalog layout updates. The user interaction remains covered with real pointer clicks in `catalog-management.spec.mjs` and `changed-code-boundaries.spec.mjs`; only the duplicate branch-residual exercise uses a synthetic click event. Browser 2/56 and Browser 20/56 both passed on the implementation-bearing head, and all 56 Browser shards completed successfully.
+
+No database migration, public API change, dependency, authentication change, offline write queue, release, deployment or merge is part of this delivery.
+
 ## Status
 
-Implementation is published on PR #62. The first CI pass exposed two stale source-contract assertions and the canonical Docker build-command contract; those findings were corrected without changing the intended product behavior. Exact-head CI and final visual/runtime review remain pending before completion.
+Implementation and final visual/runtime review are complete on PR #62. The implementation-bearing head is green and the reviewed 320 px, 390 px and 1280 px evidence is clean for the requested compact-row/PWA scope. This documentation update is the only subsequent change; the PR must still retain green exact-head CI before human review or merge.
