@@ -373,6 +373,9 @@ export function installReceiptEnhancements() {
 
     menu.append(aiAction, manualAction, scanAction);
 
+    const analysisOptions = $('#receipt-analysis-options');
+    if (analysisOptions?.parentElement === captureSource) captureSource.append(analysisOptions);
+
     const trigger = document.createElement('button');
     trigger.id = 'receipt-add-trigger';
     trigger.className = 'receipt-add-trigger';
