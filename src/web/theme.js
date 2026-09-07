@@ -114,4 +114,3 @@
   else installWhenReady();
 })();
 
-void import('./shopping-list-density.js');

@@ -34,6 +34,7 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   const ui = read('src/web/ui.js');
   const css = read('src/web/styles.css');
   const modernCss = read('src/web/modern.css');
+  const theme = read('src/web/theme.js');
   const density = read('src/web/shopping-list-density.js');
   const densityCss = read('src/web/shopping-list-density.css');
 
@@ -44,6 +45,7 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.match(html, /data-nav="inventory"/);
   assert.match(html, /src="\/inventory\.js"/);
   assert.match(html, /src="\/inventory-swipe\.js"/);
+  assert.match(html, /src="\/shopping-list-density\.js"/);
   assert.match(html, /src="\/ticket-history\.js"/);
   assert.doesNotMatch(html, /run-demo-comparison|data-view="prices"|>Planes</i);
   assert.match(html, /id="new-list-form"/);
@@ -115,6 +117,7 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.match(serviceWorker, /SHELL_PATHS\.has\(url\.pathname\)/);
   assert.match(serviceWorker, /url\.pathname\.startsWith\('\/api\/'\)/);
 
+  assert.doesNotMatch(theme, /shopping-list-density\.js/);
   assert.match(density, /aria-expanded/);
   assert.match(density, /aria-controls/);
   assert.match(density, /MutationObserver/);
