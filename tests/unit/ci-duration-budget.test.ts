@@ -5,17 +5,22 @@ import { test } from 'node:test';
 const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
 const codeql = readFileSync('.github/workflows/codeql.yml', 'utf8');
 
-test('every workload job has a hard one-minute envelope while the final verifier is exempt', () => {
+test('workload jobs stay at one minute while the final verifier may wait for global CI state', () => {
   const timeoutValues = [...ci.matchAll(/timeout-minutes:\s*(\d+)/gu)].map(match => Number(match[1]));
-  assert.equal(timeoutValues.length, 8);
-  assert.deepEqual(new Set(timeoutValues), new Set([1]));
+  assert.equal(timeoutValues.filter(value => value === 1).length, 8);
+  assert.equal(timeoutValues.filter(value => value === 15).length, 1);
+  assert.deepEqual(new Set(timeoutValues), new Set([1, 15]));
   assert.match(ci, /browser-e2e:\n[\s\S]*?timeout-minutes:\s*1/u);
   assert.match(ci, /timeout --signal=TERM --kill-after=5s 45s pnpm exec playwright test --test-list=/u);
 
   const finalJob = ci.slice(ci.indexOf('\n  final:\n'));
   assert.match(finalJob, /name: "✅ CI complete"/u);
   assert.match(finalJob, /if: \$\{\{ always\(\) \}\}/u);
-  assert.doesNotMatch(finalJob, /timeout-minutes:/u);
+  assert.match(finalJob, /timeout-minutes:\s*15/u);
+  assert.match(finalJob, /security-events:\s*read/u);
+  assert.match(finalJob, /head_sha=\$HEAD_SHA&event=pull_request/u);
+  assert.match(finalJob, /code-scanning\/analyses\?per_page=100/u);
+  assert.match(finalJob, /\.category == \$category/u);
   for (const dependency of [
     'quality',
     'integration',
@@ -31,7 +36,7 @@ test('every workload job has a hard one-minute envelope while the final verifier
 });
 
 test('CodeQL keeps full language coverage through one-minute architecture scopes', () => {
-  assert.match(codeql, /timeout-minutes:\s*1/u);
+  assert.match(codeql, /timeout-minutes:\s*1/u);\n  assert.match(codeql, /wait-for-processing:\s*false/u);
   for (const scope of ['actions', 'backend-catalog', 'backend-platform', 'backend-operations', 'backend-receipt-runtime', 'backend-receipt-ai', 'web', 'automation']) {
     assert.match(codeql, new RegExp('scope: ' + scope, 'u'));
   }

@@ -381,6 +381,18 @@ jobs:
       - container
       - container-smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      security-events: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: ${{ github.repository }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      ANALYSIS_SHA: ${{ github.sha }}
+      ANALYSIS_REF: ${{ github.ref }}
+      FINAL_VERIFIER_POLL_SECONDS: "3"
     steps:
       - name: Verify every required Pull Request Quality job succeeded
         env:
@@ -410,3 +422,82 @@ jobs:
             fi
           done
           test "$failed" -eq 0
+
+      - name: Verify exact-head CodeQL workflow and processed analyses
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          while true; do
+            runs=$(gh api "repos/$REPOSITORY/actions/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=100")
+            codeql=$(jq -r '
+              [.workflow_runs[] | select(.name == "CodeQL Advanced")]
+              | sort_by(.created_at)
+              | last
+              | if . == null then "" else [.id, .status, (.conclusion // "")] | @tsv end
+            ' <<<"$runs")
+            if [ -z "$codeql" ]; then
+              sleep "$FINAL_VERIFIER_POLL_SECONDS"
+              continue
+            fi
+
+            IFS=\t' read -r codeql_run_id codeql_status codeql_conclusion <<<"$codeql"
+            if [ "$codeql_status" != "completed" ]; then
+              sleep "$FINAL_VERIFIER_POLL_SECONDS"
+              continue
+            fi
+            if [ "$codeql_conclusion" != "success" ]; then
+              echo "CodeQL run $codeql_run_id completed with $codeql_conclusion" >&2
+              exit 1
+            fi
+            break
+          done
+
+          codeql_jobs=$(gh api "repos/$REPOSITORY/actions/runs/$codeql_run_id/jobs?per_page=100")
+          scopes=$(jq -r '
+            .jobs[]
+            | select(.name | test("^Analyze \\(.+\\)$"))
+            | .name
+            | capture("^Analyze \\((?<scope>.+)\\)$").scope
+          ' <<<"$codeql_jobs" | sort -u)
+          test -n "$scopes"
+
+          while true; do
+            analyses=$(gh api --paginate "repos/$REPOSITORY/code-scanning/analyses?per_page=100" | jq -s 'add // []')
+            missing=0
+            while IFS= read -r scope; do
+              if [ "$scope" = "actions" ]; then
+                language="actions"
+              else
+                language="javascript-typescript"
+              fi
+              category="/language:$language/scope:$scope"
+              analysis=$(jq -c \
+                --arg mergeSha "$ANALYSIS_SHA" \
+                --arg headSha "$HEAD_SHA" \
+                --arg ref "$ANALYSIS_REF" \
+                --arg category "$category" \
+                '[
+                  .[]
+                  | select(
+                    (.commit_sha == $mergeSha or .commit_sha == $headSha)
+                    and .ref == $ref
+                    and .category == $category
+                  )
+                ] | sort_by(.created_at) | last // empty' <<<"$analyses")
+              if [ -z "$analysis" ]; then
+                missing=1
+                break
+              fi
+              error=$(jq -r '.error // ""' <<<"$analysis")
+              if [ -n "$error" ]; then
+                echo "Code scanning analysis $category failed processing: $error" >&2
+                exit 1
+              fi
+            done <<<"$scopes"
+
+            if [ "$missing" -eq 0 ]; then
+              break
+            fi
+            sleep "$FINAL_VERIFIER_POLL_SECONDS"
+          done

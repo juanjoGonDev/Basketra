@@ -2,7 +2,7 @@
 
 ## Request
 
-Create a new branch from `main` and optimize Basketra pull-request CI so no individual workload check is allowed to run longer than one minute. The final aggregate verifier that only confirms all required jobs completed successfully is explicitly exempt from that execution-time budget. Preserve the existing quality, coverage, Browser E2E, security, container and visual-evidence contracts instead of weakening or skipping them merely to obtain a faster green result.
+Create a new branch from `main` and optimize Basketra pull-request CI so no individual workload check is allowed to run longer than one minute. The final aggregate verifier that confirms all required jobs completed successfully, including CodeQL server-side analysis processing, is explicitly exempt from the one-minute workload budget. Preserve the existing quality, coverage, Browser E2E, security, container and visual-evidence contracts instead of weakening or skipping them merely to obtain a faster green result.
 
 ## Evidence
 
@@ -38,7 +38,7 @@ The baseline Browser suite passed 142 tests in 15.1 minutes. A multi-viewport vi
 10. Replace emulated ARM64 builds with GitHub's native `ubuntu-24.04-arm` runner while retaining the amd64 build, SBOM and provenance gates.
 11. Keep CodeQL Actions and JavaScript/TypeScript enabled, partition JavaScript/TypeScript by explicit architecture scopes that together cover the existing production/automation surface, and enforce the same one-minute timeout.
 12. Remove the visual-evidence polling loop. Trusted publication starts from successful `Pull Request Quality` via `workflow_run`, validates the exact same-repository PR/head and trusted author association, downloads Browser evidence artifacts in parallel, prepares media in a read-only job, and reserves write permissions for the final publisher.
-13. Preserve the real swipe behavior exposed by the new scheduling. The Browser run reproduced a pre-existing completion race where `pointerup.clientX` could contradict an already-crossed threshold; the smallest fix makes the last tracked horizontal displacement canonical and adds a regression.\n14. Publish one stable `✅ CI complete` aggregate job after every Pull Request Quality workload. It performs no build/test work, runs with `always()`, fails if any required upstream job did not succeed, and intentionally has no one-minute timeout.
+13. Preserve the real swipe behavior exposed by the new scheduling. The Browser run reproduced a pre-existing completion race where `pointerup.clientX` could contradict an already-crossed threshold; the smallest fix makes the last tracked horizontal displacement canonical and adds a regression.\n14. Publish one stable `✅ CI complete` aggregate job after every Pull Request Quality workload. It performs no build/test work, runs with `always()`, fails if any required upstream job did not succeed, waits for the exact-head CodeQL workflow and its code-scanning analyses to finish server-side processing, and uses a 15-minute safety timeout instead of the one-minute workload budget.
 
 ## Scope
 
@@ -68,7 +68,7 @@ Excluded:
 - Playwright test-list execution is CI orchestration only; Browser behavior remains owned by the canonical tests and one-worker process isolation.
 - Browser changed-code coverage must be aggregated across all groups; enforcing it per group would produce false failures.
 - A `workflow_run` publisher has elevated trust and must never execute PR code. It checks out policy code from the default branch, validates the successful source run and current PR head, and treats downloaded artifacts as untrusted input.
-- GitHub-hosted runner provisioning is outside repository control, so every workload job contains a hard one-minute timeout rather than merely relying on observed warm-run timings. The final aggregate verifier is exempt because it only reports upstream state and does not perform bounded workload.
+- GitHub-hosted runner provisioning is outside repository control, so every workload job contains a hard one-minute timeout rather than merely relying on observed warm-run timings. The final aggregate verifier is exempt because it only reports upstream state and waits for external CodeQL processing; it has a 15-minute safety timeout so a platform outage cannot consume a runner indefinitely.
 
 ## Acceptance criteria
 
@@ -82,7 +82,7 @@ Excluded:
 8. Visual publication no longer waits inside a PR job for the Browser workflow to finish.
 9. Privileged visual publication validates successful authoritative CI, same repository, trusted PR author association and exact current head before writes.
 10. Workflow and planner regression tests validate grouping, coverage aggregation, one-minute limits and the visual-publication trust contract.
-11. Every repository-controlled workload check on the validated code head completes within 60 seconds; the final aggregate verifier is exempt from the timeout because it only checks dependency results.
+11. Every repository-controlled workload check on the validated code head completes within 60 seconds; the final aggregate verifier is exempt from the one-minute workload timeout because it checks dependency results and waits for exact-head CodeQL processing, with a separate 15-minute safety bound.
 12. CodeQL PR analysis remains enabled for both Actions and JavaScript/TypeScript and completes within 60 seconds.
 13. Final PR is non-draft, CI is green and no merge/release/deploy is performed.
 
@@ -100,7 +100,7 @@ Excluded:
 - CodeQL Actions
 - CodeQL JavaScript/TypeScript
 - visual-evidence workflow policy tests
-- GitHub Actions job-duration review\n- `✅ CI complete` aggregate dependency verifier without an artificial timeout
+- GitHub Actions job-duration review\n- `✅ CI complete` aggregate verifier with a 15-minute safety bound for exact-head CodeQL processing
 
 ## Final validation evidence
 
@@ -126,7 +126,7 @@ Validated code head before this documentation-only update: `5a844ded7d984292e554
   - JavaScript/TypeScript backend operations: 58 s.
   - JavaScript/TypeScript receipt runtime: 56 s.
   - JavaScript/TypeScript receipt AI/OCR: 51 s.
-- Every Pull Request Quality workload job and every CodeQL architecture scope has a hard one-minute workflow timeout, with regression tests protecting those envelopes. The final `✅ CI complete` dependency verifier intentionally has no timeout.
+- Every Pull Request Quality workload job and every CodeQL architecture scope has a hard one-minute workflow timeout, with regression tests protecting those envelopes. The final `✅ CI complete` verifier intentionally uses a 15-minute safety timeout and owns the wait for exact-head CodeQL processing; CodeQL workload jobs do not wait on server-side SARIF processing.
 - The visual `workflow_run` definition cannot execute from a PR branch because GitHub resolves that trigger from the default branch. Its read/write trust boundary, artifact contract and no-polling behavior are therefore validated statically/unit-level in this PR; operational execution becomes available only after the workflow definition exists on `main`.
 - A direct local `pnpm quality` run was not claimed because this connector environment does not provide a local repository checkout. Its constituent gates are represented by the successful CI jobs above.
 
