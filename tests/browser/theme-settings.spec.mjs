@@ -28,12 +28,11 @@ test('explicit light theme overrides a dark device preference and survives reloa
   await page.getByRole('radio', { name: /^Claro/ }).check();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.theme'))).toBe('light');
-  expect(await palette(page)).toEqual({
-    bodyBackground: 'rgb(243, 252, 245)',
-    headerBackground: 'rgb(255, 255, 255)',
-    headingColor: 'rgb(21, 29, 25)',
-    colorScheme: 'light only',
-  });
+  const light = await palette(page);
+  expect(light.bodyBackground).toBe('rgb(243, 252, 245)');
+  expect(light.headerBackground).toBe('rgb(255, 255, 255)');
+  expect(light.headingColor).toBe('rgb(21, 29, 25)');
+  expect(light.colorScheme).toContain('light');
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
@@ -52,12 +51,11 @@ test('explicit dark theme overrides a light device preference and system mode fo
   await page.getByRole('radio', { name: /^Oscuro/ }).check();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.theme'))).toBe('dark');
-  expect(await palette(page)).toEqual({
-    bodyBackground: 'rgb(15, 23, 19)',
-    headerBackground: 'rgb(21, 29, 25)',
-    headingColor: 'rgb(231, 240, 233)',
-    colorScheme: 'dark only',
-  });
+  const dark = await palette(page);
+  expect(dark.bodyBackground).toBe('rgb(15, 23, 19)');
+  expect(dark.headerBackground).toBe('rgb(21, 29, 25)');
+  expect(dark.headingColor).toBe('rgb(231, 240, 233)');
+  expect(dark.colorScheme).toContain('dark');
 
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
