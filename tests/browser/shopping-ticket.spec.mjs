@@ -204,7 +204,7 @@ test('shopping AI recovers from stale bootstrap availability and refreshes stale
   await assistant.locator('#ai-text').fill('Añade dos leches');
   await assistant.locator('#analyze-ai').click();
   await expect.poll(() => analysisRequests).toBe(1);
-  await expect(assistant.locator('#ai-proposals')).toContainText('Leche');
+  await expect(assistant.locator('[data-ai-field="text"]')).toHaveValue('Leche');
   await expect(assistant.locator('#ai-state')).toContainText('Revisa y edita');
 
   await assistant.getByRole('button', { name: 'Cerrar', exact: true }).click();
