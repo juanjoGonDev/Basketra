@@ -10,6 +10,7 @@ export const GHCR_ARTIFACT_FILES = Object.freeze([
   "tsconfig.json",
   "tsconfig.build.json",
   "scripts/build.mjs",
+  "scripts/sqlite-temp-probe.mjs",
   "scripts/release-version-policy.mjs",
   "scripts/ghcr-manifest-policy.mjs",
   "scripts/ghcr-retention-policy.mjs",
