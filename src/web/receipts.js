@@ -53,7 +53,7 @@ export function installReceiptStylesheet() {
 export function createReceiptProgressPanel() {
   const progress = document.createElement('section');
   progress.id = 'receipt-progress';
-  progress.className = 'receipt-progress';
+  progress.className = 'receipt-progress receipt-progress--compact';
   progress.hidden = true;
   progress.setAttribute('aria-live', 'polite');
   progress.innerHTML = `
@@ -65,8 +65,7 @@ export function createReceiptProgressPanel() {
     <div class="receipt-progress__meta">
       <span id="receipt-progress-captures">0 imágenes completadas</span>
       <span id="receipt-progress-detail">Hasta dos imágenes se procesan a la vez.</span>
-    </div>
-    <button id="cancel-receipt-extraction" class="button secondary receipt-progress__cancel" type="button">Cancelar procesamiento</button>`;
+    </div>`;
   return progress;
 }
 
@@ -141,30 +140,27 @@ export function keepMobileReviewFocusVisible(target) {
 
 export function installReceiptEnhancements() {
   installReceiptStylesheet();
+  const scanView = document.querySelector('.view[data-view="scan"]');
+  const pageHeader = scanView?.querySelector('.page-header');
   const captureSource = $('.capture-source');
   const workflow = $('.receipt-workflow');
   const manualEntry = $('.manual-entry');
   const review = $('#receipt-review');
   const confirm = $('#confirm-receipt');
   const receiptState = $('#receipt-state');
-  const aiSwitch = workflow?.querySelector('.switch-row');
-  if (!captureSource || !workflow || !manualEntry || !review || !confirm || !receiptState || !aiSwitch) return;
+  const aiSwitch = workflow?.querySelector('.switch-row') || captureSource?.querySelector('.switch-row');
+  if (!scanView || !pageHeader || !captureSource || !workflow || !manualEntry || !review || !confirm || !receiptState || !aiSwitch) return;
+
+  pageHeader.classList.add('receipt-analysis-header');
+  const eyebrow = pageHeader.querySelector('.eyebrow');
+  const heading = pageHeader.querySelector('h1');
+  const intro = pageHeader.querySelector('p:not(.eyebrow)');
+  if (eyebrow) eyebrow.textContent = 'Tickets';
+  if (heading) heading.textContent = 'Análisis de ticket';
+  if (intro) intro.textContent = 'Los productos aparecen mientras se procesa cada página. Revisa el resultado antes de importar.';
 
   if (!confirm.querySelector('.confirm-receipt__label-expanded')) {
     confirm.innerHTML = `${icon('check')}<span class="confirm-receipt__label-expanded">Confirmar e importar</span><span class="confirm-receipt__label-compact">Validar</span>`;
-  }
-
-  const captureHeading = captureSource.querySelector('.panel-heading');
-  if (captureHeading) {
-    captureHeading.replaceChildren();
-    const headingCopy = document.createElement('div');
-    const heading = document.createElement('h2');
-    heading.textContent = 'Capturas';
-    const help = document.createElement('p');
-    help.className = 'field-help';
-    help.textContent = 'Añade fotos o PDF. El OCR empieza automáticamente al guardar cada lote.';
-    headingCopy.append(heading, help);
-    captureHeading.append(headingCopy);
   }
 
   aiSwitch.querySelector('strong').textContent = 'Corregir OCR con IA';
@@ -188,8 +184,78 @@ export function installReceiptEnhancements() {
     captureSource.insertBefore(analysisOptions, captureSource.querySelector('.capture-actions'));
   }
 
-  if (!$('#receipt-progress')) captureSource.append(createReceiptProgressPanel());
-  captureSource.append(receiptState);
+  if (!$('#receipt-source-queue')) {
+    const queue = document.createElement('details');
+    queue.id = 'receipt-source-queue';
+    queue.className = 'receipt-source-queue';
+
+    const queueSummary = document.createElement('summary');
+    queueSummary.innerHTML = `
+      ${icon('receipt')}
+      <span class="receipt-source-queue__summary-copy">
+        <strong>Archivos</strong>
+        <small id="receipt-source-queue-summary">0 archivos</small>
+      </span>
+      <span class="receipt-source-queue__status-dot" aria-hidden="true"></span>`;
+
+    const queuePanel = document.createElement('div');
+    queuePanel.className = 'receipt-source-queue__panel';
+    const queueHeader = document.createElement('header');
+    queueHeader.className = 'receipt-source-queue__header';
+    const queueHeading = document.createElement('div');
+    const queueTitle = document.createElement('strong');
+    queueTitle.textContent = 'Archivos del análisis';
+    const queueHelp = document.createElement('small');
+    queueHelp.id = 'receipt-source-queue-detail';
+    queueHelp.textContent = 'Añade imágenes o PDF con el botón +';
+    queueHeading.append(queueTitle, queueHelp);
+
+    const cancelAll = document.createElement('button');
+    cancelAll.id = 'cancel-receipt-extraction';
+    cancelAll.className = 'icon-button danger receipt-source-queue__cancel';
+    cancelAll.type = 'button';
+    cancelAll.disabled = true;
+    cancelAll.setAttribute('aria-label', 'Cancelar todo el análisis');
+    cancelAll.title = 'Cancelar todo el análisis';
+    cancelAll.innerHTML = icon('close');
+
+    const queueBody = document.createElement('div');
+    queueBody.className = 'receipt-source-queue__body';
+    queueHeader.append(queueHeading, cancelAll);
+    queuePanel.append(queueHeader, queueBody);
+    queue.append(queueSummary, queuePanel);
+    pageHeader.append(queue);
+    queueBody.append(captureSource);
+  }
+
+  const captureHeading = captureSource.querySelector('.panel-heading');
+  if (captureHeading) captureHeading.hidden = true;
+
+  let progress = $('#receipt-progress');
+  if (!progress) progress = createReceiptProgressPanel();
+  if (progress.parentElement !== scanView) pageHeader.insertAdjacentElement('afterend', progress);
+
+  receiptState.classList.add('receipt-analysis-status');
+  if (receiptState.parentElement !== scanView) progress.insertAdjacentElement('afterend', receiptState);
+
+  if (!$('#receipt-detected-stream')) {
+    const detected = document.createElement('section');
+    detected.id = 'receipt-detected-stream';
+    detected.className = 'receipt-detected-stream';
+    detected.setAttribute('aria-labelledby', 'receipt-detected-title');
+    detected.innerHTML = `
+      <div class="receipt-detected-stream__header">
+        <div>
+          <p class="eyebrow">En directo</p>
+          <h2 id="receipt-detected-title">Productos detectados</h2>
+        </div>
+        <span id="receipt-detected-count" class="count-badge">0</span>
+      </div>
+      <p id="receipt-detected-help" class="receipt-detected-stream__help">Las líneas son provisionales hasta completar la revisión conjunta.</p>
+      <ol id="receipt-detected-list" class="receipt-detected-list"></ol>
+      <p id="receipt-detected-empty" class="receipt-detected-empty">Añade un ticket con +. Los productos aparecerán aquí a medida que se detecten.</p>`;
+    receiptState.insertAdjacentElement('afterend', detected);
+  }
 
   if (!$('#receipt-review-panel')) {
     const panel = document.createElement('details');
@@ -200,11 +266,15 @@ export function installReceiptEnhancements() {
     const summary = document.createElement('summary');
     const summaryCopy = document.createElement('span');
     const title = document.createElement('strong');
-    title.textContent = 'Revisión del ticket';
+    title.textContent = 'Vista previa y validación';
     const help = document.createElement('small');
-    help.textContent = 'Captura original y filas editables en el mismo contexto';
+    help.textContent = 'Revisa captura, líneas e importes antes de importar';
     summaryCopy.append(title, help);
-    summary.append(summaryCopy);
+    const summaryMeta = document.createElement('span');
+    summaryMeta.id = 'receipt-review-summary-meta';
+    summaryMeta.className = 'receipt-review-panel__summary-meta';
+    summaryMeta.textContent = 'Pendiente';
+    summary.append(summaryCopy, summaryMeta);
 
     const body = document.createElement('div');
     body.className = 'receipt-review-panel__body';
@@ -263,6 +333,50 @@ export function installReceiptEnhancements() {
     reviewEditor.prepend(storeFields);
   }
 
+  if (!$('#receipt-add-trigger')) {
+    const filesInput = $('#receipt-files');
+    const cameraInput = $('#receipt-camera');
+    const legacyActions = captureSource.querySelector('.capture-actions');
+
+    const menu = document.createElement('div');
+    menu.id = 'receipt-add-menu';
+    menu.className = 'receipt-add-menu';
+    menu.hidden = true;
+    menu.setAttribute('aria-label', 'Opciones para añadir al ticket');
+
+    const aiAction = document.createElement('label');
+    aiAction.className = 'receipt-add-action';
+    aiAction.dataset.receiptCaptureMode = 'ai';
+    aiAction.innerHTML = `${icon('sparkles')}<span><strong>IA</strong><small>Imagen o PDF</small></span>`;
+    if (filesInput) aiAction.append(filesInput);
+
+    const manualAction = document.createElement('button');
+    manualAction.id = 'receipt-add-manual';
+    manualAction.className = 'receipt-add-action';
+    manualAction.type = 'button';
+    manualAction.innerHTML = `${icon('edit')}<span><strong>Manual</strong><small>Añadir una línea</small></span>`;
+
+    const scanAction = document.createElement('label');
+    scanAction.className = 'receipt-add-action';
+    scanAction.dataset.receiptCaptureMode = 'scan';
+    scanAction.innerHTML = `${icon('camera')}<span><strong>Scan</strong><small>Foto → IA/OCR</small></span>`;
+    if (cameraInput) scanAction.append(cameraInput);
+
+    menu.append(aiAction, manualAction, scanAction);
+
+    const trigger = document.createElement('button');
+    trigger.id = 'receipt-add-trigger';
+    trigger.className = 'receipt-add-trigger';
+    trigger.type = 'button';
+    trigger.setAttribute('aria-label', 'Añadir al ticket');
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.setAttribute('aria-controls', 'receipt-add-menu');
+    trigger.innerHTML = icon('plus');
+
+    scanView.append(menu, trigger);
+    legacyActions?.remove();
+  }
+
   installReviewContextObservers();
 }
 
@@ -287,13 +401,65 @@ async function refreshReceiptStoreOptions() {
   }
 }
 
+function setReceiptAddMenuOpen(open) {
+  const menu = $('#receipt-add-menu');
+  const trigger = $('#receipt-add-trigger');
+  if (!menu || !trigger) return;
+  menu.hidden = !open;
+  trigger.setAttribute('aria-expanded', String(open));
+  trigger.classList.toggle('is-open', open);
+}
+
+function prepareAiAssistedCapture() {
+  const aiToggle = $('#verify-receipt-ai');
+  if (aiToggle) aiToggle.checked = state.aiConfigured;
+  if (!state.aiConfigured) {
+    $('#receipt-state').textContent = 'IA no disponible. La captura continuará con OCR local y podrás revisarla manualmente.';
+  }
+  setReceiptAddMenuOpen(false);
+}
+
 export function bindEvents() {
   for (const input of [$('#receipt-files'), $('#receipt-camera')]) {
     input.addEventListener('change', async event => {
       await uploadFiles(event.target.files);
       event.target.value = '';
+      setReceiptAddMenuOpen(false);
     });
   }
+
+  $('#receipt-add-trigger')?.addEventListener('click', () => {
+    setReceiptAddMenuOpen($('#receipt-add-menu')?.hidden !== true);
+  });
+  $$('[data-receipt-capture-mode]').forEach(action => {
+    action.addEventListener('click', prepareAiAssistedCapture);
+  });
+  $('#receipt-add-manual')?.addEventListener('click', () => {
+    setReceiptAddMenuOpen(false);
+    const panel = $('#receipt-review-panel');
+    if (panel) {
+      panel.hidden = false;
+      panel.open = true;
+    }
+    addBlankLine();
+  });
+
+  document.addEventListener('pointerdown', event => {
+    const queue = $('#receipt-source-queue');
+    const menu = $('#receipt-add-menu');
+    const trigger = $('#receipt-add-trigger');
+    if (queue?.open && !queue.contains(event.target)) queue.open = false;
+    if (menu && !menu.hidden && !menu.contains(event.target) && !trigger?.contains(event.target)) {
+      setReceiptAddMenuOpen(false);
+    }
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    const queue = $('#receipt-source-queue');
+    if (queue?.open) queue.open = false;
+    setReceiptAddMenuOpen(false);
+  });
+
   $('#capture-list').addEventListener('click', handleCaptureAction);
   $('#receipt-review').addEventListener('click', handleReceiptAction);
   $('#receipt-review-capture').addEventListener('change', event => {
