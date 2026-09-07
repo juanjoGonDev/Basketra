@@ -106,7 +106,7 @@ test('receipt upload starts the two-slot OCR pool without exposing a second proc
   await expect(page.getByText('Paso 1', { exact: true })).toBeHidden();
   await expect(page.getByText('Paso 2', { exact: true })).toBeHidden();
   await expect(page.getByRole('button', { name: 'Leer con OCR local', exact: true })).toHaveCount(0);
-  await expect(page.locator('#receipt-analysis-options')).not.toHaveAttribute('open', '');
+  await expect(page.locator('#receipt-analysis-options')).toHaveCount(0);
 
   await upload(page, ['auto-1.png', 'auto-2.png', 'auto-3.png']);
 
@@ -197,10 +197,6 @@ test('durable AI failure retries from server OCR without replaying browser OCR',
 
   await page.goto('/');
   await navigate(page, 'Tickets');
-  await page.locator('#receipt-source-queue > summary').click();
-  await page.locator('#receipt-analysis-options').getByText('Opciones de análisis', { exact: true }).click();
-  const aiInput = page.locator('#verify-receipt-ai');
-  await aiInput.check();
   await upload(page, ['ai-fallback.png']);
 
   await expect.poll(() => jobCreates).toBe(1);
