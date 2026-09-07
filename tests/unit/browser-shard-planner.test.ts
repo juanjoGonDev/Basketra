@@ -18,7 +18,7 @@ function listing() {
   return [
     'Listing tests:',
     '  [chromium] › tests/browser/changed-code-residuals.spec.mjs:128:1 › ' + heavyTitle,
-    '  [chromium] › tests/browser/example-a.spec.mjs:10:1 › quick A',
+    '  [chromium] › example-a.spec.mjs:10:1 › quick A',
     '  [chromium] › tests/browser/example-b.spec.mjs:20:1 › quick B',
     '  [chromium] › tests/browser/example-c.spec.mjs:30:1 › quick C',
     'Total: 4 tests in 4 files',
@@ -34,6 +34,7 @@ test('browser shard planner parses exact Playwright test-list entries and timing
     'tests/browser/changed-code-residuals.spec.mjs › ' + heavyTitle,
   );
   assert.equal(tests[0].estimatedSeconds, 34);
+  assert.equal(normalizeTestListEntry(tests[1].entry), 'tests/browser/example-a.spec.mjs › quick A');
   assert.equal(tests[1].estimatedSeconds, DEFAULT_ESTIMATED_SECONDS);
 });
 

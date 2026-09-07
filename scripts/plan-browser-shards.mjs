@@ -30,12 +30,14 @@ export const TIMING_HINTS_SECONDS = new Map([
 ]);
 
 export function normalizeTestListEntry(entry) {
-  return entry
+  let normalized = entry
     .trim()
     .replace(/^\[[^\]]+\]\s*[›>]\s*/u, '')
     .replace(/:\d+:\d+(?=\s*[›>]\s*)/u, '')
     .replace(/\s*>\s*/gu, ' › ')
     .replace(/\s*›\s*/gu, ' › ');
+  if (!normalized.startsWith('tests/browser/')) normalized = 'tests/browser/' + normalized;
+  return normalized;
 }
 
 export function parsePlaywrightList(content) {
@@ -45,7 +47,7 @@ export function parsePlaywrightList(content) {
   const entries = content
     .split('\n')
     .map(line => line.trim())
-    .filter(line => /^(?:\[[^\]]+\]\s*[›>]\s*)?tests\/browser\/.+\.spec\.mjs:\d+:\d+\s*[›>]\s*.+$/u.test(line));
+    .filter(line => /^(?:\[[^\]]+\]\s*[›>]\s*)?(?:tests\/browser\/)?[^›>]+\.spec\.mjs:\d+:\d+\s*[›>]\s*.+$/u.test(line));
 
   const expected = Number(totalMatch[1]);
   if (entries.length !== expected) {
