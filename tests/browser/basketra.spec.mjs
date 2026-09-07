@@ -325,6 +325,7 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   const restoredRice = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
   await restoredRice.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
   await expect(restoredRice).toBeVisible();
+  await restoredRice.getByRole('button', { name: 'Mostrar opciones de Arroz 1 kg', exact: true }).click();
   await restoredRice.getByRole('button', { name: 'Mostrar acciones de Arroz 1 kg' }).click();
   await expect(restoredRice).toHaveAttribute('data-swipe-open', 'true');
   await page.keyboard.press('Escape');
