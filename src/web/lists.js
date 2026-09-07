@@ -203,6 +203,7 @@ function bindShoppingCategorySuggestion() {
       $('#global-item-unit'),
       $('#global-price'),
     ],
+    refreshOptions: loadCategories,
     buildPayload() {
       const canonicalName = $('#global-canonical-name').value.trim() || $('#global-parent-search').value.trim();
       const variantName = $('#global-variant-name').value.trim();
