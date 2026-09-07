@@ -96,7 +96,7 @@ test("stable promotion is blocked until the canonical SQLite temp probe passes",
     'docker exec "$container" node scripts/sqlite-temp-probe.mjs',
   );
   const fallbackProbeIndex = publishWorkflow.indexOf(
-    'fallback_container=basketra-published-fallback-',
+    'docker run --detach --name "$fallback_container"',
   );
   const fallbackRuntimeIndex = publishWorkflow.indexOf(
     'runtime.tempStorage?.mode!=="data-fallback"',
