@@ -19,13 +19,14 @@ Route both SQLite-specific and general process temporary files to the existing w
 
 Do not change the Raspberry Compose contract for this fix. Watchtower re-creates containers from new images but does not re-read repository Compose changes, so an image-owned runtime fix is the only zero-touch path for an already-running correctly scoped Watchtower.
 
-Align the local Docker smoke with production and force SQLite `temp_store = FILE` to create and read a TEMP table. Add the same probe to the immutable GHCR candidate before `stable` promotion so a broken image cannot reach Watchtower.
+Own the SQLite temporary-file regression in one canonical `scripts/sqlite-temp-probe.mjs`. The local Docker smoke, PR container smoke and immutable GHCR candidate all execute that same probe under the hardened runtime before delivery or `stable` promotion. The probe forces file-backed TEMP storage with a tiny temp cache and a 2 MiB value so it cannot pass only because a trivial temporary table stayed in memory.
 
 ## Scope
 
 Included:
 
 - runtime image temporary-directory environment;
+- one canonical SQLite temporary-file probe shared by local Docker smoke, PR container smoke and protected-main publication;
 - Docker smoke parity with the production tmpfs;
 - protected-main publication probe before stable promotion;
 - regression contracts and deployment documentation.
@@ -48,12 +49,13 @@ Excluded:
 
 1. The production image exports `SQLITE_TMPDIR=/tmp/basketra`.
 2. The production image exports `TMPDIR=/tmp/basketra`.
-3. The local Docker smoke mounts only the same writable Basketra temp path used by production and proves a file-backed SQLite TEMP table works.
-4. The protected-main publisher runs the same SQLite temporary-file behavior under the hardened exact-digest container before `stable` promotion.
-5. The publication classifier still treats `Dockerfile` as GHCR-impacting, so merging this fix automatically builds and publishes a new stable candidate.
-6. No manual Raspberry rebuild is required when the scoped Watchtower is already enabled.
-7. Existing persistent data and migrations are untouched.
-8. Required CI is green on the exact PR head before delivery.
+3. `scripts/sqlite-temp-probe.mjs` is the single owner of the file-backed SQLite TEMP regression.
+4. The local Docker smoke and PR container smoke execute that canonical probe using only the same writable Basketra temp path used by production.
+5. The protected-main publisher executes the same canonical probe under the hardened exact-digest container before `stable` promotion.
+6. The publication classifier treats both `Dockerfile` and the canonical probe as GHCR-impacting, so changing either automatically rebuilds and republishes the image.
+7. No manual Raspberry rebuild is required when the scoped Watchtower is already enabled.
+8. Existing persistent data and migrations are untouched.
+9. Required CI is green on the exact PR head before delivery.
 
 ## Checks
 
@@ -79,4 +81,4 @@ No merge, release, deployment, or remote data mutation is authorized by this tas
 
 ## Status
 
-Implementation prepared for CI validation.
+Canonical probe consolidated during final review; exact-head CI validation pending.

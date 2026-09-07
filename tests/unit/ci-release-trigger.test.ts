@@ -91,24 +91,15 @@ test("unclassifiable protected-main pushes fail safe to publication", () => {
   );
 });
 
-test("stable promotion is blocked until SQLite can create temporary files in the hardened container", () => {
+test("stable promotion is blocked until the canonical SQLite temp probe passes", () => {
   const runtimeProbeIndex = publishWorkflow.indexOf(
-    'docker exec "$container" node --input-type=module -e',
+    'docker exec "$container" node scripts/sqlite-temp-probe.mjs',
   );
-  const sqliteTempProbeIndex = publishWorkflow.indexOf("PRAGMA temp_store = FILE");
   const promotionIndex = publishWorkflow.indexOf(
     "- name: Promote verified digest to stable",
   );
 
   assert.ok(runtimeProbeIndex >= 0);
-  assert.ok(sqliteTempProbeIndex > runtimeProbeIndex);
-  assert.ok(promotionIndex > sqliteTempProbeIndex);
-  assert.match(
-    publishWorkflow,
-    /process\.env\.SQLITE_TMPDIR !== "\/tmp\/basketra"/u,
-  );
-  assert.match(
-    publishWorkflow,
-    /process\.env\.TMPDIR !== "\/tmp\/basketra"/u,
-  );
+  assert.ok(promotionIndex > runtimeProbeIndex);
+  assert.doesNotMatch(publishWorkflow, /PRAGMA temp_store = FILE/u);
 });

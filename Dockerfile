@@ -34,6 +34,7 @@ RUN apk upgrade --no-cache libcrypto3 libssl3 \
     && rm -f /tmp/ocr-smoke.png /tmp/ocr-smoke.txt \
     && apk del .ocr-smoke-deps
 COPY --from=build --chown=node:node /app/dist ./dist
+COPY --chown=node:node scripts/sqlite-temp-probe.mjs ./scripts/sqlite-temp-probe.mjs
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
         /usr/local/bin/pnpm /usr/local/bin/yarn /usr/local/bin/yarnpkg \
