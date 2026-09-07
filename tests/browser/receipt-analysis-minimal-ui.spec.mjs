@@ -257,7 +257,7 @@ test('manual floating action opens the existing review editor and focuses the ne
   await page.goto('/');
   await navigate(page, 'Tickets');
   await page.getByRole('button', { name: 'Añadir al ticket', exact: true }).click();
-  await page.locator('#receipt-add-menu').getByRole('button', { name: 'Manual', exact: true }).click();
+  await page.locator('#receipt-add-manual').click();
 
   const reviewPanel = page.locator('#receipt-review-panel');
   await expect(reviewPanel).toBeVisible();
