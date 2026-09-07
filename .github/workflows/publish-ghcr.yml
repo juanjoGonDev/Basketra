@@ -184,7 +184,8 @@ jobs:
             if (process.env.TMPDIR !== "/tmp/basketra") process.exit(3);
             const database = new DatabaseSync(":memory:");
             try {
-              database.exec("PRAGMA temp_store = FILE; CREATE TEMP TABLE temp_probe(value TEXT); INSERT INTO temp_probe(value) VALUES (\\"ok\\");");
+              database.exec("PRAGMA temp_store = FILE; CREATE TEMP TABLE temp_probe(value TEXT);");
+              database.prepare("INSERT INTO temp_probe(value) VALUES (?)").run("ok");
               const row = database.prepare("SELECT value FROM temp_probe").get();
               if (row?.value !== "ok") process.exit(4);
             } finally {

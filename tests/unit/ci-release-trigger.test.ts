@@ -91,7 +91,6 @@ test("unclassifiable protected-main pushes fail safe to publication", () => {
   );
 });
 
-
 test("stable promotion is blocked until SQLite can create temporary files in the hardened container", () => {
   const runtimeProbeIndex = publishWorkflow.indexOf(
     'docker exec "$container" node --input-type=module -e',

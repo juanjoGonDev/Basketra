@@ -17,7 +17,6 @@ test('runtime image upgrades OpenSSL packages before installing OCR dependencies
   );
 });
 
-
 test('runtime routes SQLite temporary files into the hardened writable tmpfs', () => {
   assert.match(dockerfile, /SQLITE_TMPDIR=\/tmp\/basketra/u);
   assert.match(dockerfile, /TMPDIR=\/tmp\/basketra/u);
