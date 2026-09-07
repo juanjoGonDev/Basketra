@@ -8,6 +8,9 @@ declare namespace NodeJS {
 
 declare const process: {
   env: NodeJS.ProcessEnv;
+  execPath: string;
+  execArgv: string[];
+  argv: string[];
   stderr: { write(value: string): boolean };
   memoryUsage(): NodeJS.MemoryUsage;
   once(event: 'SIGTERM' | 'SIGINT', listener: () => void): void;

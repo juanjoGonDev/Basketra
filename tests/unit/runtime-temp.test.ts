@@ -6,6 +6,7 @@ import test from 'node:test';
 import {
   prepareRuntimeTempStorage,
   probeSqliteTempDirectory,
+  probeSqliteTempDirectoryIsolated,
 } from '../../src/infrastructure/runtime-temp.ts';
 
 function temporaryDirectory(label: string): string {
@@ -60,6 +61,42 @@ test('runtime temp preparation falls back to private data storage when preferred
     assert.equal(statSync(fallback).mode & 0o777, 0o700);
   } finally {
     restoreTempEnvironment(previousSqliteTmpDir, previousTmpDir);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('runtime temp preparation retries the fallback when the strong SQLite probe rejects the writable primary', async () => {
+  const root = temporaryDirectory('runtime-temp-sqlite-fallback');
+  const preferred = resolve(join(root, 'preferred'));
+  const fallback = resolve(join(root, 'runtime-tmp'));
+  const previousSqliteTmpDir = process.env['SQLITE_TMPDIR'];
+  const previousTmpDir = process.env['TMPDIR'];
+  try {
+    const selection = await prepareRuntimeTempStorage(preferred, root, {
+      sqliteProbe: async (directory) => {
+        if (directory === preferred) throw new Error('SIMULATED_SQLITE_PRIMARY_FAILURE');
+        await probeSqliteTempDirectory(directory);
+      },
+    });
+    assert.deepEqual(selection, {
+      mode: 'data-fallback',
+      directory: fallback,
+    });
+  } finally {
+    restoreTempEnvironment(previousSqliteTmpDir, previousTmpDir);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('isolated SQLite probe validates a candidate without loading SQLite into the parent bootstrap', async () => {
+  const root = temporaryDirectory('runtime-temp-isolated');
+  const directory = resolve(join(root, 'candidate'));
+  try {
+    const selection = await prepareRuntimeTempStorage(directory, root, {
+      sqliteProbe: probeSqliteTempDirectoryIsolated,
+    });
+    assert.equal(selection.mode, 'primary');
+  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
