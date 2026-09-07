@@ -201,6 +201,34 @@ jobs:
           exit 1
       - name: Verify SQLite temporary storage
         run: docker exec basketra-ci node scripts/sqlite-temp-probe.mjs
+      - name: Verify automatic temporary-storage fallback
+        run: |
+          docker run --detach --name basketra-ci-fallback \
+            --read-only \
+            --tmpfs /tmp/basketra:rw,noexec,nosuid,size=32m,mode=0500,uid=0,gid=0 \
+            --tmpfs /data:rw,noexec,nosuid,size=64m,mode=0700,uid=1000,gid=1000 \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --pids-limit 128 \
+            --memory 192m \
+            --memory-swap 192m \
+            --cpus 0.75 \
+            --env NODE_OPTIONS=--max-old-space-size=128 \
+            --publish 127.0.0.1:3002:3000 \
+            basketra:ci
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3002/readiness; then break; fi
+            if [ "$attempt" -eq 30 ]; then
+              docker logs basketra-ci-fallback
+              exit 1
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:3002/api/v1/runtime | \
+            node -e 'let text="";process.stdin.on("data",chunk=>text+=chunk).on("end",()=>{const runtime=JSON.parse(text);if(runtime.tempStorage?.mode!=="data-fallback")process.exit(1)})'
+          curl --fail --silent 'http://127.0.0.1:3002/api/v1/logs?source=server&limit=20' | \
+            node -e 'let text="";process.stdin.on("data",chunk=>text+=chunk).on("end",()=>{const body=JSON.parse(text);const serialized=JSON.stringify(body);if(!serialized.includes("server.temp_storage")||!serialized.includes("DATA_FALLBACK"))process.exit(1)})'
+          docker stop --time 20 basketra-ci-fallback
       - name: Verify runtime limits and graceful shutdown
         run: |
           test "$(docker inspect basketra-ci --format '{{.HostConfig.Memory}}')" = "201326592"
@@ -217,4 +245,5 @@ jobs:
           docker image inspect basketra:ci --format 'image_size={{.Size}} bytes'
           docker logs basketra-ci 2>/dev/null || true
           docker rm --force basketra-ci 2>/dev/null || true
+          docker rm --force basketra-ci-fallback 2>/dev/null || true
           docker volume rm basketra-ci-data 2>/dev/null || true

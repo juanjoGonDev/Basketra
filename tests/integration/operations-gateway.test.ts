@@ -96,6 +96,29 @@ test('operations gateway exposes missing state then uses persisted AI configurat
   }
 });
 
+test('runtime metadata exposes only verified temporary-storage modes and bounded logs',async()=>{
+  for(const mode of ['primary','data-fallback'] as const){
+    const directory=`.test-tmp/gateway-runtime-temp-${mode}-${randomUUID()}`;
+    const gateway=new OperationsGateway(config(directory),{tempStorageMode:mode});
+    try{
+      await gateway.listen();
+      const base=`http://127.0.0.1:${gateway.address().port}`;
+      const runtime=await json(await fetch(`${base}/api/v1/runtime`));
+      assert.deepEqual(runtime['tempStorage'],{mode});
+      assert.equal(JSON.stringify(runtime).includes(directory),false);
+
+      const logs=await json(await fetch(`${base}/api/v1/logs?source=server&limit=20`));
+      const serialized=JSON.stringify(logs);
+      assert.match(serialized,/server\.temp_storage/u);
+      assert.match(serialized,mode==='primary'?/PRIMARY/u:/DATA_FALLBACK/u);
+      assert.equal(serialized.includes(directory),false);
+    }finally{
+      await gateway.close();
+      rmSync(directory,{recursive:true,force:true});
+    }
+  }
+});
+
 test('runtime settings reject invalid provider URLs without stopping the gateway',async()=>{
   const directory=`.test-tmp/gateway-ai-settings-${randomUUID()}`;
   const gateway=new OperationsGateway(config(directory));
