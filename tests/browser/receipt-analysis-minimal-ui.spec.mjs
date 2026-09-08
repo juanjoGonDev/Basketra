@@ -98,6 +98,8 @@ test('receipt analysis is minimal, responsive and exposes one three-path floatin
 
     await expect(page.getByRole('heading', { name: 'Análisis de ticket', exact: true })).toBeVisible();
     await expect(page.locator('.receipt-analysis-header > div:first-child > p:not(.eyebrow)')).toHaveCount(0);
+    await expect(page.getByText('Añade un ticket con +. Los productos aparecerán aquí a medida que se detecten.', { exact: true })).toHaveCount(0);
+    await expect(page.locator('#receipt-detected-empty')).toBeHidden();
 
     const queue = page.locator('#receipt-source-queue');
     await expect(queue).toBeVisible();
