@@ -234,8 +234,9 @@ The user approved both the desktop and mobile prototypes as the next visual laye
 
 ## Validation evidence
 
+- Exact-head visual artifacts from Browser 48/56 and 49/56 were re-reviewed after the spinner fix: 390 px processing/error states, 390/1280 px summary layouts and both line-editor layouts remain free of overflow/clipping; Browser 49/56 also proves the spinner transform changes between animation frames in normal and reduced-motion modes.
 - Device feedback after final review showed the partial processing arc visible but apparently static in Brave. Root cause: animation was gated behind `prefers-reduced-motion: no-preference`, while repository-wide reduced-motion rules clamp animations. The working selector now applies the explicit from→to transform animation directly; the reduced-motion override keeps the same rotation alive at 1.6 s with higher-specificity `!important`, and Browser coverage verifies transform progression in both modes.
-- Final production head `c1a33bf7983626482fbbbdb86893ac923f1d2b13` passed Pull Request Quality run `34246398752`, including all 56 Browser shards, Browser changed-code coverage and `CI complete`.
+- Final production/UI head `b22ffa18fc845d32013fb45bb3f624f1493ebc07` passed Pull Request Quality run `34274931851`, including all 56 Browser shards, Browser changed-code coverage and `CI complete`. CodeQL Advanced run `34274931845` also passed on the same head.
 - CodeQL Advanced run `34246398785` passed all nine matrices on the same production head after rerunning two externally-cancelled matrices whose first attempts had already logged `CodeQL job status was success`.
 - Exact-head Browser 48/56 passed the responsive receipt summary/editor regression after the closed-swipe assertion was corrected to validate both rows; the clean 390 px and 1280 px screenshots show no Edit/Delete rail bleed-through on the discounted row.
 - Exact-head Browser 49/56 passed the processing-state regression: the working partial gradient arc is present, its computed transform changes between animation frames, the inner receipt/count remain stationary, reduced-motion keeps the arc static, and the error state retains the receipt glyph with the slow red perimeter pulse contract.
@@ -264,5 +265,5 @@ The user approved both the desktop and mobile prototypes as the next visual laye
 - [x] Updated local/CI-equivalent validation.
 - [x] Updated Browser visual review for mobile and desktop summary layouts.
 - [x] PR created.
-- [x] CI green on production head `c1a33bf7983626482fbbbdb86893ac923f1d2b13`.
+- [x] CI green on production/UI head `b22ffa18fc845d32013fb45bb3f624f1493ebc07`.
 - [x] Final request/spec/diff/visual review complete for the approved responsive redesign.
