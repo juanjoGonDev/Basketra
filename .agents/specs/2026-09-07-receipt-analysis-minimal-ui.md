@@ -83,7 +83,7 @@ Mobile is the primary layout.
 - Dynamic global/file status remains announced through existing polite live regions without duplicating noisy announcements.
 - Floating actions have visible text in the expanded dial and accessible names in all states.
 - `Escape` closes transient UI without cancelling work.
-- Touch targets remain at least the existing `--touch` target; focus remains visible; `prefers-reduced-motion` is respected.
+- Touch targets remain at least the existing `--touch` target; focus remains visible; `prefers-reduced-motion` is respected by slowing the functional processing spinner while disabling the non-essential error pulse.
 - Review focus/virtual-keyboard protection remains intact.
 
 ## Scope
@@ -170,7 +170,7 @@ Existing receipt durable-job, reload, cancellation, line-editor, discount, mobil
 - The `×` glyph conventionally means close. Mitigation: its accessible name and tooltip explicitly say “Cancelar todo el análisis”; closing uses disclosure semantics/`Escape`.
 - Progressive page-level items can include temporary overlap before final assembly. Mitigation: label the stream provisional and replace it with the combined model when available; never persist from the stream.
 - A floating action can obscure bottom content on mobile. Mitigation: use existing safe-area/navigation tokens and verify 320/390/430 px screenshots.
-- A continuously rotating progress affordance can distract or affect motion-sensitive users. Mitigation: animate only during real work, use a short gradient arc rather than a full ring, stop immediately on complete/error/idle, keep the inner icon stable, and honor `prefers-reduced-motion` with the same arc frozen in place.
+- A continuously rotating progress affordance can distract or affect motion-sensitive users. Mitigation: animate only during real work, use a short gradient arc rather than a full ring, stop immediately on complete/error/idle, keep the inner icon stable, and slow the same functional spinner from 0.8 s to 1.6 s per turn under `prefers-reduced-motion` instead of freezing it; the non-essential red error pulse remains disabled under reduced motion.
 - The error pulse must not become alarming or rely on motion/color alone. Mitigation: use a slow 2.2 s perimeter pulse, preserve the existing textual error state/ARIA label and status dot, and render a static error border under reduced motion/forced colors.
 - Existing tests currently expect review auto-expansion and a visible “Cancelar procesamiento” button. Those assertions must be migrated to the accepted queue/review interaction without weakening behavioral coverage.
 - Editing provisional OCR rows would create a competing mutable source while final assembly can still replace them. Mitigation: keep provisional rows read-only and enable row actions only after the combined/manual item model becomes canonical.
@@ -197,7 +197,7 @@ Before handoff:
 - The empty-stream sentence “Añade un ticket con +. Los productos aparecerán aquí a medida que se detecten.” is removed entirely; the zero-item state remains visually empty apart from the section heading/count and available floating actions.
 - File/progress state is no longer a full-width header row or sticky body card. A small always-visible right-edge control, aligned with the compact `+`, owns aggregate source/progress state and expands for detailed progress, files and recovery actions.
 - The processing affordance uses a partial rotating gradient arc inspired by a conventional spinner; it must read as motion at a glance and never resemble a complete static circle.
-- The rotating arc is rendered as a dedicated spinner layer inside the floating control. Its CSS animation must advance over successive animation frames; the receipt icon/count must not rotate with it.
+- The rotating arc is rendered as a dedicated spinner layer inside the floating control. Its CSS `rotate` animation must visibly change between successive animation frames; the receipt icon/count must not rotate with it. Reduced-motion preference slows that functional rotation instead of disabling it.
 
 ## Approved responsive receipt-summary redesign
 
@@ -229,7 +229,7 @@ The user approved both the desktop and mobile prototypes as the next visual laye
 27. Canonical detected rows support Edit/Delete without opening the full review: mobile swipe and the row action control reveal the same actions, Edit reuses the existing line modal, and Delete reuses the existing undoable deletion owner.
 28. Editing or deleting a canonical row updates the visible row and live calculated total immediately from the same `state.items` model; provisional OCR rows expose no edit/delete controls.
 29. Row actions are keyboard-operable, have explicit accessible names, preserve the existing touch-target contract, and work at both 390 px and desktop widths.
-30. The collapsed floating source/progress control shows a non-blocking rotating partial gradient arc (roughly one third of the circumference, never a full ring) only while aggregate state is `working`; completed/idle/error states do not use that spinner. The inner receipt icon and count remain stationary. With `prefers-reduced-motion: reduce`, the same partial arc remains visible but static.
+30. The collapsed floating source/progress control shows a non-blocking rotating partial gradient arc (roughly one third of the circumference, never a full ring) only while aggregate state is `working`; completed/idle/error states do not use that spinner. The inner receipt icon and count remain stationary. With `prefers-reduced-motion: reduce`, the same partial arc still rotates but at half speed so active processing remains unmistakable.
 31. Aggregate source error keeps the familiar receipt glyph and uses a slow red perimeter pulse instead of replacing the icon. The accessible summary still reports the error and recovery actions remain inside the expanded queue.
 
 ## Validation evidence
