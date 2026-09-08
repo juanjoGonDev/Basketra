@@ -306,10 +306,15 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   let riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
   await actAndWaitForListReads(page, 1, () => swipe(page, riceRow, 'right'));
   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() || '')).toBe('');
-  await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
-  const completedSection = page.locator('#completed-section');
-  await expect(completedSection).toBeVisible();
+  riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
+  await expect(riceRow).toHaveClass(/is-completed/);
+  await expect(riceRow.locator('.completion-button')).toHaveAttribute('aria-pressed', 'true');
+  await expect(riceRow.locator('.ticket-item__identity-copy > strong')).toHaveCSS('text-decoration-line', 'line-through');
+  await expect(page.locator('#completed-section')).toHaveCount(0);
   await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Devolver Arroz 1 kg a pendientes' }).click());
+  riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
+  await expect(riceRow).not.toHaveClass(/is-completed/);
+  await expect(riceRow.locator('.completion-button')).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('#pending-items')).toContainText('Arroz 1 kg');
 
   riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
