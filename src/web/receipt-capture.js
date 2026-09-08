@@ -187,8 +187,6 @@ function receiptProgressSnapshot() {
 }
 
 function liveTotalMinor(snapshot) {
-  const expected = state.extraction?.final?.review?.total?.expectedMinor;
-  if (Number.isSafeInteger(expected)) return expected;
   return snapshot.items.reduce((sum, item) => (
     Number.isSafeInteger(item?.lineTotalMinor) ? sum + item.lineTotalMinor : sum
   ), 0);
