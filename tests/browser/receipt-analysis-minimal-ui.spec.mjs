@@ -364,7 +364,7 @@ test('approved mobile and desktop summary keeps products independent while showi
     await expect(editor.getByRole('button', { name: 'Eliminar', exact: true })).toBeVisible();
     await editor.locator('[data-field="description"]').fill('PATATA EDITADA');
     await editor.locator('[data-field="unitPriceEuro"]').fill('3.05');
-    await editor.locator('[data-field="lineTotalEuro"]').fill('3.05');
+    await expect(editor.locator('[data-field="lineTotalEuro"]')).toHaveText('3.05');
     await page.screenshot({
       path: testInfo.outputPath(`receipt-detected-editor-${viewport.width}.png`),
       fullPage: true,
