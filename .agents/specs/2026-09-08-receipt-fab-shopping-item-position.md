@@ -53,6 +53,12 @@ At desktop widths the FAB remains fixed to the viewport, using the same bounded/
 - Completed-row controls must remain readable and keyboard accessible despite secondary styling.
 - Reorder code currently groups by completion state; leaving that rule would create surprising jumps once a mixed-status sequence is rendered together.
 
+## Checks
+
+- Browser coverage now verifies in-place single-item completion, undo, realtime convergence, reload preservation, canonical mixed-status reorder and bulk completion/pending behavior.
+- Receipt responsive coverage now asserts the desktop trigger/menu right inset at 1280 px and 1600 px while retaining the existing mobile viewport matrix.
+- Full CI and exact-head visual review remain required before delivery.
+
 ## Rollback
 
 Frontend/spec/test-only. Reverting the focused commits restores the previous FAB alignment and completed-section presentation. No migration or data rollback is required.
@@ -60,7 +66,7 @@ Frontend/spec/test-only. Reverting the focused commits restores the previous FAB
 ## Status
 
 - [x] Request/evidence captured.
-- [ ] Implementation.
-- [ ] Browser regression coverage.
+- [x] Implementation.
+- [x] Browser regression coverage.
 - [ ] CI green.
 - [ ] Visual final review.

@@ -1741,6 +1741,21 @@ summary {
   background: var(--color-surface);
 }
 
+.ticket-item.is-completed {
+  background: var(--color-surface-container-low);
+}
+
+.ticket-item.is-completed .ticket-item__identity-copy > strong {
+  color: var(--color-on-surface-variant);
+  text-decoration-line: line-through;
+  text-decoration-thickness: .1em;
+}
+
+.ticket-item.is-completed .ticket-item__product-icon,
+.ticket-item.is-completed .ticket-item__total {
+  color: var(--color-on-surface-variant);
+}
+
 .ticket-item > .completion-button {
   grid-area: complete;
 }

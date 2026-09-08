@@ -75,9 +75,9 @@
 
         <section class="shopping-ticket" aria-labelledby="pending-title">
           <header class="shopping-ticket__header">
-            <div><p class="eyebrow">Pendientes</p><h2 id="pending-title">Por comprar</h2><small>Estimación · últimos precios guardados</small></div>
+            <div><p class="eyebrow">Lista</p><h2 id="pending-title">Productos</h2><small><span id="completed-count">0</span> comprados · Estimación · últimos precios guardados</small></div>
             <div class="shopping-ticket__header-actions">
-              <span id="pending-count" class="count-badge">0</span>
+              <span id="pending-count" class="count-badge" aria-label="0 pendientes" title="Pendientes">0</span>
               <button id="toggle-multi-select" class="button secondary compact" type="button" aria-pressed="false"><span data-icon="check"></span><span>Seleccionar</span></button>
             </div>
           </header>
@@ -108,10 +108,6 @@
           <span id="item-state" class="inline-status" role="status"></span>
         </div>
 
-        <section id="completed-section" class="content-section completed-section" aria-labelledby="completed-title" hidden>
-          <div class="section-header"><div><p class="eyebrow">Completados</p><h2 id="completed-title">Ya en la cesta</h2></div><span id="completed-count" class="count-badge">0</span></div>
-          <div id="completed-items" class="category-groups" aria-live="polite"></div>
-        </section>
       </div>
     </section>
 

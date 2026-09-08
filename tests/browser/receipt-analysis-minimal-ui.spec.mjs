@@ -90,6 +90,7 @@ test('receipt analysis is minimal, responsive and exposes one three-path floatin
     { width: 390, height: 844 },
     { width: 768, height: 900 },
     { width: 1280, height: 900 },
+    { width: 1600, height: 1000 },
   ]) {
     await page.setViewportSize(viewport);
     await page.goto('/');
@@ -113,6 +114,20 @@ test('receipt analysis is minimal, responsive and exposes one three-path floatin
     await expect(dial.getByText('Scan', { exact: true })).toBeVisible();
     await expect(page.locator('#receipt-analysis-options')).toHaveCount(0);
     await expect(page.locator('#verify-receipt-ai')).toHaveCount(0);
+
+    if (viewport.width >= 1280) {
+      const edge = await page.evaluate(() => {
+        const trigger = document.querySelector('#receipt-add-trigger').getBoundingClientRect();
+        const menu = document.querySelector('#receipt-add-menu').getBoundingClientRect();
+        return {
+          trigger: window.innerWidth - trigger.right,
+          menu: window.innerWidth - menu.right,
+        };
+      });
+      expect(edge.trigger).toBeLessThanOrEqual(32.5);
+      expect(edge.menu).toBeLessThanOrEqual(32.5);
+      expect(Math.abs(edge.trigger - edge.menu)).toBeLessThanOrEqual(.5);
+    }
 
     if (viewport.width === 390 || viewport.width === 1280) {
       await page.screenshot({

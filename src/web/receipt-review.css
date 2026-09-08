@@ -1114,12 +1114,12 @@
 
 @media (min-width: 64rem) {
   .receipt-add-trigger {
-    right: max(2rem, calc((100vw - var(--nav-rail) - var(--content-max)) / 2 + 2rem));
+    right: max(2rem, env(safe-area-inset-right));
     bottom: 2rem;
   }
 
   .receipt-add-menu {
-    right: max(2rem, calc((100vw - var(--nav-rail) - var(--content-max)) / 2 + 2rem));
+    right: max(2rem, env(safe-area-inset-right));
     bottom: calc(2rem + var(--touch-primary) + var(--space-4));
   }
 }
