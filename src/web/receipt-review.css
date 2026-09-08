@@ -1147,7 +1147,7 @@
 }
 
 .receipt-detected-item--discounted {
-  background: color-mix(in srgb, var(--color-error) 5%, transparent);
+  background: color-mix(in srgb, var(--color-error) 5%, var(--color-surface));
 }
 
 .receipt-detected-item__amount {
