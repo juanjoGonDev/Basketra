@@ -619,12 +619,7 @@
 
 .receipt-source-queue[data-state="working"] .receipt-source-queue__spinner {
   opacity: 1;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .receipt-source-queue[data-state="working"] .receipt-source-queue__spinner {
-    animation: receipt-source-progress-spin .8s linear infinite;
-  }
+  animation: receipt-source-progress-spin .8s linear infinite;
 }
 
 .receipt-source-queue > summary::after {
@@ -1596,8 +1591,7 @@
 
   .receipt-source-queue[data-state="working"] .receipt-source-queue__spinner {
     opacity: 1;
-    animation: none;
-    transform: rotate(35deg);
+    animation: receipt-source-progress-spin 1.6s linear infinite !important;
   }
 
   .receipt-source-queue[data-state="error"] > summary {
