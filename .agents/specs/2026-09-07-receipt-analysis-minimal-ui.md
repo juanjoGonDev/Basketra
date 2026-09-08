@@ -171,6 +171,7 @@ Existing receipt durable-job, reload, cancellation, line-editor, discount, mobil
 - Progressive page-level items can include temporary overlap before final assembly. Mitigation: label the stream provisional and replace it with the combined model when available; never persist from the stream.
 - A floating action can obscure bottom content on mobile. Mitigation: use existing safe-area/navigation tokens and verify 320/390/430 px screenshots.
 - A continuously rotating progress affordance can distract or affect motion-sensitive users. Mitigation: animate only during real work, stop immediately on complete/error/idle, keep the inner icon stable, and honor `prefers-reduced-motion` with a static working ring.
+- The error pulse must not become alarming or rely on motion/color alone. Mitigation: use a slow 2.2 s perimeter pulse, preserve the existing textual error state/ARIA label and status dot, and render a static error border under reduced motion/forced colors.
 - Existing tests currently expect review auto-expansion and a visible “Cancelar procesamiento” button. Those assertions must be migrated to the accepted queue/review interaction without weakening behavioral coverage.
 - Editing provisional OCR rows would create a competing mutable source while final assembly can still replace them. Mitigation: keep provisional rows read-only and enable row actions only after the combined/manual item model becomes canonical.
 
@@ -227,7 +228,7 @@ The user approved both the desktop and mobile prototypes as the next visual laye
 28. Editing or deleting a canonical row updates the visible row and live calculated total immediately from the same `state.items` model; provisional OCR rows expose no edit/delete controls.
 29. Row actions are keyboard-operable, have explicit accessible names, preserve the existing touch-target contract, and work at both 390 px and desktop widths.
 30. The collapsed floating source/progress control shows a non-blocking rotating perimeter only while aggregate state is `working`; completed/idle/error states do not animate. With `prefers-reduced-motion: reduce`, working state remains visually distinguishable but static.
-31. Aggregate source error replaces the normal receipt glyph with the existing alert icon while preserving the detailed accessible summary and direct recovery actions inside the expanded queue.
+31. Aggregate source error keeps the familiar receipt glyph and uses a slow red perimeter pulse instead of replacing the icon. The accessible summary still reports the error and recovery actions remain inside the expanded queue.
 
 ## Validation evidence
 
