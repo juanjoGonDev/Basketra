@@ -284,6 +284,10 @@ test('durable OCR evidence appears progressively in the body while source detail
   expect(errorVisual.animationDuration).toBe('2.2s');
   expect(errorVisual.spinnerOpacity).toBe('0');
   await expect(queue.locator(':scope > summary > .icon')).toHaveCount(1);
+  await page.screenshot({
+    path: testInfo.outputPath('receipt-progress-error-pulse-390.png'),
+    fullPage: true,
+  });
 
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const reducedErrorAnimation = await queue.locator(':scope > summary').evaluate(element => (
