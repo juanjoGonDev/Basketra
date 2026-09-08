@@ -248,7 +248,7 @@ export function installReceiptEnhancements() {
       </div>
       <p id="receipt-detected-help" class="receipt-detected-stream__help">Las líneas son provisionales hasta completar la revisión conjunta.</p>
       <ol id="receipt-detected-list" class="receipt-detected-list"></ol>
-      <p id="receipt-detected-empty" class="receipt-detected-empty">Añade un ticket con +. Los productos aparecerán aquí a medida que se detecten.</p>`;
+      <p id="receipt-detected-empty" class="receipt-detected-empty" hidden></p>`;
     receiptState.insertAdjacentElement('afterend', detected);
   }
 
