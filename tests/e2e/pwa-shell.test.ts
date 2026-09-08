@@ -52,7 +52,8 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.match(html, /id="rename-list-form"/);
   assert.match(html, /id="delete-list-dialog"/);
   assert.match(html, /id="pending-items"/);
-  assert.match(html, /id="completed-items"/);
+  assert.match(html, /id="completed-count"/);
+  assert.doesNotMatch(html, /id="completed-items"|id="completed-section"|Ya en la cesta/i);
   assert.match(html, /id="realtime-state"/);
   assert.match(html, /id="open-ai-assistant"/);
   assert.doesNotMatch(html, /id="verify-receipt-ai"/);

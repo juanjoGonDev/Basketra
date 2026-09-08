@@ -30,7 +30,6 @@ const UNIT_LABELS = Object.freeze({
   m: 'm',
 });
 
-const CATEGORY_FALLBACK = 'Sin categoría';
 const REALTIME_COALESCE_MS = 90;
 const LOCATION_MATCH_METERS = 2_000;
 const MAX_NEARBY_METERS = 1_500;
@@ -351,7 +350,7 @@ function ticketItem(item, index, total) {
     </div>
     <article class="ticket-item${completed ? ' is-completed' : ''} swipe-content" data-swipe-content>
       <button type="button" class="completion-button" data-item-action="complete" data-item-id="${id}" aria-label="${completionLabel}" aria-pressed="${String(completed)}"><span data-icon="check"></span></button>
-      <div class="ticket-item__identity list-row__content"><span class="ticket-item__product-icon" data-icon="cart" aria-hidden="true"></span><span class="ticket-item__identity-copy"><strong>${name}</strong>${category}<small class="${priced ? '' : 'ticket-item__warning'}">${priceContext}</small></span></div>
+      <div class="ticket-item__identity list-row__content"><span class="ticket-item__product-icon" data-icon="cart" aria-hidden="true"></span><span class="ticket-item__identity-copy"><strong>${name}</strong>${category}<small class="${completed || priced ? '' : 'ticket-item__warning'}">${priceContext}</small></span></div>
       <strong class="ticket-item__total">${totalText}</strong>
       <div class="ticket-item__controls">
         <div class="quantity-stepper quantity-stepper--compact" aria-label="Cantidad de ${name}">
