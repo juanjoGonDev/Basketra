@@ -604,9 +604,9 @@
     );
   opacity: 0;
   pointer-events: none;
-  transform: rotate(0deg);
+  rotate: 0deg;
   transform-origin: center;
-  will-change: transform;
+  will-change: rotate;
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
@@ -619,7 +619,8 @@
 
 .receipt-source-queue[data-state="working"] .receipt-source-queue__spinner {
   opacity: 1;
-  animation: receipt-source-progress-spin .8s linear infinite;
+  animation: receipt-source-progress-spin .8s linear infinite both;
+  animation-play-state: running;
 }
 
 .receipt-source-queue > summary::after {
@@ -632,7 +633,7 @@
 
 @keyframes receipt-source-progress-spin {
   to {
-    transform: rotate(1turn);
+    rotate: 1turn;
   }
 }
 
@@ -1587,8 +1588,8 @@
 
   .receipt-source-queue[data-state="working"] .receipt-source-queue__spinner {
     opacity: 1;
-    animation: none;
-    transform: rotate(35deg);
+    animation-duration: 1.6s;
+    animation-play-state: running;
   }
 
   .receipt-source-queue[data-state="error"] > summary {
