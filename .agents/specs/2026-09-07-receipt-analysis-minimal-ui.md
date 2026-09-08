@@ -194,6 +194,33 @@ Before handoff:
 - The empty-stream sentence “Añade un ticket con +. Los productos aparecerán aquí a medida que se detecten.” is removed entirely; the zero-item state remains visually empty apart from the section heading/count and available floating actions.
 - File/progress state is no longer a full-width header row or sticky body card. A small always-visible right-edge control, aligned with the compact `+`, owns aggregate source/progress state and expands for detailed progress, files and recovery actions.
 
+## Approved responsive receipt-summary redesign
+
+The user approved both the desktop and mobile prototypes as the next visual layer for the same PR. This does not turn the detected stream into a literal paper receipt. The receipt metaphor is informational only; products remain independent rows.
+
+### Additional UX contract
+
+- Show the currently recognized retailer prominently when one canonical candidate is available; show a neutral unresolved/multiple-retailer state otherwise.
+- Show a live calculated total derived from the same detected/review item model already rendered by the receipt flow. Do not introduce a second receipt or money calculation owner.
+- Surface explicit discounts without inventing promotion data. Discount count/details come only from the existing typed item discount model and existing unassigned-discount evidence.
+- Preserve independent product rows with description, quantity/unit-price context and line total.
+- Desktop progressively enhances into a two-column workspace: product stream as the primary column, compact ticket summary as the secondary sticky column, plus a top analysis/retailer strip and live-total surface.
+- Mobile remains one column: compact retailer/analysis state first, independent product rows next, then a concise summary with discounts and provisional/final total.
+- Empty state uses a restrained empty-ticket visual placeholder but does not restore the previously rejected explanatory sentence or other redundant body copy.
+- Existing floating source/progress disclosure and floating add action remain the recovery/input owners and must stay reachable above navigation/safe areas.
+- Existing review/edit/validate/import disclosure remains authoritative for corrections and confirmation.
+
+### Additional acceptance criteria
+
+19. A recognized retailer name is shown from existing extraction/retailer-candidate state without fabricating confidence or store identity.
+20. The live total updates from the currently rendered detected/review items and uses integer minor-unit values only.
+21. Explicit item discounts and existing unassigned discounts are represented in the summary; no discount is inferred from description text alone.
+22. At desktop widths the product stream and summary use the approved two-column information hierarchy without changing the functional flow.
+23. At mobile widths the same information reflows to one column, with the summary following the detected products and no horizontal overflow at 320/390 px.
+24. The zero-product state shows a visual empty-ticket affordance without the removed “Añade un ticket…” explanatory copy.
+25. Product rows remain individually scannable and do not become a literal paper-ticket rendering.
+26. Existing queue/retry/cancel/manual/review/import behavior and accessibility contracts remain intact.
+
 ## Validation evidence
 
 - Pull Request Quality run `34170520439` passed on production head `17b3d6ad78dae523edee34da3298ff6462b0606d` after one infrastructure-only rerun of Browser 6/56; that shard had already completed both tests and every job step successfully before GitHub marked the first attempt cancelled.
@@ -210,10 +237,10 @@ Before handoff:
 ## Status
 
 - [x] Recon complete against `main` at `6fc25b3af3c26e59fa905bb4c672a438a630120f`.
-- [x] User-approved prototype translated into executable acceptance criteria.
-- [x] Implementation.
-- [x] Local/CI-equivalent validation.
-- [x] Browser visual review.
+- [x] User-approved prototypes translated into executable acceptance criteria.
+- [ ] Responsive receipt-summary follow-up implementation.
+- [ ] Updated local/CI-equivalent validation.
+- [ ] Updated Browser visual review for mobile and desktop summary layouts.
 - [x] PR created.
-- [x] CI green on the production head.
-- [x] Final request/spec/diff/visual review complete.
+- [ ] CI green on the new exact head.
+- [ ] Final request/spec/diff/visual review complete for the approved responsive redesign.
