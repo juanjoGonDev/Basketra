@@ -7,8 +7,10 @@ The floating receipt-analysis progress arc is visible but appears static in the 
 ## Evidence
 
 - `src/web/receipt-review.css` already defines `@keyframes receipt-source-progress-spin` with explicit `from { transform: rotate(0deg); }` and `to { transform: rotate(360deg); }`.
-- Browser regression coverage already verifies that the spinner's computed transform changes between successive animation frames while the queue aggregate state is `working`.
-- `src/web/sw.js` treated every shell asset, including `/receipt-review.css`, cache-first. A live tab could therefore continue receiving an older cached receipt stylesheet even though the current branch contains the correct `from`/`to` animation, especially in local/PWA sessions where the shell cache remains active.
+- Browser regression coverage verifies that the spinner's computed transform changes between successive animation frames while the queue aggregate state is `working`.
+- `src/web/sw.js` previously treated every shell asset, including `/receipt-review.css`, cache-first. A live tab could therefore continue receiving an older cached receipt stylesheet even though the branch contained the correct `from`/`to` animation, especially in local/PWA sessions where the shell cache remained active.
+- On head `2b2fe2c0fe44ee0935407358907db220ae06ecce`, Pull Request Quality run `34279738773` completed successfully and CodeQL Advanced run `34279738767` completed successfully.
+- The Web coverage gate returned to 100% after the service-worker regression exercised both the online fresh stylesheet path and the offline cached fallback.
 
 ## Decision
 
@@ -42,6 +44,6 @@ Revert the focused service-worker freshness change and its tests. No API, databa
 - [x] Focused service-worker freshness change implemented.
 - [x] Static PWA regression added.
 - [x] Service-worker 100% coverage regression added.
-- [ ] Exact-head Pull Request Quality green.
-- [ ] Exact-head CodeQL green.
-- [ ] Final PR/body review complete.
+- [x] Pull Request Quality green on validated implementation head `2b2fe2c0fe44ee0935407358907db220ae06ecce` (`34279738773`).
+- [x] CodeQL green on validated implementation head `2b2fe2c0fe44ee0935407358907db220ae06ecce` (`34279738767`).
+- [x] Final PR/body review prepared; the documentation-only closing commit must also complete exact-head CI before handoff.
