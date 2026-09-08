@@ -608,33 +608,26 @@
   display: none;
 }
 
-.receipt-source-queue__state-icon {
-  display: grid;
-  place-items: center;
+.receipt-source-queue > summary > .icon {
   color: var(--color-primary);
-}
-
-.receipt-source-queue__state-icon--error {
-  display: none;
-  color: var(--color-error);
-}
-
-.receipt-source-queue[data-state="error"] .receipt-source-queue__state-icon--source {
-  display: none;
-}
-
-.receipt-source-queue[data-state="error"] .receipt-source-queue__state-icon--error {
-  display: grid;
-}
-
-.receipt-source-queue__state-icon .icon {
-  width: 1.2rem;
-  height: 1.2rem;
 }
 
 @keyframes receipt-source-progress-spin {
   to {
     transform: rotate(1turn);
+  }
+}
+
+@keyframes receipt-source-error-pulse {
+  0%,
+  100% {
+    border-color: color-mix(in srgb, var(--color-error) 42%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-error) 0%, transparent);
+  }
+
+  50% {
+    border-color: var(--color-error);
+    box-shadow: 0 0 0 .18rem color-mix(in srgb, var(--color-error) 18%, transparent);
   }
 }
 
@@ -676,8 +669,17 @@
   background: var(--color-success);
 }
 
+.receipt-source-queue[data-state="error"] > summary {
+  border-color: var(--color-error);
+  animation: receipt-source-error-pulse 2.2s ease-in-out infinite;
+}
+
+.receipt-source-queue[data-state="error"] > summary > .icon {
+  color: var(--color-error);
+}
+
 .receipt-source-queue[data-state="error"] .receipt-source-queue__status-dot {
-  display: none;
+  background: var(--color-error);
 }
 
 .receipt-source-queue__panel {
@@ -1569,6 +1571,12 @@
     border-color: var(--color-primary);
     animation: none;
   }
+
+  .receipt-source-queue[data-state="error"] > summary {
+    border-color: var(--color-error);
+    animation: none;
+    box-shadow: 0 .5rem 1.3rem color-mix(in srgb, var(--color-scrim) 16%, transparent);
+  }
 }
 
 @media (forced-colors: active) {
@@ -1583,7 +1591,8 @@
     border-color: Highlight;
   }
 
-  .receipt-source-queue__state-icon--error {
-    color: Highlight;
+  .receipt-source-queue[data-state="error"] > summary {
+    border-color: Highlight;
+    animation: none;
   }
 }
