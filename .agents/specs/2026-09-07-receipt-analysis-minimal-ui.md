@@ -197,6 +197,7 @@ Before handoff:
 - The empty-stream sentence “Añade un ticket con +. Los productos aparecerán aquí a medida que se detecten.” is removed entirely; the zero-item state remains visually empty apart from the section heading/count and available floating actions.
 - File/progress state is no longer a full-width header row or sticky body card. A small always-visible right-edge control, aligned with the compact `+`, owns aggregate source/progress state and expands for detailed progress, files and recovery actions.
 - The processing affordance uses a partial rotating gradient arc inspired by a conventional spinner; it must read as motion at a glance and never resemble a complete static circle.
+- The rotating arc is rendered as a dedicated spinner layer inside the floating control. Its CSS animation must advance over successive animation frames; the receipt icon/count must not rotate with it.
 
 ## Approved responsive receipt-summary redesign
 
