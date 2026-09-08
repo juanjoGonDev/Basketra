@@ -5,11 +5,11 @@
 Redesign the receipt-analysis experience around the user-approved prototype:
 
 - mobile-first and deliberately minimal;
-- uploaded images/PDFs live in a compact dropdown queue instead of occupying the body;
-- the queue exposes per-file loading/progress, recoverable errors, retry/manual recovery and preview;
+- uploaded images/PDFs live behind a compact floating source/progress control fixed to the right edge instead of occupying the body;
+- the always-visible control shows only minimal count/state; opening it exposes per-file loading/progress, recoverable errors, retry/manual recovery and preview;
 - a visible `×` action cancels the whole analysis while preserving already persisted captures/OCR evidence;
 - a compact floating `+` action exposes three entry paths: AI/file upload, Manual and Scan/photo;
-- the body is primarily the progressively detected receipt lines plus a small always-visible global progress indicator;
+- the body is primarily the progressively detected receipt lines; detailed progress is kept inside the expandable source control instead of consuming body space;
 - the existing preview, editable review, line validation, total validation and final import flow remain available.
 
 The visual direction was explicitly approved before implementation. The launcher/download-popover screenshot supplied by the user is a behavioral reference for the compact dropdown, not a request to copy its branding.
@@ -35,8 +35,8 @@ The visual direction was explicitly approved before implementation. The launcher
 
 The Tickets view becomes three layers:
 
-1. **Compact source queue** — a disclosure trigger near the receipt heading showing file count and aggregate state. Opening it reveals uploaded sources, per-source state/recovery, upload controls/options and the destructive cancel-all action.
-2. **Primary body** — a compact global progress strip followed by progressively detected line summaries. This is the dominant mobile surface while OCR/AI is running.
+1. **Floating source/progress control** — a small disclosure fixed at the right edge, vertically stacked with the floating `+`. Its collapsed state shows only source count and semantic aggregate state. Opening it reveals detailed global progress, uploaded sources, per-source state/recovery and the destructive cancel-all action.
+2. **Primary body** — progressively detected line summaries without a permanent progress card. This remains the dominant mobile surface while OCR/AI is running.
 3. **Review disclosure** — when a combined result exists, the existing preview/edit/validate/import workflow remains available behind a concise “Vista previa y validación” disclosure instead of automatically occupying the whole page.
 
 The source queue and review disclosure are separate concepts. Closing a disclosure never cancels work. The visible `×` in the queue is explicitly named “Cancelar todo el análisis” and performs cancellation only.
@@ -67,8 +67,9 @@ Temporary cross-page overlap may exist before final assembly; copy must make the
 
 Mobile is the primary layout.
 
-- At 320–430 px the queue panel uses the available width below its trigger, never creates page-level horizontal scrolling and remains reachable above bottom navigation/safe area.
-- The global progress strip remains compact and sticky enough to keep status visible without hiding focused controls.
+- At 320–430 px the source/progress trigger and `+` remain fixed at the right edge above bottom navigation/safe area, each preserving at least a 44 × 44 CSS px target.
+- The collapsed source/progress trigger is always visible and minimal; its panel expands inward/upward without page-level horizontal scrolling.
+- Detailed global/file progress lives inside that panel and therefore never consumes a persistent body row.
 - The speed dial remains above bottom navigation and safe-area insets and must not cover the review CTA.
 - On desktop the same queue becomes a bounded top-right popover; the functional flow is unchanged.
 - No hover-only behavior.
@@ -128,18 +129,18 @@ The actual diff must remain smaller if existing components can satisfy the behav
 ## Acceptance criteria
 
 1. The Tickets body no longer permanently displays large capture/upload cards as primary content.
-2. A compact disclosure reports the number/state of uploaded image/PDF sources and opens the queue on mobile and desktop.
+2. A compact always-visible disclosure fixed at the right edge reports source count/state minimally and opens detailed progress/source information on mobile and desktop.
 3. Queue rows expose meaningful pending/processing/completed/error/cancelled state, preview where supported and existing recovery/retry actions.
 4. A queue-header `×` cancels the whole analysis; closing the queue itself does not.
 5. Cancel-all preserves captures and already durable OCR/completed evidence exactly as the existing cancellation contract requires.
 6. A single floating `+` opens exactly three visible paths: IA, Manual and Scan.
 7. The receipt UI exposes no AI verification toggle; when AI is configured, file/camera analysis always uses it. Missing/failing AI preserves uploaded evidence and available local OCR for recovery/manual review.
 8. The body progressively shows detected line summaries before final assembly and switches to the combined model when available.
-9. Global progress remains visible in a compact form while work is active and exposes completed/total plus meaningful error/cancel state.
+9. Aggregate progress remains always visible through the compact floating source control while work is active; completed/total and detailed error/cancel information are available after expansion.
 10. Automatic extraction no longer auto-expands the full review editor; a concise review disclosure/CTA remains visible after final assembly.
 11. Opening review preserves capture preview only when capture evidence exists, plus editable rows, retailer/store fields, line validation, total validation and confirm/import.
 12. Manual entry opens the focused line modal, exposes Cancel/close, shows no capture selector when there are no captures, and discards the unsaved draft on cancellation.
-13. At 320, 390/430, 768 and desktop widths there is no unintended horizontal overflow, clipped queue, hidden FAB or bottom-navigation collision.
+13. At 320, 390/430, 768 and desktop widths there is no unintended horizontal overflow, clipped expanded queue, hidden floating source/progress control, hidden FAB or bottom-navigation collision.
 14. Keyboard users can operate queue, speed dial, review and cancellation; `Escape` closes transient queue/dial state without cancelling.
 15. Existing durable AI/SSE behavior remains polling-free and uses current state owners.
 16. No new dependency, API contract, database migration or persistent receipt source of truth is introduced.
@@ -186,6 +187,11 @@ Before handoff:
 - create a normal non-draft PR with what/why/impact/tests/risks;
 - inspect CI on the exact head and fix evidence-based failures;
 - perform final request/spec/acceptance review after CI is green.
+
+## Follow-up device feedback
+
+- The explanatory sentence below “Análisis de ticket” is removed; the screen title stands on its own.
+- File/progress state is no longer a full-width header row or sticky body card. A small always-visible right-edge control, aligned with the compact `+`, owns aggregate source/progress state and expands for detailed progress, files and recovery actions.
 
 ## Validation evidence
 
