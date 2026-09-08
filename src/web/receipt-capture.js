@@ -154,7 +154,7 @@ export function renderProgressiveDetectedItems() {
   }
 
   count.textContent = String(snapshot.items.length);
-  empty.hidden = snapshot.items.length > 0;
+  empty.hidden = true;
   help.textContent = snapshot.provisional
     ? 'Las líneas son provisionales hasta completar la revisión conjunta.'
     : 'Resultado combinado listo. Abre la vista previa para validar y corregir.';
