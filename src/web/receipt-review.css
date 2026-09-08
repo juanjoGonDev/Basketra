@@ -557,22 +557,28 @@
 }
 
 .receipt-source-queue {
-  position: relative;
-  width: 100%;
-  min-width: 0;
+  position: fixed;
+  z-index: 33;
+  right: max(var(--space-4), env(safe-area-inset-right));
+  bottom: calc(var(--nav) + env(safe-area-inset-bottom) + var(--space-4) + var(--touch) + var(--space-2));
+  width: var(--touch);
+  min-width: var(--touch);
 }
 
 .receipt-source-queue > summary {
+  width: var(--touch);
+  min-width: var(--touch);
+  height: var(--touch);
   min-height: var(--touch);
+  position: relative;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  gap: var(--space-2);
-  align-items: center;
-  padding: .55rem .75rem;
+  place-items: center;
+  padding: 0;
   border: 1px solid color-mix(in srgb, var(--color-on-surface) 12%, transparent);
   border-radius: var(--radius-interactive);
   background: var(--color-surface);
   color: var(--color-on-surface);
+  box-shadow: 0 .5rem 1.3rem color-mix(in srgb, var(--color-scrim) 16%, transparent);
   cursor: pointer;
   list-style: none;
 }
@@ -582,47 +588,39 @@
 }
 
 .receipt-source-queue > summary::after {
-  content: "⌄";
-  color: var(--color-on-surface-variant);
-  font-size: 1.15rem;
-  line-height: 1;
-  transform-origin: center;
-  transition: transform var(--motion-fast) var(--motion-standard-ease);
-}
-
-.receipt-source-queue[open] > summary::after {
-  transform: rotate(180deg);
+  display: none;
 }
 
 .receipt-source-queue > summary > .icon {
   color: var(--color-primary);
 }
 
-.receipt-source-queue__summary-copy {
-  min-width: 0;
+.receipt-source-queue__count {
+  min-width: 1.15rem;
+  height: 1.15rem;
+  position: absolute;
+  top: -.35rem;
+  right: -.35rem;
   display: grid;
-  gap: .05rem;
-}
-
-.receipt-source-queue__summary-copy strong,
-.receipt-source-queue__summary-copy small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.receipt-source-queue__summary-copy strong {
-  font-size: .82rem;
-}
-
-.receipt-source-queue__summary-copy small {
-  color: var(--color-on-surface-variant);
-  font-size: .72rem;
+  place-items: center;
+  padding-inline: .22rem;
+  border: 2px solid var(--color-surface);
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: .62rem;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 .receipt-source-queue__status-dot {
   width: .5rem;
   height: .5rem;
+  position: absolute;
+  right: .28rem;
+  bottom: .28rem;
+  border: 1px solid var(--color-surface);
   border-radius: var(--radius-full);
   background: var(--color-outline);
 }
@@ -640,11 +638,11 @@
 }
 
 .receipt-source-queue__panel {
-  position: absolute;
+  position: fixed;
   z-index: 45;
-  top: calc(100% + var(--space-2));
-  left: 0;
-  right: 0;
+  right: max(var(--space-4), env(safe-area-inset-right));
+  bottom: calc(var(--nav) + env(safe-area-inset-bottom) + var(--space-4) + (var(--touch) * 2) + (var(--space-2) * 2));
+  width: min(24rem, calc(100vw - var(--space-8)));
   max-height: min(68dvh, 36rem);
   overflow: auto;
   overscroll-behavior: contain;
@@ -806,15 +804,17 @@
 
 
 .receipt-progress--compact {
-  position: sticky;
-  z-index: 18;
-  top: calc(var(--header) + env(safe-area-inset-top) + var(--space-2));
+  position: static;
+  z-index: auto;
   gap: var(--space-2);
-  margin: 0 0 var(--space-3);
+  margin: 0;
   padding: var(--space-3) var(--space-4);
-  border-color: color-mix(in srgb, var(--color-primary) 16%, transparent);
-  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
-  backdrop-filter: blur(.6rem);
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-on-surface) 9%, transparent);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .receipt-progress--compact .receipt-progress__heading strong {
@@ -952,10 +952,10 @@
 }
 
 .receipt-add-trigger {
-  width: var(--touch-primary);
-  min-width: var(--touch-primary);
-  height: var(--touch-primary);
-  min-height: var(--touch-primary);
+  width: var(--touch);
+  min-width: var(--touch);
+  height: var(--touch);
+  min-height: var(--touch);
   position: fixed;
   z-index: 32;
   right: max(var(--space-4), env(safe-area-inset-right));
@@ -984,7 +984,7 @@
   position: fixed;
   z-index: 31;
   right: max(var(--space-4), env(safe-area-inset-right));
-  bottom: calc(var(--nav) + env(safe-area-inset-bottom) + var(--touch-primary) + var(--space-6));
+  bottom: calc(var(--nav) + env(safe-area-inset-bottom) + var(--touch) + var(--space-6));
   display: grid;
   justify-items: end;
   gap: var(--space-2);
@@ -1050,13 +1050,10 @@
 
 @media (max-width: 31.25rem) {
   .receipt-source-queue__panel {
-    position: fixed;
-    top: calc(var(--header) + env(safe-area-inset-top));
-    left: 0;
-    right: 0;
+    right: max(var(--space-3), env(safe-area-inset-right));
+    bottom: calc(var(--nav) + env(safe-area-inset-bottom) + var(--space-3) + (var(--touch) * 2) + (var(--space-2) * 2));
+    width: min(22rem, calc(100vw - var(--space-6)));
     max-height: min(72dvh, 38rem);
-    border-inline: 0;
-    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
   }
 
   .receipt-source-queue .capture-source {
@@ -1098,17 +1095,8 @@
 
 @media (min-width: 50rem) {
   .receipt-analysis-header {
-    grid-template-columns: minmax(0, 1fr) minmax(18rem, 23rem);
+    grid-template-columns: minmax(0, 1fr);
     align-items: end;
-  }
-
-  .receipt-source-queue {
-    justify-self: end;
-  }
-
-  .receipt-source-queue__panel {
-    left: auto;
-    width: min(24rem, calc(100vw - var(--space-8)));
   }
 }
 
@@ -1118,9 +1106,19 @@
     bottom: 2rem;
   }
 
+  .receipt-source-queue {
+    right: max(2rem, env(safe-area-inset-right));
+    bottom: calc(2rem + var(--touch) + var(--space-2));
+  }
+
+  .receipt-source-queue__panel {
+    right: max(2rem, env(safe-area-inset-right));
+    bottom: calc(2rem + (var(--touch) * 2) + (var(--space-2) * 2));
+  }
+
   .receipt-add-menu {
     right: max(2rem, env(safe-area-inset-right));
-    bottom: calc(2rem + var(--touch-primary) + var(--space-4));
+    bottom: calc(2rem + var(--touch) + var(--space-4));
   }
 }
 
