@@ -419,7 +419,7 @@ export function suggestionOption(suggestion) {
   return `<button type="button" class="suggestion-option" role="option" data-suggestion="${escapeHtml(suggestion.name)}">${icon('plus')}<span>${escapeHtml(suggestion.name)}</span></button>`;
 }
 
-function swipeActionRail(editLabel, deleteLabel, editAttributes, deleteAttributes) {
+export function swipeActionRail(editLabel, deleteLabel, editAttributes, deleteAttributes) {
   return `<div class="swipe-rail swipe-rail--end" data-swipe-actions aria-hidden="true">
     <button type="button" class="swipe-rail__action" data-primary-swipe-action ${editAttributes} tabindex="-1">${icon('edit')}<span>${escapeHtml(editLabel)}</span></button>
     <button type="button" class="swipe-rail__action swipe-rail__action--danger" data-destructive-action ${deleteAttributes} tabindex="-1">${icon('trash')}<span>${escapeHtml(deleteLabel)}</span></button>
