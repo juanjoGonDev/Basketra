@@ -69,13 +69,13 @@ test('ticket history supports direct deep links and browser back to capture', as
 
   await page.getByRole('button', { name: 'Captura', exact: true }).first().click();
   await expect(page).toHaveURL(/\/tickets$/);
-  await expect(page.getByRole('heading', { name: 'Captura y revisa' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Análisis de ticket' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Historial', exact: true }).click();
   await expect(page).toHaveURL(/\/tickets\/history$/);
   await page.goBack();
   await expect(page).toHaveURL(/\/tickets$/);
-  await expect(page.getByRole('heading', { name: 'Captura y revisa' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Análisis de ticket' })).toBeVisible();
 });
 
 test('ticket detail deep link preserves the entity route through app bootstrap', async ({ page }) => {

@@ -49,8 +49,6 @@ async function enableAiUploadPreflight(page) {
   await page.evaluate(async () => {
     const { state } = await import('/receipt-state.js');
     state.aiConfigured = true;
-    const checkbox = document.querySelector('#verify-receipt-ai');
-    if (checkbox instanceof HTMLInputElement) checkbox.checked = true;
   });
 }
 
@@ -60,7 +58,7 @@ async function openTickets(page, allowExpectedServerError = false) {
   await expect(page.locator('#connection-state')).toContainText('Conectado');
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
   await expect(
-    page.locator('[data-view="scan"].active').getByRole('heading', { name: 'Captura y revisa', exact: true }),
+    page.locator('[data-view="scan"].active').getByRole('heading', { name: 'Análisis de ticket', exact: true }),
   ).toBeVisible();
   return failures;
 }
@@ -70,6 +68,10 @@ function captureCards(page) {
 }
 
 async function expectLoadedImages(page, count) {
+  const queue = page.locator('#receipt-source-queue');
+  if (!(await queue.evaluate(element => element.open))) {
+    await queue.locator(':scope > summary').click();
+  }
   const images = page.locator('#capture-list img[data-capture-preview-image]');
   await expect(images).toHaveCount(count);
   await expect.poll(() => images.evaluateAll(items => items.every(image => image.complete && image.naturalWidth > 0))).toBe(true);
@@ -77,7 +79,7 @@ async function expectLoadedImages(page, count) {
 
 async function expectNoOverflow(page) {
   const widths = await page.evaluate(() => ({
-    viewport: document.documentElement.clientWidth,
+    viewport: window.innerWidth,
     content: document.documentElement.scrollWidth,
   }));
   expect(widths.content).toBeLessThanOrEqual(widths.viewport);
@@ -108,6 +110,12 @@ test('camera and gallery photos upload, deduplicate and persist after reload', a
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
   await expect(captureCards(page)).toHaveCount(3);
   await expectLoadedImages(page, 3);
+  const queue = page.locator('#receipt-source-queue');
+  await expect(queue).toHaveAttribute('open', '');
+  const firstDetails = page.locator('.capture-card__details').first();
+  if (!(await firstDetails.evaluate(element => element.open))) {
+    await firstDetails.locator(':scope > summary').click();
+  }
   await page.getByRole('button', { name: 'Ampliar camera.png' }).click();
   await expect.poll(() => page.locator('#capture-preview-image').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
   await page.getByRole('button', { name: 'Cerrar vista previa' }).click();

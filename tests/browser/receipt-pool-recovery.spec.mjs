@@ -15,6 +15,8 @@ async function upload(page, names) {
 }
 
 async function openCaptureDetails(page, index) {
+  const queue = page.locator('#receipt-source-queue');
+  if (!(await queue.evaluate(element => element.open))) await queue.locator(':scope > summary').click();
   const details = page.locator('.capture-card__details').nth(index);
   if (!(await details.evaluate(element => element.open))) await details.locator('summary').click();
   return details;
@@ -70,7 +72,8 @@ test('per-image retries ignore stale tasks from a cancelled automatic OCR run', 
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'OCR local' })).toHaveCount(2);
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Pendiente' })).toHaveCount(1);
 
-  await page.getByRole('button', { name: 'Cancelar procesamiento', exact: true }).click();
+  await page.locator('#receipt-source-queue > summary').click();
+  await page.getByRole('button', { name: 'Cancelar todo el análisis', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Cancelada' })).toHaveCount(3);
 
   await page.evaluate(() => window.__basketraAllowFreshReceiptExtraction());

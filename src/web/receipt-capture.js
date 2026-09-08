@@ -1,8 +1,9 @@
 import { api } from './api.js';
 import { saveCaptures } from './state.js';
-import { captureItem } from './ui.js';
+import { captureItem, formatEuroMinor, icon, swipeActionRail } from './ui.js';
 import {
   ACTIVE_PAGE_STATUSES,
+  REVIEWABLE_PAGE_STATUSES,
   PAGE_LABELS,
   $,
   captureKey,
@@ -31,6 +32,327 @@ import {
 const MAX_PROGRESSIVE_OCR_ITEMS = 5;
 const MAX_PROGRESSIVE_OCR_TEXT_CHARS = 4000;
 
+function pluralFiles(count) {
+  return `${count} ${count === 1 ? 'archivo' : 'archivos'}`;
+}
+
+export function renderReceiptQueueStatus() {
+  const queue = $('#receipt-source-queue');
+  const summary = $('#receipt-source-queue-summary');
+  const detail = $('#receipt-source-queue-detail');
+  if (!queue || !summary || !detail) return;
+
+  const pages = state.captures.map(capture => state.pageStates.get(captureKey(capture)) ?? createPageState());
+  const total = pages.length;
+  const active = pages.filter(page => ACTIVE_PAGE_STATUSES.has(page.status)).length;
+  const pending = pages.filter(page => page.status === 'pending' || page.status === 'preparing').length;
+  const completed = pages.filter(page => REVIEWABLE_PAGE_STATUSES.has(page.status)).length;
+  const failed = pages.filter(page => page.status === 'error').length;
+  const cancelled = pages.filter(page => page.status === 'cancelled').length;
+
+  const suffix = failed
+    ? `${failed} con error`
+    : active
+      ? `${active} procesando`
+      : pending
+        ? `${pending} pendientes`
+        : total > 0 && completed === total
+          ? 'listos para revisar'
+          : cancelled
+            ? `${cancelled} cancelados`
+            : '';
+
+  summary.textContent = String(total);
+  const summaryLabel = [pluralFiles(total), suffix].filter(Boolean).join(' · ');
+  queue.querySelector(':scope > summary')?.setAttribute('aria-label', `Archivos del análisis: ${summaryLabel}`);
+  detail.textContent = total === 0
+    ? 'Añade imágenes o PDF con el botón +'
+    : `${completed} de ${total} ${total === 1 ? 'página procesada' : 'páginas procesadas'}`;
+
+  queue.dataset.state = failed
+    ? 'error'
+    : active || pending || state.finalizing
+      ? 'working'
+      : total > 0 && completed === total
+        ? 'complete'
+        : 'idle';
+}
+
+function pageDetectedItems(page) {
+  if (Array.isArray(page?.result?.final?.items) && page.result.final.items.length > 0) {
+    return page.result.final.items;
+  }
+  if (Array.isArray(page?.ocrEvidence?.deterministic?.items)) {
+    return page.ocrEvidence.deterministic.items;
+  }
+  return [];
+}
+
+function detectedItemsSnapshot() {
+  if (
+    Array.isArray(state.items)
+    && (state.extraction || (state.captures.length === 0 && state.items.length > 0))
+  ) {
+    return {
+      items: state.items,
+      provisional: false,
+    };
+  }
+
+  return {
+    items: state.captures.flatMap(capture => {
+      const page = state.pageStates.get(captureKey(capture));
+      return pageDetectedItems(page);
+    }),
+    provisional: true,
+  };
+}
+
+function detectedDiscount(item) {
+  if (item?.discount?.type === 'amount' && Number.isSafeInteger(item.discount.amountMinor)) {
+    return {
+      label: item.description || 'Descuento detectado',
+      value: `−${formatEuroMinor(Math.abs(item.discount.amountMinor))}`,
+    };
+  }
+  if (item?.discount?.type === 'percentage' && Number.isSafeInteger(item.discount.basisPoints)) {
+    const percentage = item.discount.basisPoints / 100;
+    return {
+      label: item.description || 'Descuento detectado',
+      value: `−${percentage.toLocaleString('es-ES')} %`,
+    };
+  }
+  if (Number.isSafeInteger(item?.discountMinor) && item.discountMinor > 0) {
+    return {
+      label: item.description || 'Descuento detectado',
+      value: `−${formatEuroMinor(item.discountMinor)}`,
+    };
+  }
+  return null;
+}
+
+function receiptDiscountEntries(items) {
+  const entries = items.map(detectedDiscount).filter(Boolean);
+  const unassigned = state.extraction?.final?.unassignedDiscounts;
+  if (!Array.isArray(unassigned)) return entries;
+  for (const entry of unassigned) {
+    const discount = detectedDiscount({
+      description: entry?.description || 'Descuento sin asignar',
+      discount: entry?.discount,
+      discountMinor: entry?.discountMinor,
+    });
+    if (discount) entries.push(discount);
+    else entries.push({ label: entry?.description || 'Descuento sin asignar', value: '' });
+  }
+  return entries;
+}
+
+function currentRetailerLabel(snapshot) {
+  const candidates = [...state.retailerCandidates.values()].filter(Boolean);
+  if (candidates.length === 1) return candidates[0];
+  if (candidates.length > 1) return 'Varios comercios detectados';
+  const extractionRetailer = state.extraction?.final?.retailerName
+    || state.extraction?.ai?.interpretation?.retailerName
+    || state.detectedStoreRetailerName;
+  if (typeof extractionRetailer === 'string' && extractionRetailer.trim()) return extractionRetailer.trim();
+  if (state.captures.length === 0 && snapshot.items.length > 0) return 'Entrada manual';
+  return 'Sin identificar';
+}
+
+function receiptProgressSnapshot() {
+  const pages = state.captures.map(capture => state.pageStates.get(captureKey(capture)) ?? createPageState());
+  const total = pages.length;
+  const completed = pages.filter(page => REVIEWABLE_PAGE_STATUSES.has(page.status)).length;
+  const active = pages.filter(page => ACTIVE_PAGE_STATUSES.has(page.status)).length;
+  const pending = pages.filter(page => page.status === 'pending' || page.status === 'preparing').length;
+  const failed = pages.filter(page => page.status === 'error').length;
+  const done = total > 0 && completed === total && active === 0 && pending === 0 && !state.finalizing;
+  const stage = failed
+    ? 'Revisión necesaria'
+    : state.finalizing
+      ? 'Combinando páginas'
+      : active > 0 || pending > 0
+        ? 'Analizando…'
+        : done
+          ? 'Análisis completado'
+          : total > 0
+            ? 'Preparando análisis'
+            : 'Listo para analizar';
+  return {
+    total,
+    completed,
+    stage,
+    progress: total === 0 ? 0 : completed / total,
+  };
+}
+
+function liveTotalMinor(snapshot) {
+  return snapshot.items.reduce((sum, item) => (
+    Number.isSafeInteger(item?.lineTotalMinor) ? sum + item.lineTotalMinor : sum
+  ), 0);
+}
+
+function renderReceiptAnalysisSummary(snapshot) {
+  const overview = $('#receipt-analysis-overview');
+  const summary = $('#receipt-live-summary');
+  if (!overview || !summary) return;
+
+  const retailer = $('#receipt-live-retailer-name');
+  if (retailer) retailer.textContent = currentRetailerLabel(snapshot);
+
+  const progress = receiptProgressSnapshot();
+  const stage = $('#receipt-live-stage');
+  const progressLabel = $('#receipt-live-progress-label');
+  const progressTrack = $('#receipt-live-progress-track');
+  if (stage) stage.textContent = progress.stage;
+  if (progressLabel) {
+    progressLabel.textContent = progress.total === 0
+      ? 'Sin archivos'
+      : `${progress.completed} de ${progress.total} ${progress.total === 1 ? 'imagen' : 'imágenes'}`;
+  }
+  if (progressTrack) {
+    progressTrack.setAttribute('aria-valuemax', String(Math.max(progress.total, 1)));
+    progressTrack.setAttribute('aria-valuenow', String(progress.completed));
+    progressTrack.setAttribute('aria-valuetext', `${progress.stage}. ${progress.completed} de ${progress.total} imágenes`);
+    progressTrack.style.setProperty('--receipt-live-progress', `${progress.progress * 100}%`);
+  }
+
+  const totalMinor = liveTotalMinor(snapshot);
+  const totalText = formatEuroMinor(totalMinor);
+  const totalLabel = snapshot.provisional ? 'Total provisional' : 'Total calculado';
+  const liveTotal = $('#receipt-live-total');
+  const liveTotalLabel = $('#receipt-live-total-label');
+  const summaryTotal = $('#receipt-summary-total');
+  const summaryTotalLabel = $('#receipt-summary-total-label');
+  if (liveTotal) liveTotal.textContent = totalText;
+  if (liveTotalLabel) liveTotalLabel.textContent = totalLabel;
+  if (summaryTotal) summaryTotal.textContent = totalText;
+  if (summaryTotalLabel) summaryTotalLabel.textContent = totalLabel;
+
+  const productCount = $('#receipt-summary-products');
+  if (productCount) productCount.textContent = String(snapshot.items.length);
+
+  const discounts = receiptDiscountEntries(snapshot.items);
+  const discountRow = $('#receipt-summary-discounts-row');
+  const discountCount = $('#receipt-summary-discounts');
+  const discountList = $('#receipt-summary-discounts-list');
+  if (discountRow) discountRow.hidden = discounts.length === 0;
+  if (discountCount) discountCount.textContent = String(discounts.length);
+  if (discountList) {
+    discountList.replaceChildren();
+    for (const discount of discounts.slice(0, 4)) {
+      const row = document.createElement('li');
+      const label = document.createElement('span');
+      label.textContent = discount.label;
+      const value = document.createElement('strong');
+      value.textContent = discount.value;
+      row.append(label, value);
+      discountList.append(row);
+    }
+    discountList.hidden = discounts.length === 0;
+  }
+
+  summary.hidden = snapshot.items.length === 0;
+}
+
+function detectedItemMeta(item, provisional) {
+  const parts = [];
+  if (Number.isFinite(item?.quantity)) {
+    const unit = typeof item?.unit === 'string' && item.unit.trim() ? item.unit.trim() : 'ud';
+    parts.push(`${item.quantity} ${unit}`);
+  }
+  if (Number.isSafeInteger(item?.unitPriceMinor)) parts.push(formatEuroMinor(item.unitPriceMinor));
+  parts.push(provisional ? 'provisional' : 'listo para validar');
+  return parts.join(' · ');
+}
+
+export function renderProgressiveDetectedItems() {
+  const list = $('#receipt-detected-list');
+  const count = $('#receipt-detected-count');
+  const empty = $('#receipt-detected-empty');
+  const help = $('#receipt-detected-help');
+  if (!list || !count || !empty || !help) return;
+
+  const snapshot = detectedItemsSnapshot();
+  list.replaceChildren();
+  snapshot.items.forEach((item, index) => {
+    const row = document.createElement('li');
+    row.className = 'receipt-detected-row';
+    const editable = !snapshot.provisional && Boolean(state.items[index]);
+    if (editable) {
+      row.classList.add('swipe-shell');
+      row.dataset.swipeRow = '';
+      row.dataset.swipeKind = 'receipt-detected-line';
+      row.dataset.swipeId = String(index);
+      row.dataset.swipeEndAction = 'delete';
+      row.dataset.swipeOpen = 'false';
+      row.innerHTML = swipeActionRail(
+        'Editar',
+        'Eliminar',
+        `data-receipt-action="edit" data-receipt-index="${index}" aria-label="Editar producto ${index + 1}"`,
+        `data-receipt-action="delete" data-receipt-index="${index}" aria-label="Eliminar producto ${index + 1}"`,
+      );
+    }
+
+    const surface = document.createElement('div');
+    surface.className = 'receipt-detected-item';
+    surface.dataset.provisional = String(snapshot.provisional);
+    if (editable) {
+      surface.classList.add('swipe-content');
+      surface.dataset.swipeContent = '';
+    }
+
+    const copy = document.createElement('span');
+    copy.className = 'receipt-detected-item__copy';
+    const description = document.createElement('strong');
+    description.textContent = typeof item?.description === 'string' && item.description.trim()
+      ? item.description.trim()
+      : 'Producto sin descripción legible';
+    const meta = document.createElement('small');
+    meta.textContent = detectedItemMeta(item, snapshot.provisional);
+    copy.append(description, meta);
+
+    const discount = detectedDiscount(item);
+    if (discount) {
+      surface.classList.add('receipt-detected-item--discounted');
+      const discountMeta = document.createElement('small');
+      discountMeta.className = 'receipt-detected-item__discount';
+      discountMeta.innerHTML = `${icon('tag')}<span>Descuento detectado</span>${discount.value ? `<strong>${discount.value}</strong>` : ''}`;
+      copy.append(discountMeta);
+    }
+
+    const amount = document.createElement('strong');
+    amount.className = 'receipt-detected-item__amount';
+    amount.textContent = Number.isSafeInteger(item?.lineTotalMinor)
+      ? formatEuroMinor(item.lineTotalMinor)
+      : '—';
+
+    surface.append(copy, amount);
+    if (editable) {
+      const actions = document.createElement('button');
+      actions.type = 'button';
+      actions.className = 'icon-button receipt-detected-item__menu';
+      actions.dataset.swipeToggle = '';
+      actions.setAttribute('aria-expanded', 'false');
+      actions.setAttribute('aria-label', `Mostrar acciones del producto ${index + 1}`);
+      actions.innerHTML = icon('more');
+      surface.append(actions);
+    }
+
+    row.append(surface);
+    list.append(row);
+  });
+
+  count.textContent = String(snapshot.items.length);
+  empty.hidden = snapshot.items.length > 0;
+  help.hidden = snapshot.items.length === 0;
+  help.textContent = snapshot.provisional
+    ? 'Las líneas son provisionales hasta completar la revisión conjunta.'
+    : 'Resultado combinado listo. Abre la vista previa para validar y corregir.';
+  renderReceiptAnalysisSummary(snapshot);
+}
+
+
 export function persistAndRenderCaptures() {
   ensurePageStates();
   saveCaptures(state.captures);
@@ -53,6 +375,8 @@ export function persistAndRenderCaptures() {
     }, { once: true });
   });
   updateGlobalProgress();
+  renderReceiptQueueStatus();
+  renderProgressiveDetectedItems();
 }
 
 function pageDiagnostic(page) {
@@ -120,9 +444,9 @@ export function renderCaptureProgress(card, capture, index) {
   const summaryCopy = document.createElement('span');
   summaryCopy.className = 'capture-card__summary-copy';
   const position = document.createElement('strong');
-  position.textContent = `Imagen ${index + 1} de ${state.captures.length}`;
+  position.textContent = capture.name;
   const stage = document.createElement('small');
-  stage.textContent = pageStageDescription(page);
+  stage.textContent = `Página ${index + 1} de ${state.captures.length} · ${pageStageDescription(page)}`;
   summaryCopy.append(position, stage);
   const status = document.createElement('span');
   status.className = `status-pill ${pageStatusClass(page)}`;
@@ -230,6 +554,12 @@ export function renderCaptureProgress(card, capture, index) {
     section.append(actions);
   }
 
+  const secondaryActions = card.querySelector('.capture-card__actions');
+  if (secondaryActions) {
+    secondaryActions.classList.add('capture-card__secondary-actions');
+    section.append(secondaryActions);
+  }
+
   details.append(summary, section);
   details.addEventListener('toggle', () => {
     if (details.open) state.expandedCaptureKey = key;
@@ -329,16 +659,7 @@ export function formatMegabytes(bytes) {
 }
 
 function ensureReceiptAiLimitHelp() {
-  let help = $('#receipt-ai-limit-help');
-  if (help) return help;
-  const anchor = $('#receipt-ai-help');
-  if (!anchor) return null;
-  help = document.createElement('p');
-  help.id = 'receipt-ai-limit-help';
-  help.className = 'field-help';
-  help.setAttribute('role', 'status');
-  anchor.insertAdjacentElement('afterend', help);
-  return help;
+  return $('#receipt-ai-limit-help');
 }
 
 function renderReceiptAiLimits(runtimeCapabilities) {
@@ -354,7 +675,7 @@ function renderReceiptAiLimits(runtimeCapabilities) {
 
 function renderReceiptAiLimitsUnavailable() {
   const help = ensureReceiptAiLimitHelp();
-  if (help) help.textContent = 'No se pudieron consultar los límites actuales de WebAPI. El OCR local seguirá disponible y no se usará un límite funcional de Basketra como sustituto.';
+  if (help) help.textContent = 'No se pudieron consultar los límites actuales de WebAPI. El servidor validará el archivo al iniciar el análisis.';
 }
 
 async function readReceiptAiRuntimeCapabilities() {
@@ -392,7 +713,7 @@ async function readAiSizeWarning(files) {
     }
   } catch {
     renderReceiptAiLimitsUnavailable();
-    return 'No se pudieron consultar los límites actuales de WebAPI; el OCR local continúa y la IA validará el límite antes de enviar.';
+    return 'No se pudieron consultar los límites actuales de WebAPI; el servidor validará el límite al iniciar el análisis.';
   }
   return '';
 }
@@ -404,7 +725,7 @@ export async function uploadFiles(fileList) {
   const hadBackgroundJob = Boolean(state.activeJobId);
   try {
     files.forEach(file => validateFile(file));
-    const aiSizeWarning = state.aiConfigured && $('#verify-receipt-ai')?.checked
+    const aiSizeWarning = state.aiConfigured
       ? await readAiSizeWarning(files)
       : '';
     for (const [index, file] of files.entries()) {

@@ -46,6 +46,10 @@ async function openReview(page, currentItems, options = {}) {
       },
     });
   }, { items: currentItems, currentOptions: options });
+  const panel = page.locator('#receipt-review-panel');
+  if (!(await panel.evaluate(element => element.open))) {
+    await panel.locator(':scope > summary').click();
+  }
 }
 
 async function openEditor(page) {

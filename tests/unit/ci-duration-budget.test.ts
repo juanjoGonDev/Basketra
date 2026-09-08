@@ -5,13 +5,27 @@ import { test } from 'node:test';
 const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
 const codeql = readFileSync('.github/workflows/codeql.yml', 'utf8');
 
-test('workload jobs stay at one minute while the final verifier may wait for global CI state', () => {
+test('workload jobs stay bounded while browser setup and artifact finalization have explicit envelopes', () => {
   const timeoutValues = [...ci.matchAll(/timeout-minutes:\s*(\d+)/gu)].map(match => Number(match[1]));
-  assert.equal(timeoutValues.filter(value => value === 1).length, 8);
+  assert.equal(timeoutValues.filter(value => value === 1).length, 4);
+  assert.equal(timeoutValues.filter(value => value === 2).length, 3);
+  assert.equal(timeoutValues.filter(value => value === 3).length, 1);
   assert.equal(timeoutValues.filter(value => value === 15).length, 1);
-  assert.deepEqual(new Set(timeoutValues), new Set([1, 15]));
-  assert.match(ci, /browser-e2e:\n[\s\S]*?timeout-minutes:\s*1/u);
-  assert.match(ci, /timeout --signal=TERM --kill-after=5s 45s pnpm exec playwright test --test-list=/u);
+  assert.deepEqual(new Set(timeoutValues), new Set([1, 2, 3, 15]));
+
+  const browserE2eJob = ci.slice(ci.indexOf('\n  browser-e2e:\n'), ci.indexOf('\n  browser-coverage:\n'));
+  assert.match(browserE2eJob, /timeout-minutes:\s*3/u);
+  assert.match(browserE2eJob, /timeout --signal=TERM --kill-after=5s 45s pnpm exec playwright test --test-list=/u);
+
+  const browserCoverageJob = ci.slice(ci.indexOf('\n  browser-coverage:\n'), ci.indexOf('\n  container:\n'));
+  assert.match(browserCoverageJob, /timeout-minutes:\s*2/u);
+  assert.match(browserCoverageJob, /check-browser-diff-coverage\.mjs/u);
+
+  const containerJob = ci.slice(ci.indexOf('\n  container:\n'), ci.indexOf('\n  container-smoke:\n'));
+  assert.match(containerJob, /timeout-minutes:\s*2/u);
+
+  const containerSmokeJob = ci.slice(ci.indexOf('\n  container-smoke:\n'), ci.indexOf('\n  final:\n'));
+  assert.match(containerSmokeJob, /timeout-minutes:\s*2/u);
 
   const finalJob = ci.slice(ci.indexOf('\n  final:\n'));
   assert.match(finalJob, /name: "✅ CI complete"/u);

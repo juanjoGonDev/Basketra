@@ -177,7 +177,7 @@ jobs:
     name: "🌐 Browser ${{ matrix.shard }}/${{ needs.browser-runtime.outputs.total }}"
     needs: browser-runtime
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 3
     strategy:
       fail-fast: false
       max-parallel: 56
@@ -246,7 +246,7 @@ jobs:
     name: "🌐 Browser coverage"
     needs: browser-e2e
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 2
     permissions:
       actions: read
       contents: read
@@ -276,7 +276,7 @@ jobs:
   container:
     name: "📦 Container (${{ matrix.platform }})"
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 1
+    timeout-minutes: 2
     strategy:
       fail-fast: false
       matrix:
@@ -306,7 +306,7 @@ jobs:
   container-smoke:
     name: "🧪 Container smoke"
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 2
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

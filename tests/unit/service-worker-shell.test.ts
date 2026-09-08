@@ -122,6 +122,25 @@ test('service worker installs a versioned shell and handles cached, degraded and
     assert.equal(responseWork, undefined);
 
     responseWork = undefined;
+    matchImplementation = async request => requestAddress(request).endsWith('/receipt-review.css')
+      ? new Response('stale-receipt-styles', { status: 200 })
+      : undefined;
+    fetchImplementation = async request => new Response(`fresh:${requestAddress(request)}`, { status: 200 });
+    const receiptStyles = new Request('http://basketra.test/receipt-review.css');
+    fetchListener({ request: receiptStyles, respondWith });
+    assert.equal(await (await responseWork)?.text(), `fresh:${receiptStyles.url}`);
+    assert.ok(fetchRequests.includes(receiptStyles.url));
+    assert.ok(cacheWrites.includes(receiptStyles.url));
+
+    responseWork = undefined;
+    fetchImplementation = async () => { throw new TypeError('offline receipt styles'); };
+    matchImplementation = async request => requestAddress(request) === receiptStyles.url
+      ? new Response('cached-receipt-styles', { status: 200 })
+      : undefined;
+    fetchListener({ request: receiptStyles, respondWith });
+    assert.equal(await (await responseWork)?.text(), 'cached-receipt-styles');
+
+    responseWork = undefined;
     matchImplementation = async request => requestAddress(request).endsWith('/app.js')
       ? new Response('cached-shell', { status: 200 })
       : undefined;

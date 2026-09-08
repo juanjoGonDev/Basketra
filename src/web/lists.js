@@ -7,12 +7,10 @@ import {
   saveItemDraft,
 } from './state.js';
 import {
-  emptyListState,
   escapeHtml,
   euroInputToMinor,
   minorToEuroInput,
   restoreSwipeRow,
-  shoppingListItem,
 } from './ui.js';
 import { applicationPathForRoute, readApplicationLocation, writeApplicationLocation } from './routes.js';
 import { bindCategorySuggestion } from './category-suggestion.js';
@@ -32,7 +30,6 @@ const UNIT_LABELS = Object.freeze({
   m: 'm',
 });
 
-const CATEGORY_FALLBACK = 'Sin categoría';
 const REALTIME_COALESCE_MS = 90;
 const LOCATION_MATCH_METERS = 2_000;
 const MAX_NEARBY_METERS = 1_500;
@@ -320,18 +317,22 @@ function ticketItem(item, index, total) {
   const line = estimateLine(item.id);
   const name = escapeHtml(item.text);
   const id = escapeHtml(item.id);
+  const completed = item.completed === true;
+  const completionLabel = completed ? `Devolver ${name} a pendientes` : `Marcar ${name} como comprado`;
   const priced = line?.status === 'priced';
-  const priceContext = priced
-    ? `${formatEuroMinor(line.normalizedPriceMinor ?? line.latestPriceMinor)}/${escapeHtml(UNIT_LABELS[line.normalizedPriceUnit || item.unit] || line.normalizedPriceUnit || item.unit)} · ${escapeHtml(relativeAge(line.observedAt))}`
-    : escapeHtml(unpricedLabel(line?.reason));
-  const totalText = priced ? formatEuroMinor(line.estimatedTotalMinor) : '—';
+  const priceContext = completed
+    ? 'Comprado · fuera de la estimación'
+    : priced
+      ? `${formatEuroMinor(line.normalizedPriceMinor ?? line.latestPriceMinor)}/${escapeHtml(UNIT_LABELS[line.normalizedPriceUnit || item.unit] || line.normalizedPriceUnit || item.unit)} · ${escapeHtml(relativeAge(line.observedAt))}`
+      : escapeHtml(unpricedLabel(line?.reason));
+  const totalText = completed ? '—' : priced ? formatEuroMinor(line.estimatedTotalMinor) : '—';
   const category = item.categoryName ? `<small class="ticket-item__category">${escapeHtml(item.categoryName)}</small>` : '';
   if (model.multiSelectMode) {
     const storeName = line?.effectiveStoreName
       || model.stores.find(store => store.id === (item.storeOverrideId || model.list?.referenceStoreId))?.name
       || 'Sin tienda';
-    return `<div class="shopping-ticket-row bulk-select-row${model.selectedItemIds.has(item.id) ? ' is-selected' : ''}">
-      <article class="ticket-item ticket-item--select" data-select-row data-item-id="${id}">
+    return `<div class="shopping-ticket-row bulk-select-row${completed ? ' is-completed' : ''}${model.selectedItemIds.has(item.id) ? ' is-selected' : ''}">
+      <article class="ticket-item ticket-item--select${completed ? ' is-completed' : ''}" data-select-row data-item-id="${id}">
         ${selectionButton(item, name)}
         <div class="ticket-item__identity list-row__content"><span class="ticket-item__product-icon" data-icon="cart" aria-hidden="true"></span><span class="ticket-item__identity-copy"><strong>${name}</strong>${category}<small>${priceContext}</small><small>${escapeHtml(storeName)}</small></span></div>
         <strong class="ticket-item__total">${totalText}</strong>
@@ -340,16 +341,16 @@ function ticketItem(item, index, total) {
   }
   const editAttributes = `data-item-action="edit" data-item-id="${id}" aria-label="Editar ${name}"`;
   const deleteAttributes = `data-item-action="delete" data-item-id="${id}" aria-label="Eliminar ${name}"`;
-  return `<div class="shopping-ticket-row swipe-shell" data-swipe-row data-swipe-kind="shopping-item" data-swipe-id="${id}" data-swipe-start-action="complete" data-swipe-end-action="delete" data-swipe-open="false">
-    <div class="swipe-rail swipe-rail--start" aria-hidden="true"><span data-icon="check"></span><strong>Completado</strong></div>
+  return `<div class="shopping-ticket-row${completed ? ' is-completed' : ''} swipe-shell" data-swipe-row data-swipe-kind="shopping-item" data-swipe-id="${id}" data-swipe-start-action="complete" data-swipe-end-action="delete" data-swipe-open="false">
+    <div class="swipe-rail swipe-rail--start" aria-hidden="true"><span data-icon="check"></span><strong>${completed ? 'Pendiente' : 'Completado'}</strong></div>
     <div class="swipe-rail swipe-rail--end" data-swipe-actions aria-hidden="true">
       <button type="button" class="swipe-rail__action" data-primary-swipe-action ${editAttributes} tabindex="-1"><span data-icon="edit"></span><span>Editar</span></button>
       <button type="button" class="swipe-rail__action swipe-rail__action--danger" data-destructive-action ${deleteAttributes} tabindex="-1"><span data-icon="trash"></span><span>Eliminar</span></button>
       <span class="swipe-rail__commit" aria-hidden="true"><span data-icon="trash"></span><strong>Suelta para eliminar</strong></span>
     </div>
-    <article class="ticket-item swipe-content" data-swipe-content>
-      <button type="button" class="completion-button" data-item-action="complete" data-item-id="${id}" aria-label="Marcar ${name} como comprado" aria-pressed="false"><span data-icon="check"></span></button>
-      <div class="ticket-item__identity list-row__content"><span class="ticket-item__product-icon" data-icon="cart" aria-hidden="true"></span><span class="ticket-item__identity-copy"><strong>${name}</strong>${category}<small class="${priced ? '' : 'ticket-item__warning'}">${priceContext}</small></span></div>
+    <article class="ticket-item${completed ? ' is-completed' : ''} swipe-content" data-swipe-content>
+      <button type="button" class="completion-button" data-item-action="complete" data-item-id="${id}" aria-label="${completionLabel}" aria-pressed="${String(completed)}"><span data-icon="check"></span></button>
+      <div class="ticket-item__identity list-row__content"><span class="ticket-item__product-icon" data-icon="cart" aria-hidden="true"></span><span class="ticket-item__identity-copy"><strong>${name}</strong>${category}<small class="${completed || priced ? '' : 'ticket-item__warning'}">${priceContext}</small></span></div>
       <strong class="ticket-item__total">${totalText}</strong>
       <div class="ticket-item__controls">
         <div class="quantity-stepper quantity-stepper--compact" aria-label="Cantidad de ${name}">
@@ -398,42 +399,6 @@ function renderOverview() {
   document.dispatchEvent(new CustomEvent('basketra:hydrate-icons', { detail: { root: container } }));
 }
 
-function groupItems(items) {
-  const groups = new Map();
-  items.forEach(item => {
-    const name = item.categoryName || CATEGORY_FALLBACK;
-    const group = groups.get(name) || [];
-    group.push(item);
-    groups.set(name, group);
-  });
-  return groups;
-}
-
-function bulkCompletedItem(item) {
-  const name = escapeHtml(item.text);
-  const id = escapeHtml(item.id);
-  const selected = model.selectedItemIds.has(item.id);
-  const storeName = model.stores.find(store => store.id === (item.storeOverrideId || model.list?.referenceStoreId))?.name || 'Sin tienda';
-  return `<li class="list-row bulk-select-completed${selected ? ' is-selected' : ''}" data-select-row data-item-id="${id}">
-    ${selectionButton(item, name)}
-    <div class="list-row__content"><strong>${name}</strong><span>${item.quantityMinor} ${escapeHtml(UNIT_LABELS[item.unit] || item.unit)} · ${escapeHtml(storeName)}</span></div>
-  </li>`;
-}
-
-function renderItemGroups(container, items, emptyMessage, renderer = shoppingListItem) {
-  if (items.length === 0) {
-    container.innerHTML = `<ul class="item-list">${emptyListState(emptyMessage)}</ul>`;
-    return;
-  }
-  const overallIndexes = new Map(items.map((item, index) => [item.id, index]));
-  container.innerHTML = [...groupItems(items)].map(([category, group]) => `
-    <section class="category-group" aria-label="${escapeHtml(category)}">
-      <h3>${escapeHtml(category)}</h3>
-      <ul class="item-list">${group.map(item => renderer(item, overallIndexes.get(item.id), items.length)).join('')}</ul>
-    </section>
-  `).join('');
-}
-
 function renderEstimateSummary() {
   const estimate = model.estimate;
   if (!estimate) {
@@ -477,28 +442,21 @@ function renderItems() {
   const openSwipeIdentity = openSwipeRow
     ? { id: openSwipeRow.dataset.swipeId || '', kind: openSwipeRow.dataset.swipeKind || '' }
     : null;
-  const pending = model.items.filter(item => !item.completed);
-  const completed = model.items.filter(item => item.completed);
-  const pendingRoot = $('#pending-items');
-  pendingRoot.innerHTML = pending.length
-    ? pending.map((item, index) => ticketItem(item, index, pending.length)).join('')
+  const pendingCount = model.items.filter(item => !item.completed).length;
+  const completedCount = model.items.length - pendingCount;
+  const itemRoot = $('#pending-items');
+  itemRoot.innerHTML = model.items.length
+    ? model.items.map((item, index) => ticketItem(item, index, model.items.length)).join('')
     : '<div class="shopping-ticket__empty"><strong>Lista vacía</strong><small>Añade el primer producto para empezar.</small></div>';
-  renderItemGroups(
-    $('#completed-items'),
-    completed,
-    'Los productos comprados aparecerán aquí.',
-    model.multiSelectMode ? bulkCompletedItem : shoppingListItem,
-  );
   if (!model.multiSelectMode && openSwipeIdentity) {
     restoreSwipeRow(document, openSwipeIdentity);
   }
-  $('#pending-count').textContent = String(pending.length);
-  $('#completed-count').textContent = String(completed.length);
-  $('#completed-section').hidden = completed.length === 0;
+  $('#pending-count').textContent = String(pendingCount);
+  $('#pending-count').setAttribute('aria-label', `${pendingCount} pendiente${pendingCount === 1 ? '' : 's'}`);
+  $('#completed-count').textContent = String(completedCount);
   renderEstimateSummary();
   renderBulkSelection();
-  document.dispatchEvent(new CustomEvent('basketra:hydrate-icons', { detail: { root: pendingRoot } }));
-  document.dispatchEvent(new CustomEvent('basketra:hydrate-icons', { detail: { root: $('#completed-items') } }));
+  document.dispatchEvent(new CustomEvent('basketra:hydrate-icons', { detail: { root: itemRoot } }));
 }
 
 function renderDetail() {
@@ -1577,9 +1535,8 @@ async function moveItem(itemId, direction) {
   if (!model.list) return;
   const item = model.items.find(candidate => candidate.id === itemId);
   if (!item) return;
-  const group = model.items.filter(candidate => candidate.completed === item.completed);
-  const groupIndex = group.findIndex(candidate => candidate.id === itemId);
-  const target = group[groupIndex + direction];
+  const itemIndex = model.items.findIndex(candidate => candidate.id === itemId);
+  const target = model.items[itemIndex + direction];
   if (!target) return;
   const orderedIds = model.items.map(candidate => candidate.id);
   const sourceIndex = orderedIds.indexOf(item.id);
@@ -1699,12 +1656,6 @@ async function confirmDeleteItem() {
   }
 }
 
-function revealCompletedRecovery() {
-  const section = $('#completed-section');
-  if (!section || section.hidden) return;
-  section.open = true;
-}
-
 async function setItemCompleted(itemId, completed, { offerUndo = false } = {}) {
   const status = completed ? 'Producto completado' : 'Producto devuelto a pendientes';
   let updated = await updateItem(itemId, { completed }, status);
@@ -1716,7 +1667,6 @@ async function setItemCompleted(itemId, completed, { offerUndo = false } = {}) {
   if (!updated || !completed) return;
   window.getSelection()?.removeAllRanges();
   requestAnimationFrame(() => window.getSelection()?.removeAllRanges());
-  revealCompletedRecovery();
   if (offerUndo) {
     toast('Producto marcado como comprado', {
       actionLabel: 'Deshacer',
@@ -2094,7 +2044,6 @@ async function runBulkAction(action, payload, status) {
     });
     setMultiSelectMode(false);
     await Promise.all([loadActiveList(), loadLists()]);
-    if (action === 'completed' && payload.completed === true) revealCompletedRecovery();
     toast(status);
     return true;
   } catch (error) {
@@ -2341,10 +2290,6 @@ function bindEvents() {
     void handleItemAction(event);
   });
   $('#pending-items').addEventListener('change', event => void handleTicketControl(event));
-  $('#completed-items').addEventListener('click', event => {
-    if (handleSelectionEvent(event)) return;
-    void handleItemAction(event);
-  });
   $('#confirm-delete-item').addEventListener('click', () => void confirmDeleteItem());
   $('#cancel-delete-item').addEventListener('click', () => {
     model.deletingItemId = '';

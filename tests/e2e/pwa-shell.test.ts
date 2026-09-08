@@ -52,10 +52,11 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.match(html, /id="rename-list-form"/);
   assert.match(html, /id="delete-list-dialog"/);
   assert.match(html, /id="pending-items"/);
-  assert.match(html, /id="completed-items"/);
+  assert.match(html, /id="completed-count"/);
+  assert.doesNotMatch(html, /id="completed-items"|id="completed-section"|Ya en la cesta/i);
   assert.match(html, /id="realtime-state"/);
   assert.match(html, /id="open-ai-assistant"/);
-  assert.match(html, /id="verify-receipt-ai"/);
+  assert.doesNotMatch(html, /id="verify-receipt-ai"/);
   assert.match(html, /id="receipt-camera"[^>]*accept="image\/jpeg,image\/png"[^>]*capture="environment"/);
   assert.match(html, /id="receipt-files"[^>]*application\/pdf/);
   assert.match(html, /id="capture-preview-dialog"/);
@@ -114,6 +115,8 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   }
   assert.match(serviceWorker, /basketra-shell-__BASKETRA_VERSION__/);
   assert.match(serviceWorker, /NAVIGATION_TIMEOUT_MS\s*=\s*1_500/);
+  assert.match(serviceWorker, /NETWORK_FIRST_SHELL_PATHS\s*=\s*new Set\(\['\/receipt-review\.css'\]\)/);
+  assert.match(serviceWorker, /NETWORK_FIRST_SHELL_PATHS\.has\(url\.pathname\)[\s\S]*networkWithFallback\(event\.request\)/);
   assert.match(serviceWorker, /SHELL_PATHS\.has\(url\.pathname\)/);
   assert.match(serviceWorker, /url\.pathname\.startsWith\('\/api\/'\)/);
 
@@ -141,7 +144,8 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.match(lists, /completed/);
 
   assert.match(receipts, /startAutomaticCaptureProcessing/);
-  assert.match(receipts, /Opciones de análisis/);
+  assert.doesNotMatch(receipts, /Opciones de análisis|verify-receipt-ai/);
+  assert.match(receipts, /data-receipt-capture-mode/);
   assert.doesNotMatch(receipts, /extract-receipt/);
   assert.match(receiptState, /PAGE_CONCURRENCY = 2/);
   assert.match(receiptCapture, /\/api\/v1\/files\//);
@@ -155,6 +159,7 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.match(receiptReview, /El borrador se conserva/);
   assert.match(receiptReviewCss, /receipt-review-panel__body/);
   assert.match(receiptReviewCss, /receipt-review-evidence/);
+  assert.match(receiptReviewCss, /@keyframes\s+receipt-source-progress-spin\s*\{[\s\S]*from\s*\{[\s\S]*transform:\s*rotate\(0deg\)[\s\S]*to\s*\{[\s\S]*transform:\s*rotate\(360deg\)/);
   assert.match(ui, /export function shoppingListItem/);
   assert.match(ui, /export function receiptReview/);
   assert.match(ui, /data-capture-preview-image/);
@@ -166,7 +171,7 @@ test('mobile PWA shell exposes complete private workflows and safe offline cachi
   assert.match(css, /prefers-reduced-motion/);
   assert.match(css, /\.confirm-dialog/);
   assert.match(css, /\.preview-dialog/);
-  assert.match(modernCss, /\.hero::after\s*{[\s\S]*display:\s*none/);
+  assert.match(modernCss, /\.hero::after\s*\{[\s\S]*display:\s*none/);
   assert.match(modernCss, /box-shadow:\s*none/);
   assert.match(modernCss, /\.capture-card__progress/);
   assert.match(modernCss, /prefers-reduced-motion/);

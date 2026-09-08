@@ -179,8 +179,12 @@ async function expectNoHorizontalOverflow(page) {
 }
 
 async function openCaptureDetails(page, index = 0) {
+  const queue = page.locator('#receipt-source-queue');
+  if (!(await queue.evaluate(element => element.open))) {
+    await queue.locator(':scope > summary').click();
+  }
   const details = page.locator('.capture-card__details').nth(index);
-  if (!(await details.evaluate(element => element.open))) await details.locator('summary').click();
+  if (!(await details.evaluate(element => element.open))) await details.locator(':scope > summary').click();
   return details;
 }
 
@@ -302,10 +306,15 @@ test('shopping lists support progressive swipe reveal, completion, full-delete a
   let riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
   await actAndWaitForListReads(page, 1, () => swipe(page, riceRow, 'right'));
   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() || '')).toBe('');
-  await expect(page.locator('#pending-items')).not.toContainText('Arroz 1 kg');
-  const completedSection = page.locator('#completed-section');
-  await expect(completedSection).toBeVisible();
+  riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
+  await expect(riceRow).toHaveClass(/is-completed/);
+  await expect(riceRow.locator('.completion-button')).toHaveAttribute('aria-pressed', 'true');
+  await expect(riceRow.locator('.ticket-item__identity-copy > strong')).toHaveCSS('text-decoration-line', 'line-through');
+  await expect(page.locator('#completed-section')).toHaveCount(0);
   await actAndWaitForListReads(page, 1, () => page.getByRole('button', { name: 'Devolver Arroz 1 kg a pendientes' }).click());
+  riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
+  await expect(riceRow).not.toHaveClass(/is-completed/);
+  await expect(riceRow.locator('.completion-button')).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('#pending-items')).toContainText('Arroz 1 kg');
 
   riceRow = page.locator('[data-swipe-kind="shopping-item"]').filter({ hasText: 'Arroz 1 kg' });
@@ -386,8 +395,8 @@ test('automatic local OCR creates editable euro rows with source context and imp
   await expect(page.locator('#receipt-camera')).toHaveAttribute('accept', 'image/jpeg,image/png');
   await expect(page.locator('#receipt-files')).toHaveAttribute('accept', 'image/jpeg,image/png,application/pdf');
   await expect(page.locator('#receipt-text')).toHaveCount(0);
-  await expect(page.getByLabel('Corregir OCR con IA')).toBeDisabled();
-  await expect(page.locator('#receipt-ai-help')).toContainText('OCR local en español activo');
+  await expect(page.locator('#verify-receipt-ai')).toHaveCount(0);
+  await expect(page.locator('#receipt-analysis-options')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Leer con OCR local', exact: true })).toHaveCount(0);
 
   await page.locator('#receipt-files').setInputFiles([
@@ -398,7 +407,8 @@ test('automatic local OCR creates editable euro rows with source context and imp
   await expect(page.locator('#capture-list li')).toHaveCount(2);
   await expect(page.locator('#capture-list img[data-capture-preview-image]')).toHaveCount(2);
   await expect(page.locator('#receipt-state')).toContainText('Todas las imágenes están combinadas');
-  await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
+  await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
+  await page.locator('#receipt-review-panel > summary').click();
   await expect(page.locator('#receipt-review-reference-image')).toBeVisible();
   await expect(page.locator('.receipt-item')).toHaveCount(1);
   await expect(page.getByLabel('Precio unitario (€)').first()).toHaveValue('1.20');

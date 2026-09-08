@@ -42,6 +42,7 @@ test('desktop sticky receipt review keeps canonical validation icons and full ac
       differenceMinor: 0,
       valid: true,
     });
+    document.querySelector('#receipt-review-panel').open = true;
     syncCompactReviewEvidence();
     syncStickyReviewSummary();
   });

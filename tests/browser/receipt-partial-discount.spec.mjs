@@ -40,6 +40,10 @@ async function openPartialDiscountReview(page) {
       },
     });
   });
+  const panel = page.locator('#receipt-review-panel');
+  if (!(await panel.evaluate(element => element.open))) {
+    await panel.locator(':scope > summary').click();
+  }
 }
 
 test('partial-unit-discount-editor', async ({ page }, testInfo) => {

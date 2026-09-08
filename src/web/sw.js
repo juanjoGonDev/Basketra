@@ -42,6 +42,7 @@ const SHELL = [
   '/icon.svg',
 ];
 const SHELL_PATHS = new Set(SHELL);
+const NETWORK_FIRST_SHELL_PATHS = new Set(['/receipt-review.css']);
 
 async function putSuccessfulResponse(request, response) {
   if (!response.ok) return;
@@ -113,6 +114,11 @@ self.addEventListener('fetch', event => {
     || event.request.headers.get('accept')?.includes('text/html') === true;
   if (navigation) {
     event.respondWith(boundedNavigation(event.request));
+    return;
+  }
+
+  if (NETWORK_FIRST_SHELL_PATHS.has(url.pathname)) {
+    event.respondWith(networkWithFallback(event.request));
     return;
   }
 

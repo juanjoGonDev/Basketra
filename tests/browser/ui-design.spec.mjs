@@ -173,13 +173,11 @@ test('keyboard focus stays visibly exposed on primary and visually hidden contro
   expect(focus.visible).toBeTruthy();
 
   await navigate(page, 'Tickets');
-  for (let step = 0; step < 12; step += 1) {
-    const focusedId = await page.evaluate(() => document.activeElement?.id || '');
-    if (focusedId === 'receipt-camera') break;
-    await page.keyboard.press('Tab');
-  }
+  const addTrigger = page.getByRole('button', { name: 'Añadir al ticket', exact: true });
+  await addTrigger.click();
+  await page.keyboard.press('Shift+Tab');
   await expect.poll(() => page.evaluate(() => document.activeElement?.id || '')).toBe('receipt-camera');
-  const cameraAction = page.locator('label.capture-action').filter({ has: page.locator('#receipt-camera') }).first();
+  const cameraAction = page.locator('label.receipt-add-action').filter({ has: page.locator('#receipt-camera') }).first();
   const hiddenControlFocus = await cameraAction.evaluate(label => {
     const styles = getComputedStyle(label);
     return {

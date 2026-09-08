@@ -86,7 +86,7 @@ test('shopping ticket estimates by effective Store and converges between devices
   });
   await savePrice(request, milk.id, referenceStore, 119, '2026-09-04T10:00:00.000Z');
   await savePrice(request, milk.id, overrideStore, 109, '2026-09-05T10:00:00.000Z');
-  const { list } = await createListWithItem(request, milk);
+  const { list, item } = await createListWithItem(request, milk);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/lists/${encodeURIComponent(list.id)}`);
@@ -135,12 +135,17 @@ test('shopping ticket estimates by effective Store and converges between devices
 
   await page.getByRole('button', { name: 'Marcar Leche entera 1 L como comprado', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Deshacer', exact: true })).toBeVisible();
-  const completedSection = page.locator('#completed-section');
-  await expect(completedSection).toBeVisible();
-  await expect(completedSection.getByRole('button', { name: 'Volver a pendientes', exact: true })).toBeVisible();
-  await completedSection.getByRole('button', { name: 'Volver a pendientes', exact: true }).click();
-  await expect(page.locator('#pending-items')).toContainText('Leche entera 1 L');
-  await expect(second.locator('#pending-items')).toContainText('Leche entera 1 L');
+  await expect(page.locator('#completed-section')).toHaveCount(0);
+  await expect(row).toHaveClass(/is-completed/);
+  await expect(row.locator('.completion-button')).toHaveAttribute('aria-pressed', 'true');
+  await expect(row.locator('.ticket-item__identity-copy > strong')).toHaveCSS('text-decoration-line', 'line-through');
+  const secondRow = second.locator(`[data-swipe-id="${item.id}"]`);
+  await expect(secondRow).toHaveClass(/is-completed/);
+  await expect(secondRow.locator('.completion-button')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Devolver Leche entera 1 L a pendientes', exact: true }).click();
+  await expect(row).not.toHaveClass(/is-completed/);
+  await expect(row.locator('.completion-button')).toHaveAttribute('aria-pressed', 'false');
+  await expect(secondRow).not.toHaveClass(/is-completed/);
 
   await page.locator('#apply-list-store-all').click();
   await expect(row.locator('[data-item-control="store"]')).toHaveValue('');
@@ -163,6 +168,84 @@ test('shopping ticket estimates by effective Store and converges between devices
   expect(errors).toEqual([]);
   expect(secondErrors).toEqual([]);
   await second.close();
+});
+
+
+test('completed items keep canonical order through realtime, reload, undo and mixed-status reorder', async ({ page, request, context }, testInfo) => {
+  test.setTimeout(45_000);
+  const listResponse = await request.post('/api/v1/shopping-lists', { data: { name: 'Orden estable' } });
+  expect(listResponse.ok()).toBeTruthy();
+  const list = (await listResponse.json()).list;
+  const items = [];
+  for (const text of ['A', 'B', 'C']) {
+    const response = await request.post(`/api/v1/shopping-lists/${encodeURIComponent(list.id)}/items`, {
+      data: {
+        text,
+        quantityMinor: 1,
+        unit: 'unit',
+        exactRequired: false,
+        substitutionAllowed: true,
+      },
+    });
+    expect(response.ok()).toBeTruthy();
+    items.push((await response.json()).item);
+  }
+  const b = items[1];
+
+  const rowNames = target => target.locator('#pending-items [data-swipe-kind="shopping-item"] .ticket-item__identity-copy > strong').allTextContents();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/lists/${encodeURIComponent(list.id)}`);
+  const peer = await context.newPage();
+  await peer.setViewportSize({ width: 390, height: 844 });
+  await peer.goto(`/lists/${encodeURIComponent(list.id)}`);
+  await expect.poll(() => rowNames(page)).toEqual(['A', 'B', 'C']);
+
+  const bRow = page.locator(`[data-swipe-id="${b.id}"]`);
+  const peerBRow = peer.locator(`[data-swipe-id="${b.id}"]`);
+  await bRow.getByRole('button', { name: 'Marcar B como comprado', exact: true }).click();
+  await expect.poll(() => rowNames(page)).toEqual(['A', 'B', 'C']);
+  await expect.poll(() => rowNames(peer)).toEqual(['A', 'B', 'C']);
+  await expect(bRow).toHaveClass(/is-completed/);
+  await expect(peerBRow).toHaveClass(/is-completed/);
+  await expect(bRow.locator('.completion-button')).toHaveAttribute('aria-pressed', 'true');
+  await expect(bRow.locator('.ticket-item__identity-copy > strong')).toHaveCSS('text-decoration-line', 'line-through');
+
+  await page.reload();
+  await expect.poll(() => rowNames(page)).toEqual(['A', 'B', 'C']);
+  await expect(page.locator(`[data-swipe-id="${b.id}"]`)).toHaveClass(/is-completed/);
+  await expect(page.locator('html')).not.toHaveAttribute('data-route-pending', 'true');
+  await expect(page.locator('.shopping-ticket')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath('shopping-completed-in-place-mobile-390.png'),
+    fullPage: true,
+  });
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect(page.locator('.shopping-ticket')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath('shopping-completed-in-place-desktop-1280.png'),
+    fullPage: true,
+  });
+
+  await page.getByRole('button', { name: 'Devolver B a pendientes', exact: true }).click();
+  await expect.poll(() => rowNames(page)).toEqual(['A', 'B', 'C']);
+  await expect.poll(() => rowNames(peer)).toEqual(['A', 'B', 'C']);
+  await expect(page.locator(`[data-swipe-id="${b.id}"]`)).not.toHaveClass(/is-completed/);
+
+  await page.getByRole('button', { name: 'Marcar B como comprado', exact: true }).click();
+  await page.getByRole('button', { name: 'Mostrar opciones de B', exact: true }).click();
+  await page.getByRole('button', { name: 'Bajar B', exact: true }).click();
+  await expect.poll(() => rowNames(page)).toEqual(['A', 'C', 'B']);
+  await expect.poll(() => rowNames(peer)).toEqual(['A', 'C', 'B']);
+  await expect(page.locator(`[data-swipe-id="${b.id}"]`)).toHaveClass(/is-completed/);
+
+  await page.getByRole('button', { name: 'Devolver B a pendientes', exact: true }).click();
+  await expect.poll(() => rowNames(page)).toEqual(['A', 'C', 'B']);
+  await expect.poll(() => rowNames(peer)).toEqual(['A', 'C', 'B']);
+  await peer.close();
 });
 
 test('shopping AI recovers from stale bootstrap availability and refreshes stale category options', async ({ page, request }, testInfo) => {
@@ -446,11 +529,16 @@ test('multi-select mode applies atomic Store, completion and delete actions', as
   await expect(page.locator('#pending-count')).toHaveText('0');
   await expect(page.locator('#completed-count')).toHaveText('2');
   await expect(peer.locator('#completed-count')).toHaveText('2');
+  await expect(page.locator('#completed-section')).toHaveCount(0);
+  await expect(page.locator('#pending-items [data-swipe-kind="shopping-item"]')).toHaveCount(2);
+  await expect(page.locator('#pending-items .ticket-item.is-completed')).toHaveCount(2);
+  await expect(peer.locator('#pending-items .ticket-item.is-completed')).toHaveCount(2);
 
   await page.getByRole('button', { name: 'Seleccionar', exact: true }).click();
   await page.locator('#bulk-select-all').click();
   await page.locator('#bulk-mark-pending').click();
   await expect(page.locator('#pending-count')).toHaveText('2');
+  await expect(page.locator('#pending-items .ticket-item.is-completed')).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Seleccionar', exact: true }).click();
   await page.locator('[data-select-item]').first().click();

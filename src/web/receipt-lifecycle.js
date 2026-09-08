@@ -351,7 +351,7 @@ export function startAutomaticCaptureProcessing(captures, { resetAll = false } =
 
   clearCombinedReview();
   ensurePageStates();
-  state.verifyWithAi = state.aiConfigured && $('#verify-receipt-ai').checked;
+  state.verifyWithAi = state.aiConfigured;
   if (state.verifyWithAi) {
     void startDurableAutomaticCaptureProcessing();
     return;

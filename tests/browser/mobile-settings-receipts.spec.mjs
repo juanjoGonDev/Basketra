@@ -129,8 +129,8 @@ test('automatic AI analysis uses one durable whole-ticket job and receipt Store 
   await page.goto('/');
   await navigate(page, 'Tickets');
   await expect(page.getByRole('button', { name: 'Leer con OCR local', exact: true })).toHaveCount(0);
-  await expect(page.locator('#receipt-analysis-options')).not.toHaveAttribute('open', '');
-  await expect(page.locator('#verify-receipt-ai')).toBeChecked();
+  await expect(page.locator('#receipt-analysis-options')).toHaveCount(0);
+  await expect(page.locator('#verify-receipt-ai')).toHaveCount(0);
 
   await page.locator('#receipt-files').setInputFiles([0, 1, 2].map(index => ({
     name: `alcampo-${index + 1}.png`,
@@ -149,6 +149,9 @@ test('automatic AI analysis uses one durable whole-ticket job and receipt Store 
   await expect(page.locator('#receipt-store')).toHaveAttribute('required', '');
   await expect(page.locator('#receipt-total')).toHaveValue('202.26');
   await expect(page.locator('.receipt-item')).toHaveCount(4);
+  await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
+  await expect(page.locator('#receipt-detected-list')).toContainText('C.LADRON MANZAN');
+  await page.locator('#receipt-review-panel > summary').click();
   await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
   await expect(page.locator('#receipt-review-reference-image')).toBeVisible();
   await expectNoHorizontalOverflow(page);
@@ -205,6 +208,8 @@ test('receipt cancellation stops queued automatic work and preserves every captu
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'OCR local' })).toHaveCount(2);
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Pendiente' })).toHaveCount(1);
 
+  const queue = page.locator('#receipt-source-queue');
+  await queue.locator('summary').first().click();
   const firstDetails = page.locator('.capture-card__details').first();
   await expect(firstDetails).not.toHaveAttribute('open', '');
   await firstDetails.locator('summary').click();
@@ -213,7 +218,7 @@ test('receipt cancellation stops queued automatic work and preserves every captu
   await expect(page.locator('.capture-card').first().locator('.status-pill')).toHaveText('Cancelada');
   await expect.poll(() => started).toBe(3);
 
-  await page.getByRole('button', { name: 'Cancelar procesamiento', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancelar todo el análisis', exact: true }).click();
   releaseRequests();
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Cancelada' })).toHaveCount(3);
   await expect(page.locator('.capture-card')).toHaveCount(3);

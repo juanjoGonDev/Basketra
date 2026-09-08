@@ -107,6 +107,7 @@ test('shell, breadcrumb and receipt Store adapters cover defensive browser bound
         },
       },
     });
+    document.querySelector('#receipt-review-panel').open = true;
   });
   await expect(page.locator('#receipt-store')).toBeVisible();
 

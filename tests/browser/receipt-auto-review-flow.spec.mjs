@@ -103,10 +103,10 @@ test('receipt upload starts the two-slot OCR pool without exposing a second proc
     installReceiptEnhancements();
   });
 
-  await expect(page.getByText('Paso 1', { exact: true })).toHaveCount(0);
-  await expect(page.getByText('Paso 2', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Paso 1', { exact: true })).toBeHidden();
+  await expect(page.getByText('Paso 2', { exact: true })).toBeHidden();
   await expect(page.getByRole('button', { name: 'Leer con OCR local', exact: true })).toHaveCount(0);
-  await expect(page.locator('#receipt-analysis-options')).not.toHaveAttribute('open', '');
+  await expect(page.locator('#receipt-analysis-options')).toHaveCount(0);
 
   await upload(page, ['auto-1.png', 'auto-2.png', 'auto-3.png']);
 
@@ -119,6 +119,9 @@ test('receipt upload starts the two-slot OCR pool without exposing a second proc
   releaseOcr();
   await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Completada' })).toHaveCount(3);
   await expect(page.locator('#receipt-progress')).toBeHidden();
+  await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
+  await expect(page.locator('#receipt-detected-list')).toContainText('PAN');
+  await page.locator('#receipt-review-panel > summary').click();
   await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
   const compactLine = page.locator('.receipt-line-compact').first();
   await compactLine.click();
@@ -194,25 +197,34 @@ test('durable AI failure retries from server OCR without replaying browser OCR',
 
   await page.goto('/');
   await navigate(page, 'Tickets');
-  await page.locator('#receipt-analysis-options').getByText('Opciones de análisis', { exact: true }).click();
-  const aiInput = page.locator('#verify-receipt-ai');
-  await aiInput.check();
   await upload(page, ['ai-fallback.png']);
 
   await expect.poll(() => jobCreates).toBe(1);
   expect(browserOcrCalls).toBe(0);
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Error');
   await expect(page.getByText('private upstream detail')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Revisar manualmente', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Volver a analizar con IA', exact: true })).toBeVisible();
+  const queue = page.locator('#receipt-source-queue');
+  if (!(await queue.evaluate(element => element.open))) {
+    await queue.locator(':scope > summary').click();
+  }
+  const details = page.locator('.capture-card__details').first();
+  if (!(await details.evaluate(element => element.open))) {
+    await details.locator(':scope > summary').click();
+  }
+  await expect(details.getByRole('button', { name: 'Revisar manualmente', exact: true })).toBeVisible();
+  await expect(details.getByRole('button', { name: 'Volver a analizar con IA', exact: true })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Volver a analizar con IA', exact: true }).click();
+  await details.getByRole('button', { name: 'Volver a analizar con IA', exact: true }).click();
   await expect.poll(() => jobCreates).toBe(2);
   expect(browserOcrCalls).toBe(0);
   expect(createPayloads[0]).not.toHaveProperty('retryOfJobId');
   expect(createPayloads[1]?.retryOfJobId).toBe('receiptextractionjob_ai_1');
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada');
-  await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
+  await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
+  if (await queue.evaluate(element => element.open)) {
+    await queue.evaluate(element => { element.open = false; });
+  }
+  await page.locator('#receipt-review-panel > summary').click();
   await expect(page.locator('#receipt-review-reference-image')).toBeVisible();
   await expect(page.locator('.receipt-item [data-field="description"]')).toBeEditable();
   await expect(page.getByRole('button', { name: 'Volver a analizar con IA', exact: true })).toHaveCount(0);
@@ -235,7 +247,8 @@ test('mobile review keeps preview, calculated amount and final action in one sti
   await page.goto('/');
   await navigate(page, 'Tickets');
   await upload(page, ['sticky-mobile-1.png', 'sticky-mobile-2.png']);
-  await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
+  await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
+  await page.locator('#receipt-review-panel > summary').click();
 
   const stickySummary = page.locator('#receipt-review-sticky-summary');
   const preview = page.getByRole('button', { name: 'Ampliar captura sticky-mobile-1.png', exact: true });
@@ -352,7 +365,8 @@ test('desktop review keeps evidence and total summary sticky and preserves confi
   await page.goto('/');
   await navigate(page, 'Tickets');
   await upload(page, ['sticky-desktop.png']);
-  await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
+  await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
+  await page.locator('#receipt-review-panel > summary').click();
   await expect(page.locator('.receipt-review-reference')).toBeVisible();
   await expect(page.locator('#receipt-review-reference-image')).toBeVisible();
   await expect(page.locator('#receipt-review-sticky-summary')).toContainText('Total calculado');
@@ -404,7 +418,8 @@ test('receipt review requires an editable Store before confirmation', async ({ p
     const { applyExtraction } = await import('/receipt-review.js');
     applyExtraction(currentExtraction);
   }, extraction());
-  await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
+  await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
+  await page.locator('#receipt-review-panel > summary').click();
 
   const retailer = page.locator('#receipt-retailer');
   const store = page.locator('#receipt-store');

@@ -1,6 +1,7 @@
 import { api } from './api.js';
 import {
   $,
+  $$,
   closeDialog,
   configureReceiptContext,
   ensurePageStates,
@@ -10,6 +11,7 @@ import {
   handleCaptureAction,
   persistAndRenderCaptures,
   refreshReceiptAiLimitHelp,
+  renderProgressiveDetectedItems,
   showPreview,
   uploadFiles,
 } from './receipt-capture.js';
@@ -28,6 +30,7 @@ import {
   deleteReceiptLine,
   handleReceiptAction,
   hideRetailerSuggestions,
+  readReceiptItems,
   renderReviewReference,
   scheduleRetailerSuggestions,
   selectRetailerSuggestion,
@@ -53,7 +56,7 @@ export function installReceiptStylesheet() {
 export function createReceiptProgressPanel() {
   const progress = document.createElement('section');
   progress.id = 'receipt-progress';
-  progress.className = 'receipt-progress';
+  progress.className = 'receipt-progress receipt-progress--compact';
   progress.hidden = true;
   progress.setAttribute('aria-live', 'polite');
   progress.innerHTML = `
@@ -65,8 +68,7 @@ export function createReceiptProgressPanel() {
     <div class="receipt-progress__meta">
       <span id="receipt-progress-captures">0 imágenes completadas</span>
       <span id="receipt-progress-detail">Hasta dos imágenes se procesan a la vez.</span>
-    </div>
-    <button id="cancel-receipt-extraction" class="button secondary receipt-progress__cancel" type="button">Cancelar procesamiento</button>`;
+    </div>`;
   return progress;
 }
 
@@ -91,10 +93,18 @@ export function syncStickyReviewSummary() {
 
   const total = review.querySelector('.review-total') || sticky.querySelector('.review-total');
   const status = review.querySelector('.review-summary .status-pill') || sticky.querySelector('.status-pill');
+  const summaryMeta = $('#receipt-review-summary-meta');
   if (!total || !status) {
     sticky.hidden = true;
     sticky.replaceChildren(...[expand, confirm].filter(Boolean));
+    if (summaryMeta) summaryMeta.textContent = 'Pendiente';
     return;
+  }
+
+  if (summaryMeta) {
+    const amount = total.querySelector('strong')?.textContent?.trim() || '';
+    const label = status.textContent?.trim() || '';
+    summaryMeta.textContent = [amount, label].filter(Boolean).join(' · ');
   }
 
   if (!status.querySelector('.icon')) {
@@ -141,55 +151,181 @@ export function keepMobileReviewFocusVisible(target) {
 
 export function installReceiptEnhancements() {
   installReceiptStylesheet();
+  const scanView = document.querySelector('.view[data-view="scan"]');
+  const pageHeader = scanView?.querySelector('.page-header');
   const captureSource = $('.capture-source');
   const workflow = $('.receipt-workflow');
   const manualEntry = $('.manual-entry');
   const review = $('#receipt-review');
   const confirm = $('#confirm-receipt');
   const receiptState = $('#receipt-state');
-  const aiSwitch = workflow?.querySelector('.switch-row');
-  if (!captureSource || !workflow || !manualEntry || !review || !confirm || !receiptState || !aiSwitch) return;
+  if (!scanView || !pageHeader || !captureSource || !workflow || !manualEntry || !review || !confirm || !receiptState) return;
+
+  pageHeader.classList.add('receipt-analysis-header');
+  const eyebrow = pageHeader.querySelector('.eyebrow');
+  const heading = pageHeader.querySelector('h1');
+  const intro = pageHeader.querySelector('p:not(.eyebrow)');
+  if (eyebrow) eyebrow.textContent = 'Tickets';
+  if (heading) heading.textContent = 'Análisis de ticket';
+  intro?.remove();
 
   if (!confirm.querySelector('.confirm-receipt__label-expanded')) {
     confirm.innerHTML = `${icon('check')}<span class="confirm-receipt__label-expanded">Confirmar e importar</span><span class="confirm-receipt__label-compact">Validar</span>`;
   }
 
+  if (!$('#receipt-source-queue')) {
+    const queue = document.createElement('details');
+    queue.id = 'receipt-source-queue';
+    queue.className = 'receipt-source-queue';
+
+    const queueSummary = document.createElement('summary');
+    queueSummary.setAttribute('aria-label', 'Archivos del análisis: 0 archivos');
+    queueSummary.innerHTML = `
+      <span class="receipt-source-queue__spinner" aria-hidden="true"></span>
+      ${icon('receipt')}
+      <span id="receipt-source-queue-summary" class="receipt-source-queue__count" aria-hidden="true">0</span>
+      <span class="receipt-source-queue__status-dot" aria-hidden="true"></span>`;
+
+    const queuePanel = document.createElement('div');
+    queuePanel.className = 'receipt-source-queue__panel';
+    const queueHeader = document.createElement('header');
+    queueHeader.className = 'receipt-source-queue__header';
+    const queueHeading = document.createElement('div');
+    const queueTitle = document.createElement('strong');
+    queueTitle.textContent = 'Archivos del análisis';
+    const queueHelp = document.createElement('small');
+    queueHelp.id = 'receipt-source-queue-detail';
+    queueHelp.textContent = 'Añade imágenes o PDF con el botón +';
+    queueHeading.append(queueTitle, queueHelp);
+
+    const cancelAll = document.createElement('button');
+    cancelAll.id = 'cancel-receipt-extraction';
+    cancelAll.className = 'icon-button danger receipt-source-queue__cancel';
+    cancelAll.type = 'button';
+    cancelAll.disabled = true;
+    cancelAll.setAttribute('aria-label', 'Cancelar todo el análisis');
+    cancelAll.title = 'Cancelar todo el análisis';
+    cancelAll.innerHTML = icon('close');
+
+    const queueBody = document.createElement('div');
+    queueBody.className = 'receipt-source-queue__body';
+    queueHeader.append(queueHeading, cancelAll);
+    const aiLimitHelp = document.createElement('p');
+    aiLimitHelp.id = 'receipt-ai-limit-help';
+    aiLimitHelp.className = 'field-help receipt-source-queue__limit-help';
+    aiLimitHelp.setAttribute('role', 'status');
+    queuePanel.append(queueHeader, aiLimitHelp, queueBody);
+    queue.append(queueSummary, queuePanel);
+    pageHeader.append(queue);
+    queueBody.append(captureSource);
+  }
+
   const captureHeading = captureSource.querySelector('.panel-heading');
-  if (captureHeading) {
-    captureHeading.replaceChildren();
-    const headingCopy = document.createElement('div');
-    const heading = document.createElement('h2');
-    heading.textContent = 'Capturas';
-    const help = document.createElement('p');
-    help.className = 'field-help';
-    help.textContent = 'Añade fotos o PDF. El OCR empieza automáticamente al guardar cada lote.';
-    headingCopy.append(heading, help);
-    captureHeading.append(headingCopy);
+  if (captureHeading) captureHeading.hidden = true;
+
+  let progress = $('#receipt-progress');
+  if (!progress) progress = createReceiptProgressPanel();
+  const queuePanel = $('#receipt-source-queue .receipt-source-queue__panel');
+  if (queuePanel && progress.parentElement !== queuePanel) {
+    const queueBody = queuePanel.querySelector('.receipt-source-queue__body');
+    queuePanel.insertBefore(progress, queueBody);
   }
 
-  aiSwitch.querySelector('strong').textContent = 'Corregir OCR con IA';
-  const aiInput = aiSwitch.querySelector('#verify-receipt-ai');
-  aiInput.setAttribute('aria-label', 'Corregir OCR con IA');
+  receiptState.classList.add('receipt-analysis-status');
+  if (receiptState.parentElement !== scanView) pageHeader.insertAdjacentElement('afterend', receiptState);
 
-  if (!$('#receipt-analysis-options')) {
-    const analysisOptions = document.createElement('details');
-    analysisOptions.id = 'receipt-analysis-options';
-    analysisOptions.className = 'receipt-analysis-options';
-    const summary = document.createElement('summary');
-    const summaryTitle = document.createElement('strong');
-    summaryTitle.textContent = 'Opciones de análisis';
-    const summaryHelp = document.createElement('small');
-    summaryHelp.textContent = 'La IA es opcional y nunca bloquea el OCR';
-    summary.append(summaryTitle, summaryHelp);
-    const body = document.createElement('div');
-    body.className = 'details-body';
-    body.append(aiSwitch);
-    analysisOptions.append(summary, body);
-    captureSource.insertBefore(analysisOptions, captureSource.querySelector('.capture-actions'));
+  if (!$('#receipt-analysis-overview')) {
+    const overview = document.createElement('section');
+    overview.id = 'receipt-analysis-overview';
+    overview.className = 'receipt-analysis-overview';
+    overview.setAttribute('aria-label', 'Resumen del análisis');
+    overview.innerHTML = `
+      <article class="receipt-analysis-identity">
+        <div class="receipt-live-retailer">
+          <span class="receipt-live-retailer__icon">${icon('store')}</span>
+          <span class="receipt-live-retailer__copy">
+            <small>Tienda detectada</small>
+            <strong id="receipt-live-retailer-name">Sin identificar</strong>
+          </span>
+        </div>
+        <div class="receipt-live-analysis">
+          <div class="receipt-live-analysis__heading">
+            <strong id="receipt-live-stage">Listo para analizar</strong>
+            <small id="receipt-live-progress-label">Sin archivos</small>
+          </div>
+          <div id="receipt-live-progress-track" class="receipt-live-progress-track" role="progressbar" aria-label="Progreso del análisis" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0"></div>
+        </div>
+      </article>
+      <article class="receipt-live-total-card">
+        <span class="receipt-live-total-card__icon">${icon('cart')}</span>
+        <span>
+          <small id="receipt-live-total-label">Total provisional</small>
+          <strong id="receipt-live-total">0,00 €</strong>
+          <small id="receipt-live-total-state">Se actualiza con cada línea detectada</small>
+        </span>
+      </article>`;
+    receiptState.insertAdjacentElement('afterend', overview);
   }
 
-  if (!$('#receipt-progress')) captureSource.append(createReceiptProgressPanel());
-  captureSource.append(receiptState);
+  let analysisBody = $('#receipt-analysis-body');
+  if (!analysisBody) {
+    analysisBody = document.createElement('div');
+    analysisBody.id = 'receipt-analysis-body';
+    analysisBody.className = 'receipt-analysis-body';
+    $('#receipt-analysis-overview').insertAdjacentElement('afterend', analysisBody);
+  }
+
+  if (!$('#receipt-detected-stream')) {
+    const detected = document.createElement('section');
+    detected.id = 'receipt-detected-stream';
+    detected.className = 'receipt-detected-stream';
+    detected.setAttribute('aria-labelledby', 'receipt-detected-title');
+    detected.innerHTML = `
+      <div class="receipt-detected-stream__header">
+        <div>
+          <p class="eyebrow">En directo</p>
+          <h2 id="receipt-detected-title">Productos detectados</h2>
+        </div>
+        <span id="receipt-detected-count" class="count-badge">0</span>
+      </div>
+      <p id="receipt-detected-help" class="receipt-detected-stream__help">Las líneas son provisionales hasta completar la revisión conjunta.</p>
+      <ol id="receipt-detected-list" class="receipt-detected-list"></ol>
+      <p id="receipt-detected-empty" class="receipt-detected-empty" hidden>
+        <span class="receipt-empty-ticket" aria-hidden="true">${icon('receipt')}</span>
+        <span class="sr-only">Sin productos detectados</span>
+      </p>`;
+    analysisBody.append(detected);
+  } else if ($('#receipt-detected-stream').parentElement !== analysisBody) {
+    analysisBody.append($('#receipt-detected-stream'));
+  }
+
+  if (!$('#receipt-live-summary')) {
+    const summary = document.createElement('aside');
+    summary.id = 'receipt-live-summary';
+    summary.className = 'receipt-live-summary';
+    summary.hidden = true;
+    summary.setAttribute('aria-labelledby', 'receipt-live-summary-title');
+    summary.innerHTML = `
+      <header class="receipt-live-summary__header">
+        <h3 id="receipt-live-summary-title">Resumen del ticket</h3>
+      </header>
+      <dl class="receipt-live-summary__stats">
+        <div>
+          <dt>${icon('receipt')}<span>Productos detectados</span></dt>
+          <dd id="receipt-summary-products">0</dd>
+        </div>
+        <div id="receipt-summary-discounts-row" hidden>
+          <dt>${icon('tag')}<span>Descuentos detectados</span></dt>
+          <dd id="receipt-summary-discounts">0</dd>
+        </div>
+      </dl>
+      <ul id="receipt-summary-discounts-list" class="receipt-live-discounts" hidden></ul>
+      <div class="receipt-live-summary__total">
+        <span id="receipt-summary-total-label">Total provisional</span>
+        <strong id="receipt-summary-total">0,00 €</strong>
+      </div>`;
+    analysisBody.append(summary);
+  }
 
   if (!$('#receipt-review-panel')) {
     const panel = document.createElement('details');
@@ -200,11 +336,17 @@ export function installReceiptEnhancements() {
     const summary = document.createElement('summary');
     const summaryCopy = document.createElement('span');
     const title = document.createElement('strong');
-    title.textContent = 'Revisión del ticket';
+    title.id = 'receipt-review-panel-title';
+    title.textContent = 'Vista previa y validación';
     const help = document.createElement('small');
-    help.textContent = 'Captura original y filas editables en el mismo contexto';
+    help.id = 'receipt-review-panel-help';
+    help.textContent = 'Revisa captura, líneas e importes antes de importar';
     summaryCopy.append(title, help);
-    summary.append(summaryCopy);
+    const summaryMeta = document.createElement('span');
+    summaryMeta.id = 'receipt-review-summary-meta';
+    summaryMeta.className = 'receipt-review-panel__summary-meta';
+    summaryMeta.textContent = 'Pendiente';
+    summary.append(summaryCopy, summaryMeta);
 
     const body = document.createElement('div');
     body.className = 'receipt-review-panel__body';
@@ -263,6 +405,50 @@ export function installReceiptEnhancements() {
     reviewEditor.prepend(storeFields);
   }
 
+  if (!$('#receipt-add-trigger')) {
+    const filesInput = $('#receipt-files');
+    const cameraInput = $('#receipt-camera');
+    const legacyActions = captureSource.querySelector('.capture-actions');
+
+    const menu = document.createElement('div');
+    menu.id = 'receipt-add-menu';
+    menu.className = 'receipt-add-menu';
+    menu.hidden = true;
+    menu.setAttribute('aria-label', 'Opciones para añadir al ticket');
+
+    const aiAction = document.createElement('label');
+    aiAction.className = 'receipt-add-action';
+    aiAction.dataset.receiptCaptureMode = 'ai';
+    aiAction.innerHTML = `${icon('sparkles')}<span><strong>IA</strong><small>Imagen o PDF</small></span>`;
+    if (filesInput) aiAction.append(filesInput);
+
+    const manualAction = document.createElement('button');
+    manualAction.id = 'receipt-add-manual';
+    manualAction.className = 'receipt-add-action';
+    manualAction.type = 'button';
+    manualAction.innerHTML = `${icon('edit')}<span><strong>Manual</strong><small>Añadir una línea</small></span>`;
+
+    const scanAction = document.createElement('label');
+    scanAction.className = 'receipt-add-action';
+    scanAction.dataset.receiptCaptureMode = 'scan';
+    scanAction.innerHTML = `${icon('camera')}<span><strong>Scan</strong><small>Foto → IA/OCR</small></span>`;
+    if (cameraInput) scanAction.append(cameraInput);
+
+    menu.append(aiAction, manualAction, scanAction);
+
+    const trigger = document.createElement('button');
+    trigger.id = 'receipt-add-trigger';
+    trigger.className = 'receipt-add-trigger';
+    trigger.type = 'button';
+    trigger.setAttribute('aria-label', 'Añadir al ticket');
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.setAttribute('aria-controls', 'receipt-add-menu');
+    trigger.innerHTML = icon('plus');
+
+    scanView.append(menu, trigger);
+    legacyActions?.remove();
+  }
+
   installReviewContextObservers();
 }
 
@@ -287,13 +473,106 @@ async function refreshReceiptStoreOptions() {
   }
 }
 
+function setReceiptAddMenuOpen(open) {
+  const menu = $('#receipt-add-menu');
+  const trigger = $('#receipt-add-trigger');
+  if (!menu || !trigger) return;
+  menu.hidden = !open;
+  trigger.setAttribute('aria-expanded', String(open));
+  trigger.classList.toggle('is-open', open);
+}
+
+function prepareAiAssistedCapture() {
+  if (!state.aiConfigured) {
+    $('#receipt-state').textContent = 'No hay proveedor de IA configurado. La captura se conservará y seguirá disponible para recuperación manual.';
+  }
+  setReceiptAddMenuOpen(false);
+}
+
 export function bindEvents() {
   for (const input of [$('#receipt-files'), $('#receipt-camera')]) {
     input.addEventListener('change', async event => {
       await uploadFiles(event.target.files);
       event.target.value = '';
+      setReceiptAddMenuOpen(false);
     });
   }
+
+  $('#receipt-add-trigger')?.addEventListener('click', () => {
+    setReceiptAddMenuOpen($('#receipt-add-menu')?.hidden === true);
+  });
+  $$('[data-receipt-capture-mode]').forEach(action => {
+    action.addEventListener('click', prepareAiAssistedCapture);
+  });
+  $('#receipt-add-manual')?.addEventListener('click', () => {
+    setReceiptAddMenuOpen(false);
+    const index = addBlankLine({ focus: false });
+    const reviewPanel = $('#receipt-review-panel');
+    if (reviewPanel) {
+      reviewPanel.hidden = false;
+      reviewPanel.open = false;
+    }
+    $('#receipt-review')?.dispatchEvent(new CustomEvent('basketra:receipt-edit-line', {
+      bubbles: true,
+      detail: { index, draftNew: true },
+    }));
+  });
+
+  document.addEventListener('pointerdown', event => {
+    const queue = $('#receipt-source-queue');
+    const menu = $('#receipt-add-menu');
+    const trigger = $('#receipt-add-trigger');
+    if (queue?.open && !queue.contains(event.target)) queue.open = false;
+    if (menu && !menu.hidden && !menu.contains(event.target) && !trigger?.contains(event.target)) {
+      setReceiptAddMenuOpen(false);
+    }
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    const queue = $('#receipt-source-queue');
+    if (queue?.open) queue.open = false;
+    setReceiptAddMenuOpen(false);
+  });
+  document.addEventListener('basketra:view-changed', event => {
+    if (event.detail?.view === 'scan') return;
+    const queue = $('#receipt-source-queue');
+    if (queue?.open) queue.open = false;
+    setReceiptAddMenuOpen(false);
+  });
+
+  $('#receipt-review')?.addEventListener('basketra:receipt-cancel-new-line', event => {
+    const index = Number(event.detail?.index);
+    if (!Number.isInteger(index) || index < 0) return;
+    deleteReceiptLine(index, { undoable: false });
+    if (state.items.length === 0 && state.captures.length === 0 && !state.extraction) {
+      $('#receipt-state').textContent = '';
+    }
+  });
+
+  $('#receipt-review')?.addEventListener('basketra:receipt-line-saved', () => {
+    try {
+      state.items = readReceiptItems();
+      renderProgressiveDetectedItems();
+    } catch {
+      // Keep the last valid model while an incomplete value is still being edited.
+    }
+  });
+
+  $('#receipt-detected-list')?.addEventListener('click', event => {
+    const action = event.target.closest('[data-receipt-action]');
+    if (!action) return;
+    const index = Number(action.dataset.receiptIndex);
+    if (!Number.isInteger(index) || index < 0 || !state.items[index]) return;
+    if (action.dataset.receiptAction === 'edit') {
+      $('#receipt-review')?.dispatchEvent(new CustomEvent('basketra:receipt-edit-line', {
+        bubbles: true,
+        detail: { index },
+      }));
+      return;
+    }
+    if (action.dataset.receiptAction === 'delete') deleteReceiptLine(index);
+  });
+
   $('#capture-list').addEventListener('click', handleCaptureAction);
   $('#receipt-review').addEventListener('click', handleReceiptAction);
   $('#receipt-review-capture').addEventListener('change', event => {
@@ -337,7 +616,8 @@ export function bindEvents() {
     state.detectedStoreRetailerName = $('#receipt-retailer').value.trim();
   });
   document.addEventListener('basketra:swipe-action', event => {
-    if (event.detail?.kind !== 'receipt-line' || event.detail?.action !== 'delete') return;
+    const kind = event.detail?.kind;
+    if (!['receipt-line', 'receipt-detected-line'].includes(kind) || event.detail?.action !== 'delete') return;
     deleteReceiptLine(Number(event.detail.id));
   });
 }
@@ -382,12 +662,6 @@ async function recoverPersistedReceiptDraft() {
 export function initReceipts(options) {
   configureReceiptContext(options);
   installReceiptEnhancements();
-  const aiToggle = $('#verify-receipt-ai');
-  aiToggle.checked = state.aiConfigured;
-  aiToggle.disabled = !state.aiConfigured;
-  $('#receipt-ai-help').textContent = state.aiConfigured
-    ? 'Opcional y no bloqueante en fotos: primero conservamos el OCR local y la IA sólo intenta corregirlo. Los PDF usan el proveedor para leer el documento; cualquier fallo conserva la captura y permite revisión manual.'
-    : 'OCR local en español activo para fotos. Los PDF quedan disponibles para revisión manual sin proveedor de IA.';
   if (state.aiConfigured) void refreshReceiptAiLimitHelp();
   bindEvents();
   ensurePageStates();

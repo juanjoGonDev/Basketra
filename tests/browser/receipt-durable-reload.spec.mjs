@@ -127,6 +127,8 @@ function localStorageContains(page, text) {
 
 async function expectProgressiveOcr(page, text) {
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Verificando con IA');
+  const queue = page.locator('#receipt-source-queue');
+  if (!(await queue.evaluate(element => element.open))) await queue.locator(':scope > summary').click();
   const captureDetails = page.locator('.capture-card__details').first();
   if (!(await captureDetails.evaluate(element => element.open))) {
     await captureDetails.locator(':scope > summary').click();

@@ -42,6 +42,7 @@ test('mobile receipt review collapses evidence, amount and final action into one
       differenceMinor: 0,
       valid: true,
     });
+    document.querySelector('#receipt-review-panel').open = true;
     syncCompactReviewEvidence();
     syncStickyReviewSummary();
   });

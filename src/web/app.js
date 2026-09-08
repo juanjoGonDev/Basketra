@@ -281,6 +281,7 @@ function installReceiptLineEditor() {
     }
     description.removeAttribute('aria-invalid');
     closeReceiptLineEditor();
+    $('#receipt-review')?.dispatchEvent(new CustomEvent('basketra:receipt-line-saved', { bubbles: true }));
   });
   $('#delete-receipt-line-editor').addEventListener('click', () => closeReceiptLineEditor({ deleteLine: true }));
   dialog.addEventListener('input', event => {
@@ -306,13 +307,16 @@ function openReceiptLineEditor(item) {
   const fields = ['description', 'quantity', 'unitPriceEuro', 'lineTotalEuro'];
   const values = Object.fromEntries(fields.map(field => [field, receiptInput(item, field)?.value ?? '']));
   const returnFocus = item.querySelector('[data-receipt-editor]');
-  receiptEditorSession = { item, marker, values, returnFocus };
+  const draftNew = item.dataset.receiptDraftNew === 'true';
+  receiptEditorSession = { item, marker, values, returnFocus, draftNew };
   resetReceiptSwipeShell(item);
   item.classList.add('receipt-item--editing');
   $('#receipt-line-editor-slot').append(item);
   $('#receipt-line-editor-state').textContent = '';
   const index = Number(item.dataset.itemIndex || 0);
-  $('#receipt-line-dialog-title').textContent = `Editar línea ${index + 1}`;
+  $('#receipt-line-dialog-title').textContent = draftNew ? 'Añadir producto' : `Editar línea ${index + 1}`;
+  const deleteButton = $('#delete-receipt-line-editor');
+  if (deleteButton) deleteButton.hidden = draftNew;
   if (typeof dialog.showModal === 'function') dialog.showModal();
   else dialog.setAttribute('open', '');
   requestAnimationFrame(() => receiptInput(item, 'description')?.focus());
@@ -321,7 +325,8 @@ function openReceiptLineEditor(item) {
 function closeReceiptLineEditor({ revert = false, deleteLine = false, focus = true } = {}) {
   const session = receiptEditorSession;
   if (!session) return;
-  const { item, marker, values, returnFocus } = session;
+  const { item, marker, values, returnFocus, draftNew } = session;
+  const discardDraft = revert && draftNew;
   if (revert) {
     for (const [field, value] of Object.entries(values)) {
       const input = receiptInput(item, field);
@@ -338,8 +343,20 @@ function closeReceiptLineEditor({ revert = false, deleteLine = false, focus = tr
 
   marker.replaceWith(item);
   item.classList.remove('receipt-item--editing');
-  syncReceiptCompactSummary(item);
+  delete item.dataset.receiptDraftNew;
+  const editorDeleteButton = $('#delete-receipt-line-editor');
+  if (editorDeleteButton) editorDeleteButton.hidden = false;
 
+  if (discardDraft) {
+    const index = Number(item.dataset.itemIndex);
+    $('#receipt-review')?.dispatchEvent(new CustomEvent('basketra:receipt-cancel-new-line', {
+      bubbles: true,
+      detail: { index },
+    }));
+    return;
+  }
+
+  syncReceiptCompactSummary(item);
   if (deleteLine) {
     const deleteButton = item.closest('[data-swipe-kind="receipt-line"]')?.querySelector('[data-receipt-action="delete"]');
     deleteButton?.click();
@@ -449,6 +466,16 @@ function installReceiptReviewPresentation() {
     feedback.textContent = 'Validando ticket…';
     queueMicrotask(syncFeedback);
   });
+  review.addEventListener('basketra:receipt-edit-line', event => {
+    const index = Number(event.detail?.index);
+    if (!Number.isInteger(index) || index < 0) return;
+    const item = review.querySelector(`.receipt-item[data-item-index="${index}"]`);
+    if (!(item instanceof HTMLElement)) return;
+    if (event.detail?.draftNew === true) item.dataset.receiptDraftNew = 'true';
+    resetFeedback();
+    openReceiptLineEditor(item);
+  });
+
   review.addEventListener('input', event => {
     resetFeedback();
     if (event.target.matches('[data-field="description"]') && event.target.value.trim()) {
