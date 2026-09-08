@@ -1,6 +1,6 @@
 import { api } from './api.js';
 import { saveCaptures } from './state.js';
-import { captureItem, formatEuroMinor, icon } from './ui.js';
+import { captureItem, formatEuroMinor, icon, swipeActionRail } from './ui.js';
 import {
   ACTIVE_PAGE_STATUSES,
   REVIEWABLE_PAGE_STATUSES,
@@ -277,10 +277,32 @@ export function renderProgressiveDetectedItems() {
 
   const snapshot = detectedItemsSnapshot();
   list.replaceChildren();
-  for (const item of snapshot.items) {
+  snapshot.items.forEach((item, index) => {
     const row = document.createElement('li');
-    row.className = 'receipt-detected-item';
-    row.dataset.provisional = String(snapshot.provisional);
+    row.className = 'receipt-detected-row';
+    const editable = !snapshot.provisional && Boolean(state.items[index]);
+    if (editable) {
+      row.classList.add('swipe-shell');
+      row.dataset.swipeRow = '';
+      row.dataset.swipeKind = 'receipt-line';
+      row.dataset.swipeId = String(index);
+      row.dataset.swipeEndAction = 'delete';
+      row.dataset.swipeOpen = 'false';
+      row.innerHTML = swipeActionRail(
+        'Editar',
+        'Eliminar',
+        `data-receipt-action="edit" data-receipt-index="${index}" aria-label="Editar producto ${index + 1}"`,
+        `data-receipt-action="delete" data-receipt-index="${index}" aria-label="Eliminar producto ${index + 1}"`,
+      );
+    }
+
+    const surface = document.createElement('div');
+    surface.className = 'receipt-detected-item';
+    surface.dataset.provisional = String(snapshot.provisional);
+    if (editable) {
+      surface.classList.add('swipe-content');
+      surface.dataset.swipeContent = '';
+    }
 
     const copy = document.createElement('span');
     copy.className = 'receipt-detected-item__copy';
@@ -294,7 +316,7 @@ export function renderProgressiveDetectedItems() {
 
     const discount = detectedDiscount(item);
     if (discount) {
-      row.classList.add('receipt-detected-item--discounted');
+      surface.classList.add('receipt-detected-item--discounted');
       const discountMeta = document.createElement('small');
       discountMeta.className = 'receipt-detected-item__discount';
       discountMeta.innerHTML = `${icon('tag')}<span>Descuento detectado</span>${discount.value ? `<strong>${discount.value}</strong>` : ''}`;
@@ -307,9 +329,21 @@ export function renderProgressiveDetectedItems() {
       ? formatEuroMinor(item.lineTotalMinor)
       : '—';
 
-    row.append(copy, amount);
+    surface.append(copy, amount);
+    if (editable) {
+      const actions = document.createElement('button');
+      actions.type = 'button';
+      actions.className = 'icon-button receipt-detected-item__menu';
+      actions.dataset.swipeToggle = '';
+      actions.setAttribute('aria-expanded', 'false');
+      actions.setAttribute('aria-label', `Mostrar acciones del producto ${index + 1}`);
+      actions.innerHTML = icon('more');
+      surface.append(actions);
+    }
+
+    row.append(surface);
     list.append(row);
-  }
+  });
 
   count.textContent = String(snapshot.items.length);
   empty.hidden = snapshot.items.length > 0;
