@@ -181,7 +181,8 @@ export function installReceiptEnhancements() {
     const queueSummary = document.createElement('summary');
     queueSummary.setAttribute('aria-label', 'Archivos del análisis: 0 archivos');
     queueSummary.innerHTML = `
-      ${icon('receipt')}
+      <span class="receipt-source-queue__state-icon receipt-source-queue__state-icon--source" aria-hidden="true">${icon('receipt')}</span>
+      <span class="receipt-source-queue__state-icon receipt-source-queue__state-icon--error" aria-hidden="true">${icon('alert')}</span>
       <span id="receipt-source-queue-summary" class="receipt-source-queue__count" aria-hidden="true">0</span>
       <span class="receipt-source-queue__status-dot" aria-hidden="true"></span>`;
 
