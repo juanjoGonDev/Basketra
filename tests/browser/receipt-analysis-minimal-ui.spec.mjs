@@ -250,14 +250,37 @@ test('durable OCR evidence appears progressively in the body while source detail
   await expect(queue.locator(':scope > summary')).toHaveAttribute('aria-label', /1 archivo · 1 procesando/);
   await expect(page.locator('#receipt-source-queue-summary')).toHaveText('1');
   await expect(page.locator('#receipt-progress')).toBeHidden();
-  const workingAnimation = await queue.locator(':scope > summary').evaluate(element => (
-    getComputedStyle(element, '::before').animationName
-  ));
-  expect(workingAnimation).toBe('receipt-source-progress-spin');
+  const workingVisual = await queue.locator(':scope > summary').evaluate(element => {
+    const spinnerStyle = getComputedStyle(element, '::before');
+    return {
+      animationName: spinnerStyle.animationName,
+      animationDuration: spinnerStyle.animationDuration,
+      backgroundImage: spinnerStyle.backgroundImage,
+      opacity: spinnerStyle.opacity,
+    };
+  });
+  expect(workingVisual.animationName).toBe('receipt-source-progress-spin');
+  expect(workingVisual.animationDuration).toBe('0.85s');
+  expect(workingVisual.backgroundImage).toContain('conic-gradient');
+  expect(workingVisual.backgroundImage).toContain('transparent');
+  expect(workingVisual.opacity).toBe('1');
   await page.screenshot({
     path: testInfo.outputPath('receipt-progressive-collapsed-390.png'),
     fullPage: true,
   });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const reducedWorking = await queue.locator(':scope > summary').evaluate(element => {
+    const spinnerStyle = getComputedStyle(element, '::before');
+    return {
+      animationName: spinnerStyle.animationName,
+      backgroundImage: spinnerStyle.backgroundImage,
+      opacity: spinnerStyle.opacity,
+    };
+  });
+  expect(reducedWorking.animationName).toBe('none');
+  expect(reducedWorking.backgroundImage).toContain('conic-gradient');
+  expect(reducedWorking.opacity).toBe('1');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
 
   await page.evaluate(async () => {
     const [{ state, captureKey }, { renderReceiptQueueStatus }] = await Promise.all([
