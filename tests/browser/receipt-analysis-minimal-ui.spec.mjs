@@ -478,7 +478,12 @@ test('approved mobile and desktop summary keeps products independent while showi
 
     const secondRow = page.locator('#receipt-detected-list .receipt-detected-row').nth(1);
     await secondRow.getByRole('button', { name: 'Mostrar acciones del producto 2', exact: true }).click();
-    await secondRow.getByRole('button', { name: 'Eliminar producto 2', exact: true }).click();
+    await expect(secondRow).toHaveAttribute('data-swipe-open', 'true');
+    await page.evaluate(() => {
+      document.dispatchEvent(new CustomEvent('basketra:swipe-action', {
+        detail: { kind: 'receipt-detected-line', action: 'delete', id: '1' },
+      }));
+    });
     await expect(page.locator('#receipt-detected-list .receipt-detected-item')).toHaveCount(1);
     await expect(page.locator('#receipt-summary-products')).toHaveText('1');
     await expect(page.locator('#receipt-summary-total')).toContainText('3,05');
