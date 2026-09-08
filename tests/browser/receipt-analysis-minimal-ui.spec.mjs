@@ -618,6 +618,35 @@ test('receipt minimal UI guards remain fail-closed without leaving transient sta
   });
   await expect(page.locator('#receipt-line-dialog')).toBeHidden();
 
+  await page.evaluate(() => {
+    const list = document.querySelector('#receipt-detected-list');
+    list.click();
+    for (const index of ['invalid', '-1', '999']) {
+      const action = document.createElement('button');
+      action.type = 'button';
+      action.dataset.receiptAction = 'edit';
+      action.dataset.receiptIndex = index;
+      action.textContent = `guard-${index}`;
+      list.append(action);
+      action.click();
+      action.remove();
+    }
+  });
+  await expect(page.locator('#receipt-line-dialog')).toBeHidden();
+
+  await page.evaluate(() => {
+    document.dispatchEvent(new CustomEvent('basketra:swipe-action'));
+    document.dispatchEvent(new CustomEvent('basketra:swipe-action', {
+      detail: { kind: 'unrelated', action: 'delete', id: '0' },
+    }));
+    document.dispatchEvent(new CustomEvent('basketra:swipe-action', {
+      detail: { kind: 'receipt-line', action: 'edit', id: '0' },
+    }));
+    document.dispatchEvent(new CustomEvent('basketra:swipe-action', {
+      detail: { kind: 'receipt-detected-line' },
+    }));
+  });
+
   const add = page.getByRole('button', { name: 'Añadir al ticket', exact: true });
   const aiAction = page.locator('[data-receipt-capture-mode="ai"]');
   await add.click();
@@ -679,6 +708,17 @@ test('receipt minimal UI guards remain fail-closed without leaving transient sta
     reviewElement.dispatchEvent(new CustomEvent('basketra:receipt-line-saved', { bubbles: true }));
     invalid.remove();
   });
+
+  await page.evaluate(async () => {
+    const detected = document.querySelector('#receipt-detected-stream');
+    const parking = document.createElement('div');
+    document.body.append(parking);
+    parking.append(detected);
+    const { installReceiptEnhancements } = await import('/receipts.js');
+    installReceiptEnhancements();
+    parking.remove();
+  });
+  await expect(page.locator('#receipt-analysis-body > #receipt-detected-stream')).toHaveCount(1);
 
   await page.evaluate(async () => {
     const receiptState = document.querySelector('#receipt-state');
