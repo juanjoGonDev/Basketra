@@ -99,7 +99,17 @@ test('receipt analysis is minimal, responsive and exposes one three-path floatin
     await expect(page.getByRole('heading', { name: 'Análisis de ticket', exact: true })).toBeVisible();
     await expect(page.locator('.receipt-analysis-header > div:first-child > p:not(.eyebrow)')).toHaveCount(0);
     await expect(page.getByText('Añade un ticket con +. Los productos aparecerán aquí a medida que se detecten.', { exact: true })).toHaveCount(0);
-    await expect(page.locator('#receipt-detected-empty')).toBeHidden();
+    await expect(page.locator('#receipt-detected-empty')).toBeVisible();
+    await expect(page.locator('.receipt-empty-ticket')).toBeVisible();
+    await expect(page.locator('#receipt-live-summary')).toBeHidden();
+    await expect(page.locator('#receipt-live-retailer-name')).toHaveText('Sin identificar');
+
+    if (viewport.width === 390 || viewport.width === 1280) {
+      await page.screenshot({
+        path: testInfo.outputPath(`receipt-empty-responsive-${viewport.width}.png`),
+        fullPage: true,
+      });
+    }
 
     const queue = page.locator('#receipt-source-queue');
     await expect(queue).toBeVisible();
@@ -229,6 +239,10 @@ test('durable OCR evidence appears progressively in the body while source detail
 
   await expect(page.locator('#receipt-detected-list')).toContainText('PAN INTEGRAL');
   await expect(page.locator('#receipt-detected-count')).toContainText('1');
+  await expect(page.locator('#receipt-live-summary')).toBeVisible();
+  await expect(page.locator('#receipt-summary-products')).toHaveText('1');
+  await expect(page.locator('#receipt-live-total')).toContainText('1,65');
+  await expect(page.locator('#receipt-summary-total')).toContainText('1,65');
 
   const queue = page.locator('#receipt-source-queue');
   await expect(queue).toHaveAttribute('data-state', 'working');
@@ -252,6 +266,106 @@ test('durable OCR evidence appears progressively in the body while source detail
 
   await expect(page.locator('#receipt-review-panel')).toBeHidden();
   await expectNoHorizontalOverflow(page);
+});
+
+test('approved mobile and desktop summary keeps products independent while showing retailer total and discounts', async ({ page }, testInfo) => {
+  const extraction = {
+    pages: [],
+    originalText: 'CONSUM',
+    final: {
+      retailerName: 'Consum',
+      declaredTotalMinor: 345,
+      categories: [],
+      items: [
+        {
+          description: 'PATATA SELECCION',
+          quantity: 1,
+          unitPriceMinor: 255,
+          lineTotalMinor: 255,
+          confidence: 0.98,
+          sourceLines: [1],
+        },
+        {
+          description: 'NACHOS CONSUM 150 G',
+          quantity: 2,
+          unitPriceMinor: 90,
+          lineTotalMinor: 90,
+          confidence: 0.96,
+          sourceLines: [2],
+          discount: { type: 'amount', amountMinor: 90, quantity: 1 },
+        },
+      ],
+      unassignedDiscounts: [
+        {
+          description: 'Descuento tarjeta Consum',
+          discount: { type: 'amount', amountMinor: 142 },
+          reason: 'Ticket-level promotion',
+        },
+      ],
+      review: {
+        lines: [
+          { status: 'confirmed', expectedMinor: 255, differenceMinor: 0 },
+          { status: 'confirmed', expectedMinor: 90, differenceMinor: 0 },
+        ],
+        total: { expectedMinor: 345, differenceMinor: 0, valid: true },
+      },
+    },
+  };
+
+  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ configured: false }),
+  }));
+
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 1280, height: 900 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+    await navigate(page, 'Tickets');
+    await page.evaluate(async payload => {
+      const { applyExtraction } = await import('/receipt-review.js');
+      applyExtraction(payload);
+    }, extraction);
+
+    await expect(page.locator('#receipt-live-retailer-name')).toHaveText('Consum');
+    await expect(page.locator('#receipt-detected-list .receipt-detected-item')).toHaveCount(2);
+    await expect(page.locator('#receipt-detected-list')).toContainText('PATATA SELECCION');
+    await expect(page.locator('#receipt-detected-list')).toContainText('NACHOS CONSUM 150 G');
+    await expect(page.locator('.receipt-detected-item--discounted')).toContainText('Descuento detectado');
+    await expect(page.locator('#receipt-live-summary')).toBeVisible();
+    await expect(page.locator('#receipt-summary-products')).toHaveText('2');
+    await expect(page.locator('#receipt-summary-discounts')).toHaveText('2');
+    await expect(page.locator('#receipt-summary-discounts-list')).toContainText('Descuento tarjeta Consum');
+    await expect(page.locator('#receipt-summary-total')).toContainText('3,45');
+
+    if (viewport.width === 390) {
+      await expect(page.locator('.receipt-live-total-card')).toBeHidden();
+      const positions = await page.evaluate(() => {
+        const products = document.querySelector('#receipt-detected-stream').getBoundingClientRect();
+        const summary = document.querySelector('#receipt-live-summary').getBoundingClientRect();
+        return { productsBottom: products.bottom, summaryTop: summary.top };
+      });
+      expect(positions.summaryTop).toBeGreaterThanOrEqual(positions.productsBottom);
+    } else {
+      await expect(page.locator('.receipt-live-total-card')).toBeVisible();
+      await expect(page.locator('#receipt-live-total')).toContainText('3,45');
+      const positions = await page.evaluate(() => {
+        const products = document.querySelector('#receipt-detected-stream').getBoundingClientRect();
+        const summary = document.querySelector('#receipt-live-summary').getBoundingClientRect();
+        return { productsLeft: products.left, productsRight: products.right, summaryLeft: summary.left };
+      });
+      expect(positions.summaryLeft).toBeGreaterThan(positions.productsRight);
+    }
+
+    await page.screenshot({
+      path: testInfo.outputPath(`receipt-approved-summary-${viewport.width}.png`),
+      fullPage: true,
+    });
+    await expectNoHorizontalOverflow(page);
+  }
 });
 
 test('queue cancel-all preserves uploaded captures and marks active work cancelled', async ({ page }) => {
