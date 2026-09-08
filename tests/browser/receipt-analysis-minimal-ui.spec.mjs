@@ -250,10 +250,59 @@ test('durable OCR evidence appears progressively in the body while source detail
   await expect(queue.locator(':scope > summary')).toHaveAttribute('aria-label', /1 archivo · 1 procesando/);
   await expect(page.locator('#receipt-source-queue-summary')).toHaveText('1');
   await expect(page.locator('#receipt-progress')).toBeHidden();
+  const workingAnimation = await queue.locator(':scope > summary').evaluate(element => (
+    getComputedStyle(element, '::before').animationName
+  ));
+  expect(workingAnimation).toBe('receipt-source-progress-spin');
   await page.screenshot({
     path: testInfo.outputPath('receipt-progressive-collapsed-390.png'),
     fullPage: true,
   });
+
+  await page.evaluate(async () => {
+    const [{ state, captureKey }, { renderReceiptQueueStatus }] = await Promise.all([
+      import('/receipt-state.js'),
+      import('/receipt-capture.js'),
+    ]);
+    const capture = state.captures[0];
+    const pageState = state.pageStates.get(captureKey(capture));
+    state.pageStates.set(captureKey(capture), { ...pageState, status: 'error', error: 'Fallo de análisis de prueba' });
+    renderReceiptQueueStatus();
+  });
+  await expect(queue).toHaveAttribute('data-state', 'error');
+  await expect(queue.locator(':scope > summary')).toHaveAttribute('aria-label', /1 archivo · 1 con error/);
+  const errorVisual = await queue.locator(':scope > summary').evaluate(element => {
+    const summaryStyle = getComputedStyle(element);
+    const spinnerStyle = getComputedStyle(element, '::before');
+    return {
+      animationName: summaryStyle.animationName,
+      animationDuration: summaryStyle.animationDuration,
+      spinnerOpacity: spinnerStyle.opacity,
+    };
+  });
+  expect(errorVisual.animationName).toBe('receipt-source-error-pulse');
+  expect(errorVisual.animationDuration).toBe('2.2s');
+  expect(errorVisual.spinnerOpacity).toBe('0');
+  await expect(queue.locator(':scope > summary > .icon')).toHaveCount(1);
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const reducedErrorAnimation = await queue.locator(':scope > summary').evaluate(element => (
+    getComputedStyle(element).animationName
+  ));
+  expect(reducedErrorAnimation).toBe('none');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+
+  await page.evaluate(async () => {
+    const [{ state, captureKey }, { renderReceiptQueueStatus }] = await Promise.all([
+      import('/receipt-state.js'),
+      import('/receipt-capture.js'),
+    ]);
+    const capture = state.captures[0];
+    const pageState = state.pageStates.get(captureKey(capture));
+    state.pageStates.set(captureKey(capture), { ...pageState, status: 'ai', error: '' });
+    renderReceiptQueueStatus();
+  });
+  await expect(queue).toHaveAttribute('data-state', 'working');
 
   await queue.locator(':scope > summary').click();
   await expect(queue).toHaveAttribute('open', '');
