@@ -210,16 +210,20 @@ test('completed items keep canonical order through realtime, reload, undo and mi
   await expect(peerBRow).toHaveClass(/is-completed/);
   await expect(bRow.locator('.completion-button')).toHaveAttribute('aria-pressed', 'true');
   await expect(bRow.locator('.ticket-item__identity-copy > strong')).toHaveCSS('text-decoration-line', 'line-through');
+
+  await page.reload();
+  await expect.poll(() => rowNames(page)).toEqual(['A', 'B', 'C']);
+  await expect(page.locator(`[data-swipe-id="${b.id}"]`)).toHaveClass(/is-completed/);
+  await expect(page.locator('html')).not.toHaveAttribute('data-route-pending', 'true');
+  await expect(page.locator('.shopping-ticket')).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath('shopping-completed-in-place-mobile-390.png'),
     fullPage: true,
   });
 
-  await page.reload();
-  await expect.poll(() => rowNames(page)).toEqual(['A', 'B', 'C']);
-  await expect(page.locator(`[data-swipe-id="${b.id}"]`)).toHaveClass(/is-completed/);
   await page.setViewportSize({ width: 1280, height: 900 });
+  await expect(page.locator('.shopping-ticket')).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath('shopping-completed-in-place-desktop-1280.png'),
