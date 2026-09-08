@@ -615,7 +615,8 @@ export function bindEvents() {
     state.detectedStoreRetailerName = $('#receipt-retailer').value.trim();
   });
   document.addEventListener('basketra:swipe-action', event => {
-    if (event.detail?.kind !== 'receipt-line' || event.detail?.action !== 'delete') return;
+    const kind = event.detail?.kind;
+    if (!['receipt-line', 'receipt-detected-line'].includes(kind) || event.detail?.action !== 'delete') return;
     deleteReceiptLine(Number(event.detail.id));
   });
 }
