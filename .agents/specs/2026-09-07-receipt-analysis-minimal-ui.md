@@ -197,7 +197,7 @@ Before handoff:
 - The empty-stream sentence “Añade un ticket con +. Los productos aparecerán aquí a medida que se detecten.” is removed entirely; the zero-item state remains visually empty apart from the section heading/count and available floating actions.
 - File/progress state is no longer a full-width header row or sticky body card. A small always-visible right-edge control, aligned with the compact `+`, owns aggregate source/progress state and expands for detailed progress, files and recovery actions.
 - The processing affordance uses a partial rotating gradient arc inspired by a conventional spinner; it must read as motion at a glance and never resemble a complete static circle.
-- The rotating arc is rendered as a dedicated spinner layer inside the floating control. Its CSS `rotate` animation must visibly change between successive animation frames; the receipt icon/count must not rotate with it. Reduced-motion preference slows that functional rotation instead of disabling it.
+- The rotating arc is rendered as a dedicated spinner layer inside the floating control. Its CSS transform rotation must visibly change between successive animation frames; the receipt icon/count must not rotate with it. Under reduced motion, the same partial arc remains visible but static.
 
 ## Approved responsive receipt-summary redesign
 
@@ -229,11 +229,16 @@ The user approved both the desktop and mobile prototypes as the next visual laye
 27. Canonical detected rows support Edit/Delete without opening the full review: mobile swipe and the row action control reveal the same actions, Edit reuses the existing line modal, and Delete reuses the existing undoable deletion owner.
 28. Editing or deleting a canonical row updates the visible row and live calculated total immediately from the same `state.items` model; provisional OCR rows expose no edit/delete controls.
 29. Row actions are keyboard-operable, have explicit accessible names, preserve the existing touch-target contract, and work at both 390 px and desktop widths.
-30. The collapsed floating source/progress control shows a non-blocking rotating partial gradient arc (roughly one third of the circumference, never a full ring) only while aggregate state is `working`; completed/idle/error states do not use that spinner. The inner receipt icon and count remain stationary. With `prefers-reduced-motion: reduce`, the same partial arc still rotates but at half speed so active processing remains unmistakable.
+30. The collapsed floating source/progress control shows a non-blocking rotating partial gradient arc (roughly one third of the circumference, never a full ring) only while aggregate state is `working`; completed/idle/error states do not use that spinner. The inner receipt icon and count remain stationary. With `prefers-reduced-motion: reduce`, the same partial arc remains visible but static.
 31. Aggregate source error keeps the familiar receipt glyph and uses a slow red perimeter pulse instead of replacing the icon. The accessible summary still reports the error and recovery actions remain inside the expanded queue.
 
 ## Validation evidence
 
+- Final production head `c1a33bf7983626482fbbbdb86893ac923f1d2b13` passed Pull Request Quality run `34246398752`, including all 56 Browser shards, Browser changed-code coverage and `CI complete`.
+- CodeQL Advanced run `34246398785` passed all nine matrices on the same production head after rerunning two externally-cancelled matrices whose first attempts had already logged `CodeQL job status was success`.
+- Exact-head Browser 48/56 passed the responsive receipt summary/editor regression after the closed-swipe assertion was corrected to validate both rows; the clean 390 px and 1280 px screenshots show no Edit/Delete rail bleed-through on the discounted row.
+- Exact-head Browser 49/56 passed the processing-state regression: the working partial gradient arc is present, its computed transform changes between animation frames, the inner receipt/count remain stationary, reduced-motion keeps the arc static, and the error state retains the receipt glyph with the slow red perimeter pulse contract.
+- FINAL REVIEW inspected `receipt-approved-summary-390.png`, `receipt-approved-summary-1280.png`, both responsive line-editor screenshots, and the collapsed/expanded queue processing evidence. No horizontal overflow, clipping, hidden row actions, or desktop FAB edge regression remains.
 - Final visual review of exact-head Browser evidence exposed that a discounted detected row used a translucent surface, allowing the always-mounted swipe action rail to bleed through even while `data-swipe-open="false"`. The discounted row background now mixes against the opaque surface token, and Browser coverage asserts both closed swipe state and full background alpha before the clean responsive screenshot.
 - Browser spinner regression on `d9d4f4087a69fadcf762766e98975c19506cc854` reached the active-state rotation assertions successfully, then failed only because the repository-wide reduced-motion rule clamps animation duration to effectively zero. The implementation now uses the conventional `transform: rotate(...)` path under `no-preference`, while the Browser test verifies transform progression frame-to-frame and expects a static arc under reduced motion.
 - CI aggregation evidence on `f24c3c736c6175fa17c359727c9b9a005f92a6a4`: all 56 Browser coverage shard artifacts were present and surfaced Browser jobs were successful, yet Pull Request Quality failed again after shard completion. The remaining post-shard `browser-coverage` job still had a 1-minute envelope while downloading/merging all 56 artifacts. Its envelope is raised to 2 minutes without changing the aggregate coverage command or Playwright's 45-second execution budget; the timeout contract test now scopes Browser E2E and Browser coverage separately.
@@ -254,9 +259,9 @@ The user approved both the desktop and mobile prototypes as the next visual laye
 
 - [x] Recon complete against `main` at `6fc25b3af3c26e59fa905bb4c672a438a630120f`.
 - [x] User-approved prototypes translated into executable acceptance criteria.
-- [ ] Responsive receipt-summary follow-up implementation.
-- [ ] Updated local/CI-equivalent validation.
-- [ ] Updated Browser visual review for mobile and desktop summary layouts.
+- [x] Responsive receipt-summary follow-up implementation.
+- [x] Updated local/CI-equivalent validation.
+- [x] Updated Browser visual review for mobile and desktop summary layouts.
 - [x] PR created.
-- [ ] CI green on the new exact head.
-- [ ] Final request/spec/diff/visual review complete for the approved responsive redesign.
+- [x] CI green on production head `c1a33bf7983626482fbbbdb86893ac923f1d2b13`.
+- [x] Final request/spec/diff/visual review complete for the approved responsive redesign.
