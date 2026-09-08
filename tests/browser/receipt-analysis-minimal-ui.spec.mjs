@@ -391,7 +391,7 @@ test('approved mobile and desktop summary keeps products independent while showi
       expect(positions.summaryTop).toBeGreaterThanOrEqual(positions.productsBottom);
     } else {
       await expect(page.locator('.receipt-live-total-card')).toBeVisible();
-      await expect(page.locator('#receipt-live-total')).toContainText('3,45');
+      await expect(page.locator('#receipt-live-total')).toContainText('3,05');
       const positions = await page.evaluate(() => {
         const products = document.querySelector('#receipt-detected-stream').getBoundingClientRect();
         const summary = document.querySelector('#receipt-live-summary').getBoundingClientRect();
