@@ -1,6 +1,6 @@
 import { api } from './api.js';
 import { saveCaptures } from './state.js';
-import { captureItem, formatEuroMinor } from './ui.js';
+import { captureItem, formatEuroMinor, icon } from './ui.js';
 import {
   ACTIVE_PAGE_STATUSES,
   REVIEWABLE_PAGE_STATUSES,
@@ -108,6 +108,155 @@ function detectedItemsSnapshot() {
   };
 }
 
+function detectedDiscount(item) {
+  if (item?.discount?.type === 'amount' && Number.isSafeInteger(item.discount.amountMinor)) {
+    return {
+      label: item.description || 'Descuento detectado',
+      value: `−${formatEuroMinor(Math.abs(item.discount.amountMinor))}`,
+    };
+  }
+  if (item?.discount?.type === 'percentage' && Number.isSafeInteger(item.discount.basisPoints)) {
+    const percentage = item.discount.basisPoints / 100;
+    return {
+      label: item.description || 'Descuento detectado',
+      value: `−${percentage.toLocaleString('es-ES')} %`,
+    };
+  }
+  if (Number.isSafeInteger(item?.discountMinor) && item.discountMinor > 0) {
+    return {
+      label: item.description || 'Descuento detectado',
+      value: `−${formatEuroMinor(item.discountMinor)}`,
+    };
+  }
+  return null;
+}
+
+function receiptDiscountEntries(items) {
+  const entries = items.map(detectedDiscount).filter(Boolean);
+  const unassigned = state.extraction?.final?.unassignedDiscounts;
+  if (!Array.isArray(unassigned)) return entries;
+  for (const entry of unassigned) {
+    const discount = detectedDiscount({
+      description: entry?.description || 'Descuento sin asignar',
+      discount: entry?.discount,
+      discountMinor: entry?.discountMinor,
+    });
+    if (discount) entries.push(discount);
+    else entries.push({ label: entry?.description || 'Descuento sin asignar', value: '' });
+  }
+  return entries;
+}
+
+function currentRetailerLabel(snapshot) {
+  const candidates = [...state.retailerCandidates.values()].filter(Boolean);
+  if (candidates.length === 1) return candidates[0];
+  if (candidates.length > 1) return 'Varios comercios detectados';
+  const extractionRetailer = state.extraction?.final?.retailerName
+    || state.extraction?.ai?.interpretation?.retailerName
+    || state.detectedStoreRetailerName;
+  if (typeof extractionRetailer === 'string' && extractionRetailer.trim()) return extractionRetailer.trim();
+  if (state.captures.length === 0 && snapshot.items.length > 0) return 'Entrada manual';
+  return 'Sin identificar';
+}
+
+function receiptProgressSnapshot() {
+  const pages = state.captures.map(capture => state.pageStates.get(captureKey(capture)) ?? createPageState());
+  const total = pages.length;
+  const completed = pages.filter(page => REVIEWABLE_PAGE_STATUSES.has(page.status)).length;
+  const active = pages.filter(page => ACTIVE_PAGE_STATUSES.has(page.status)).length;
+  const pending = pages.filter(page => page.status === 'pending' || page.status === 'preparing').length;
+  const failed = pages.filter(page => page.status === 'error').length;
+  const done = total > 0 && completed === total && active === 0 && pending === 0 && !state.finalizing;
+  const stage = failed
+    ? 'Revisión necesaria'
+    : state.finalizing
+      ? 'Combinando páginas'
+      : active > 0 || pending > 0
+        ? 'Analizando…'
+        : done
+          ? 'Análisis completado'
+          : total > 0
+            ? 'Preparando análisis'
+            : 'Listo para analizar';
+  return {
+    total,
+    completed,
+    stage,
+    progress: total === 0 ? 0 : completed / total,
+  };
+}
+
+function liveTotalMinor(snapshot) {
+  const expected = state.extraction?.final?.review?.total?.expectedMinor;
+  if (Number.isSafeInteger(expected)) return expected;
+  return snapshot.items.reduce((sum, item) => (
+    Number.isSafeInteger(item?.lineTotalMinor) ? sum + item.lineTotalMinor : sum
+  ), 0);
+}
+
+function renderReceiptAnalysisSummary(snapshot) {
+  const overview = $('#receipt-analysis-overview');
+  const summary = $('#receipt-live-summary');
+  if (!overview || !summary) return;
+
+  const retailer = $('#receipt-live-retailer-name');
+  if (retailer) retailer.textContent = currentRetailerLabel(snapshot);
+
+  const progress = receiptProgressSnapshot();
+  const stage = $('#receipt-live-stage');
+  const progressLabel = $('#receipt-live-progress-label');
+  const progressTrack = $('#receipt-live-progress-track');
+  if (stage) stage.textContent = progress.stage;
+  if (progressLabel) {
+    progressLabel.textContent = progress.total === 0
+      ? 'Sin archivos'
+      : `${progress.completed} de ${progress.total} ${progress.total === 1 ? 'imagen' : 'imágenes'}`;
+  }
+  if (progressTrack) {
+    progressTrack.setAttribute('aria-valuemax', String(Math.max(progress.total, 1)));
+    progressTrack.setAttribute('aria-valuenow', String(progress.completed));
+    progressTrack.setAttribute('aria-valuetext', `${progress.stage}. ${progress.completed} de ${progress.total} imágenes`);
+    progressTrack.style.setProperty('--receipt-live-progress', `${progress.progress * 100}%`);
+  }
+
+  const totalMinor = liveTotalMinor(snapshot);
+  const totalText = formatEuroMinor(totalMinor);
+  const totalLabel = snapshot.provisional ? 'Total provisional' : 'Total calculado';
+  const liveTotal = $('#receipt-live-total');
+  const liveTotalLabel = $('#receipt-live-total-label');
+  const summaryTotal = $('#receipt-summary-total');
+  const summaryTotalLabel = $('#receipt-summary-total-label');
+  if (liveTotal) liveTotal.textContent = totalText;
+  if (liveTotalLabel) liveTotalLabel.textContent = totalLabel;
+  if (summaryTotal) summaryTotal.textContent = totalText;
+  if (summaryTotalLabel) summaryTotalLabel.textContent = totalLabel;
+
+  const productCount = $('#receipt-summary-products');
+  if (productCount) productCount.textContent = String(snapshot.items.length);
+
+  const discounts = receiptDiscountEntries(snapshot.items);
+  const discountRow = $('#receipt-summary-discounts-row');
+  const discountCount = $('#receipt-summary-discounts');
+  const discountList = $('#receipt-summary-discounts-list');
+  if (discountRow) discountRow.hidden = discounts.length === 0;
+  if (discountCount) discountCount.textContent = String(discounts.length);
+  if (discountList) {
+    discountList.replaceChildren();
+    for (const discount of discounts.slice(0, 4)) {
+      const row = document.createElement('li');
+      const label = document.createElement('span');
+      label.textContent = discount.label;
+      const value = document.createElement('strong');
+      value.textContent = discount.value;
+      row.append(label, value);
+      discountList.append(row);
+    }
+    discountList.hidden = discounts.length === 0;
+  }
+
+  summary.hidden = snapshot.items.length === 0;
+}
+
 function detectedItemMeta(item, provisional) {
   const parts = [];
   if (Number.isFinite(item?.quantity)) {
@@ -143,6 +292,15 @@ export function renderProgressiveDetectedItems() {
     meta.textContent = detectedItemMeta(item, snapshot.provisional);
     copy.append(description, meta);
 
+    const discount = detectedDiscount(item);
+    if (discount) {
+      row.classList.add('receipt-detected-item--discounted');
+      const discountMeta = document.createElement('small');
+      discountMeta.className = 'receipt-detected-item__discount';
+      discountMeta.innerHTML = `${icon('tag')}<span>Descuento detectado</span>${discount.value ? `<strong>${discount.value}</strong>` : ''}`;
+      copy.append(discountMeta);
+    }
+
     const amount = document.createElement('strong');
     amount.className = 'receipt-detected-item__amount';
     amount.textContent = Number.isSafeInteger(item?.lineTotalMinor)
@@ -154,10 +312,12 @@ export function renderProgressiveDetectedItems() {
   }
 
   count.textContent = String(snapshot.items.length);
-  empty.hidden = true;
+  empty.hidden = snapshot.items.length > 0;
+  help.hidden = snapshot.items.length === 0;
   help.textContent = snapshot.provisional
     ? 'Las líneas son provisionales hasta completar la revisión conjunta.'
     : 'Resultado combinado listo. Abre la vista previa para validar y corregir.';
+  renderReceiptAnalysisSummary(snapshot);
 }
 
 
