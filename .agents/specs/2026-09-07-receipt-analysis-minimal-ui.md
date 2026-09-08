@@ -171,6 +171,7 @@ Existing receipt durable-job, reload, cancellation, line-editor, discount, mobil
 - Progressive page-level items can include temporary overlap before final assembly. Mitigation: label the stream provisional and replace it with the combined model when available; never persist from the stream.
 - A floating action can obscure bottom content on mobile. Mitigation: use existing safe-area/navigation tokens and verify 320/390/430 px screenshots.
 - Existing tests currently expect review auto-expansion and a visible “Cancelar procesamiento” button. Those assertions must be migrated to the accepted queue/review interaction without weakening behavioral coverage.
+- Editing provisional OCR rows would create a competing mutable source while final assembly can still replace them. Mitigation: keep provisional rows read-only and enable row actions only after the combined/manual item model becomes canonical.
 
 ## Rollback
 
@@ -204,6 +205,7 @@ The user approved both the desktop and mobile prototypes as the next visual laye
 - Show a live calculated total derived from the same detected/review item model already rendered by the receipt flow. Do not introduce a second receipt or money calculation owner.
 - Surface explicit discounts without inventing promotion data. Discount count/details come only from the existing typed item discount model and existing unassigned-discount evidence.
 - Preserve independent product rows with description, quantity/unit-price context and line total.
+- Once the combined/manual item model is canonical, each product row is operable in place: touch users can swipe to reveal Edit/Delete and every viewport exposes a row action control for the same actions. Edit opens the existing receipt-line modal; Delete reuses the existing undoable deletion owner. Provisional OCR/page rows remain read-only so later assembly cannot overwrite user edits silently.
 - Desktop progressively enhances into a two-column workspace: product stream as the primary column, compact ticket summary as the secondary sticky column, plus a top analysis/retailer strip and live-total surface.
 - Mobile remains one column: compact retailer/analysis state first, independent product rows next, then a concise summary with discounts and provisional/final total.
 - Empty state uses a restrained empty-ticket visual placeholder but does not restore the previously rejected explanatory sentence or other redundant body copy.
@@ -220,6 +222,9 @@ The user approved both the desktop and mobile prototypes as the next visual laye
 24. The zero-product state shows a visual empty-ticket affordance without the removed “Añade un ticket…” explanatory copy.
 25. Product rows remain individually scannable and do not become a literal paper-ticket rendering.
 26. Existing queue/retry/cancel/manual/review/import behavior and accessibility contracts remain intact.
+27. Canonical detected rows support Edit/Delete without opening the full review: mobile swipe and the row action control reveal the same actions, Edit reuses the existing line modal, and Delete reuses the existing undoable deletion owner.
+28. Editing or deleting a canonical row updates the visible row and live calculated total immediately from the same `state.items` model; provisional OCR rows expose no edit/delete controls.
+29. Row actions are keyboard-operable, have explicit accessible names, preserve the existing touch-target contract, and work at both 390 px and desktop widths.
 
 ## Validation evidence
 
