@@ -575,7 +575,7 @@
   place-items: center;
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--color-on-surface) 12%, transparent);
-  border-radius: var(--radius-interactive);
+  border-radius: var(--radius-full);
   background: var(--color-surface);
   color: var(--color-on-surface);
   box-shadow: 0 .5rem 1.3rem color-mix(in srgb, var(--color-scrim) 16%, transparent);
@@ -587,12 +587,55 @@
   display: none;
 }
 
+.receipt-source-queue > summary::before {
+  position: absolute;
+  inset: -.22rem;
+  border: 2px solid transparent;
+  border-top-color: var(--color-primary);
+  border-right-color: color-mix(in srgb, var(--color-primary) 38%, transparent);
+  border-radius: var(--radius-full);
+  opacity: 0;
+  pointer-events: none;
+  content: "";
+}
+
+.receipt-source-queue[data-state="working"] > summary::before {
+  opacity: 1;
+  animation: receipt-source-progress-spin .9s linear infinite;
+}
+
 .receipt-source-queue > summary::after {
   display: none;
 }
 
-.receipt-source-queue > summary > .icon {
+.receipt-source-queue__state-icon {
+  display: grid;
+  place-items: center;
   color: var(--color-primary);
+}
+
+.receipt-source-queue__state-icon--error {
+  display: none;
+  color: var(--color-error);
+}
+
+.receipt-source-queue[data-state="error"] .receipt-source-queue__state-icon--source {
+  display: none;
+}
+
+.receipt-source-queue[data-state="error"] .receipt-source-queue__state-icon--error {
+  display: grid;
+}
+
+.receipt-source-queue__state-icon .icon {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+@keyframes receipt-source-progress-spin {
+  to {
+    transform: rotate(1turn);
+  }
 }
 
 .receipt-source-queue__count {
@@ -634,7 +677,7 @@
 }
 
 .receipt-source-queue[data-state="error"] .receipt-source-queue__status-dot {
-  background: var(--color-error);
+  display: none;
 }
 
 .receipt-source-queue__panel {
@@ -1521,6 +1564,11 @@
   .receipt-live-progress-track::before {
     transition: none;
   }
+
+  .receipt-source-queue[data-state="working"] > summary::before {
+    border-color: var(--color-primary);
+    animation: none;
+  }
 }
 
 @media (forced-colors: active) {
@@ -1529,5 +1577,13 @@
   .receipt-add-trigger,
   .receipt-add-action {
     border: 1px solid CanvasText;
+  }
+
+  .receipt-source-queue[data-state="working"] > summary::before {
+    border-color: Highlight;
+  }
+
+  .receipt-source-queue__state-icon--error {
+    color: Highlight;
   }
 }
