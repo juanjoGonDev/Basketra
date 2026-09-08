@@ -440,6 +440,18 @@ test('approved mobile and desktop summary keeps products independent while showi
     await expect(page.locator('#receipt-summary-discounts-list')).toContainText('Descuento tarjeta Consum');
     await expect(page.locator('#receipt-summary-total')).toContainText('3,45');
     await expect(page.locator('#receipt-detected-list [data-swipe-toggle]')).toHaveCount(2);
+    await expect(page.locator('#receipt-detected-list .receipt-detected-row')).toHaveAttribute('data-swipe-open', 'false');
+    const discountedSurfaceAlpha = await page.locator('.receipt-detected-item--discounted').evaluate(element => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1;
+      canvas.height = 1;
+      const context = canvas.getContext('2d');
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = getComputedStyle(element).backgroundColor;
+      context.fillRect(0, 0, 1, 1);
+      return context.getImageData(0, 0, 1, 1).data[3];
+    });
+    expect(discountedSurfaceAlpha).toBe(255);
     await page.screenshot({
       path: testInfo.outputPath(`receipt-approved-summary-${viewport.width}.png`),
       fullPage: true,
