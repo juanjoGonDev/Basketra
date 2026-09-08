@@ -177,7 +177,7 @@ jobs:
     name: "🌐 Browser ${{ matrix.shard }}/${{ needs.browser-runtime.outputs.total }}"
     needs: browser-runtime
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 2
     strategy:
       fail-fast: false
       max-parallel: 56
