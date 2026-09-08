@@ -5,14 +5,20 @@ import { test } from 'node:test';
 const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
 const codeql = readFileSync('.github/workflows/codeql.yml', 'utf8');
 
-test('workload jobs stay bounded while browser shards allow artifact finalization and the final verifier may wait for global CI state', () => {
+test('workload jobs stay bounded while browser artifact aggregation may finish outside the one-minute execution budget', () => {
   const timeoutValues = [...ci.matchAll(/timeout-minutes:\s*(\d+)/gu)].map(match => Number(match[1]));
-  assert.equal(timeoutValues.filter(value => value === 1).length, 7);
-  assert.equal(timeoutValues.filter(value => value === 2).length, 1);
+  assert.equal(timeoutValues.filter(value => value === 1).length, 6);
+  assert.equal(timeoutValues.filter(value => value === 2).length, 2);
   assert.equal(timeoutValues.filter(value => value === 15).length, 1);
   assert.deepEqual(new Set(timeoutValues), new Set([1, 2, 15]));
-  assert.match(ci, /browser-e2e:\n[\s\S]*?timeout-minutes:\s*1/u);
-  assert.match(ci, /timeout --signal=TERM --kill-after=5s 45s pnpm exec playwright test --test-list=/u);
+
+  const browserE2eJob = ci.slice(ci.indexOf('\n  browser-e2e:\n'), ci.indexOf('\n  browser-coverage:\n'));
+  assert.match(browserE2eJob, /timeout-minutes:\s*2/u);
+  assert.match(browserE2eJob, /timeout --signal=TERM --kill-after=5s 45s pnpm exec playwright test --test-list=/u);
+
+  const browserCoverageJob = ci.slice(ci.indexOf('\n  browser-coverage:\n'), ci.indexOf('\n  container:\n'));
+  assert.match(browserCoverageJob, /timeout-minutes:\s*2/u);
+  assert.match(browserCoverageJob, /check-browser-diff-coverage\.mjs/u);
 
   const finalJob = ci.slice(ci.indexOf('\n  final:\n'));
   assert.match(finalJob, /name: "✅ CI complete"/u);
