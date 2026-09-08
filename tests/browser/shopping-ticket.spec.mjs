@@ -171,7 +171,7 @@ test('shopping ticket estimates by effective Store and converges between devices
 });
 
 
-test('completed items keep canonical order through realtime, reload, undo and mixed-status reorder', async ({ page, request, context }) => {
+test('completed items keep canonical order through realtime, reload, undo and mixed-status reorder', async ({ page, request, context }, testInfo) => {
   test.setTimeout(45_000);
   const listResponse = await request.post('/api/v1/shopping-lists', { data: { name: 'Orden estable' } });
   expect(listResponse.ok()).toBeTruthy();
@@ -194,8 +194,10 @@ test('completed items keep canonical order through realtime, reload, undo and mi
 
   const rowNames = target => target.locator('#pending-items [data-swipe-kind="shopping-item"] .ticket-item__identity-copy > strong').allTextContents();
 
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/lists/${encodeURIComponent(list.id)}`);
   const peer = await context.newPage();
+  await peer.setViewportSize({ width: 390, height: 844 });
   await peer.goto(`/lists/${encodeURIComponent(list.id)}`);
   await expect.poll(() => rowNames(page)).toEqual(['A', 'B', 'C']);
 
@@ -208,10 +210,21 @@ test('completed items keep canonical order through realtime, reload, undo and mi
   await expect(peerBRow).toHaveClass(/is-completed/);
   await expect(bRow.locator('.completion-button')).toHaveAttribute('aria-pressed', 'true');
   await expect(bRow.locator('.ticket-item__identity-copy > strong')).toHaveCSS('text-decoration-line', 'line-through');
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath('shopping-completed-in-place-mobile-390.png'),
+    fullPage: true,
+  });
 
   await page.reload();
   await expect.poll(() => rowNames(page)).toEqual(['A', 'B', 'C']);
   await expect(page.locator(`[data-swipe-id="${b.id}"]`)).toHaveClass(/is-completed/);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath('shopping-completed-in-place-desktop-1280.png'),
+    fullPage: true,
+  });
 
   await page.getByRole('button', { name: 'Devolver B a pendientes', exact: true }).click();
   await expect.poll(() => rowNames(page)).toEqual(['A', 'B', 'C']);

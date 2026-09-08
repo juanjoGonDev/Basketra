@@ -129,7 +129,7 @@ test('receipt analysis is minimal, responsive and exposes one three-path floatin
       expect(Math.abs(edge.trigger - edge.menu)).toBeLessThanOrEqual(.5);
     }
 
-    if (viewport.width === 390 || viewport.width === 1280) {
+    if (viewport.width === 390 || viewport.width === 1280 || viewport.width === 1600) {
       await page.screenshot({
         path: testInfo.outputPath(`receipt-add-menu-${viewport.width}.png`),
         fullPage: true,
