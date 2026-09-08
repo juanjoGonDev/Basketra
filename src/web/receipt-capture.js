@@ -282,7 +282,7 @@ export function renderProgressiveDetectedItems() {
     if (editable) {
       row.classList.add('swipe-shell');
       row.dataset.swipeRow = '';
-      row.dataset.swipeKind = 'receipt-line';
+      row.dataset.swipeKind = 'receipt-detected-line';
       row.dataset.swipeId = String(index);
       row.dataset.swipeEndAction = 'delete';
       row.dataset.swipeOpen = 'false';
