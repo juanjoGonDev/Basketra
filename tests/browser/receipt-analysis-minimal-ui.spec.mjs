@@ -250,27 +250,41 @@ test('durable OCR evidence appears progressively in the body while source detail
   await expect(queue.locator(':scope > summary')).toHaveAttribute('aria-label', /1 archivo · 1 procesando/);
   await expect(page.locator('#receipt-source-queue-summary')).toHaveText('1');
   await expect(page.locator('#receipt-progress')).toBeHidden();
-  const workingVisual = await queue.locator(':scope > summary').evaluate(element => {
-    const spinnerStyle = getComputedStyle(element, '::before');
+  const spinner = queue.locator('.receipt-source-queue__spinner');
+  const workingVisual = await spinner.evaluate(element => {
+    const spinnerStyle = getComputedStyle(element);
+    const animation = element.getAnimations()[0];
     return {
       animationName: spinnerStyle.animationName,
       animationDuration: spinnerStyle.animationDuration,
       backgroundImage: spinnerStyle.backgroundImage,
       opacity: spinnerStyle.opacity,
+      playState: animation?.playState ?? null,
     };
   });
   expect(workingVisual.animationName).toBe('receipt-source-progress-spin');
-  expect(workingVisual.animationDuration).toBe('0.85s');
+  expect(workingVisual.animationDuration).toBe('0.8s');
   expect(workingVisual.backgroundImage).toContain('conic-gradient');
   expect(workingVisual.backgroundImage).toMatch(/(?:rgba\([^)]*,\s*0\)|\/\s*0(?:\D|$))/u);
   expect(workingVisual.opacity).toBe('1');
+  expect(workingVisual.playState).toBe('running');
+  const rotationProgressed = await spinner.evaluate(async element => {
+    const animation = element.getAnimations()[0];
+    if (!animation) return false;
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const before = animation.currentTime;
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const after = animation.currentTime;
+    return typeof before === 'number' && typeof after === 'number' && after > before;
+  });
+  expect(rotationProgressed).toBe(true);
   await page.screenshot({
     path: testInfo.outputPath('receipt-progressive-collapsed-390.png'),
     fullPage: true,
   });
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  const reducedWorking = await queue.locator(':scope > summary').evaluate(element => {
-    const spinnerStyle = getComputedStyle(element, '::before');
+  const reducedWorking = await spinner.evaluate(element => {
+    const spinnerStyle = getComputedStyle(element);
     return {
       animationName: spinnerStyle.animationName,
       backgroundImage: spinnerStyle.backgroundImage,
@@ -296,16 +310,19 @@ test('durable OCR evidence appears progressively in the body while source detail
   await expect(queue.locator(':scope > summary')).toHaveAttribute('aria-label', /1 archivo · 1 con error/);
   const errorVisual = await queue.locator(':scope > summary').evaluate(element => {
     const summaryStyle = getComputedStyle(element);
-    const spinnerStyle = getComputedStyle(element, '::before');
+    const spinner = element.querySelector('.receipt-source-queue__spinner');
+    const spinnerStyle = getComputedStyle(spinner);
     return {
       animationName: summaryStyle.animationName,
       animationDuration: summaryStyle.animationDuration,
       spinnerOpacity: spinnerStyle.opacity,
+      spinnerAnimation: spinnerStyle.animationName,
     };
   });
   expect(errorVisual.animationName).toBe('receipt-source-error-pulse');
   expect(errorVisual.animationDuration).toBe('2.2s');
   expect(errorVisual.spinnerOpacity).toBe('0');
+  expect(errorVisual.spinnerAnimation).toBe('none');
   await expect(queue.locator(':scope > summary > .icon')).toHaveCount(1);
   await page.screenshot({
     path: testInfo.outputPath('receipt-progress-error-pulse-390.png'),
