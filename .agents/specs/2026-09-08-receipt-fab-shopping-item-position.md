@@ -58,6 +58,7 @@ At desktop widths the FAB remains fixed to the viewport, using the same bounded/
 - Browser coverage now verifies in-place single-item completion, undo, realtime convergence, reload preservation, canonical mixed-status reorder and bulk completion/pending behavior.
 - Receipt responsive coverage now asserts the desktop trigger/menu right inset at 1280 px and 1600 px while retaining the existing mobile viewport matrix.
 - Full CI and exact-head visual review remain required before delivery.
+- CI regression evidence: Browser 6/56 completed both Playwright tests in 35.4 s and uploaded coverage/evidence, but the job-level 1-minute cap cancelled the runner during finalization. The Browser shard job now has a 2-minute envelope while the explicit Playwright command remains capped at 45 s; this preserves the test-runtime budget and only allows setup/artifact teardown to finish.
 
 ## Rollback
 
