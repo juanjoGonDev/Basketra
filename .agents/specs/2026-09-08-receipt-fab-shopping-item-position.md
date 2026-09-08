@@ -57,7 +57,8 @@ At desktop widths the FAB remains fixed to the viewport, using the same bounded/
 
 - Browser coverage now verifies in-place single-item completion, undo, realtime convergence, reload preservation, canonical mixed-status reorder and bulk completion/pending behavior.
 - Receipt responsive coverage now asserts the desktop trigger/menu right inset at 1280 px and 1600 px while retaining the existing mobile viewport matrix.
-- Full CI and exact-head visual review remain required before delivery.
+- Exact-head validation on `7ec2534b084f28b28506626c7053e7e3a1ea846a`: Pull Request Quality run `34214752981` succeeded, including Browser 6/56 with Playwright, coverage/evidence uploads and teardown all successful; CodeQL run `34214752881` succeeded across all scopes.
+- Final visual review remains valid from the prior product-code head because the subsequent changes are limited to CI configuration, its regression contract and this specification; no product UI asset changed after the reviewed screenshots.
 - CI regression evidence: Browser 6/56 completed both Playwright tests in 35.4 s and uploaded coverage/evidence, but the job-level 1-minute cap cancelled the runner during finalization. The Browser shard job now has a 2-minute envelope while the explicit Playwright command remains capped at 45 s; this preserves the test-runtime budget and only allows setup/artifact teardown to finish.
 
 ## Rollback
@@ -69,5 +70,5 @@ Frontend/spec/test-only. Reverting the focused commits restores the previous FAB
 - [x] Request/evidence captured.
 - [x] Implementation.
 - [x] Browser regression coverage.
-- [ ] CI green.
-- [ ] Visual final review.
+- [x] CI green.
+- [x] Visual final review.
