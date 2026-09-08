@@ -167,7 +167,7 @@ export function installReceiptEnhancements() {
   const intro = pageHeader.querySelector('p:not(.eyebrow)');
   if (eyebrow) eyebrow.textContent = 'Tickets';
   if (heading) heading.textContent = 'Análisis de ticket';
-  if (intro) intro.textContent = 'Los productos aparecen mientras se procesa cada página. Revisa el resultado antes de importar.';
+  intro?.remove();
 
   if (!confirm.querySelector('.confirm-receipt__label-expanded')) {
     confirm.innerHTML = `${icon('check')}<span class="confirm-receipt__label-expanded">Confirmar e importar</span><span class="confirm-receipt__label-compact">Validar</span>`;
@@ -179,12 +179,10 @@ export function installReceiptEnhancements() {
     queue.className = 'receipt-source-queue';
 
     const queueSummary = document.createElement('summary');
+    queueSummary.setAttribute('aria-label', 'Archivos del análisis: 0 archivos');
     queueSummary.innerHTML = `
       ${icon('receipt')}
-      <span class="receipt-source-queue__summary-copy">
-        <strong>Archivos</strong>
-        <small id="receipt-source-queue-summary">0 archivos</small>
-      </span>
+      <span id="receipt-source-queue-summary" class="receipt-source-queue__count" aria-hidden="true">0</span>
       <span class="receipt-source-queue__status-dot" aria-hidden="true"></span>`;
 
     const queuePanel = document.createElement('div');
@@ -226,10 +224,14 @@ export function installReceiptEnhancements() {
 
   let progress = $('#receipt-progress');
   if (!progress) progress = createReceiptProgressPanel();
-  if (progress.parentElement !== scanView) pageHeader.insertAdjacentElement('afterend', progress);
+  const queuePanel = $('#receipt-source-queue .receipt-source-queue__panel');
+  if (queuePanel && progress.parentElement !== queuePanel) {
+    const queueBody = queuePanel.querySelector('.receipt-source-queue__body');
+    queuePanel.insertBefore(progress, queueBody);
+  }
 
   receiptState.classList.add('receipt-analysis-status');
-  if (receiptState.parentElement !== scanView) progress.insertAdjacentElement('afterend', receiptState);
+  if (receiptState.parentElement !== scanView) pageHeader.insertAdjacentElement('afterend', receiptState);
 
   if (!$('#receipt-detected-stream')) {
     const detected = document.createElement('section');
