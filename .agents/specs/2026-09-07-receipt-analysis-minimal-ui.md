@@ -228,6 +228,7 @@ The user approved both the desktop and mobile prototypes as the next visual laye
 
 ## Validation evidence
 
+- CI aggregation evidence on `f24c3c736c6175fa17c359727c9b9a005f92a6a4`: all 56 Browser coverage shard artifacts were present and surfaced Browser jobs were successful, yet Pull Request Quality failed again after shard completion. The remaining post-shard `browser-coverage` job still had a 1-minute envelope while downloading/merging all 56 artifacts. Its envelope is raised to 2 minutes without changing the aggregate coverage command or Playwright's 45-second execution budget; the timeout contract test now scopes Browser E2E and Browser coverage separately.
 - Pull Request Quality run `34170520439` passed on production head `17b3d6ad78dae523edee34da3298ff6462b0606d` after one infrastructure-only rerun of Browser 6/56; that shard had already completed both tests and every job step successfully before GitHub marked the first attempt cancelled.
 - CodeQL Advanced run `34170520574` passed all nine matrices on the same production head.
 - Browser changed-code coverage passed after explicit guard-branch regressions were added; no threshold or gate was weakened.
