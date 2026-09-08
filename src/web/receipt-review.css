@@ -590,6 +590,7 @@
 .receipt-source-queue__spinner {
   position: absolute;
   inset: -.3rem;
+  display: block;
   padding: 2px;
   border-radius: var(--radius-full);
   background:
@@ -620,6 +621,7 @@
 .receipt-source-queue[data-state="working"] .receipt-source-queue__spinner {
   opacity: 1;
   animation: receipt-source-progress-spin .8s linear infinite;
+  animation-play-state: running;
 }
 
 .receipt-source-queue > summary::after {
