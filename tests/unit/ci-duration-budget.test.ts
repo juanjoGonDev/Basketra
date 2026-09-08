@@ -7,8 +7,8 @@ const codeql = readFileSync('.github/workflows/codeql.yml', 'utf8');
 
 test('workload jobs stay bounded while browser artifact aggregation may finish outside the one-minute execution budget', () => {
   const timeoutValues = [...ci.matchAll(/timeout-minutes:\s*(\d+)/gu)].map(match => Number(match[1]));
-  assert.equal(timeoutValues.filter(value => value === 1).length, 6);
-  assert.equal(timeoutValues.filter(value => value === 2).length, 2);
+  assert.equal(timeoutValues.filter(value => value === 1).length, 4);
+  assert.equal(timeoutValues.filter(value => value === 2).length, 4);
   assert.equal(timeoutValues.filter(value => value === 15).length, 1);
   assert.deepEqual(new Set(timeoutValues), new Set([1, 2, 15]));
 
@@ -19,6 +19,12 @@ test('workload jobs stay bounded while browser artifact aggregation may finish o
   const browserCoverageJob = ci.slice(ci.indexOf('\n  browser-coverage:\n'), ci.indexOf('\n  container:\n'));
   assert.match(browserCoverageJob, /timeout-minutes:\s*2/u);
   assert.match(browserCoverageJob, /check-browser-diff-coverage\.mjs/u);
+
+  const containerJob = ci.slice(ci.indexOf('\n  container:\n'), ci.indexOf('\n  container-smoke:\n'));
+  assert.match(containerJob, /timeout-minutes:\s*2/u);
+
+  const containerSmokeJob = ci.slice(ci.indexOf('\n  container-smoke:\n'), ci.indexOf('\n  final:\n'));
+  assert.match(containerSmokeJob, /timeout-minutes:\s*2/u);
 
   const finalJob = ci.slice(ci.indexOf('\n  final:\n'));
   assert.match(finalJob, /name: "✅ CI complete"/u);
