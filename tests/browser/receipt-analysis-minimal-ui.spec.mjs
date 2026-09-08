@@ -243,6 +243,7 @@ test('durable OCR evidence appears progressively in the body while source detail
   await expect(page.locator('#receipt-summary-products')).toHaveText('1');
   await expect(page.locator('#receipt-live-total')).toContainText('1,65');
   await expect(page.locator('#receipt-summary-total')).toContainText('1,65');
+  await expect(page.locator('#receipt-detected-list [data-swipe-toggle]')).toHaveCount(0);
 
   const queue = page.locator('#receipt-source-queue');
   await expect(queue).toHaveAttribute('data-state', 'working');
@@ -340,6 +341,45 @@ test('approved mobile and desktop summary keeps products independent while showi
     await expect(page.locator('#receipt-summary-discounts')).toHaveText('2');
     await expect(page.locator('#receipt-summary-discounts-list')).toContainText('Descuento tarjeta Consum');
     await expect(page.locator('#receipt-summary-total')).toContainText('3,45');
+    await expect(page.locator('#receipt-detected-list [data-swipe-toggle]')).toHaveCount(2);
+
+    const firstRow = page.locator('#receipt-detected-list .receipt-detected-row').first();
+    if (viewport.width === 390) {
+      const box = await firstRow.boundingBox();
+      expect(box).not.toBeNull();
+      await page.mouse.move(box.x + box.width * .55, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width * .25, box.y + box.height / 2, { steps: 6 });
+      await page.mouse.up();
+      await expect(firstRow).toHaveAttribute('data-swipe-open', 'true');
+    } else {
+      await firstRow.getByRole('button', { name: 'Mostrar acciones del producto 1', exact: true }).click();
+      await expect(firstRow).toHaveAttribute('data-swipe-open', 'true');
+    }
+
+    await firstRow.getByRole('button', { name: 'Editar producto 1', exact: true }).click();
+    const editor = page.locator('#receipt-line-dialog');
+    await expect(editor).toBeVisible();
+    await expect(editor.getByRole('heading', { name: 'Editar línea 1', exact: true })).toBeVisible();
+    await expect(editor.getByRole('button', { name: 'Eliminar', exact: true })).toBeVisible();
+    await editor.locator('[data-field="description"]').fill('PATATA EDITADA');
+    await editor.locator('[data-field="unitPriceEuro"]').fill('3.05');
+    await editor.locator('[data-field="lineTotalEuro"]').fill('3.05');
+    await page.screenshot({
+      path: testInfo.outputPath(`receipt-detected-editor-${viewport.width}.png`),
+      fullPage: true,
+    });
+    await editor.getByRole('button', { name: 'Guardar línea', exact: true }).click();
+    await expect(editor).toBeHidden();
+    await expect(page.locator('#receipt-detected-list')).toContainText('PATATA EDITADA');
+    await expect(page.locator('#receipt-summary-total')).toContainText('3,95');
+
+    const secondRow = page.locator('#receipt-detected-list .receipt-detected-row').nth(1);
+    await secondRow.getByRole('button', { name: 'Mostrar acciones del producto 2', exact: true }).click();
+    await secondRow.getByRole('button', { name: 'Eliminar producto 2', exact: true }).click();
+    await expect(page.locator('#receipt-detected-list .receipt-detected-item')).toHaveCount(1);
+    await expect(page.locator('#receipt-summary-products')).toHaveText('1');
+    await expect(page.locator('#receipt-summary-total')).toContainText('3,05');
 
     if (viewport.width === 390) {
       await expect(page.locator('.receipt-live-total-card')).toBeHidden();
