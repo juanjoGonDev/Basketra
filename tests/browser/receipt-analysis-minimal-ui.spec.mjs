@@ -262,7 +262,7 @@ test('durable OCR evidence appears progressively in the body while source detail
   expect(workingVisual.animationName).toBe('receipt-source-progress-spin');
   expect(workingVisual.animationDuration).toBe('0.85s');
   expect(workingVisual.backgroundImage).toContain('conic-gradient');
-  expect(workingVisual.backgroundImage).toContain('transparent');
+  expect(workingVisual.backgroundImage).toMatch(/(?:rgba\([^)]*,\s*0\)|\/\s*0(?:\D|$))/u);
   expect(workingVisual.opacity).toBe('1');
   await page.screenshot({
     path: testInfo.outputPath('receipt-progressive-collapsed-390.png'),
