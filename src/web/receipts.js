@@ -233,6 +233,47 @@ export function installReceiptEnhancements() {
   receiptState.classList.add('receipt-analysis-status');
   if (receiptState.parentElement !== scanView) pageHeader.insertAdjacentElement('afterend', receiptState);
 
+  if (!$('#receipt-analysis-overview')) {
+    const overview = document.createElement('section');
+    overview.id = 'receipt-analysis-overview';
+    overview.className = 'receipt-analysis-overview';
+    overview.setAttribute('aria-label', 'Resumen del análisis');
+    overview.innerHTML = `
+      <article class="receipt-analysis-identity">
+        <div class="receipt-live-retailer">
+          <span class="receipt-live-retailer__icon">${icon('store')}</span>
+          <span class="receipt-live-retailer__copy">
+            <small>Tienda detectada</small>
+            <strong id="receipt-live-retailer-name">Sin identificar</strong>
+          </span>
+        </div>
+        <div class="receipt-live-analysis">
+          <div class="receipt-live-analysis__heading">
+            <strong id="receipt-live-stage">Listo para analizar</strong>
+            <small id="receipt-live-progress-label">Sin archivos</small>
+          </div>
+          <div id="receipt-live-progress-track" class="receipt-live-progress-track" role="progressbar" aria-label="Progreso del análisis" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0"></div>
+        </div>
+      </article>
+      <article class="receipt-live-total-card">
+        <span class="receipt-live-total-card__icon">${icon('cart')}</span>
+        <span>
+          <small id="receipt-live-total-label">Total provisional</small>
+          <strong id="receipt-live-total">0,00 €</strong>
+          <small id="receipt-live-total-state">Se actualiza con cada línea detectada</small>
+        </span>
+      </article>`;
+    receiptState.insertAdjacentElement('afterend', overview);
+  }
+
+  let analysisBody = $('#receipt-analysis-body');
+  if (!analysisBody) {
+    analysisBody = document.createElement('div');
+    analysisBody.id = 'receipt-analysis-body';
+    analysisBody.className = 'receipt-analysis-body';
+    $('#receipt-analysis-overview').insertAdjacentElement('afterend', analysisBody);
+  }
+
   if (!$('#receipt-detected-stream')) {
     const detected = document.createElement('section');
     detected.id = 'receipt-detected-stream';
@@ -248,8 +289,41 @@ export function installReceiptEnhancements() {
       </div>
       <p id="receipt-detected-help" class="receipt-detected-stream__help">Las líneas son provisionales hasta completar la revisión conjunta.</p>
       <ol id="receipt-detected-list" class="receipt-detected-list"></ol>
-      <p id="receipt-detected-empty" class="receipt-detected-empty" hidden></p>`;
-    receiptState.insertAdjacentElement('afterend', detected);
+      <p id="receipt-detected-empty" class="receipt-detected-empty" hidden>
+        <span class="receipt-empty-ticket" aria-hidden="true">${icon('receipt')}</span>
+        <span class="sr-only">Sin productos detectados</span>
+      </p>`;
+    analysisBody.append(detected);
+  } else if ($('#receipt-detected-stream').parentElement !== analysisBody) {
+    analysisBody.append($('#receipt-detected-stream'));
+  }
+
+  if (!$('#receipt-live-summary')) {
+    const summary = document.createElement('aside');
+    summary.id = 'receipt-live-summary';
+    summary.className = 'receipt-live-summary';
+    summary.hidden = true;
+    summary.setAttribute('aria-labelledby', 'receipt-live-summary-title');
+    summary.innerHTML = `
+      <header class="receipt-live-summary__header">
+        <h3 id="receipt-live-summary-title">Resumen del ticket</h3>
+      </header>
+      <dl class="receipt-live-summary__stats">
+        <div>
+          <dt>${icon('receipt')}<span>Productos detectados</span></dt>
+          <dd id="receipt-summary-products">0</dd>
+        </div>
+        <div id="receipt-summary-discounts-row" hidden>
+          <dt>${icon('tag')}<span>Descuentos detectados</span></dt>
+          <dd id="receipt-summary-discounts">0</dd>
+        </div>
+      </dl>
+      <ul id="receipt-summary-discounts-list" class="receipt-live-discounts" hidden></ul>
+      <div class="receipt-live-summary__total">
+        <span id="receipt-summary-total-label">Total provisional</span>
+        <strong id="receipt-summary-total">0,00 €</strong>
+      </div>`;
+    analysisBody.append(summary);
   }
 
   if (!$('#receipt-review-panel')) {
