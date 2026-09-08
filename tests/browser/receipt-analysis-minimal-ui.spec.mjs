@@ -97,11 +97,13 @@ test('receipt analysis is minimal, responsive and exposes one three-path floatin
     await navigate(page, 'Tickets');
 
     await expect(page.getByRole('heading', { name: 'Análisis de ticket', exact: true })).toBeVisible();
+    await expect(page.locator('.receipt-analysis-header > div:first-child > p:not(.eyebrow)')).toHaveCount(0);
 
     const queue = page.locator('#receipt-source-queue');
     await expect(queue).toBeVisible();
     await expect(queue).not.toHaveAttribute('open', '');
-    await expect(queue.locator(':scope > summary')).toContainText('0 archivos');
+    await expect(queue.locator(':scope > summary')).toHaveAttribute('aria-label', 'Archivos del análisis: 0 archivos');
+    await expect(page.locator('#receipt-source-queue-summary')).toHaveText('0');
 
     const add = page.getByRole('button', { name: 'Añadir al ticket', exact: true });
     await expect(add).toBeVisible();
@@ -118,15 +120,23 @@ test('receipt analysis is minimal, responsive and exposes one three-path floatin
     if (viewport.width >= 1280) {
       const edge = await page.evaluate(() => {
         const trigger = document.querySelector('#receipt-add-trigger').getBoundingClientRect();
+        const queueTrigger = document.querySelector('#receipt-source-queue > summary').getBoundingClientRect();
         const menu = document.querySelector('#receipt-add-menu').getBoundingClientRect();
         return {
           trigger: window.innerWidth - trigger.right,
+          queue: window.innerWidth - queueTrigger.right,
           menu: window.innerWidth - menu.right,
+          triggerSize: trigger.width,
+          queueSize: queueTrigger.width,
         };
       });
       expect(edge.trigger).toBeLessThanOrEqual(32.5);
+      expect(edge.queue).toBeLessThanOrEqual(32.5);
       expect(edge.menu).toBeLessThanOrEqual(32.5);
       expect(Math.abs(edge.trigger - edge.menu)).toBeLessThanOrEqual(.5);
+      expect(Math.abs(edge.trigger - edge.queue)).toBeLessThanOrEqual(.5);
+      expect(edge.triggerSize).toBeGreaterThanOrEqual(44);
+      expect(edge.queueSize).toBeGreaterThanOrEqual(44);
     }
 
     if (viewport.width === 390 || viewport.width === 1280 || viewport.width === 1600) {
@@ -217,12 +227,20 @@ test('durable OCR evidence appears progressively in the body while source detail
 
   await expect(page.locator('#receipt-detected-list')).toContainText('PAN INTEGRAL');
   await expect(page.locator('#receipt-detected-count')).toContainText('1');
-  await expect(page.locator('#receipt-progress')).toBeVisible();
 
   const queue = page.locator('#receipt-source-queue');
-  await expect(queue.locator(':scope > summary')).toContainText('1 archivo');
+  await expect(queue).toHaveAttribute('data-state', 'working');
+  await expect(queue.locator(':scope > summary')).toHaveAttribute('aria-label', /1 archivo · 1 procesando/);
+  await expect(page.locator('#receipt-source-queue-summary')).toHaveText('1');
+  await expect(page.locator('#receipt-progress')).toBeHidden();
+  await page.screenshot({
+    path: testInfo.outputPath('receipt-progressive-collapsed-390.png'),
+    fullPage: true,
+  });
+
   await queue.locator(':scope > summary').click();
   await expect(queue).toHaveAttribute('open', '');
+  await expect(page.locator('#receipt-progress')).toBeVisible();
   await expect(queue.locator('.capture-card')).toHaveCount(1);
   await expect(queue.locator('.capture-card .status-pill')).toContainText('Verificando con IA');
   await page.screenshot({
