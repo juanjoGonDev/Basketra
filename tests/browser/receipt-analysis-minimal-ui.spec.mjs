@@ -294,7 +294,7 @@ test('durable OCR evidence appears progressively in the body while source detail
   expect(reducedWorking.animationName).toBe('none');
   expect(reducedWorking.backgroundImage).toContain('conic-gradient');
   expect(reducedWorking.opacity).toBe('1');
-  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.emulateMedia({ reducedMotion: null });
 
   await page.evaluate(async () => {
     const [{ state, captureKey }, { renderReceiptQueueStatus }] = await Promise.all([
@@ -334,7 +334,7 @@ test('durable OCR evidence appears progressively in the body while source detail
     getComputedStyle(element).animationName
   ));
   expect(reducedErrorAnimation).toBe('none');
-  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.emulateMedia({ reducedMotion: null });
 
   await page.evaluate(async () => {
     const [{ state, captureKey }, { renderReceiptQueueStatus }] = await Promise.all([
