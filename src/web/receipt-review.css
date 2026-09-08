@@ -604,9 +604,9 @@
     );
   opacity: 0;
   pointer-events: none;
-  rotate: 0deg;
+  transform: rotate(0deg);
   transform-origin: center;
-  will-change: rotate;
+  will-change: transform;
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
@@ -619,8 +619,12 @@
 
 .receipt-source-queue[data-state="working"] .receipt-source-queue__spinner {
   opacity: 1;
-  animation: receipt-source-progress-spin .8s linear infinite both;
-  animation-play-state: running;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .receipt-source-queue[data-state="working"] .receipt-source-queue__spinner {
+    animation: receipt-source-progress-spin .8s linear infinite;
+  }
 }
 
 .receipt-source-queue > summary::after {
@@ -632,8 +636,12 @@
 }
 
 @keyframes receipt-source-progress-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
   to {
-    rotate: 1turn;
+    transform: rotate(360deg);
   }
 }
 
@@ -1588,8 +1596,8 @@
 
   .receipt-source-queue[data-state="working"] .receipt-source-queue__spinner {
     opacity: 1;
-    animation-duration: 1.6s;
-    animation-play-state: running;
+    animation: none;
+    transform: rotate(35deg);
   }
 
   .receipt-source-queue[data-state="error"] > summary {
