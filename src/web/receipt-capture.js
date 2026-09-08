@@ -62,7 +62,9 @@ export function renderReceiptQueueStatus() {
             ? `${cancelled} cancelados`
             : '';
 
-  summary.textContent = [pluralFiles(total), suffix].filter(Boolean).join(' · ');
+  summary.textContent = String(total);
+  const summaryLabel = [pluralFiles(total), suffix].filter(Boolean).join(' · ');
+  queue.querySelector(':scope > summary')?.setAttribute('aria-label', `Archivos del análisis: ${summaryLabel}`);
   detail.textContent = total === 0
     ? 'Añade imágenes o PDF con el botón +'
     : `${completed} de ${total} ${total === 1 ? 'página procesada' : 'páginas procesadas'}`;
