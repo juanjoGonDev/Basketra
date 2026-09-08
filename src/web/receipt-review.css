@@ -587,24 +587,26 @@
   display: none;
 }
 
-.receipt-source-queue > summary::before {
+.receipt-source-queue__spinner {
   position: absolute;
-  inset: -.28rem;
+  inset: -.3rem;
   padding: 2px;
   border-radius: var(--radius-full);
   background:
     conic-gradient(
       from -90deg,
-      transparent 0deg 205deg,
-      color-mix(in srgb, var(--color-primary) 8%, transparent) 220deg,
-      color-mix(in srgb, var(--color-primary) 42%, transparent) 250deg,
-      var(--color-primary) 292deg,
-      color-mix(in srgb, var(--color-primary) 72%, transparent) 318deg,
-      transparent 342deg 360deg
+      transparent 0deg 220deg,
+      color-mix(in srgb, var(--color-primary) 10%, transparent) 232deg,
+      color-mix(in srgb, var(--color-primary) 38%, transparent) 255deg,
+      color-mix(in srgb, var(--color-primary) 72%, transparent) 286deg,
+      var(--color-primary) 318deg,
+      transparent 344deg 360deg
     );
   opacity: 0;
   pointer-events: none;
-  content: "";
+  transform: rotate(0deg);
+  transform-origin: center;
+  will-change: transform;
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
@@ -613,12 +615,11 @@
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
   mask-composite: exclude;
-  transform-origin: center;
 }
 
-.receipt-source-queue[data-state="working"] > summary::before {
+.receipt-source-queue[data-state="working"] .receipt-source-queue__spinner {
   opacity: 1;
-  animation: receipt-source-progress-spin .85s linear infinite;
+  animation: receipt-source-progress-spin .8s linear infinite;
 }
 
 .receipt-source-queue > summary::after {
@@ -1584,7 +1585,7 @@
     transition: none;
   }
 
-  .receipt-source-queue[data-state="working"] > summary::before {
+  .receipt-source-queue[data-state="working"] .receipt-source-queue__spinner {
     opacity: 1;
     animation: none;
     transform: rotate(35deg);
@@ -1605,7 +1606,7 @@
     border: 1px solid CanvasText;
   }
 
-  .receipt-source-queue[data-state="working"] > summary::before {
+  .receipt-source-queue[data-state="working"] .receipt-source-queue__spinner {
     padding: 2px;
     background: conic-gradient(from -90deg, transparent 0deg 225deg, Highlight 225deg 330deg, transparent 330deg 360deg);
   }
