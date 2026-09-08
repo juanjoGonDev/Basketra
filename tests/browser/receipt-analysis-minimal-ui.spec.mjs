@@ -342,6 +342,10 @@ test('approved mobile and desktop summary keeps products independent while showi
     await expect(page.locator('#receipt-summary-discounts-list')).toContainText('Descuento tarjeta Consum');
     await expect(page.locator('#receipt-summary-total')).toContainText('3,45');
     await expect(page.locator('#receipt-detected-list [data-swipe-toggle]')).toHaveCount(2);
+    await page.screenshot({
+      path: testInfo.outputPath(`receipt-approved-summary-${viewport.width}.png`),
+      fullPage: true,
+    });
 
     const firstRow = page.locator('#receipt-detected-list .receipt-detected-row').first();
     if (viewport.width === 390) {
@@ -400,10 +404,6 @@ test('approved mobile and desktop summary keeps products independent while showi
       expect(positions.summaryLeft).toBeGreaterThan(positions.productsRight);
     }
 
-    await page.screenshot({
-      path: testInfo.outputPath(`receipt-approved-summary-${viewport.width}.png`),
-      fullPage: true,
-    });
     await expectNoHorizontalOverflow(page);
   }
 });
