@@ -557,6 +557,21 @@ export function bindEvents() {
     }
   });
 
+  $('#receipt-detected-list')?.addEventListener('click', event => {
+    const action = event.target.closest('[data-receipt-action]');
+    if (!action) return;
+    const index = Number(action.dataset.receiptIndex);
+    if (!Number.isInteger(index) || index < 0 || !state.items[index]) return;
+    if (action.dataset.receiptAction === 'edit') {
+      $('#receipt-review')?.dispatchEvent(new CustomEvent('basketra:receipt-edit-line', {
+        bubbles: true,
+        detail: { index },
+      }));
+      return;
+    }
+    if (action.dataset.receiptAction === 'delete') deleteReceiptLine(index);
+  });
+
   $('#capture-list').addEventListener('click', handleCaptureAction);
   $('#receipt-review').addEventListener('click', handleReceiptAction);
   $('#receipt-review-capture').addEventListener('change', event => {
