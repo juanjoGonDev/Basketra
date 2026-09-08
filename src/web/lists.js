@@ -1657,7 +1657,7 @@ async function confirmDeleteItem() {
   }
 }
 
-async function setItemCompletedasync function setItemCompleted(itemId, completed, { offerUndo = false } = {}) {
+async function setItemCompleted(itemId, completed, { offerUndo = false } = {}) {
   const status = completed ? 'Producto completado' : 'Producto devuelto a pendientes';
   let updated = await updateItem(itemId, { completed }, status);
   if (!updated) {
