@@ -303,6 +303,9 @@ test('durable OCR evidence appears progressively in the body while source detail
       import('/receipt-state.js'),
       import('/receipt-capture.js'),
     ]);
+    state.jobRealtime?.close();
+    state.jobRealtime = null;
+    state.activeJobId = '';
     const capture = state.captures[0];
     const pageState = state.pageStates.get(captureKey(capture));
     state.pageStates.set(captureKey(capture), { ...pageState, status: 'error', error: 'Fallo de análisis de prueba' });
