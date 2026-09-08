@@ -589,19 +589,36 @@
 
 .receipt-source-queue > summary::before {
   position: absolute;
-  inset: -.22rem;
-  border: 2px solid transparent;
-  border-top-color: var(--color-primary);
-  border-right-color: color-mix(in srgb, var(--color-primary) 38%, transparent);
+  inset: -.28rem;
+  padding: 2px;
   border-radius: var(--radius-full);
+  background:
+    conic-gradient(
+      from -90deg,
+      transparent 0deg 205deg,
+      color-mix(in srgb, var(--color-primary) 8%, transparent) 220deg,
+      color-mix(in srgb, var(--color-primary) 42%, transparent) 250deg,
+      var(--color-primary) 292deg,
+      color-mix(in srgb, var(--color-primary) 72%, transparent) 318deg,
+      transparent 342deg 360deg
+    );
   opacity: 0;
   pointer-events: none;
   content: "";
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  transform-origin: center;
 }
 
 .receipt-source-queue[data-state="working"] > summary::before {
   opacity: 1;
-  animation: receipt-source-progress-spin .9s linear infinite;
+  animation: receipt-source-progress-spin .85s linear infinite;
 }
 
 .receipt-source-queue > summary::after {
@@ -1568,8 +1585,9 @@
   }
 
   .receipt-source-queue[data-state="working"] > summary::before {
-    border-color: var(--color-primary);
+    opacity: 1;
     animation: none;
+    transform: rotate(35deg);
   }
 
   .receipt-source-queue[data-state="error"] > summary {
@@ -1588,7 +1606,8 @@
   }
 
   .receipt-source-queue[data-state="working"] > summary::before {
-    border-color: Highlight;
+    padding: 2px;
+    background: conic-gradient(from -90deg, transparent 0deg 225deg, Highlight 225deg 330deg, transparent 330deg 360deg);
   }
 
   .receipt-source-queue[data-state="error"] > summary {
