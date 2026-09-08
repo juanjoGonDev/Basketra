@@ -191,6 +191,7 @@ Before handoff:
 ## Follow-up device feedback
 
 - The explanatory sentence below “Análisis de ticket” is removed; the screen title stands on its own.
+- The empty-stream sentence “Añade un ticket con +. Los productos aparecerán aquí a medida que se detecten.” is removed entirely; the zero-item state remains visually empty apart from the section heading/count and available floating actions.
 - File/progress state is no longer a full-width header row or sticky body card. A small always-visible right-edge control, aligned with the compact `+`, owns aggregate source/progress state and expands for detailed progress, files and recovery actions.
 
 ## Validation evidence
