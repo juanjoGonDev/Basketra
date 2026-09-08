@@ -285,17 +285,30 @@ test('durable OCR evidence appears progressively in the body while source detail
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const reducedWorking = await spinner.evaluate(element => {
     const spinnerStyle = getComputedStyle(element);
+    const animation = element.getAnimations()[0];
     return {
       animationName: spinnerStyle.animationName,
+      animationDuration: spinnerStyle.animationDuration,
       backgroundImage: spinnerStyle.backgroundImage,
       opacity: spinnerStyle.opacity,
+      playState: animation?.playState ?? null,
       transform: spinnerStyle.transform,
     };
   });
-  expect(reducedWorking.animationName).toBe('none');
+  expect(reducedWorking.animationName).toBe('receipt-source-progress-spin');
+  expect(reducedWorking.animationDuration).toBe('1.6s');
   expect(reducedWorking.backgroundImage).toContain('conic-gradient');
   expect(reducedWorking.opacity).toBe('1');
+  expect(reducedWorking.playState).toBe('running');
   expect(reducedWorking.transform).not.toBe('none');
+  const reducedRotationProgressed = await spinner.evaluate(async element => {
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const before = getComputedStyle(element).transform;
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const after = getComputedStyle(element).transform;
+    return before !== after;
+  });
+  expect(reducedRotationProgressed).toBe(true);
   await page.emulateMedia({ reducedMotion: null });
 
   await page.evaluate(async () => {
