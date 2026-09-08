@@ -9,7 +9,7 @@ The floating receipt-analysis progress arc is visible but appears static in the 
 - `src/web/receipt-review.css` already defines `@keyframes receipt-source-progress-spin` with explicit `from { transform: rotate(0deg); }` and `to { transform: rotate(360deg); }`.
 - Browser regression coverage verifies that the spinner's computed transform changes between successive animation frames while the queue aggregate state is `working`.
 - `src/web/sw.js` previously treated every shell asset, including `/receipt-review.css`, cache-first. A live tab could therefore continue receiving an older cached receipt stylesheet even though the branch contained the correct `from`/`to` animation, especially in local/PWA sessions where the shell cache remained active.
-- On head `2b2fe2c0fe44ee0935407358907db220ae06ecce`, Pull Request Quality run `34279738773` completed successfully and CodeQL Advanced run `34279738767` completed successfully.
+- On implementation head `8ed3a159678bd2713ba46e6983505d94da9dd4f3`, Pull Request Quality run `34280280832` completed successfully and CodeQL Advanced run `34280280801` completed successfully; Browser 49/56, Browser coverage and `CI complete` are green.
 - The Web coverage gate returned to 100% after the service-worker regression exercised both the online fresh stylesheet path and the offline cached fallback.
 
 ## Decision
@@ -26,7 +26,7 @@ Make `/receipt-review.css` network-first while online, with the existing cache a
 - When offline, the cached receipt stylesheet still loads.
 - Other shell assets retain cache-first behavior.
 - Service-worker coverage remains 100% lines/functions/branches.
-- Pull Request Quality and CodeQL are green on the exact final head.
+- Pull Request Quality and CodeQL are green on the implementation head, and the final documentation-only closure commit is also required to be green before handoff.
 
 ## Tests
 
@@ -44,6 +44,7 @@ Revert the focused service-worker freshness change and its tests. No API, databa
 - [x] Focused service-worker freshness change implemented.
 - [x] Static PWA regression added.
 - [x] Service-worker 100% coverage regression added.
-- [x] Pull Request Quality green on validated implementation head `2b2fe2c0fe44ee0935407358907db220ae06ecce` (`34279738773`).
-- [x] CodeQL green on validated implementation head `2b2fe2c0fe44ee0935407358907db220ae06ecce` (`34279738767`).
-- [x] Final PR/body review prepared; the documentation-only closing commit must also complete exact-head CI before handoff.
+- [x] Pull Request Quality green on implementation head `8ed3a159678bd2713ba46e6983505d94da9dd4f3` (`34280280832`).
+- [x] CodeQL green on implementation head `8ed3a159678bd2713ba46e6983505d94da9dd4f3` (`34280280801`).
+- [x] Exact-head Browser evidence for the processing, expanded-queue and error states reviewed without overflow/clipping regressions.
+- [x] Final PR/body review complete. Exact-head CI for this documentation-only closure commit is recorded in the PR body so no further task-file mutation is needed after the final green run.
