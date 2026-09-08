@@ -260,6 +260,7 @@ test('durable OCR evidence appears progressively in the body while source detail
       backgroundImage: spinnerStyle.backgroundImage,
       opacity: spinnerStyle.opacity,
       playState: animation?.playState ?? null,
+      rotate: spinnerStyle.rotate,
     };
   });
   expect(workingVisual.animationName).toBe('receipt-source-progress-spin');
@@ -268,14 +269,13 @@ test('durable OCR evidence appears progressively in the body while source detail
   expect(workingVisual.backgroundImage).toMatch(/(?:rgba\([^)]*,\s*0\)|\/\s*0(?:\D|$))/u);
   expect(workingVisual.opacity).toBe('1');
   expect(workingVisual.playState).toBe('running');
+  expect(workingVisual.rotate).not.toBe('none');
   const rotationProgressed = await spinner.evaluate(async element => {
-    const animation = element.getAnimations()[0];
-    if (!animation) return false;
     await new Promise(resolve => requestAnimationFrame(resolve));
-    const before = animation.currentTime;
+    const before = getComputedStyle(element).rotate;
     await new Promise(resolve => requestAnimationFrame(resolve));
-    const after = animation.currentTime;
-    return typeof before === 'number' && typeof after === 'number' && after > before;
+    const after = getComputedStyle(element).rotate;
+    return before !== after;
   });
   expect(rotationProgressed).toBe(true);
   await page.screenshot({
@@ -285,15 +285,28 @@ test('durable OCR evidence appears progressively in the body while source detail
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const reducedWorking = await spinner.evaluate(element => {
     const spinnerStyle = getComputedStyle(element);
+    const animation = element.getAnimations()[0];
     return {
       animationName: spinnerStyle.animationName,
+      animationDuration: spinnerStyle.animationDuration,
       backgroundImage: spinnerStyle.backgroundImage,
       opacity: spinnerStyle.opacity,
+      playState: animation?.playState ?? null,
     };
   });
-  expect(reducedWorking.animationName).toBe('none');
+  expect(reducedWorking.animationName).toBe('receipt-source-progress-spin');
+  expect(reducedWorking.animationDuration).toBe('1.6s');
   expect(reducedWorking.backgroundImage).toContain('conic-gradient');
   expect(reducedWorking.opacity).toBe('1');
+  expect(reducedWorking.playState).toBe('running');
+  const reducedRotationProgressed = await spinner.evaluate(async element => {
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const before = getComputedStyle(element).rotate;
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const after = getComputedStyle(element).rotate;
+    return before !== after;
+  });
+  expect(reducedRotationProgressed).toBe(true);
   await page.emulateMedia({ reducedMotion: null });
 
   await page.evaluate(async () => {
