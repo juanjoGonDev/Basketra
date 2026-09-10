@@ -1,6 +1,6 @@
 # Repository agent instructions
 
-Read `spec.md` and `.agents/specs/` before changing behavior.
+Read `spec.md` and only the active or directly relevant file in `.agents/specs/` before changing behavior.
 
 ## Deployment trust model
 
