@@ -58,7 +58,11 @@ test('runtime temp preparation falls back to private data storage when preferred
     });
     assert.equal(process.env['SQLITE_TMPDIR'], fallback);
     assert.equal(process.env['TMPDIR'], fallback);
-    assert.equal(statSync(fallback).mode & 0o777, 0o700);
+    // Windows reports ACL-backed directories with its synthetic mode bits, so
+    // POSIX permissions cannot be asserted from stat there.
+    if (process.platform !== 'win32') {
+      assert.equal(statSync(fallback).mode & 0o777, 0o700);
+    }
   } finally {
     restoreTempEnvironment(previousSqliteTmpDir, previousTmpDir);
     rmSync(root, { recursive: true, force: true });
