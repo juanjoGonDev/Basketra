@@ -17,6 +17,11 @@ test('PDFs create direct AI evidence instead of entering an OCR provider queue',
     mimeType: 'application/pdf',
     originalName: 'receipt.pdf',
   });
+  const image = store.storeBase64({
+    base64: Buffer.from(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x00])).toString('base64'),
+    mimeType: 'image/png',
+    originalName: 'receipt.png',
+  });
   let localOcrCalls = 0;
   const localOcr: OcrProvider = {
     name: 'must-not-run',
@@ -32,11 +37,12 @@ test('PDFs create direct AI evidence instead of entering an OCR provider queue',
   const service = new ReceiptExtractionService(store, providerFactory, 0, localOcr);
 
   try {
+    const controller = new AbortController();
     const evidence = service.preparePdfForDirectVerification({
       storageKey: stored.storageKey,
       originalName: 'receipt.pdf',
       embeddedText: 'Legacy OCR must not alter direct PDF validation',
-    }, 0);
+    }, 0, controller.signal);
 
     assert.deepEqual(evidence, {
       position: 0,
@@ -47,6 +53,10 @@ test('PDFs create direct AI evidence instead of entering an OCR provider queue',
       source: 'provider',
       deterministic: { items: [], metadata: {} },
     });
+    assert.throws(
+      () => service.preparePdfForDirectVerification({ storageKey: image.storageKey }, 1),
+      /Direct receipt verification requires a PDF/u,
+    );
     assert.equal(localOcrCalls, 0);
   } finally {
     service.dispose();
