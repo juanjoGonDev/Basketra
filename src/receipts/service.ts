@@ -291,6 +291,28 @@ export class ReceiptExtractionService {
     return await this.queueOcrPage(capture, position, this.aiRuntimeResolver(), signal);
   }
 
+  preparePdfForDirectVerification(
+    capture: ReceiptCaptureRequest,
+    position: number,
+    signal?: AbortSignal,
+  ): ReceiptPageEvidence {
+    signal?.throwIfAborted();
+    const stored = this.#fileStore.read(capture.storageKey);
+    if (stored.mimeType !== 'application/pdf') throw new RangeError('Direct receipt verification requires a PDF');
+    return {
+      position,
+      storageKey: capture.storageKey,
+      mimeType: stored.mimeType,
+      text: '',
+      confidence: 0,
+      source: 'provider',
+      deterministic: {
+        items: [],
+        metadata: {},
+      },
+    };
+  }
+
   dispose(): void {
     this.#pageQueue.dispose();
     this.#aiQueue.dispose();

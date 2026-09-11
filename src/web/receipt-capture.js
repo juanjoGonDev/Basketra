@@ -266,6 +266,23 @@ function detectedItemMeta(item, provisional) {
   return parts.join(' · ');
 }
 
+function detectedItemCategory(item) {
+  if (typeof item?.categoryId !== 'string' || !item.categoryId) return null;
+  const categories = [
+    ...(state.extraction?.final?.categories || []),
+    ...state.receiptCategories,
+  ];
+  const category = categories.find(candidate => candidate?.id === item.categoryId);
+  if (!category?.name) return null;
+  return category;
+}
+
+function categoryColor(value) {
+  return typeof value === 'string' && /^#[\da-f]{6}$/iu.test(value)
+    ? value
+    : 'var(--color-primary)';
+}
+
 export function renderProgressiveDetectedItems() {
   const list = $('#receipt-detected-list');
   const count = $('#receipt-detected-count');
@@ -311,6 +328,20 @@ export function renderProgressiveDetectedItems() {
     const meta = document.createElement('small');
     meta.textContent = detectedItemMeta(item, snapshot.provisional);
     copy.append(description, meta);
+
+    const category = detectedItemCategory(item);
+    if (category) {
+      const categoryMeta = document.createElement('small');
+      categoryMeta.className = 'receipt-detected-item__category';
+      const swatch = document.createElement('span');
+      swatch.className = 'receipt-detected-item__category-swatch';
+      swatch.setAttribute('aria-hidden', 'true');
+      swatch.style.backgroundColor = categoryColor(category.color);
+      const name = document.createElement('span');
+      name.textContent = category.name;
+      categoryMeta.append(swatch, name);
+      copy.append(categoryMeta);
+    }
 
     const discount = detectedDiscount(item);
     if (discount) {
@@ -452,7 +483,11 @@ export function renderCaptureProgress(card, capture, index) {
   status.className = `status-pill ${pageStatusClass(page)}`;
   status.textContent = page.status === 'completed' && page.aiStatus === 'error'
     ? 'OCR listo'
-    : (PAGE_LABELS[page.status] || PAGE_LABELS.pending);
+    : (page.directPdf && page.status === 'pending'
+      ? 'En cola IA'
+      : (page.directPdf && (page.status === 'ocr' || page.status === 'ai')
+      ? 'Analizando con IA'
+      : (PAGE_LABELS[page.status] || PAGE_LABELS.pending)));
   summary.append(summaryCopy, status);
 
   const section = document.createElement('section');
@@ -510,13 +545,13 @@ export function renderCaptureProgress(card, capture, index) {
         button.dataset.captureAction = 'cancel-processing';
         button.textContent = page.status === 'ai' && (page.rawText || page.result)
           ? 'Cancelar corrección con IA'
-          : 'Cancelar esta imagen';
+          : (page.directPdf ? 'Cancelar este PDF' : 'Cancelar esta imagen');
       } else if (showPrimaryAiRecovery) {
         button.dataset.captureAction = 'retry-ai';
         button.textContent = 'Volver a analizar con IA';
       } else {
         button.dataset.captureAction = 'retry-processing';
-        button.textContent = page.recovery?.retryLabel || 'Reintentar imagen';
+        button.textContent = page.recovery?.retryLabel || (page.directPdf ? 'Reintentar PDF' : 'Reintentar imagen');
       }
       actions.append(button);
     }
@@ -591,15 +626,25 @@ export function pageStageValue(status) {
 
 export function pageStageDescription(page) {
   if (page.status === 'ready') return 'Lista para procesar';
-  if (page.status === 'pending') return 'En espera de un hueco del pool';
+  if (page.status === 'pending') return page.directPdf
+    ? 'En cola para validación IA'
+    : 'En espera de un hueco de procesamiento';
   if (page.status === 'preparing') return 'Preparando la captura almacenada';
-  if (page.status === 'ocr') return 'Reconociendo el texto localmente';
-  if (page.status === 'ai') return 'Corrigiendo el OCR con IA';
+  if (page.status === 'ocr') return page.directPdf
+    ? 'Enviando el PDF directamente a la IA'
+    : 'Reconociendo el texto localmente';
+  if (page.status === 'ai') return page.directPdf
+    ? 'Analizando el PDF directamente con IA'
+    : 'Corrigiendo el OCR con IA';
   if (page.status === 'completed' && page.aiStatus === 'error') return 'OCR listo · IA sin corregir';
-  if (page.status === 'completed') return page.aiStatus === 'completed' ? 'OCR corregido con IA' : 'OCR listo para revisar';
+  if (page.status === 'completed') return page.aiStatus === 'completed'
+    ? (page.directPdf ? 'PDF analizado con IA' : 'OCR corregido con IA')
+    : 'OCR listo para revisar';
   if (page.status === 'manual') return 'OCR conservado; cantidades e importes requieren revisión manual';
   if (page.status === 'cancelled') return 'Esta imagen no se incluirá hasta reintentar';
-  if (page.status === 'error') return 'La captura y el OCR parcial se conservan';
+  if (page.status === 'error') return page.directPdf
+    ? 'El PDF se conserva para reintentar el análisis con IA'
+    : 'La captura y el OCR parcial se conservan';
   return '';
 }
 
@@ -612,7 +657,9 @@ export function pagePartialText(page) {
   if (page.status === 'manual' && !hasStructuredItems && !hasOcrEvidence) {
     return 'Entrada manual pendiente; la captura original se conserva';
   }
-  if (page.aiStatus === 'error') return page.aiError || 'La IA no pudo corregir esta imagen; el OCR local sigue disponible.';
+  if (page.aiStatus === 'error') return page.aiError || (page.directPdf
+    ? 'La IA no pudo analizar este PDF; el archivo original sigue disponible.'
+    : 'La IA no pudo corregir esta imagen; el OCR local sigue disponible.');
   if (page.status === 'manual' && Number.isSafeInteger(itemCount)) {
     return `${itemCount} ${itemCount === 1 ? 'línea OCR pendiente' : 'líneas OCR pendientes'} de revisión manual`;
   }
@@ -749,10 +796,14 @@ export async function uploadFiles(fileList) {
     if (hadBackgroundJob) clearReceiptExtractionJob({ cancel: true });
     ensurePageStates();
     persistAndRenderCaptures();
+    const onlyPdf = addedCaptures.every(capture => capture.mimeType === 'application/pdf');
+    const processingLabel = onlyPdf
+      ? 'Los PDF se enviarán directamente a la IA.'
+      : 'El OCR ha empezado automáticamente.';
     $('#upload-state').textContent = aiSizeWarning
-      ? `Capturas guardadas. OCR iniciado. ${aiSizeWarning}`
-      : 'Capturas guardadas. El OCR ha empezado automáticamente.';
-    toast(aiSizeWarning ? `Capturas guardadas · ${aiSizeWarning}` : 'Capturas guardadas · OCR iniciado');
+      ? `Capturas guardadas. ${processingLabel} ${aiSizeWarning}`
+      : `Capturas guardadas. ${processingLabel}`;
+    toast(aiSizeWarning ? `Capturas guardadas · ${aiSizeWarning}` : `Capturas guardadas · ${processingLabel}`);
     startAutomaticCaptureProcessing(hadBackgroundJob ? state.captures : addedCaptures, {
       resetAll: hadBackgroundJob,
     });

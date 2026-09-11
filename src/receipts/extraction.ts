@@ -324,10 +324,15 @@ export function buildReceiptCategoryContext(categories: readonly CategoryDescrip
 
 export function buildReceiptVerificationInstructions(
   page?: Readonly<{ pageCount: number; pagePosition: number }>,
+  options: Readonly<{ directAttachment?: boolean }> = {},
 ): string {
   return [
-    'Verify one grocery-receipt page using both the original attached capture and its OCR transcription.',
-    'Treat the attachment as the visual or document source of truth and the numbered OCR as editable evidence for source-line references.',
+    options.directAttachment
+      ? 'Read one attached grocery-receipt document directly. There is no OCR transcription in this request.'
+      : 'Verify one grocery-receipt page using both the original attached capture and its OCR transcription.',
+    options.directAttachment
+      ? 'Use the attached document as the only source of truth and return the complete receipt-page-verification JSON.'
+      : 'Treat the attachment as the visual or document source of truth and the numbered OCR as editable evidence for source-line references.',
     'Do not invent unreadable products, quantities, prices, totals, discounts or retailer names.',
     'Classify every product item using categoryId. Reuse an available category when it is semantically suitable, including nested categories through parentId.',
     'Use the category named desconocido when the product cannot be classified safely from the receipt evidence.',
@@ -346,7 +351,9 @@ export function buildReceiptVerificationInstructions(
     'Do not return both amount and percentage fields for one discount. Do not convert a visible percentage to binary floating-point arithmetic.',
     'For two identical `BEBIDA COCO 0% A` rows at 1.75 EUR followed by `50% dto BEBIDA COCO 0% A 0,88-`, return one item with quantity 2, unitPriceMinor 175, lineTotalMinor 262 and discount `{type:"percentage",basisPoints:5000,quantity:1}`.',
     'Use unassignedDiscounts only when product ownership or affected quantity is genuinely unresolved after exact grouping. Include sourceLines, a description hint when visible and a short reason. Do not repeat an unassigned-discount reason in warnings.',
-    'Return sourceLines with the numbered OCR lines supporting every item and unassigned discount, even when the attachment corrects OCR characters.',
+    options.directAttachment
+      ? 'Return sourceLines using one-based visible line order from the attached document.'
+      : 'Return sourceLines with the numbered OCR lines supporting every item and unassigned discount, even when the attachment corrects OCR characters.',
     'Return correctedText in page order, retailerName, declaredTotalMinor and articleCount only when visible in the attachment or OCR.',
     'For a physical branch, return storeId only when the receipt evidence identifies one exact available physical store. If a visible store name is not in the inventory, return storeName with retailerName so a human can confirm it. Never invent store ids, names, addresses or coordinates. Omit both fields when the evidence is insufficient.',
     'Keep each warning and unassigned-discount reason within 240 characters.',
@@ -499,13 +506,16 @@ export async function verifyReceiptWithAi(
   const result = await executor.execute({
     operation: 'receipt-page-verification',
     schemaName: RECEIPT_PAGE_VERIFICATION_SCHEMA_NAME,
-    systemPrompt: buildReceiptVerificationInstructions(session),
+    systemPrompt: buildReceiptVerificationInstructions(session, {
+      directAttachment: attachment.mimeType === 'application/pdf' && !originalText.trim(),
+    }),
     content: [
       {
         type: 'text',
         text: [
-          'Numbered OCR transcription for this same attachment:',
-          buildNumberedReceiptText(originalText),
+          originalText.trim()
+            ? `Numbered OCR transcription for this same attachment:\n${buildNumberedReceiptText(originalText)}`
+            : 'Read the attached receipt directly and return the complete structured result.',
           buildReceiptCategoryContext(categoryInventory),
           buildReceiptStoreContext(storeInventory),
         ].join('\n'),

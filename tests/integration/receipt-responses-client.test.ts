@@ -186,3 +186,139 @@ test('durable receipt responses expose cancellation and never include an origina
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 });
+
+test('durable receipt responses send PDFs directly to AI without requiring OCR text', async () => {
+  let requestBody = Buffer.alloc(0);
+  let contentType = '';
+  const server = createServer(async (request, response) => {
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of request) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+    requestBody = Buffer.concat(chunks);
+    contentType = String(request.headers['content-type'] ?? '');
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({
+      id: 'resp_pdfdirect123',
+      object: 'response',
+      status: 'queued',
+      background: true,
+      output: [],
+      error: null,
+    }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => resolve());
+  });
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const client = new ReceiptResponsesClient({
+    baseUrl: new URL(`http://127.0.0.1:${address.port}/v1/`),
+    model: 'default',
+  });
+
+  try {
+    const created = await client.create({
+      idempotencyKey: 'basketra-receipt:job_pdf:g1:p0',
+      originalText: '',
+      attachment: {
+        mimeType: 'application/pdf',
+        bytes: Uint8Array.from([0x25, 0x50, 0x44, 0x46]),
+        fileName: 'ticket.pdf',
+      },
+      pageCount: 1,
+      pagePosition: 0,
+      categoryInventory: [{
+        id: 'category_fruit',
+        name: 'Fruit',
+        color: '#32A852',
+      }],
+    });
+    assert.equal(created.id, 'resp_pdfdirect123');
+
+    const parsedRequest = new Request('http://localhost/v1/responses', {
+      method: 'POST',
+      headers: { 'content-type': contentType },
+      body: new Uint8Array(requestBody),
+    });
+    const form = await parsedRequest.formData();
+    const metadata = JSON.parse(String(form.get('request'))) as {
+      instructions: string;
+      input: Array<{ content: Array<{ text: string }> }>;
+      text: { format: { name: string; schema: { properties: Record<string, unknown> } } };
+    };
+    const prompt = metadata.input[0]?.content[0]?.text ?? '';
+    assert.match(prompt, /Read the attached PDF receipt directly/u);
+    assert.doesNotMatch(prompt, /Numbered OCR transcription/u);
+    assert.match(prompt, /category_fruit/u);
+    assert.match(metadata.instructions, /no OCR transcription/u);
+    assert.equal(metadata.text.format.name, 'receipt_page_verification');
+    assert.ok(metadata.text.format.schema.properties['items']);
+    assert.ok(metadata.text.format.schema.properties['newCategories']);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test('receipt response queue honors its configured concurrency and releases a failed response independently', async () => {
+  const calls: string[] = [];
+  let creates = 0;
+  const client = new ReceiptResponsesClient({
+    baseUrl: new URL('http://provider.test/v1/'),
+    model: 'default',
+    maxConcurrentResponses: 2,
+    fetchImplementation: async (url, init) => {
+      const pathname = new URL(String(url)).pathname;
+      if (init?.method === 'POST' && pathname.endsWith('/responses')) {
+        creates += 1;
+        const id = `resp_queue${String(creates).padStart(3, '0')}`;
+        calls.push(`create:${id}`);
+        return Response.json({ id, object: 'response', status: 'queued', output: [], error: null });
+      }
+      const id = pathname.split('/').at(-1)!;
+      calls.push(`get:${id}`);
+      return Response.json({
+        id,
+        object: 'response',
+        status: id === 'resp_queue001' ? 'failed' : 'completed',
+        output: id === 'resp_queue001' ? [] : [{
+          type: 'message',
+          role: 'assistant',
+          status: 'completed',
+          content: [{ type: 'output_text', text: JSON.stringify(interpretation), annotations: [] }],
+        }],
+        error: id === 'resp_queue001' ? { code: 'provider_failed' } : null,
+      });
+    },
+  });
+  const input = (position: number) => ({
+    idempotencyKey: `basketra-receipt:queue:g1:p${String(position)}`,
+    originalText: 'TOTAL 1,20',
+    attachment,
+    pageCount: 3,
+    pagePosition: position,
+  });
+
+  const first = await client.create(input(0));
+  const secondPending = client.create(input(1));
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert.deepEqual(calls, ['create:resp_queue001', 'create:resp_queue002']);
+  const second = await secondPending;
+  const thirdPending = client.create(input(2));
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert.deepEqual(calls, ['create:resp_queue001', 'create:resp_queue002']);
+
+  const failed = await client.get(first.id);
+  assert.equal(failed.status, 'failed');
+  const third = await thirdPending;
+  assert.equal(third.id, 'resp_queue003');
+  assert.deepEqual(calls, [
+    'create:resp_queue001',
+    'create:resp_queue002',
+    'get:resp_queue001',
+    'create:resp_queue003',
+  ]);
+
+  const completed = await client.get(second.id);
+  assert.equal(completed.status, 'completed');
+  await client.get(third.id);
+});

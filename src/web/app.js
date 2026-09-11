@@ -176,7 +176,7 @@ function syncReceiptCompactSummary(item) {
       <span class="receipt-line-compact__copy">
         <strong data-receipt-summary-description></strong>
         <small data-receipt-summary-meta></small>
-        <small class="receipt-line-compact__category" data-receipt-summary-category hidden></small>
+        <small class="receipt-line-compact__category" data-receipt-summary-category hidden><span class="receipt-line-compact__category-swatch" data-receipt-summary-category-swatch aria-hidden="true"></span><span data-receipt-summary-category-label></span></small>
       </span>
       <strong class="receipt-line-compact__total" data-receipt-summary-total></strong>`;
     item.querySelector('legend')?.insertAdjacentElement('afterend', summary);
@@ -191,7 +191,11 @@ function syncReceiptCompactSummary(item) {
   const quantityValue = quantity?.value || '0';
   const unitPriceValue = unitPrice?.value || '0.00';
   const totalValue = lineTotal?.value || '0.00';
-  const categoryName = item.querySelector('[data-receipt-category-label]')?.textContent?.trim() || '';
+  const categorySelect = item.querySelector('[data-field="categoryId"]');
+  const categoryName = categorySelect?.selectedOptions?.[0]?.value
+    ? categorySelect.selectedOptions[0].textContent.trim()
+    : '';
+  const categoryColor = categorySelect?.selectedOptions?.[0]?.dataset.categoryColor || '';
   const accessibleLabel = `Editar línea ${index + 1}: ${descriptionValue}${categoryName ? `. Categoría: ${categoryName}` : ''}`;
 
   if (summary.getAttribute('aria-label') !== accessibleLabel) summary.setAttribute('aria-label', accessibleLabel);
@@ -199,7 +203,12 @@ function syncReceiptCompactSummary(item) {
   setTextIfChanged(summary.querySelector('[data-receipt-summary-meta]'), `${quantityValue} × ${unitPriceValue} €`);
   const category = summary.querySelector('[data-receipt-summary-category]');
   if (category) {
-    setTextIfChanged(category, categoryName ? `Categoría · ${categoryName}` : '');
+    setTextIfChanged(category.querySelector('[data-receipt-summary-category-label]'), categoryName);
+    const swatch = category.querySelector('[data-receipt-summary-category-swatch]');
+    if (swatch) {
+      const color = /^#[\da-f]{6}$/iu.test(categoryColor) ? categoryColor : 'var(--color-primary)';
+      swatch.style.backgroundColor = color;
+    }
     category.hidden = !categoryName;
   }
   setTextIfChanged(summary.querySelector('[data-receipt-summary-total]'), `${totalValue} €`);
@@ -304,7 +313,7 @@ function openReceiptLineEditor(item) {
   const parent = item.parentNode;
   if (!parent) return;
   parent.insertBefore(marker, item);
-  const fields = ['description', 'quantity', 'unitPriceEuro', 'lineTotalEuro'];
+  const fields = ['description', 'categoryId', 'quantity', 'unitPriceEuro', 'lineTotalEuro'];
   const values = Object.fromEntries(fields.map(field => [field, receiptInput(item, field)?.value ?? '']));
   const returnFocus = item.querySelector('[data-receipt-editor]');
   const draftNew = item.dataset.receiptDraftNew === 'true';
@@ -484,6 +493,13 @@ function installReceiptReviewPresentation() {
     const item = event.target.closest('.receipt-item');
     if (item) syncReceiptCompactSummary(item);
     updateReceiptImportSummary();
+  });
+  review.addEventListener('change', event => {
+    if (event.target.matches('[data-field="categoryId"]')) {
+      resetFeedback();
+      const item = event.target.closest('.receipt-item');
+      if (item) syncReceiptCompactSummary(item);
+    }
   });
   review.addEventListener('click', event => {
     const editorTrigger = event.target.closest('[data-receipt-editor], [data-receipt-action="edit"]');

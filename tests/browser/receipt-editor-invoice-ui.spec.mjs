@@ -11,6 +11,25 @@ async function setup(page, width, height) {
     contentType: 'application/json',
     body: JSON.stringify({ configured: false }),
   }));
+  await page.route('**/api/v1/categories', route => {
+    if (route.request().method() === 'POST') {
+      return route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({ category: { id: 'category_frozen', name: 'Congelados', color: '#64748B' } }),
+      });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        categories: [
+          { id: 'category_drinks', name: 'Bebidas', color: '#118844' },
+          { id: 'category_fruit', name: 'Fruta', color: '#E8793B' },
+        ],
+      }),
+    });
+  });
   await page.goto('/');
   await navigate(page, 'Tickets');
   await page.evaluate(async () => {
@@ -122,13 +141,21 @@ function containedBy(inner, outer, tolerance = 1) {
 test('invoice-editor-desktop', async ({ page }, testInfo) => {
   await setup(page, 1280, 900);
   const compact = page.locator('.receipt-line-compact');
-  await expect(compact.locator('[data-receipt-summary-category]')).toHaveText('Categoría · Bebidas');
+  await expect(compact.locator('[data-receipt-summary-category]')).toHaveText('Bebidas');
   await expect(compact).toHaveAttribute('aria-label', /Categoría: Bebidas/u);
+  await expect(page.locator('#receipt-detected-list .receipt-detected-item__category')).toHaveText('Bebidas');
+  await expect(page.locator('#receipt-detected-list .receipt-detected-item__category-swatch')).toBeVisible();
   const dialog = await openEditor(page);
 
   await expect(dialog.getByRole('heading', { name: '1. Producto', exact: true })).toBeVisible();
-  await expect(dialog.locator('[data-receipt-category-label]')).toHaveText('Bebidas');
-  await expect(dialog.locator('[data-receipt-category]')).toContainText('Categoría');
+  const category = dialog.locator('[data-field="categoryId"]');
+  await expect(category).toHaveValue('category_drinks');
+  await expect(category).toContainText('Fruta');
+  await expect(dialog.getByRole('button', { name: 'Nueva', exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Nueva', exact: true }).click();
+  await dialog.getByRole('textbox', { name: 'Nombre de la nueva categoría' }).fill('Congelados');
+  await dialog.getByRole('button', { name: 'Crear', exact: true }).click();
+  await expect(category).toHaveValue('category_frozen');
   await expect(dialog.getByRole('heading', { name: '2. Detalle de compra', exact: true })).toBeVisible();
   await expect(dialog.getByRole('heading', { name: '3. Descuento', exact: true })).toBeVisible();
   await expect(dialog.getByRole('heading', { name: 'Resumen', exact: true })).toBeVisible();
@@ -194,13 +221,20 @@ test('invoice-editor-desktop', async ({ page }, testInfo) => {
   await expectNoHorizontalOverflow(page, dialog);
 
   await dialog.screenshot({ path: testInfo.outputPath('invoice-editor-desktop.png') });
+
+  await category.selectOption('category_fruit');
+  await expect(category).toHaveValue('category_fruit');
+  await dialog.getByRole('button', { name: 'Guardar línea', exact: true }).click();
+  await expect(compact.locator('[data-receipt-summary-category]')).toHaveText('Fruta');
+  await expect(compact.locator('[data-receipt-summary-category-swatch]')).toBeVisible();
+
 });
 
 test('invoice-editor-mobile', async ({ page }, testInfo) => {
   await setup(page, 360, 800);
-  await expect(page.locator('.receipt-line-compact [data-receipt-summary-category]')).toHaveText('Categoría · Bebidas');
+  await expect(page.locator('.receipt-line-compact [data-receipt-summary-category]')).toHaveText('Bebidas');
   const dialog = await openEditor(page);
-  await expect(dialog.locator('[data-receipt-category-label]')).toHaveText('Bebidas');
+  await expect(dialog.locator('[data-field="categoryId"]')).toHaveValue('category_drinks');
 
   for (const width of [320, 360, 390, 430]) {
     await page.setViewportSize({ width, height: 800 });

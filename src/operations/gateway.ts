@@ -350,6 +350,7 @@ export class OperationsGateway {
       ...(publicSettings.ai.model ? { model: publicSettings.ai.model } : {}),
       ...(publicSettings.ai.apiKeyMask ? { apiKeyMask: publicSettings.ai.apiKeyMask } : {}),
       maxRetries: publicSettings.ai.maxRetries,
+      receiptValidationConcurrency: publicSettings.ai.receiptValidationConcurrency,
       loopbackWarning,
       lastCheck: this.#probeStore.latest() ?? null,
       requiresContainerRecreate: false,

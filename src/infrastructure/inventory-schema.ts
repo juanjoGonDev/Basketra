@@ -178,4 +178,13 @@ export const INVENTORY_MIGRATIONS: readonly MigrationDefinition[] = [
         WHERE store_override_id IS NOT NULL;
     `,
   },
+  {
+    version: 16,
+    kind: 'safe',
+    sql: `
+      ALTER TABLE runtime_settings
+        ADD COLUMN ai_receipt_validation_concurrency INTEGER NOT NULL DEFAULT 1
+        CHECK(ai_receipt_validation_concurrency BETWEEN 1 AND 8);
+    `,
+  },
 ] as const;

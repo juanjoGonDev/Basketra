@@ -20,7 +20,7 @@ import {
   pumpPageQueue,
 } from './receipt-processing.js';
 
-const DURABLE_PROGRESS_STAGES = new Set(['ocr', 'ai', 'completed', 'error']);
+const DURABLE_PROGRESS_STAGES = new Set(['queued', 'ocr', 'ai', 'completed', 'error']);
 const MAX_PROGRESSIVE_OCR_TEXT_CHARS = 500_000;
 const MAX_PROGRESSIVE_OCR_ITEMS = 500;
 let durableRetryPending = false;
@@ -217,9 +217,9 @@ export function clearCombinedReview({ keepPanel = false } = {}) {
   if (total) total.value = '0.00';
 }
 
-function parseProgressiveOcr(value) {
+function parseProgressiveOcr(value, { allowEmptyText = false } = {}) {
   if (!value || typeof value !== 'object') return null;
-  if (typeof value.text !== 'string' || value.text.length < 1 || value.text.length > MAX_PROGRESSIVE_OCR_TEXT_CHARS) return null;
+  if (typeof value.text !== 'string' || (!allowEmptyText && value.text.length < 1) || value.text.length > MAX_PROGRESSIVE_OCR_TEXT_CHARS) return null;
   if (typeof value.confidence !== 'number' || !Number.isFinite(value.confidence) || value.confidence < 0 || value.confidence > 1) return null;
   if (typeof value.source !== 'string' || !value.source) return null;
   if (!value.deterministic || typeof value.deterministic !== 'object') return null;
@@ -239,13 +239,17 @@ export function applyReceiptJobProgress(progress) {
     const position = candidate.position;
     if (!Number.isSafeInteger(position) || position < 0 || position >= state.captures.length || seen.has(position)) continue;
     if (!DURABLE_PROGRESS_STAGES.has(candidate.stage)) continue;
-    const ocrEvidence = candidate.ocr === undefined ? null : parseProgressiveOcr(candidate.ocr);
+    const capture = state.captures[position];
+    const directPdf = capture?.mimeType === 'application/pdf';
+    const ocrEvidence = candidate.ocr === undefined ? null : parseProgressiveOcr(candidate.ocr, {
+      allowEmptyText: directPdf,
+    });
     if (candidate.ocr !== undefined && !ocrEvidence) continue;
 
     seen.add(position);
-    const capture = state.captures[position];
     const page = capture ? state.pageStates.get(captureKey(capture)) : null;
     if (!page) continue;
+    page.directPdf = directPdf;
     page.startedAt ||= Date.now();
     page.error = '';
     page.errorCode = '';
@@ -255,8 +259,11 @@ export function applyReceiptJobProgress(progress) {
       page.rawText = ocrEvidence.text;
     }
 
-    if (candidate.stage === 'ocr') {
-      page.status = 'ocr';
+    if (candidate.stage === 'queued') {
+      page.status = 'pending';
+      page.aiStatus = 'idle';
+    } else if (candidate.stage === 'ocr') {
+      page.status = directPdf ? 'pending' : 'ocr';
       page.aiStatus = 'idle';
     } else if (candidate.stage === 'ai') {
       page.status = 'ai';
@@ -268,7 +275,9 @@ export function applyReceiptJobProgress(progress) {
     } else {
       page.status = 'error';
       page.aiStatus = 'error';
-      page.error = 'La verificación remota de esta página terminó con error; el OCR durable se conserva.';
+      page.error = directPdf
+        ? 'La verificación remota de este PDF terminó con error; el archivo original se conserva.'
+        : 'La verificación remota de esta página terminó con error; el OCR durable se conserva.';
       page.elapsedMs = Date.now() - page.startedAt;
     }
     applied = true;
@@ -289,7 +298,10 @@ async function startDurableAutomaticCaptureProcessing() {
   setPagesForBackgroundJob('queued');
   if (!state.progressTimer) startReceiptProgress();
   persistAndRenderCaptures();
-  $('#receipt-state').textContent = 'Iniciando análisis durable. OCR y corrección IA se conservarán para continuar tras una recarga.';
+  const hasPdf = state.captures.some(capture => capture.mimeType === 'application/pdf');
+  $('#receipt-state').textContent = hasPdf
+    ? 'Iniciando análisis durable. Los PDF se envían directamente a la IA; las imágenes conservan OCR local.'
+    : 'Iniciando análisis durable. OCR y corrección IA se conservarán para continuar tras una recarga.';
 
   try {
     const created = await api('/api/v1/receipts/extraction-jobs', {
@@ -468,8 +480,11 @@ export function clearReceiptExtractionJob({ cancel = false } = {}) {
 export function setPagesForBackgroundJob(status) {
   state.failedBackgroundJobId = '';
   const nextStatus = status === 'running' ? (state.verifyWithAi ? 'ai' : 'ocr') : 'preparing';
-  for (const page of state.pageStates.values()) {
-    page.status = nextStatus;
+  for (const capture of state.captures) {
+    const page = state.pageStates.get(captureKey(capture));
+    if (!page) continue;
+    page.directPdf = capture.mimeType === 'application/pdf';
+    page.status = page.directPdf && state.verifyWithAi ? 'pending' : nextStatus;
     page.startedAt ||= Date.now();
     page.error = '';
     page.errorCode = '';
@@ -511,6 +526,8 @@ export function failBackgroundJob(errorCode = 'RECEIPT_EXTRACTION_FAILED', job) 
   for (const [index, capture] of state.captures.entries()) {
     const page = state.pageStates.get(captureKey(capture));
     if (!page) continue;
+    if (page.status === 'completed' && page.aiStatus === 'completed') continue;
+    if (page.status === 'error' && page.error) continue;
     page.status = 'error';
     page.errorCode = error.code;
     page.recovery = error.code.startsWith('AI_')

@@ -111,3 +111,25 @@ test('terminal remote failures expose only the semantic stage while retaining OC
   assert.equal(progress.pages[0]?.ocr?.text, 'LECHE 1,20\nTOTAL 1,20');
   assert.doesNotMatch(JSON.stringify(progress), /PRIVATE_UPSTREAM_DETAIL/u);
 });
+
+test('direct PDFs remain queued until WebAPI has accepted their validation session', () => {
+  const progress = buildReceiptJobProgress({
+    ...durableState(),
+    pageCount: 1,
+    pages: [{
+      position: 0,
+      ocr: {
+        position: 0,
+        storageKey: `${'c'.repeat(64)}.pdf`,
+        mimeType: 'application/pdf',
+        text: '',
+        confidence: 1,
+        source: 'provider',
+        deterministic: { items: [], metadata: {} },
+      },
+    }],
+  });
+
+  assert.equal(progress.pages[0]?.stage, 'queued');
+  assert.equal(progress.pages[0]?.ocr?.text, '');
+});

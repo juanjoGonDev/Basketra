@@ -254,7 +254,7 @@ function renderAiSettings(settings) {
   }
   status.textContent = 'Configuración activa';
   status.dataset.state = 'ok';
-  detail.textContent = `${settings.model} · ${settings.baseUrl}${settings.apiKeyMask ? ` · token ${settings.apiKeyMask}` : ''} · ${settings.maxRetries ?? 1} reintentos máx.`;
+  detail.textContent = `${settings.model} · ${settings.baseUrl}${settings.apiKeyMask ? ` · token ${settings.apiKeyMask}` : ''} · ${settings.maxRetries ?? 1} reintentos máx. · ${settings.receiptValidationConcurrency ?? 1} validación${(settings.receiptValidationConcurrency ?? 1) === 1 ? '' : 'es'} de ticket a la vez.`;
 }
 
 function renderRuntimeSettings(settings, force = false) {
@@ -264,6 +264,7 @@ function renderRuntimeSettings(settings, force = false) {
   $('#runtime-ai-base-url').value = ai.baseUrl || '';
   $('#runtime-ai-model').value = ai.model || '';
   $('#runtime-ai-max-retries').value = String(ai.maxRetries ?? 1);
+  $('#runtime-ai-receipt-validation-concurrency').value = String(ai.receiptValidationConcurrency ?? 1);
   $('#runtime-ai-api-key').value = '';
   $('#runtime-ai-clear-token').checked = false;
   $('#runtime-ai-clear-token').disabled = !ai.apiKeyConfigured;
@@ -284,6 +285,7 @@ function runtimeSettingsPayload() {
     aiBaseUrl: $('#runtime-ai-base-url').value.trim() || null,
     aiModel: $('#runtime-ai-model').value.trim() || null,
     aiMaxRetries: Number($('#runtime-ai-max-retries').value),
+    aiReceiptValidationConcurrency: Number($('#runtime-ai-receipt-validation-concurrency').value),
     ...(clearApiKey ? { aiApiKey: null } : apiKey ? { aiApiKey: apiKey } : {}),
     overpassBaseUrl: $('#runtime-overpass-base-url').value.trim(),
     maxBodyBytes: Math.round(Number($('#runtime-max-body-mib').value) * MEBIBYTE),
@@ -667,6 +669,7 @@ function installOperationsUi() {
             <label class="field runtime-settings-wide"><span>URL de WebAPI</span><input id="runtime-ai-base-url" type="url" maxlength="2048" autocomplete="url" placeholder="http://host.docker.internal:3001/v1/"><small>Déjala vacía para desactivar IA.</small></label>
             <label class="field"><span>Modelo</span><input id="runtime-ai-model" maxlength="240" autocomplete="off" placeholder="default"></label>
             <label class="field"><span>Reintentos máximos</span><input id="runtime-ai-max-retries" type="number" min="0" max="10" step="1" inputmode="numeric" required></label>
+            <label class="field"><span>Validaciones de ticket en paralelo</span><input id="runtime-ai-receipt-validation-concurrency" type="number" min="1" max="8" step="1" inputmode="numeric" required><small>1 evita cualquier solapamiento. Cada PDF espera su respuesta final antes de liberar turno.</small></label>
             <label class="field runtime-settings-wide"><span>Token de WebAPI</span><input id="runtime-ai-api-key" type="password" maxlength="8192" autocomplete="new-password" placeholder="Vacío = conservar el actual"><small id="runtime-ai-token-help"></small></label>
             <label class="switch-row runtime-settings-wide"><span><strong>Eliminar token guardado</strong><small>Marca esta opción sólo si quieres borrar explícitamente la credencial persistida.</small></span><input id="runtime-ai-clear-token" type="checkbox" aria-label="Eliminar token de WebAPI guardado"><span class="switch"></span></label>
           </div>

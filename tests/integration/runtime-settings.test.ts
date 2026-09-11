@@ -47,6 +47,7 @@ test('runtime settings persist provider identity and secret without exposing the
       aiApiKey: TEST_API_CREDENTIAL,
       aiModel: 'default',
       aiMaxRetries: 3,
+      aiReceiptValidationConcurrency: 3,
       overpassBaseUrl: 'https://overpass.kumi.systems/api/',
       maxBodyBytes: 48 * 1024 * 1024,
       idleHibernateAfterMs: 120_000,
@@ -57,6 +58,7 @@ test('runtime settings persist provider identity and secret without exposing the
       baseUrl: 'http://webapi:3000/v1/',
       model: 'default',
       maxRetries: 3,
+      receiptValidationConcurrency: 3,
       apiKeyConfigured: true,
       apiKeyMask: '••••1234',
     });
@@ -71,6 +73,7 @@ test('runtime settings persist provider identity and secret without exposing the
     assert.equal(reopened.aiApiKey, TEST_API_CREDENTIAL);
     assert.equal(reopened.aiModel, 'default');
     assert.equal(reopened.aiMaxRetries, 3);
+    assert.equal(reopened.aiReceiptValidationConcurrency, 3);
     assert.equal(reopened.maxBodyBytes, 48 * 1024 * 1024);
 
     store.update({ aiModel: 'next-model' });
@@ -95,6 +98,7 @@ test('runtime settings reject unknown, malformed and out-of-range input before p
     assert.throws(() => store.update({ aiBaseUrl: 'file:///tmp/provider' }), /HTTP or HTTPS/);
     assert.throws(() => store.update({ maxBodyBytes: 1 }), /Local request limit/);
     assert.throws(() => store.update({ aiMaxRetries: 11 }), /AI max retries/);
+    assert.throws(() => store.update({ aiReceiptValidationConcurrency: 0 }), /receipt validation concurrency/);
     assert.deepEqual(store.read(), before);
   } finally {
     store.close();

@@ -269,10 +269,9 @@ test('multimodal OCR sends validated image content and enforces capabilities', a
     () => noImage.recognize({ mimeType: 'image/png', bytes: new Uint8Array() }),
     /IMAGE_CAPABILITY/u,
   );
-  const noPdf = new MultimodalAiOcrProvider(provider(), 0);
   await assert.rejects(
-    () => noPdf.recognize({ mimeType: 'application/pdf', bytes: Buffer.from(pdfBase64, 'base64') }),
-    /PDF_CAPABILITY/u,
+    () => ocr.recognize({ mimeType: 'application/pdf', bytes: Buffer.from(pdfBase64, 'base64') }),
+    /Unsupported/u,
   );
   await assert.rejects(
     () => ocr.recognize({ mimeType: 'text/plain', bytes: new Uint8Array() }),

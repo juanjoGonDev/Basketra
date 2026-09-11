@@ -131,6 +131,53 @@
   margin-bottom: .8rem;
 }
 
+.receipt-invoice-dialog .receipt-product-fields {
+  min-width: 0;
+  display: grid;
+  gap: .45rem;
+  margin-bottom: .7rem;
+}
+
+.receipt-invoice-dialog .receipt-product-fields > .field {
+  margin: 0;
+}
+
+.receipt-invoice-dialog .receipt-category-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: .45rem;
+}
+
+.receipt-invoice-dialog .receipt-category-field > span:first-child {
+  grid-column: 1 / -1;
+}
+
+.receipt-invoice-dialog .receipt-category-field > select,
+.receipt-invoice-dialog .receipt-category-create-form {
+  min-width: 0;
+}
+
+.receipt-invoice-dialog .receipt-category-create {
+  min-height: var(--invoice-control-height);
+  padding-inline: .72rem;
+}
+
+.receipt-invoice-dialog .receipt-category-create-form {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: .45rem;
+}
+
+.receipt-invoice-dialog .receipt-category-create-form[hidden] {
+  display: none;
+}
+
+.receipt-invoice-dialog .receipt-category-create-form > :is(input, button) {
+  min-height: var(--invoice-control-height);
+}
+
 .receipt-invoice-dialog .receipt-item--editing .field {
   min-width: 0;
   gap: .35rem;
@@ -461,6 +508,7 @@
 
 .receipt-item:not(.receipt-item--editing) > .receipt-editor-section-heading,
 .receipt-item:not(.receipt-item--editing) > .receipt-line-editor-summary,
+.receipt-item:not(.receipt-item--editing) > .receipt-product-fields,
 .receipt-item:not(.receipt-item--editing) .quantity-row > .receipt-editor-section-heading {
   display: none;
 }
@@ -687,7 +735,7 @@
   }
 
   .receipt-invoice-dialog .receipt-item--editing > .receipt-editor-section-heading,
-  .receipt-invoice-dialog .receipt-item--editing > .field,
+  .receipt-invoice-dialog .receipt-item--editing > :is(.field, .receipt-product-fields),
   .receipt-invoice-dialog .receipt-item--editing > .quantity-row {
     grid-column: 1;
   }

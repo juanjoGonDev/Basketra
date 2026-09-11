@@ -3,6 +3,7 @@ import { validateOverpassBaseUrl, validateProviderBaseUrl } from './config.ts';
 
 export const DEFAULT_RUNTIME_SETTINGS = Object.freeze({
   aiMaxRetries: 1,
+  aiReceiptValidationConcurrency: 1,
   overpassBaseUrl: 'https://overpass-api.de/api/',
   maxBodyBytes: 32 * 1024 * 1024,
   idleHibernateAfterMs: 300_000,
@@ -12,12 +13,14 @@ export const RUNTIME_BODY_BYTES_MIN = 1024;
 export const RUNTIME_BODY_BYTES_MAX = 512 * 1024 * 1024;
 export const RUNTIME_IDLE_HIBERNATE_MAX_MS = 24 * 60 * 60 * 1000;
 export const RUNTIME_AI_MAX_RETRIES = 10;
+export const RUNTIME_AI_RECEIPT_VALIDATION_CONCURRENCY_MAX = 8;
 
 export type RuntimeSettings = Readonly<{
   aiBaseUrl?: string;
   aiApiKey?: string;
   aiModel?: string;
   aiMaxRetries: number;
+  aiReceiptValidationConcurrency: number;
   overpassBaseUrl: string;
   maxBodyBytes: number;
   idleHibernateAfterMs: number;
@@ -30,6 +33,7 @@ export type PublicRuntimeSettings = Readonly<{
     baseUrl: string | null;
     model: string | null;
     maxRetries: number;
+    receiptValidationConcurrency: number;
     apiKeyConfigured: boolean;
     apiKeyMask: string | null;
   }>;
@@ -44,6 +48,7 @@ export type RuntimeSettingsUpdate = Readonly<{
   aiApiKey?: string | null;
   aiModel?: string | null;
   aiMaxRetries?: number;
+  aiReceiptValidationConcurrency?: number;
   overpassBaseUrl?: string;
   maxBodyBytes?: number;
   idleHibernateAfterMs?: number;
@@ -54,6 +59,7 @@ type RuntimeSettingsRow = Readonly<{
   aiApiKey: string | null;
   aiModel: string | null;
   aiMaxRetries: number;
+  aiReceiptValidationConcurrency: number;
   overpassBaseUrl: string;
   maxBodyBytes: number;
   idleHibernateAfterMs: number;
@@ -75,6 +81,7 @@ export class RuntimeSettingsStore {
         ai_api_key AS aiApiKey,
         ai_model AS aiModel,
         ai_max_retries AS aiMaxRetries,
+        ai_receipt_validation_concurrency AS aiReceiptValidationConcurrency,
         overpass_base_url AS overpassBaseUrl,
         max_body_bytes AS maxBodyBytes,
         idle_hibernate_after_ms AS idleHibernateAfterMs,
@@ -98,6 +105,7 @@ export class RuntimeSettingsStore {
         ai_api_key = ?,
         ai_model = ?,
         ai_max_retries = ?,
+        ai_receipt_validation_concurrency = ?,
         overpass_base_url = ?,
         max_body_bytes = ?,
         idle_hibernate_after_ms = ?,
@@ -108,6 +116,7 @@ export class RuntimeSettingsStore {
       next.aiApiKey ?? null,
       next.aiModel ?? null,
       next.aiMaxRetries,
+      next.aiReceiptValidationConcurrency,
       next.overpassBaseUrl,
       next.maxBodyBytes,
       next.idleHibernateAfterMs,
@@ -128,6 +137,7 @@ export function toPublicRuntimeSettings(settings: RuntimeSettings): PublicRuntim
       baseUrl: settings.aiBaseUrl ?? null,
       model: settings.aiModel ?? null,
       maxRetries: settings.aiMaxRetries,
+      receiptValidationConcurrency: settings.aiReceiptValidationConcurrency,
       apiKeyConfigured: settings.aiApiKey !== undefined,
       apiKeyMask: settings.aiApiKey ? maskSecret(settings.aiApiKey) : null,
     },
@@ -145,6 +155,7 @@ export function parseRuntimeSettingsUpdate(value: unknown): RuntimeSettingsUpdat
     'aiApiKey',
     'aiModel',
     'aiMaxRetries',
+    'aiReceiptValidationConcurrency',
     'overpassBaseUrl',
     'maxBodyBytes',
     'idleHibernateAfterMs',
@@ -158,6 +169,7 @@ export function parseRuntimeSettingsUpdate(value: unknown): RuntimeSettingsUpdat
     aiApiKey?: string | null;
     aiModel?: string | null;
     aiMaxRetries?: number;
+    aiReceiptValidationConcurrency?: number;
     overpassBaseUrl?: string;
     maxBodyBytes?: number;
     idleHibernateAfterMs?: number;
@@ -167,6 +179,14 @@ export function parseRuntimeSettingsUpdate(value: unknown): RuntimeSettingsUpdat
   if (Object.hasOwn(value, 'aiModel')) patch.aiModel = optionalText(value['aiModel'], 'AI model', 240);
   if (Object.hasOwn(value, 'aiMaxRetries')) {
     patch.aiMaxRetries = boundedInteger(value['aiMaxRetries'], 'AI max retries', 0, RUNTIME_AI_MAX_RETRIES);
+  }
+  if (Object.hasOwn(value, 'aiReceiptValidationConcurrency')) {
+    patch.aiReceiptValidationConcurrency = boundedInteger(
+      value['aiReceiptValidationConcurrency'],
+      'AI receipt validation concurrency',
+      1,
+      RUNTIME_AI_RECEIPT_VALIDATION_CONCURRENCY_MAX,
+    );
   }
   if (Object.hasOwn(value, 'overpassBaseUrl')) {
     const overpassBaseUrl = requiredText(value['overpassBaseUrl'], 'Overpass URL', 2048);
@@ -200,6 +220,12 @@ function runtimeSettingsFromRow(row: RuntimeSettingsRow): RuntimeSettings {
     ...(row.aiApiKey ? { aiApiKey: row.aiApiKey } : {}),
     ...(row.aiModel ? { aiModel: row.aiModel } : {}),
     aiMaxRetries: boundedInteger(row.aiMaxRetries, 'AI max retries', 0, RUNTIME_AI_MAX_RETRIES),
+    aiReceiptValidationConcurrency: boundedInteger(
+      row.aiReceiptValidationConcurrency,
+      'AI receipt validation concurrency',
+      1,
+      RUNTIME_AI_RECEIPT_VALIDATION_CONCURRENCY_MAX,
+    ),
     overpassBaseUrl: row.overpassBaseUrl,
     maxBodyBytes: boundedInteger(
       row.maxBodyBytes,
@@ -229,6 +255,7 @@ function mergeRuntimeSettings(
     ...(aiApiKey ? { aiApiKey } : {}),
     ...(aiModel ? { aiModel } : {}),
     aiMaxRetries: patch.aiMaxRetries ?? current.aiMaxRetries,
+    aiReceiptValidationConcurrency: patch.aiReceiptValidationConcurrency ?? current.aiReceiptValidationConcurrency,
     overpassBaseUrl: patch.overpassBaseUrl ?? current.overpassBaseUrl,
     maxBodyBytes: patch.maxBodyBytes ?? current.maxBodyBytes,
     idleHibernateAfterMs: patch.idleHibernateAfterMs ?? current.idleHibernateAfterMs,

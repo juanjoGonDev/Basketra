@@ -18,6 +18,7 @@ export const PAGE_LABELS = {
 export const state = {
   captures: loadCaptures(),
   extraction: null,
+  receiptCategories: [],
   items: [],
   originalItems: [],
   originalText: '',

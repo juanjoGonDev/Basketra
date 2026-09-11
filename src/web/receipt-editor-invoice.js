@@ -506,10 +506,15 @@ function ensureItemLayout(item) {
     || !(discountType instanceof HTMLSelectElement)) return;
 
   const descriptionLabel = description.closest('label');
+  const categoryLabel = item.querySelector('.receipt-category-field');
   const discountTypeLabel = discountType.closest('label');
-  if (!descriptionLabel || !discountTypeLabel) return;
+  if (!descriptionLabel || !categoryLabel || !discountTypeLabel) return;
 
-  descriptionLabel.before(sectionHeading(1, 'Producto', 'package'));
+  const productFields = document.createElement('div');
+  productFields.className = 'receipt-product-fields';
+  descriptionLabel.before(productFields);
+  productFields.append(descriptionLabel, categoryLabel);
+  productFields.before(sectionHeading(1, 'Producto', 'package'));
   detailRow.insertBefore(sectionHeading(2, 'Detalle de compra', 'cart'), detailRow.firstChild);
   discountRow.insertBefore(sectionHeading(3, 'Descuento', 'tag'), discountTypeLabel);
   detailRow.insertAdjacentElement('afterend', createSummary(item));

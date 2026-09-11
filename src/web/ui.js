@@ -485,21 +485,23 @@ export function receiptReview(items, lines, total, categories = []) {
   const status = total?.valid === false ? 'warning' : 'success';
   const label = total?.valid === false ? 'Revisar total' : 'Total validado';
   const categoryNames = new Map(categories.map(category => [category.id, category.name]));
-  return `<div class="review-summary"><div><p class="eyebrow">Revisión</p><h2>Comprueba cada línea</h2></div><span class="status-pill ${status}">${label}</span></div><div class="review-total"><span>Total calculado</span><strong>${formatEuroMinor(expected)}</strong></div><div class="receipt-items">${items.map((item, index) => receiptLine(item, index, lines[index], categoryNames.get(item.categoryId))).join('')}</div><button type="button" class="button secondary full" data-receipt-action="add-line">${icon('plus')}Añadir línea</button>`;
+  return `<div class="review-summary"><div><p class="eyebrow">Revisión</p><h2>Comprueba cada línea</h2></div><span class="status-pill ${status}">${label}</span></div><div class="review-total"><span>Total calculado</span><strong>${formatEuroMinor(expected)}</strong></div><div class="receipt-items">${items.map((item, index) => receiptLine(item, index, lines[index], categoryNames.get(item.categoryId), categories)).join('')}</div><button type="button" class="button secondary full" data-receipt-action="add-line">${icon('plus')}Añadir línea</button>`;
 }
 
-function receiptLine(item, index, validation = {}, categoryName = '') {
+function receiptLine(item, index, validation = {}, categoryName = '', categories = []) {
   const confirmed = validation.status === 'confirmed';
   const editAttributes = `data-receipt-action="edit" data-receipt-index="${index}" aria-label="Editar línea ${index + 1}"`;
   const deleteAttributes = `data-receipt-action="delete" data-receipt-index="${index}" aria-label="Eliminar línea ${index + 1}"`;
-  const category = categoryName
-    ? `<small class="receipt-line-category" data-receipt-category>${icon('tag')}<span>Categoría</span><strong data-receipt-category-label>${escapeHtml(categoryName)}</strong></small>`
-    : '';
+  const categoryOptions = new Map(categories.map(category => [category.id, category]));
+  if (item.categoryId && !categoryOptions.has(item.categoryId)) {
+    categoryOptions.set(item.categoryId, { id: item.categoryId, name: categoryName || item.categoryId });
+  }
+  const category = `<label class="field receipt-category-field"><span>Categoría</span><select data-field="categoryId" aria-label="Categoría de la línea ${index + 1}"><option value="">Sin categoría</option>${[...categoryOptions.values()].map(({ id, name, color = '' }) => `<option value="${escapeHtml(id)}" data-category-color="${escapeHtml(color)}"${id === item.categoryId ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select></label>`;
   return `<div class="swipe-shell" data-swipe-row data-swipe-kind="receipt-line" data-swipe-id="${index}" data-swipe-end-action="delete" data-swipe-open="false">
     ${swipeActionRail('Editar', 'Eliminar', editAttributes, deleteAttributes)}
     <fieldset class="receipt-item swipe-content" data-swipe-content data-item-index="${index}">
       <legend><span>Línea ${index + 1}</span><span class="receipt-item__legend-actions"><span class="status-pill ${confirmed ? 'success' : 'warning'}">${escapeHtml(validation.status || 'needs-review')}</span><button type="button" class="icon-button" data-swipe-toggle aria-expanded="false" aria-label="Mostrar acciones de la línea ${index + 1}">${icon('more')}</button></span></legend>
-      <label class="field"><span>Producto</span><input data-field="description" maxlength="240" value="${escapeHtml(item.description)}" autocomplete="off">${category}</label>
+      <label class="field"><span>Producto</span><input data-field="description" maxlength="240" value="${escapeHtml(item.description)}" autocomplete="off"></label>${category}
       <div class="quantity-row"><label class="field"><span>Cantidad</span><input data-field="quantity" type="number" min="0" step="1" inputmode="numeric" value="${item.quantity}"></label><label class="field"><span>Precio unitario (€)</span><input data-field="unitPriceEuro" inputmode="decimal" value="${minorToEuroInput(item.unitPriceMinor)}"></label><label class="field"><span>Total (€)</span><input data-field="lineTotalEuro" inputmode="decimal" value="${minorToEuroInput(item.lineTotalMinor)}"></label></div>
     </fieldset>
   </div>`;

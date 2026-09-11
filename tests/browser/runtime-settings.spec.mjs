@@ -19,6 +19,7 @@ function publicRuntime(overrides = {}) {
       baseUrl: 'http://host.docker.internal:3001/v1/',
       model: 'default',
       maxRetries: 1,
+      receiptValidationConcurrency: 1,
       apiKeyConfigured: true,
       apiKeyMask: '••••safe',
     },
@@ -59,6 +60,7 @@ function nextRuntime(current, patch) {
       baseUrl: patch.aiBaseUrl,
       model: patch.aiModel,
       maxRetries: patch.aiMaxRetries,
+      receiptValidationConcurrency: patch.aiReceiptValidationConcurrency,
       apiKeyConfigured: clearingToken ? false : replacingToken ? true : current.ai.apiKeyConfigured,
       apiKeyMask: clearingToken ? null : replacingToken ? '••••alue' : current.ai.apiKeyMask,
     },
@@ -125,6 +127,7 @@ test('runtime settings persist without restart and preserve, replace, then clear
   await page.locator('#runtime-ai-base-url').fill('http://192.168.1.20:3001/v1/');
   await page.locator('#runtime-ai-model').fill('gpt-5');
   await page.locator('#runtime-ai-max-retries').fill('3');
+  await page.locator('#runtime-ai-receipt-validation-concurrency').fill('2');
   await page.getByText('Red y recursos locales', { exact: true }).click();
   await page.locator('#runtime-overpass-base-url').fill('https://overpass.kumi.systems/api/');
   await page.locator('#runtime-max-body-mib').fill('64');
@@ -138,6 +141,7 @@ test('runtime settings persist without restart and preserve, replace, then clear
     aiBaseUrl: 'http://192.168.1.20:3001/v1/',
     aiModel: 'gpt-5',
     aiMaxRetries: 3,
+    aiReceiptValidationConcurrency: 2,
     overpassBaseUrl: 'https://overpass.kumi.systems/api/',
     maxBodyBytes: 64 * MEBIBYTE,
     idleHibernateAfterMs: 10 * MINUTE_MS,

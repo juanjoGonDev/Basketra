@@ -249,6 +249,86 @@ function addReceiptDiscountFields(fieldset, item) {
   rememberDiscountEditorValue(fieldset);
 }
 
+function categoryCreator(fieldset) {
+  const field = fieldset.querySelector('.receipt-category-field');
+  if (!field || field.querySelector('[data-receipt-category-create]')) return;
+
+  const create = document.createElement('button');
+  create.type = 'button';
+  create.className = 'button secondary receipt-category-create';
+  create.dataset.receiptCategoryCreate = 'true';
+  create.textContent = 'Nueva';
+
+  const form = document.createElement('span');
+  form.className = 'receipt-category-create-form';
+  form.hidden = true;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.maxLength = 120;
+  input.autocomplete = 'off';
+  input.placeholder = 'Nombre de categoría';
+  input.setAttribute('aria-label', 'Nombre de la nueva categoría');
+  const save = document.createElement('button');
+  save.type = 'button';
+  save.className = 'button primary';
+  save.textContent = 'Crear';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'icon-button';
+  cancel.setAttribute('aria-label', 'Cancelar nueva categoría');
+  cancel.innerHTML = icon('close');
+  form.append(input, save, cancel);
+
+  const close = () => {
+    form.hidden = true;
+    input.value = '';
+    create.hidden = false;
+  };
+  create.addEventListener('click', () => {
+    form.hidden = false;
+    create.hidden = true;
+    input.focus();
+  });
+  cancel.addEventListener('click', close);
+  save.addEventListener('click', async () => {
+    const name = input.value.trim();
+    if (!name) {
+      input.focus();
+      return;
+    }
+    save.disabled = true;
+    try {
+      const result = await api('/api/v1/categories', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+      if (!result?.category?.id || !result.category.name) throw new Error('No se pudo crear la categoría');
+      state.receiptCategories = [
+        ...state.receiptCategories.filter(category => category.id !== result.category.id),
+        result.category,
+      ];
+      refreshReceiptCategoryControls();
+      const select = fieldset.querySelector('[data-field="categoryId"]');
+      if (select instanceof HTMLSelectElement) {
+        select.value = result.category.id;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      close();
+    } catch (error) {
+      input.setAttribute('aria-invalid', 'true');
+      input.title = error instanceof Error ? error.message : 'No se pudo crear la categoría';
+      input.focus();
+    } finally {
+      save.disabled = false;
+    }
+  });
+  input.addEventListener('input', () => {
+    input.removeAttribute('aria-invalid');
+    input.removeAttribute('title');
+  });
+  field.append(create, form);
+}
+
 function lineQuantityFromFields(fieldset) {
   const quantity = fieldset?.querySelector('[data-field="quantity"]');
   if (!(quantity instanceof HTMLInputElement)) return 1;
@@ -419,6 +499,16 @@ function installReceiptLineEnhancements() {
     });
   });
   document.addEventListener('change', event => {
+    if (event.target?.dataset?.field === 'categoryId') {
+      const fieldset = event.target.closest('.receipt-item');
+      const index = Number(fieldset?.dataset.itemIndex);
+      const item = state.items[index];
+      if (!item || !Number.isInteger(index)) return;
+      if (event.target.value) item.categoryId = event.target.value;
+      else delete item.categoryId;
+      renderProgressiveDetectedItems();
+      return;
+    }
     if (event.target?.dataset?.field !== 'discountType') return;
     const fieldset = event.target.closest('.receipt-item');
     if (!fieldset) return;
@@ -477,6 +567,7 @@ function enhanceReceiptLines(lines) {
     if (!fieldset) return;
     upgradeReceiptTotal(fieldset);
     addReceiptDiscountFields(fieldset, item);
+    categoryCreator(fieldset);
     const validation = lines[index] || {};
     if (validation.status === 'confirmed') return;
     const status = fieldset.querySelector('.receipt-item__legend-actions .status-pill');
@@ -496,6 +587,38 @@ function enhanceReceiptLines(lines) {
   scheduleReceiptDiscountSummaries();
 }
 
+function receiptCategories() {
+  const fromExtraction = state.extraction?.final?.categories || [];
+  const categories = [...fromExtraction, ...state.receiptCategories];
+  return [...new Map(categories.map(category => [category.id, category])).values()]
+    .sort((left, right) => left.name.localeCompare(right.name, 'es', { sensitivity: 'base' }));
+}
+
+function refreshReceiptCategoryControls() {
+  const categories = receiptCategories();
+  for (const select of $$('[data-field="categoryId"]')) {
+    if (!(select instanceof HTMLSelectElement)) continue;
+    const selected = select.value;
+    select.replaceChildren(new Option('Sin categoría', ''));
+    for (const category of categories) {
+      const option = new Option(category.name, category.id);
+      option.dataset.categoryColor = category.color || '';
+      select.add(option);
+    }
+    select.value = selected;
+  }
+}
+
+async function loadReceiptCategories() {
+  try {
+    const result = await api('/api/v1/categories');
+    state.receiptCategories = Array.isArray(result.categories) ? result.categories : [];
+    refreshReceiptCategoryControls();
+  } catch {
+    // The extraction snapshot remains enough to preserve and edit its assigned category.
+  }
+}
+
 export function renderReview(lines = [], total) {
   const review = $('#receipt-review');
   const panel = $('#receipt-review-panel');
@@ -503,7 +626,7 @@ export function renderReview(lines = [], total) {
   const hasReviewContent = state.items.length > 0 || state.captures.length > 0 || Boolean(state.extraction);
   review.hidden = !hasReviewContent;
   review.innerHTML = hasReviewContent
-    ? receiptReview(state.items, lines, total, state.extraction?.final?.categories ?? [])
+    ? receiptReview(state.items, lines, total, receiptCategories())
     : '';
   if (hasReviewContent) enhanceReceiptLines(lines);
   $('#confirm-receipt').hidden = state.items.length === 0;
@@ -529,6 +652,7 @@ export function applyExtraction(extraction, originalText = extraction.originalTe
   applyRetailerCandidate(extraction.final.retailerName || extraction.ai?.interpretation?.retailerName);
   applyStoreCandidate(extraction.final);
   renderReview(extraction.final.review.lines, extraction.final.review.total);
+  void loadReceiptCategories();
 }
 
 export function addBlankLine({ focus = true } = {}) {
@@ -660,7 +784,7 @@ export function readReceiptItems() {
       unitPriceMinor: euroInputToMinor(fieldset.querySelector('[data-field="unitPriceEuro"]').value),
       lineTotalMinor: euroInputToMinor(fieldset.querySelector('[data-field="lineTotalEuro"]').value),
       ...(discount ? { discount } : {}),
-      ...(previous.categoryId ? { categoryId: previous.categoryId } : {}),
+      ...(fieldset.querySelector('[data-field="categoryId"]')?.value ? { categoryId: fieldset.querySelector('[data-field="categoryId"]').value } : {}),
       ...(previous.taxCategory ? { taxCategory: previous.taxCategory } : {}),
       ...(previous.sourceLines ? { sourceLines: previous.sourceLines } : {}),
       confidence: 1,

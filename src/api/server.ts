@@ -538,9 +538,11 @@ export class BasketraServer {
         baseUrl: new URL(settings.aiBaseUrl),
         ...(settings.aiApiKey ? { apiKey: settings.aiApiKey } : {}),
         model: settings.aiModel,
+        maxConcurrentResponses: settings.aiReceiptValidationConcurrency,
       });
       this.#receiptResponsesIdentity = identity;
     }
+    this.#receiptResponsesClient.setMaxConcurrentResponses(settings.aiReceiptValidationConcurrency);
     return this.#receiptResponsesClient;
   }
 
