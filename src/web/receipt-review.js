@@ -11,6 +11,7 @@ import {
 } from './receipt-state.js';
 import { persistAndRenderCaptures, renderProgressiveDetectedItems } from './receipt-capture.js';
 import { abortPageWork, clearReceiptExtractionJob } from './receipt-lifecycle.js';
+import { openReceiptCategoryPicker, openReceiptProductPicker } from './receipt-line-pickers.js';
 
 let receiptLineEnhancementsInstalled = false;
 
@@ -247,81 +248,25 @@ function addReceiptDiscountFields(fieldset, item) {
 function categoryCreator(fieldset) {
   const field = fieldset.querySelector('.receipt-category-field');
   if (!field || field.querySelector('[data-receipt-category-create]')) return;
-
   const create = document.createElement('button');
   create.type = 'button';
   create.className = 'button secondary receipt-category-create';
   create.dataset.receiptCategoryCreate = 'true';
-  create.textContent = 'Nueva';
-
-  const form = document.createElement('span');
-  form.className = 'receipt-category-create-form';
-  form.hidden = true;
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.maxLength = 120;
-  input.autocomplete = 'off';
-  input.placeholder = 'Nombre de categoría';
-  input.setAttribute('aria-label', 'Nombre de la nueva categoría');
-  const save = document.createElement('button');
-  save.type = 'button';
-  save.className = 'button primary';
-  save.textContent = 'Crear';
-  const cancel = document.createElement('button');
-  cancel.type = 'button';
-  cancel.className = 'icon-button';
-  cancel.setAttribute('aria-label', 'Cancelar nueva categoría');
-  cancel.innerHTML = icon('close');
-  form.append(input, save, cancel);
-
-  const close = () => {
-    form.hidden = true;
-    input.value = '';
-    create.hidden = false;
-  };
+  create.textContent = 'Elegir';
   create.addEventListener('click', () => {
-    form.hidden = false;
-    create.hidden = true;
-    input.focus();
-  });
-  cancel.addEventListener('click', close);
-  save.addEventListener('click', async () => {
-    const name = input.value.trim();
-    if (!name) {
-      input.focus();
-      return;
-    }
-    save.disabled = true;
-    try {
-      const result = await api('/api/v1/categories', {
-        method: 'POST',
-        body: JSON.stringify({ name }),
-      });
-      if (!result?.category?.id || !result.category.name) throw new Error('No se pudo crear la categoría');
-      state.receiptCategories = [
-        ...state.receiptCategories.filter(category => category.id !== result.category.id),
-        result.category,
-      ];
-      refreshReceiptCategoryControls();
-      const select = fieldset.querySelector('[data-field="categoryId"]');
-      if (select instanceof HTMLSelectElement) {
-        select.value = result.category.id;
+    const select = fieldset.querySelector('[data-field="categoryId"]');
+    if (!(select instanceof HTMLSelectElement)) return;
+    openReceiptCategoryPicker({
+      selectedId: select.value,
+      onSelect: category => {
+        state.receiptCategories = [...state.receiptCategories.filter(entry => entry.id !== category.id), category];
+        refreshReceiptCategoryControls();
+        select.value = category.id;
         select.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-      close();
-    } catch (error) {
-      input.setAttribute('aria-invalid', 'true');
-      input.title = error instanceof Error ? error.message : 'No se pudo crear la categoría';
-      input.focus();
-    } finally {
-      save.disabled = false;
-    }
+      },
+    });
   });
-  input.addEventListener('input', () => {
-    input.removeAttribute('aria-invalid');
-    input.removeAttribute('title');
-  });
-  field.append(create, form);
+  field.append(create);
 }
 
 function lineQuantityFromFields(fieldset) {
@@ -557,6 +502,15 @@ function renderUnassignedDiscountNotice() {
 
 function addProductMatcher(fieldset, item) {
   if (fieldset.querySelector('[data-product-matcher]')) return;
+  const capture = selectedReviewCapture();
+  const storeName = capture?.storeName
+    || capture?.result?.final?.storeName
+    || state.extraction?.final?.storeName
+    || 'Sin tienda asignada';
+  const store = document.createElement('p');
+  store.className = 'receipt-line-store-context';
+  store.dataset.receiptStoreContext = 'true';
+  store.textContent = `Tienda: ${storeName}`;
   const matcher = document.createElement('div');
   matcher.className = 'receipt-product-matcher';
   matcher.dataset.productMatcher = 'true';
@@ -568,27 +522,29 @@ function addProductMatcher(fieldset, item) {
   search.type = 'button';
   search.className = 'button secondary';
   search.textContent = 'Relacionar producto';
-  search.addEventListener('click', async () => {
+  search.addEventListener('click', () => {
     const description = fieldset.querySelector('[data-field="description"]')?.value.trim();
     if (!description) return;
-    search.disabled = true;
-    try {
-      const result = await api(`/api/v1/products/suggestions?q=${encodeURIComponent(description)}&limit=1`);
-      const candidate = result.suggestions?.[0];
-      if (!candidate) { toast('No hay un producto guardado similar'); return; }
-      select.replaceChildren(new Option('Sin producto guardado', ''), new Option(candidate.name, candidate.id));
-      select.value = candidate.id;
-      toast('Producto guardado relacionado');
-    } catch {
-      toast('No se pudo buscar el producto guardado');
-    } finally {
-      search.disabled = false;
-    }
+    const categoryId = fieldset.querySelector('[data-field="categoryId"]')?.value || '';
+    openReceiptProductPicker({
+      description,
+      selectedId: select.value,
+      categoryId,
+      onSelect: product => {
+        const name = product.variantName || product.canonicalName || product.name || 'Producto relacionado';
+        select.replaceChildren(new Option('Sin producto guardado', ''), new Option(name, product.id));
+        select.value = product.id;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        toast('Producto guardado relacionado');
+      },
+    });
   });
   if (item.productVariantId) select.append(new Option('Producto relacionado', item.productVariantId));
   select.value = item.productVariantId || '';
   matcher.append(search, select);
-  fieldset.querySelector('.receipt-category-field')?.insertAdjacentElement('afterend', matcher);
+  const category = fieldset.querySelector('.receipt-category-field');
+  category?.insertAdjacentElement('afterend', store);
+  store.insertAdjacentElement('afterend', matcher);
 }
 
 function enhanceReceiptLines(lines) {

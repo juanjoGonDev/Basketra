@@ -28,6 +28,7 @@ export const STATIC_ASSETS = new Set([
   'receipt-lifecycle.js',
   'receipt-processing.js',
   'receipt-review.js',
+  'receipt-line-pickers.js',
   'receipt-review.css',
   'receipt-editor-invoice.js',
   'receipt-editor-invoice.css',

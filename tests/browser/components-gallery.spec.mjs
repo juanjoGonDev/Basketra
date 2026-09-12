@@ -19,3 +19,132 @@ test('offline component gallery exposes shared controls and dialog behavior', as
   await page.getByRole('button', { name: 'Cerrar' }).last().click();
   await expect(dialog).toBeHidden();
 });
+
+test('receipt layout keeps measured edge padding and compact action heights', async ({ page }) => {
+  await page.goto('/components');
+  const metrics = await page.evaluate(async () => {
+    const stylesheet = document.createElement('link');
+    stylesheet.rel = 'stylesheet';
+    stylesheet.href = '/receipt-review.css';
+    document.head.append(stylesheet);
+    await new Promise(resolve => stylesheet.addEventListener('load', resolve, { once: true }));
+    const row = document.createElement('div');
+    row.className = 'receipt-detected-item';
+    document.body.append(row);
+    const confirm = document.createElement('button');
+    confirm.id = 'confirm-receipt';
+    confirm.className = 'button primary';
+    const actions = document.createElement('div');
+    actions.className = 'receipt-live-summary__actions';
+    actions.append(confirm);
+    document.body.append(actions);
+    return {
+      rowPaddingLeft: Number.parseFloat(getComputedStyle(row).paddingLeft),
+      rowPaddingRight: Number.parseFloat(getComputedStyle(row).paddingRight),
+      confirmHeight: Number.parseFloat(getComputedStyle(confirm).minHeight),
+      actionPadding: Number.parseFloat(getComputedStyle(actions).paddingLeft),
+    };
+  });
+  expect(metrics.rowPaddingLeft).toBeGreaterThanOrEqual(8);
+  expect(metrics.rowPaddingRight).toBeGreaterThanOrEqual(8);
+  expect(metrics.actionPadding).toBeGreaterThanOrEqual(8);
+  expect(metrics.confirmHeight).toBeGreaterThanOrEqual(40);
+});
+
+test('receipt category and product pickers use shared paginated dialogs', async ({ page }) => {
+  const categories = Array.from({ length: 9 }, (_, index) => ({
+    id: `category_${index + 1}`,
+    name: `Categoría ${index + 1}`,
+    color: index % 2 ? '#007a5e' : '#d97706',
+  }));
+  await page.route('**/api/v1/categories', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ categories }),
+  }));
+  await page.route('**/api/v1/catalog?*', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      catalog: {
+        products: [{ id: 'variant_tea', canonicalName: 'Té verde', variantName: 'Té verde bio', categoryName: 'Infusiones' }],
+        parents: [], total: 1, offset: 0, limit: 8, hasMore: false,
+      },
+    }),
+  }));
+  await page.goto('/components');
+
+  await page.evaluate(async () => {
+    const { openReceiptCategoryPicker } = await import('/receipt-line-pickers.js');
+    openReceiptCategoryPicker({ selectedId: '', onSelect: category => { window.__selectedCategory = category.id; } });
+  });
+  await expect(page.locator('#receipt-category-picker').locator('dialog')).toBeVisible();
+  const pickerGeometry = await page.evaluate(() => {
+    const host = document.querySelector('#receipt-category-picker');
+    const dialog = host?.shadowRoot?.querySelector('dialog');
+    const footer = host?.shadowRoot?.querySelector('footer');
+    if (!dialog || !footer) return null;
+    const dialogBox = dialog.getBoundingClientRect();
+    const footerBox = footer.getBoundingClientRect();
+    return { dialogBottom: dialogBox.bottom, footerBottom: footerBox.bottom };
+  });
+  expect(pickerGeometry).not.toBeNull();
+  expect(pickerGeometry.footerBottom).toBeLessThanOrEqual(pickerGeometry.dialogBottom + 1);
+  await expect(page.getByRole('button', { name: 'Categoría 1' })).toBeVisible();
+  await page.getByRole('button', { name: 'Siguiente' }).click();
+  await page.getByRole('button', { name: 'Categoría 9' }).click();
+  await expect.poll(() => page.evaluate(() => window.__selectedCategory)).toBe('category_9');
+
+  await page.evaluate(async () => {
+    const { openReceiptProductPicker } = await import('/receipt-line-pickers.js');
+    await openReceiptProductPicker({ description: 'té', onSelect: product => { window.__selectedProduct = product.id; } });
+  });
+  await expect(page.locator('#receipt-product-picker').locator('dialog')).toBeVisible();
+  await page.getByRole('button', { name: /Té verde bio/ }).click();
+  await expect.poll(() => page.evaluate(() => window.__selectedProduct)).toBe('variant_tea');
+});
+
+test('receipt invoice summary projects price, discount and validation in a shared dialog', async ({ page }) => {
+  await page.goto('/components');
+  await page.evaluate(async () => {
+    const { createReceiptInvoiceLineDialog, enhanceReceiptInvoiceEditor, refreshReceiptInvoiceEditor } = await import('/receipt-editor-invoice.js');
+    const dialog = createReceiptInvoiceLineDialog({
+      id: 'summary-regression-dialog', titleId: 'summary-regression-title', title: 'Editar línea 1',
+      closeId: 'summary-regression-close', slotId: 'summary-regression-slot', actions: [],
+    });
+    const item = document.createElement('fieldset');
+    item.className = 'receipt-item receipt-item--editing';
+    item.dataset.receiptLineEditor = 'true';
+    item.dataset.editorValidation = 'confirmed';
+    item.innerHTML = `
+      <legend>Línea</legend>
+      <label class="field"><span>Producto</span><input data-field="description" value="PATATA"></label>
+      <label class="field receipt-category-field"><span>Categoría</span><select data-field="categoryId"><option>Verduras</option></select></label>
+      <div class="quantity-row"><label class="field"><span>Cantidad</span><input data-field="quantity" value="2"></label><label class="field"><span>Precio unitario</span><input data-field="unitPriceEuro" value="2,55"></label></div>
+      <div class="quantity-row"><label class="field"><span>Tipo</span><select data-field="discountType"><option value="amount">Importe</option></select></label><output data-field="lineTotalEuro">4,10</output></div>`;
+    dialog.querySelector('#summary-regression-slot').append(item);
+    document.body.append(dialog);
+    enhanceReceiptInvoiceEditor(dialog);
+    dialog.showModal();
+    refreshReceiptInvoiceEditor(dialog);
+  });
+  const dialog = page.locator('#summary-regression-dialog');
+  await expect(dialog.locator('[data-editor-summary-base]')).toHaveText('5,10 €');
+  await expect(dialog.locator('[data-editor-summary-discount]')).toHaveText('-1,00 €');
+  await expect(dialog.locator('[data-editor-summary-total]')).toHaveText('4,10 €');
+  await expect(dialog.locator('[data-editor-summary-validation]')).toHaveText('Total validado');
+});
+
+test('direct PDF status copy never falls back to OCR terminology', async ({ page }) => {
+  await page.goto('/components');
+  const messages = await page.evaluate(async () => {
+    const { pagePartialText, pageStageDescription } = await import('/receipt-capture.js');
+    const completed = { directPdf: true, status: 'completed', aiStatus: 'pending' };
+    const manual = { directPdf: true, status: 'manual', aiStatus: 'pending', result: { final: { items: [] } } };
+    return [
+      pageStageDescription(completed),
+      pageStageDescription(manual),
+      pagePartialText({ directPdf: true, status: 'error', error: '' }),
+    ];
+  });
+  expect(messages.join(' ')).toMatch(/PDF/u);
+  expect(messages.join(' ')).not.toMatch(/OCR/u);
+});

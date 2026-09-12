@@ -8,7 +8,7 @@ import {
   resolveApplicationRoute,
   writeApplicationLocation,
 } from './routes.js';
-import { createReceiptInvoiceLineDialog } from './receipt-editor-invoice.js';
+import { createReceiptInvoiceLineDialog, refreshReceiptInvoiceEditor } from './receipt-editor-invoice.js';
 import {
   bindSwipeActions,
   hydrateIcons,
@@ -346,6 +346,7 @@ function openReceiptLineEditor(item) {
   if (deleteButton) deleteButton.hidden = draftNew;
   if (typeof dialog.showModal === 'function') dialog.showModal();
   else dialog.setAttribute('open', '');
+  refreshReceiptInvoiceEditor(dialog);
   requestAnimationFrame(() => receiptInput(item, 'description')?.focus());
 }
 

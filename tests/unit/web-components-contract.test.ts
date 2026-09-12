@@ -45,6 +45,24 @@ test('receipt presentation keeps amounts inset and invoice actions in one deskto
   assert.match(invoice, /\.receipt-editor-summary__stamp\s*\{\s*display: none;/u);
 });
 
+test('receipt line pickers use shared dialogs and the invoice refresh supports their host', () => {
+  const pickers = read(`${webRoot}/receipt-line-pickers.js`);
+  const invoice = read(`${webRoot}/receipt-editor-invoice.js`);
+  const app = read(`${webRoot}/app.js`);
+  const worker = read(`${webRoot}/sw.js`);
+  const assets = read('src/api/static-assets.ts');
+  assert.match(pickers, /createAppDialog/u);
+  assert.match(pickers, /createAppField/u);
+  assert.match(pickers, /PAGE_SIZE = 6/u);
+  assert.match(pickers, /\/api\/v1\/categories/u);
+  assert.match(pickers, /\/api\/v1\/catalog\?q=/u);
+  assert.match(pickers, /\/api\/v1\/products/u);
+  assert.match(invoice, /item\.closest\('app-dialog\.receipt-invoice-dialog, dialog\.receipt-invoice-dialog'\)/u);
+  assert.match(app, /refreshReceiptInvoiceEditor\(dialog\)/u);
+  assert.match(worker, /'\/receipt-line-pickers\.js'/u);
+  assert.match(assets, /'receipt-line-pickers\.js'/u);
+});
+
 test('the component gallery and its local assets are included in the offline shell', () => {
   const html = read(`${webRoot}/index.html`);
   const worker = read(`${webRoot}/sw.js`);

@@ -301,7 +301,7 @@ export function installReceiptEnhancements() {
           <span class="receipt-live-retailer__icon">${icon('store')}</span>
           <span class="receipt-live-retailer__copy">
             <small>Tienda detectada</small>
-            <strong id="receipt-live-retailer-name">Sin identificar</strong>
+            <span class="receipt-live-retailer__name"><strong id="receipt-live-retailer-name">Sin identificar</strong><button id="receipt-edit-detected-store" class="icon-button" type="button" aria-label="Editar tienda detectada" title="Editar tienda">${icon('edit')}</button></span>
           </span>
         </div>
         <div class="receipt-live-analysis">
@@ -607,6 +607,11 @@ export function bindEvents() {
       bubbles: true,
       detail: { index, draftNew: true },
     }));
+  });
+  $('#receipt-edit-detected-store')?.addEventListener('click', () => {
+    const capture = selectedReviewCapture();
+    const index = state.captures.indexOf(capture);
+    if (index >= 0) void showCaptureSourceEditor(index);
   });
 
   document.addEventListener('pointerdown', event => {

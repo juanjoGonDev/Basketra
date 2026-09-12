@@ -417,7 +417,7 @@ function syncSummary(item) {
   const discount = summary.querySelector('[data-editor-summary-discount]');
   const total = summary.querySelector('[data-editor-summary-total]');
   const validation = summary.querySelector('[data-editor-summary-validation]');
-  const dialog = item.closest('dialog.receipt-invoice-dialog');
+  const dialog = item.closest('app-dialog.receipt-invoice-dialog, dialog.receipt-invoice-dialog');
   copyValidationState(item, validation, true);
   copyValidationState(item, editorHeaderValidation(dialog));
   syncPresentationControls(item);
@@ -515,6 +515,10 @@ function ensureItemLayout(item) {
   productFields.className = 'receipt-product-fields';
   descriptionLabel.before(productFields);
   productFields.append(descriptionLabel, categoryLabel);
+  const storeContext = item.querySelector('[data-receipt-store-context]');
+  const productMatcher = item.querySelector('[data-product-matcher]');
+  if (storeContext) productFields.append(storeContext);
+  if (productMatcher) productFields.append(productMatcher);
   productFields.before(sectionHeading(1, 'Producto', 'package'));
   detailRow.insertBefore(sectionHeading(2, 'Detalle de compra', 'cart'), detailRow.firstChild);
   discountRow.insertBefore(sectionHeading(3, 'Descuento', 'tag'), discountTypeLabel);

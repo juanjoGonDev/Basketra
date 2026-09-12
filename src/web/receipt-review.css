@@ -867,6 +867,9 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow-x: auto;
   gap: var(--space-1);
   padding-top: var(--space-1);
 }
@@ -1400,6 +1403,69 @@
   justify-content: center;
 }
 
+.receipt-live-summary__actions #confirm-receipt {
+  height: var(--touch);
+  min-height: var(--touch);
+  margin: 0;
+  padding: 0 var(--space-3);
+}
+
+.receipt-live-retailer__name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.receipt-live-retailer__name .icon-button {
+  width: 2rem;
+  min-width: 2rem;
+  height: 2rem;
+  min-height: 2rem;
+  padding: 0;
+}
+
+.receipt-picker {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.receipt-picker__results {
+  display: grid;
+  gap: var(--space-1);
+  min-height: 9rem;
+}
+
+.receipt-picker__row {
+  min-height: var(--touch);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-on-surface);
+  text-align: left;
+}
+
+.receipt-picker__row[aria-pressed="true"] {
+  border-color: var(--color-primary);
+  background: var(--color-primary-container);
+}
+
+.receipt-picker__row > span:last-child { display: grid; gap: .1rem; }
+.receipt-picker__row small { color: var(--color-on-surface-variant); }
+.receipt-picker__color { width: .75rem; height: .75rem; flex: 0 0 auto; border-radius: 50%; }
+.receipt-picker__pager { justify-content: space-between; padding-top: var(--space-2); }
+
+.receipt-line-store-context {
+  margin: 0;
+  color: var(--color-on-surface-variant);
+  font-size: .72rem;
+  line-height: 1.25;
+}
+
 .receipt-evidence-dialog {
   width: min(72rem, calc(100vw - var(--space-8)));
   max-width: 72rem;
@@ -1494,9 +1560,9 @@
 
 .receipt-add-menu {
   position: fixed;
-  z-index: 31;
+  z-index: 34;
   right: max(var(--space-4), env(safe-area-inset-right));
-  bottom: calc(var(--nav) + env(safe-area-inset-bottom) + var(--touch) + var(--space-6));
+  bottom: calc(var(--nav) + env(safe-area-inset-bottom) + (var(--touch) * 2) + var(--space-6));
   display: grid;
   justify-items: end;
   gap: var(--space-2);

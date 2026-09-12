@@ -767,8 +767,10 @@ export function pageStageDescription(page) {
   }
   if (page.status === 'completed') return page.aiStatus === 'completed'
     ? (page.directPdf ? 'PDF analizado con IA' : 'OCR corregido con IA')
-    : 'OCR listo para revisar';
-  if (page.status === 'manual') return 'OCR conservado; cantidades e importes requieren revisión manual';
+    : (page.directPdf ? 'PDF listo para revisar' : 'OCR listo para revisar');
+  if (page.status === 'manual') return page.directPdf
+    ? 'PDF conservado; cantidades e importes requieren revisión manual'
+    : 'OCR conservado; cantidades e importes requieren revisión manual';
   if (page.status === 'cancelled') return 'Esta imagen no se incluirá hasta reintentar';
   if (page.status === 'error') return page.directPdf
     ? 'El PDF se conserva para reintentar el análisis con IA'
@@ -777,28 +779,33 @@ export function pageStageDescription(page) {
 }
 
 export function pagePartialText(page) {
-  if (page.status === 'error') return page.error || 'No se pudo procesar esta imagen.';
+  if (page.status === 'error') return page.error || (page.directPdf
+    ? 'No se pudo analizar este PDF.'
+    : 'No se pudo procesar esta imagen.');
   const itemCount = page.result?.final?.items?.length;
   const ocrItemCount = page.ocrEvidence?.deterministic?.items?.length;
   if (page.directPdf && !Number.isSafeInteger(itemCount)) return '';
   const hasStructuredItems = Number.isSafeInteger(itemCount) && itemCount > 0;
   const hasOcrEvidence = (Number.isSafeInteger(ocrItemCount) && ocrItemCount > 0) || Boolean(page.rawText);
   if (page.status === 'manual' && !hasStructuredItems && !hasOcrEvidence) {
-    return 'Entrada manual pendiente; la captura original se conserva';
+    return page.directPdf
+      ? 'Revisión manual pendiente; el PDF original se conserva'
+      : 'Entrada manual pendiente; la captura original se conserva';
   }
   if (page.aiStatus === 'error') return page.aiError || (page.directPdf
     ? 'La IA no pudo analizar este PDF; el archivo original sigue disponible.'
     : 'La IA no pudo corregir esta imagen; el OCR local sigue disponible.');
   if (page.status === 'manual' && Number.isSafeInteger(itemCount)) {
-    return `${itemCount} ${itemCount === 1 ? 'línea OCR pendiente' : 'líneas OCR pendientes'} de revisión manual`;
+    const subject = page.directPdf ? 'línea del PDF' : 'línea OCR';
+    return `${itemCount} ${itemCount === 1 ? subject : `${subject}s`} pendientes de revisión manual`;
   }
   if (Number.isSafeInteger(itemCount)) {
     return `${itemCount} ${itemCount === 1 ? 'línea estructurada' : 'líneas estructuradas'}`;
   }
-  if (Number.isSafeInteger(ocrItemCount)) {
+  if (Number.isSafeInteger(ocrItemCount) && !page.directPdf) {
     return `${ocrItemCount} ${ocrItemCount === 1 ? 'producto OCR detectado' : 'productos OCR detectados'} · ${page.status === 'ai' ? 'IA verificando' : 'OCR conservado'}`;
   }
-  if (page.rawText) {
+  if (page.rawText && !page.directPdf) {
     const lines = page.rawText.split(/\r?\n/u).filter(line => line.trim()).length;
     return `${lines} ${lines === 1 ? 'línea OCR conservada' : 'líneas OCR conservadas'}`;
   }
