@@ -14,6 +14,7 @@ import {
   persistAndRenderCaptures,
   refreshReceiptAiLimitHelp,
   renderProgressiveDetectedItems,
+  showCaptureSourceEditor,
   showPreview,
   uploadFiles,
 } from './receipt-capture.js';

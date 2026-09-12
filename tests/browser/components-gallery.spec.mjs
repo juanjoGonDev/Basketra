@@ -148,3 +148,27 @@ test('direct PDF status copy never falls back to OCR terminology', async ({ page
   expect(messages.join(' ')).toMatch(/PDF/u);
   expect(messages.join(' ')).not.toMatch(/OCR/u);
 });
+
+test('detected-store edit opens the shared source editor for its capture', async ({ page }) => {
+  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify({ configured: false }),
+  }));
+  await page.route('**/api/v1/inventory/stores?*', route => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify({ stores: [] }),
+  }));
+  await page.goto('/');
+  await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
+  await page.evaluate(async () => {
+    const { state } = await import('/receipt-state.js');
+    state.captures = [{
+      storageKey: 'capture-source-editor-test', name: 'ticket.pdf', mimeType: 'application/pdf',
+      retailerName: 'Consum', storeName: 'VÍCAR', storeId: '',
+    }];
+    state.selectedReviewCaptureKey = 'capture-source-editor-test';
+  });
+  await page.getByRole('button', { name: 'Editar tienda detectada' }).click();
+  const dialog = page.locator('#receipt-source-editor');
+  await expect(dialog.locator('dialog')).toBeVisible();
+  await expect(dialog.locator('#receipt-source-retailer')).toHaveValue('Consum');
+  await expect(dialog.locator('#receipt-source-editor-title')).toHaveText('ticket.pdf');
+});

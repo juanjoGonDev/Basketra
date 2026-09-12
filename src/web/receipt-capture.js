@@ -437,7 +437,7 @@ function ensureSourceEditor() {
   const title = document.createElement('h2');
   title.id = 'receipt-source-editor-title';
   header.append(title);
-  const close = createAppButton({ label: 'Cerrar', icon: icon('close') });
+  const close = createAppButton({ label: '', variant: 'icon', icon: icon('close') });
   close.button.className = 'icon-button';
   close.button.setAttribute('aria-label', 'Cerrar');
   close.button.addEventListener('click', () => dialog.close());
