@@ -167,7 +167,7 @@ function installStoreView() {
           <p id="store-form-state" class="inline-status" role="status"></p>
         </form>
       </section>
-      <dialog id="store-delete-dialog" class="confirm-dialog" aria-labelledby="store-delete-title"><div class="dialog-content"><span class="dialog-icon" data-icon="alert"></span><h2 id="store-delete-title">Eliminar tienda</h2><p id="store-delete-impact">Comprobando dependencias…</p><p id="store-delete-state" class="inline-status" role="status"></p><div class="dialog-actions"><button id="store-delete-cancel" class="button secondary" type="button">Cancelar</button><button id="store-delete-confirm" class="button danger" type="button" disabled>Eliminar tienda</button></div></div></dialog>
+      <app-dialog id="store-delete-dialog" class="confirm-dialog" aria-labelledby="store-delete-title"><div class="dialog-content"><span class="dialog-icon" data-icon="alert"></span><h2 id="store-delete-title">Eliminar tienda</h2><p id="store-delete-impact">Comprobando dependencias…</p><p id="store-delete-state" class="inline-status" role="status"></p><div class="dialog-actions"><button id="store-delete-cancel" class="button secondary" type="button">Cancelar</button><button id="store-delete-confirm" class="button danger" type="button" disabled>Eliminar tienda</button></div></div></app-dialog>
     </section>`;
   hydrateIcons(view);
 }

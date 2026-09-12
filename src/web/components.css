@@ -1,0 +1,37 @@
+app-stack { display: grid; gap: var(--space-3); }
+app-inline { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+app-field { display: grid; gap: var(--space-1); min-width: 0; }
+app-field > span { color: var(--color-on-surface); font-size: .78rem; font-weight: 700; }
+app-field[data-state="error"] > small { color: var(--color-error); font-size: .75rem; }
+app-field :is(input, select) { width: 100%; min-width: 0; }
+app-select { display: block; min-width: 0; }
+app-button { display: inline-block; }
+
+app-dialog::part(native-dialog) {
+  width: min(32rem, calc(100vw - (var(--space-3) * 2)));
+  max-width: none;
+  max-height: min(42rem, calc(100dvh - (var(--space-3) * 2)));
+  margin: auto;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-md);
+  padding: 0;
+  color: var(--color-on-surface);
+  background: var(--color-surface);
+  box-shadow: 0 .5rem 1.5rem color-mix(in srgb, var(--color-scrim) 18%, transparent);
+}
+app-dialog::part(native-dialog)::backdrop { background: color-mix(in srgb, var(--color-scrim) 45%, transparent); }
+app-dialog::part(surface) { display: grid; max-height: inherit; }
+app-dialog::part(header), app-dialog::part(footer) { padding: var(--space-3) var(--space-4); }
+app-dialog::part(header) { border-bottom: 1px solid var(--color-outline-variant); }
+app-dialog::part(header)[hidden], app-dialog::part(footer)[hidden] { display: none; }
+app-dialog::part(body) { min-height: 0; overflow: auto; padding: var(--space-4); }
+app-dialog::part(footer) { border-top: 1px solid var(--color-outline-variant); }
+
+.app-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.app-dialog-header h2 { min-width: 0; margin: 0; overflow: hidden; font-size: 1rem; text-overflow: ellipsis; white-space: nowrap; }
+.app-dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+
+@media (max-width: 31.25rem) {
+  app-dialog::part(native-dialog) { width: calc(100vw - (var(--space-2) * 2)); }
+  app-dialog::part(header), app-dialog::part(body), app-dialog::part(footer) { padding-inline: var(--space-3); }
+}

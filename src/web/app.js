@@ -713,8 +713,8 @@ function setNavigationReady(ready) {
 
 function closeTransientOverlays() {
   closeReceiptLineEditor({ revert: true, focus: false });
-  document.querySelectorAll('dialog[open]').forEach(dialog => {
-    if (dialog instanceof HTMLDialogElement) dialog.close();
+  document.querySelectorAll('dialog[open], app-dialog').forEach(dialog => {
+    if (typeof dialog.close === 'function') dialog.close();
     else dialog.removeAttribute('open');
   });
 }

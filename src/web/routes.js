@@ -17,6 +17,7 @@ const BASE_PATH_BY_ROUTE = Object.freeze({
   'inventory-statistics': '/inventory/statistics',
   'ticket-history': '/tickets/history',
   settings: '/settings',
+  components: '/components',
 });
 
 const KNOWN_VIEW_ROUTES = new Set(Object.keys(BASE_PATH_BY_ROUTE));

@@ -5,6 +5,8 @@ export const STATIC_ASSETS = new Set([
   'routes.js',
   'catalog.js',
   'category-suggestion.js',
+  'components.js',
+  'components.css',
   'catalog.css',
   'inventory.js',
   'inventory.css',

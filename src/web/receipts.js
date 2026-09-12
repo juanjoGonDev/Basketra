@@ -26,6 +26,7 @@ import {
 import { cancelReceiptExtraction } from './receipt-processing.js';
 import { saveReceiptExtractionJobId } from './state.js';
 import { icon } from './ui.js';
+import { createAppButton, createAppDialog, createAppField, createAppSelect } from './components.js';
 import {
   addBlankLine,
   confirmReceipt,
@@ -398,19 +399,27 @@ export function installReceiptEnhancements() {
   }
 
   if (!$('#receipt-evidence-dialog')) {
-    const dialog = document.createElement('dialog');
-    dialog.id = 'receipt-evidence-dialog';
+    const dialog = createAppDialog({ id: 'receipt-evidence-dialog', label: 'Comprobante' });
     dialog.className = 'receipt-evidence-dialog';
-    dialog.setAttribute('aria-labelledby', 'receipt-evidence-title');
-    dialog.innerHTML = `
-      <header>
-        <div>
-          <h2 id="receipt-evidence-title">Comprobante</h2>
-          <label class="field" for="receipt-evidence-capture"><span>Archivo</span><select id="receipt-evidence-capture"></select></label>
-        </div>
-        <button id="close-receipt-evidence" class="icon-button" type="button" aria-label="Cerrar comprobante">${icon('close')}</button>
-      </header>
-      <div id="receipt-evidence-content" class="receipt-evidence-dialog__content"></div>`;
+    const header = document.createElement('div');
+    header.slot = 'header';
+    header.className = 'app-dialog-header';
+    const title = document.createElement('h2');
+    title.id = 'receipt-evidence-title';
+    title.textContent = 'Comprobante';
+    const close = createAppButton({ label: 'Cerrar', icon: icon('close') });
+    close.button.id = 'close-receipt-evidence';
+    close.button.className = 'icon-button';
+    close.button.setAttribute('aria-label', 'Cerrar comprobante');
+    header.append(title, close.component);
+    const body = document.createElement('app-stack');
+    body.slot = 'body';
+    const capture = createAppSelect({ id: 'receipt-evidence-capture', label: 'Archivo' });
+    const content = document.createElement('div');
+    content.id = 'receipt-evidence-content';
+    content.className = 'receipt-evidence-dialog__content';
+    body.append(capture.wrapper, content);
+    dialog.append(header, body);
     document.body.append(dialog);
   }
 

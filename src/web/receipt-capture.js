@@ -1,16 +1,17 @@
 import { api } from './api.js';
 import { saveCaptures } from './state.js';
 import { captureItem, formatEuroMinor, icon, swipeActionRail } from './ui.js';
+import { createAppButton, createAppDialog, createAppField, createAppSelect } from './components.js';
 import {
   ACTIVE_PAGE_STATUSES,
   REVIEWABLE_PAGE_STATUSES,
   PAGE_LABELS,
   $,
+  captureByKey,
   captureKey,
   createPageState,
   ensurePageStates,
   metadata,
-  openDialog,
   state,
   toast,
 } from './receipt-state.js';
@@ -431,17 +432,42 @@ async function populateSourceStoreOptions(retailer, selected = '') {
 function ensureSourceEditor() {
   let dialog = $('#receipt-source-editor');
   if (dialog) return dialog;
-  dialog = document.createElement('dialog');
-  dialog.id = 'receipt-source-editor';
-  dialog.className = 'receipt-source-editor';
-  dialog.innerHTML = `
-    <form method="dialog" class="receipt-source-editor__form">
-      <header><div><p class="eyebrow">Archivo</p><h2 id="receipt-source-editor-title">Editar archivo</h2></div><button class="icon-button" value="cancel" aria-label="Cerrar">${icon('close')}</button></header>
-      <label class="field"><span>Comercio</span><input id="receipt-source-retailer" required maxlength="120" autocomplete="organization"></label>
-      <label class="field"><span>Tienda</span><select id="receipt-source-store"></select></label>
-      <label class="field"><span>Nueva tienda</span><input id="receipt-source-store-name" maxlength="160" placeholder="Solo si no existe"></label>
-      <footer><button id="receipt-source-editor-save" class="button primary" type="button">Guardar archivo</button></footer>
-    </form>`;
+  dialog = createAppDialog({ id: 'receipt-source-editor', label: 'Editar archivo del ticket' });
+  const header = document.createElement('div');
+  header.slot = 'header';
+  header.className = 'app-dialog-header';
+  const title = document.createElement('h2');
+  title.id = 'receipt-source-editor-title';
+  header.append(title);
+  const close = createAppButton({ label: 'Cerrar', icon: icon('close') });
+  close.button.className = 'icon-button';
+  close.button.setAttribute('aria-label', 'Cerrar');
+  close.button.addEventListener('click', () => dialog.close());
+  header.append(close.component);
+
+  const body = document.createElement('app-stack');
+  body.slot = 'body';
+  const retailer = document.createElement('input');
+  retailer.id = 'receipt-source-retailer';
+  retailer.required = true;
+  retailer.maxLength = 120;
+  retailer.autocomplete = 'organization';
+  body.append(createAppField('Comercio', retailer));
+  const store = createAppSelect({ id: 'receipt-source-store', label: 'Tienda' });
+  body.append(store.wrapper);
+  const newStore = document.createElement('input');
+  newStore.id = 'receipt-source-store-name';
+  newStore.maxLength = 160;
+  newStore.placeholder = 'Solo si no existe';
+  body.append(createAppField('Nueva tienda', newStore));
+
+  const footer = document.createElement('app-inline');
+  footer.slot = 'footer';
+  footer.className = 'app-dialog-actions';
+  const save = createAppButton({ label: 'Guardar archivo', variant: 'primary' });
+  save.button.id = 'receipt-source-editor-save';
+  footer.append(save.component);
+  dialog.append(header, body, footer);
   document.body.append(dialog);
   $('#receipt-source-retailer').addEventListener('change', event => void populateSourceStoreOptions(event.target.value.trim()));
   $('#receipt-source-editor-save').addEventListener('click', async () => {
@@ -464,7 +490,7 @@ function ensureSourceEditor() {
       capture.storeId = storeId;
       capture.storeName = storeName;
       persistAndRenderCaptures();
-      closeDialog(dialog);
+      dialog.close();
       toast('Archivo actualizado');
     } catch {
       toast('No se pudo guardar el archivo');
@@ -486,7 +512,8 @@ export async function showCaptureSourceEditor(index) {
   $('#receipt-source-retailer').value = retailer;
   $('#receipt-source-store-name').value = '';
   await populateSourceStoreOptions(retailer, store);
-  openDialog(dialog);
+  dialog.showModal();
+  dialog.focus();
 }
 
 function pageDiagnostic(page) {

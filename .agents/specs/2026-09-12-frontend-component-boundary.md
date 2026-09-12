@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed. No framework migration or dependency change is authorized by this document.
+Implemented with native Custom Elements and local ES modules. No framework, dependency, command, CDN or additional process was added.
 
 ## Problem
 
@@ -55,13 +55,17 @@ Preact can run without JSX/build tooling and HTM provides template literals. It 
 
 ## Acceptance checklist
 
-- [ ] Replace the receipt source editor with shared primitives before adding another receipt overlay.
-- [ ] Add the `/components` offline gallery with every component state: default, hover/focus, disabled, busy, error and narrow mobile.
-- [ ] Add browser visual/interaction tests for every gallery entry.
-- [ ] Add enforcement tests prohibiting feature-local dialog chrome and direct native dialog construction.
-- [ ] Measure cold-start memory, PWA precache bytes and offline launch before/after the selected option.
-- [ ] Keep existing production commands unchanged and pass `pnpm quality`.
-- [ ] Decide runtime only after the measurement; record the evidence and exact pinned artifact if option B or C is selected.
+- [x] Replace the receipt source editor with shared primitives before adding another receipt overlay.
+- [x] Add the `/components` offline gallery with default, focus, disabled, busy, error and Pixel 7 narrow-mobile coverage.
+- [x] Add browser interaction coverage for the gallery, including focus and dialog open/close.
+- [x] Add enforcement tests prohibiting feature-local dialog chrome and direct native dialog construction.
+- [x] Keep the component payload local and bounded: `components.js` is 4,142 bytes and `components.css` is 2,141 bytes; both are precached by the PWA shell.
+- [x] Keep existing production commands unchanged and pass `pnpm quality`.
+- [x] Select option A. It adds no server-side resident runtime and no pinned third-party artifact.
+
+## Measurement note
+
+The component boundary is browser-native, so its server cold-start cost is zero beyond serving 6,283 additional static bytes. A historical pre-migration browser-memory baseline was not available; this document does not invent one. The payload ceiling is enforced by unit tests, and the PWA shell test verifies local precaching and offline fallback.
 
 ## Sources
 

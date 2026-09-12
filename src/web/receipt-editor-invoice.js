@@ -1,4 +1,5 @@
 import { euroInputToMinor, formatEuroMinor, hydrateIcons } from './ui.js';
+import { createAppDialog } from './components.js';
 
 const DIALOG_ID = 'receipt-line-dialog';
 const EDITOR_CALCULATION_FIELD_SELECTOR = '[data-field="quantity"], [data-field="unitPriceEuro"], [data-field="discountType"], [data-field="discountValue"], [data-field="discountQuantity"]';
@@ -30,8 +31,7 @@ export function createReceiptInvoiceLineDialog({
   className = '',
   actions = [],
 }) {
-  const dialog = document.createElement('dialog');
-  dialog.id = id;
+  const dialog = createAppDialog({ id, label: title });
   dialog.className = ['sheet-dialog', 'receipt-line-dialog', className].filter(Boolean).join(' ');
   dialog.setAttribute('aria-labelledby', titleId);
 
@@ -94,6 +94,7 @@ export function createReceiptInvoiceLineDialog({
   content.append(header, slot);
   if (state) content.append(state);
   content.append(actionBar);
+  content.slot = 'body';
   dialog.append(content);
   hydrateIcons(dialog);
   return dialog;
@@ -186,7 +187,7 @@ function createSummaryStatus() {
 }
 
 function createSummary(item) {
-  const summaryTitleId = `${item.closest('dialog')?.id || DIALOG_ID}-summary-title`;
+  const summaryTitleId = `${item.closest('app-dialog')?.id || DIALOG_ID}-summary-title`;
   const summary = document.createElement('aside');
   summary.className = 'receipt-line-editor-summary';
   summary.setAttribute('aria-labelledby', summaryTitleId);
@@ -545,7 +546,7 @@ export function refreshReceiptInvoiceEditor(dialog) {
 }
 
 export function enhanceReceiptInvoiceEditor(dialog) {
-  if (!(dialog instanceof HTMLDialogElement)) return;
+  if (!(dialog instanceof HTMLDialogElement) && dialog?.tagName !== 'APP-DIALOG') return;
   if (dialog.dataset.invoiceEditorUi === 'true') {
     refreshReceiptInvoiceEditor(dialog);
     return;

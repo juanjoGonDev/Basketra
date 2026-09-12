@@ -8,6 +8,8 @@ const SHELL = [
   '/routes.js',
   '/catalog.js',
   '/category-suggestion.js',
+  '/components.js',
+  '/components.css',
   '/catalog.css',
   '/inventory.js',
   '/inventory.css',

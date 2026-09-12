@@ -482,7 +482,8 @@ function restoredEditorRootFromClick(event) {
 
 function restoredEditorRootFromCancel(event) {
   const dialog = event.target;
-  if (!(dialog instanceof HTMLDialogElement) || dialog.id !== 'receipt-line-dialog') return undefined;
+  if (!(dialog instanceof HTMLDialogElement) && dialog?.tagName !== 'APP-DIALOG') return undefined;
+  if (dialog.id !== 'receipt-line-dialog') return undefined;
   return dialog.querySelector('.receipt-item, [data-receipt-line-editor]');
 }
 

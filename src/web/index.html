@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/modern.css">
   <link rel="stylesheet" href="/theme.css">
+  <link rel="stylesheet" href="/components.css">
   <link rel="stylesheet" href="/operations.css">
   <title>Basketra</title>
 </head>
@@ -181,25 +182,38 @@
       <details class="surface settings-advanced-source" hidden><summary>Diagnóstico técnico</summary><pre id="diagnostics" aria-live="polite"></pre></details>
       <button id="download-backup" class="button secondary full"><span data-icon="backup"></span>Crear copia de seguridad</button>
     </section>
+
+    <section class="view" data-view="components" aria-labelledby="components-title">
+      <div class="page-header"><div><h1 id="components-title">Componentes</h1><p>Estados reutilizables del sistema de interfaz.</p></div></div>
+      <section class="surface component-gallery" aria-label="Galería de componentes">
+        <app-stack>
+          <app-field><span>Campo</span><input value="Texto de ejemplo" aria-label="Campo de ejemplo"></app-field>
+          <app-field data-state="error"><span>Campo con error</span><input value="" aria-label="Campo de ejemplo con error" aria-invalid="true"><small>Este campo necesita una corrección.</small></app-field>
+          <app-select><app-field><span>Selector</span><select aria-label="Selector de ejemplo"><option>Opción seleccionada</option></select></app-field></app-select>
+          <app-inline><app-button data-variant="primary"><button class="button primary" type="button">Principal</button></app-button><app-button data-variant="secondary"><button class="button secondary" type="button">Secundario</button></app-button><app-button data-variant="danger"><button class="button danger" type="button">Eliminar</button></app-button><app-button><button class="button secondary" type="button" aria-busy="true" disabled>Guardando</button></app-button><app-button><button class="button secondary" type="button" data-component-dialog-trigger>Abrir diálogo</button></app-button></app-inline>
+        </app-stack>
+      </section>
+      <app-dialog id="components-demo-dialog" aria-label="Diálogo de ejemplo"><div slot="header" class="app-dialog-header"><h2>Diálogo compartido</h2><app-button><button class="icon-button" type="button" aria-label="Cerrar" data-component-dialog-close>×</button></app-button></div><app-stack slot="body"><p>El mismo contenedor usa cabecera, cuerpo, pie y límites responsivos compartidos.</p><app-field><span>Campo</span><input aria-label="Campo del diálogo"></app-field></app-stack><app-inline slot="footer" class="app-dialog-actions"><app-button><button class="button secondary" type="button" data-component-dialog-close>Cancelar</button></app-button><app-button><button class="button primary" type="button" data-component-dialog-close>Guardar</button></app-button></app-inline></app-dialog>
+    </section>
   </main>
 
-  <dialog id="create-list-dialog" class="sheet-dialog" aria-labelledby="create-list-title">
+  <app-dialog id="create-list-dialog" class="sheet-dialog" aria-labelledby="create-list-title">
     <form id="new-list-form" class="dialog-content">
       <div class="dialog-header"><div><p class="eyebrow">Nueva lista</p><h2 id="create-list-title">Ponle un nombre</h2></div><button class="icon-button" type="button" data-close-dialog="create-list-dialog" aria-label="Cerrar"><span data-icon="close"></span></button></div>
       <label class="field"><span>Nombre</span><input id="new-list-name" maxlength="80" autocomplete="off" placeholder="Ej. Compra semanal" required></label>
       <div class="dialog-actions"><button class="button secondary" type="button" data-close-dialog="create-list-dialog">Cancelar</button><button class="button primary" type="submit"><span data-icon="plus"></span>Crear lista</button></div>
     </form>
-  </dialog>
+  </app-dialog>
 
-  <dialog id="rename-list-dialog" class="sheet-dialog" aria-labelledby="rename-list-title">
+  <app-dialog id="rename-list-dialog" class="sheet-dialog" aria-labelledby="rename-list-title">
     <form id="rename-list-form" class="dialog-content">
       <div class="dialog-header"><div><p class="eyebrow">Lista</p><h2 id="rename-list-title">Renombrar lista</h2></div><button class="icon-button" type="button" data-close-dialog="rename-list-dialog" aria-label="Cerrar"><span data-icon="close"></span></button></div>
       <label class="field"><span>Nombre</span><input id="rename-list-name" maxlength="80" required></label>
       <div class="dialog-actions"><button class="button secondary" type="button" data-close-dialog="rename-list-dialog">Cancelar</button><button class="button primary" type="submit">Guardar</button></div>
     </form>
-  </dialog>
+  </app-dialog>
 
-  <dialog id="item-dialog" class="sheet-dialog item-sheet" aria-labelledby="item-form-title">
+  <app-dialog id="item-dialog" class="sheet-dialog item-sheet" aria-labelledby="item-form-title">
     <form id="item-form" class="dialog-content item-editor">
       <div class="dialog-header"><div><p class="eyebrow">Lista de la compra</p><h2 id="item-form-title">Nuevo ítem</h2></div><button id="close-item-dialog" class="icon-button" type="button" aria-label="Cerrar"><span data-icon="close"></span></button></div>
 
@@ -257,9 +271,9 @@
       <p id="product-photo-state" class="inline-status" role="status"></p>
       <p id="item-dialog-state" class="inline-status" role="status"></p>
     </form>
-  </dialog>
+  </app-dialog>
 
-  <dialog id="global-product-dialog" class="sheet-dialog product-sheet" aria-labelledby="global-product-title">
+  <app-dialog id="global-product-dialog" class="sheet-dialog product-sheet" aria-labelledby="global-product-title">
     <form id="global-product-form" class="dialog-content product-editor">
       <div class="dialog-header"><div><p class="eyebrow">Catálogo</p><h2 id="global-product-title">Crear producto</h2><small>Completa los datos o escanea</small></div><button class="icon-button" type="button" data-close-dialog="global-product-dialog" aria-label="Cerrar"><span data-icon="close"></span></button></div>
 
@@ -334,9 +348,9 @@
       <p id="global-product-state" class="inline-status" role="status"></p>
       <div class="dialog-actions"><button class="button secondary" type="button" data-close-dialog="global-product-dialog">Cancelar</button><button id="global-product-submit" class="button primary" type="submit"><span id="global-product-submit-label">Crear y añadir</span></button></div>
     </form>
-  </dialog>
+  </app-dialog>
 
-  <dialog id="ai-assistant-dialog" class="sheet-dialog" aria-labelledby="ai-assistant-title">
+  <app-dialog id="ai-assistant-dialog" class="sheet-dialog" aria-labelledby="ai-assistant-title">
     <div class="dialog-content">
       <div class="dialog-header"><div><p class="eyebrow">Asistencia opcional</p><h2 id="ai-assistant-title">Añadir chateando con IA</h2></div><button class="icon-button" type="button" data-close-dialog="ai-assistant-dialog" aria-label="Cerrar"><span data-icon="close"></span></button></div>
       <label class="field"><span>Describe lo que necesitas</span><textarea id="ai-text" maxlength="2000" placeholder="Leche, pan integral y dos paquetes de arroz"></textarea></label>
@@ -348,27 +362,27 @@
       <span id="ai-state" class="inline-status" role="status"></span>
       <form id="ai-proposals" class="proposal-panel" hidden></form>
     </div>
-  </dialog>
+  </app-dialog>
 
-  <dialog id="conflict-dialog" class="sheet-dialog" aria-labelledby="conflict-title">
+  <app-dialog id="conflict-dialog" class="sheet-dialog" aria-labelledby="conflict-title">
     <div class="dialog-content">
       <div class="dialog-header"><div><p class="eyebrow">Cambio simultáneo</p><h2 id="conflict-title">Este producto cambió en el otro móvil</h2></div><button class="icon-button" type="button" data-close-dialog="conflict-dialog" aria-label="Cerrar"><span data-icon="close"></span></button></div>
       <p>Compara tu edición con la versión más reciente antes de decidir.</p>
       <div id="conflict-fields" class="conflict-grid"></div>
       <div class="dialog-actions"><button id="use-latest-conflict" class="button secondary" type="button">Usar última versión</button><button id="use-my-conflict" class="button primary" type="button">Usar mis cambios</button></div>
     </div>
-  </dialog>
+  </app-dialog>
 
-  <dialog id="delete-list-dialog" class="confirm-dialog" aria-labelledby="delete-list-title">
+  <app-dialog id="delete-list-dialog" class="confirm-dialog" aria-labelledby="delete-list-title">
     <div class="dialog-content">
       <span class="dialog-icon" data-icon="alert"></span>
       <h2 id="delete-list-title">Eliminar lista</h2>
       <p>Se eliminará <strong id="delete-list-name"></strong> y todos sus productos. Esta acción no se puede deshacer.</p>
       <div class="dialog-actions"><button id="cancel-delete-list" class="button secondary" type="button">Cancelar</button><button id="confirm-delete-list" class="button danger" type="button">Eliminar lista</button></div>
     </div>
-  </dialog>
+  </app-dialog>
 
-  <dialog id="bulk-delete-dialog" class="confirm-dialog" aria-labelledby="bulk-delete-title">
+  <app-dialog id="bulk-delete-dialog" class="confirm-dialog" aria-labelledby="bulk-delete-title">
     <div class="dialog-content">
       <span class="dialog-icon" data-icon="alert"></span>
       <h2 id="bulk-delete-title">Eliminar seleccionados</h2>
@@ -376,21 +390,21 @@
       <p id="bulk-delete-state" class="inline-status" role="status"></p>
       <div class="dialog-actions"><button id="cancel-bulk-delete" class="button secondary" type="button">Cancelar</button><button id="confirm-bulk-delete" class="button danger" type="button">Eliminar seleccionados</button></div>
     </div>
-  </dialog>
+  </app-dialog>
 
-  <dialog id="delete-item-dialog" class="confirm-dialog" aria-labelledby="delete-item-title">
+  <app-dialog id="delete-item-dialog" class="confirm-dialog" aria-labelledby="delete-item-title">
     <div class="dialog-content">
       <span class="dialog-icon" data-icon="alert"></span>
       <h2 id="delete-item-title">Eliminar producto</h2>
       <p>¿Quieres retirar <strong id="delete-item-name"></strong> de esta lista?</p>
       <div class="dialog-actions"><button id="cancel-delete-item" class="button secondary" type="button">Cancelar</button><button id="confirm-delete-item" class="button danger" type="button">Eliminar producto</button></div>
     </div>
-  </dialog>
+  </app-dialog>
 
-  <dialog id="capture-preview-dialog" class="preview-dialog" aria-labelledby="capture-preview-name">
+  <app-dialog id="capture-preview-dialog" class="preview-dialog" aria-labelledby="capture-preview-name">
     <div class="preview-dialog__header"><strong id="capture-preview-name">Vista previa</strong><button id="close-capture-preview" class="icon-button" type="button" aria-label="Cerrar vista previa"><span data-icon="close"></span></button></div>
     <img id="capture-preview-image" alt="">
-  </dialog>
+  </app-dialog>
 
   <nav class="bottom-nav" aria-label="Navegación principal">
     <button data-nav="home" aria-current="page"><span data-icon="home"></span><span>Inicio</span></button>
@@ -402,6 +416,7 @@
   <div id="toast" role="status" aria-live="polite"><span id="toast-message"></span><button id="toast-action" type="button" hidden></button></div>
   <script type="module" src="/shopping-list-density.js"></script>
   <script type="module" src="/ticket-history.js"></script>
+  <script type="module" src="/components.js"></script>
   <script type="module" src="/app.js"></script>
   <script type="module" src="/catalog.js"></script>
   <script type="module" src="/inventory.js"></script>
