@@ -27,3 +27,28 @@ PDF receipts must bypass OCR completely, display a compact processing queue, and
 - Unit coverage for direct-PDF completed-progress serialization and redaction.
 - Browser coverage for direct-PDF progressive items, category marker visibility, OCR-free queue content, compact collapsed details, and accessible icon controls.
 - Durable runner/client integration coverage remains the authority for direct PDF WebAPI requests and terminal result persistence.
+
+## Focused validation workspace
+
+### Request
+
+The detected-items list is the sole review surface. Operators edit and validate an individual line from its modal; the ticket-wide validation and import actions live directly below the calculated total. Evidence must be reachable from that compact action area and support both images and original PDFs.
+
+### Decision
+
+- The internal line form remains mounted only as the editor model; its prior expandable review panel is not exposed in the ticket workspace.
+- Each final detected line exposes one direct edit action that opens the existing line modal. The modal provides a line-validation action which saves the edit before checking that one line.
+- The live ticket summary owns ticket-wide validation, confirmation, and evidence controls, and they appear only when there are detected lines.
+- Original images are rendered in the evidence dialog. PDFs use a dedicated same-origin, no-store document endpoint with an inline disposition; the image-preview endpoint continues to reject PDFs.
+
+### Acceptance
+
+8. The large expandable review/editor surface is absent from the ticket workspace after an extraction; detected lines remain the only visible line list.
+9. A detected final line opens the editable modal, and its modal validation action checks the saved line.
+10. With lines present, the calculated-total summary exposes validate, confirm, and evidence actions; with no lines none of them is exposed.
+11. The evidence dialog switches between captures, displays images, and embeds original PDFs through the dedicated document endpoint. The existing image preview endpoint still rejects PDFs.
+
+### Tests
+
+- Browser coverage for list-only validation, modal line validation, summary action visibility, and image/PDF evidence switching.
+- Server coverage for the isolated no-store PDF document endpoint and continued rejection from the image endpoint.
