@@ -7,7 +7,7 @@ test('offline component gallery exposes shared controls and dialog behavior', as
 
   await expect(page.locator('.view[data-view="components"]')).toBeVisible();
   await expect(page.locator('.view[data-view="components"] app-field')).toHaveCount(4);
-  await expect(page.locator('app-button button[disabled]')).toBeDisabled();
+  await expect(page.locator('.view[data-view="components"] app-button button[disabled]')).toBeDisabled();
   await expect(page.locator('app-field[data-state="error"] input')).toHaveAttribute('aria-invalid', 'true');
   const primaryButton = page.getByRole('button', { name: 'Principal' });
   await primaryButton.hover();
@@ -38,16 +38,29 @@ test('receipt layout keeps measured edge padding and compact action heights', as
     actions.className = 'receipt-live-summary__actions';
     actions.append(confirm);
     document.body.append(actions);
+    const queue = document.createElement('section');
+    queue.className = 'receipt-source-queue';
+    const actionRow = document.createElement('div');
+    actionRow.className = 'capture-card__action-row';
+    for (let index = 0; index < 4; index += 1) actionRow.append(document.createElement('button'));
+    queue.append(actionRow);
+    document.body.append(queue);
     return {
       rowPaddingLeft: Number.parseFloat(getComputedStyle(row).paddingLeft),
       rowPaddingRight: Number.parseFloat(getComputedStyle(row).paddingRight),
       confirmHeight: Number.parseFloat(getComputedStyle(confirm).minHeight),
       actionPadding: Number.parseFloat(getComputedStyle(actions).paddingLeft),
+      actionGap: Number.parseFloat(getComputedStyle(actions).gap),
+      queueActionWrap: getComputedStyle(actionRow).flexWrap,
+      queueActionTops: [...actionRow.children].map(button => button.getBoundingClientRect().top),
     };
   });
   expect(metrics.rowPaddingLeft).toBeGreaterThanOrEqual(8);
   expect(metrics.rowPaddingRight).toBeGreaterThanOrEqual(8);
-  expect(metrics.actionPadding).toBeGreaterThanOrEqual(8);
+  expect(metrics.actionPadding).toBeGreaterThanOrEqual(12);
+  expect(metrics.actionGap).toBeGreaterThanOrEqual(8);
+  expect(metrics.queueActionWrap).toBe('nowrap');
+  expect(new Set(metrics.queueActionTops).size).toBe(1);
   expect(metrics.confirmHeight).toBeGreaterThanOrEqual(40);
 });
 
@@ -171,4 +184,6 @@ test('detected-store edit opens the shared source editor for its capture', async
   await expect(dialog.locator('dialog')).toBeVisible();
   await expect(dialog.locator('#receipt-source-retailer')).toHaveValue('Consum');
   await expect(dialog.locator('#receipt-source-editor-title')).toHaveText('ticket.pdf');
+  await expect(dialog.locator('.app-dialog-header .eyebrow')).toHaveText('Archivo del ticket');
+  await expect(dialog.getByRole('button', { name: 'Cerrar' })).toHaveText('×');
 });

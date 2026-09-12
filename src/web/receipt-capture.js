@@ -1,7 +1,7 @@
 import { api } from './api.js';
 import { saveCaptures } from './state.js';
 import { captureItem, formatEuroMinor, icon, swipeActionRail } from './ui.js';
-import { createAppButton, createAppDialog, createAppField, createAppSelect } from './components.js';
+import { createAppButton, createAppDialog, createAppDialogHeader, createAppField, createAppSelect } from './components.js';
 import {
   ACTIVE_PAGE_STATUSES,
   REVIEWABLE_PAGE_STATUSES,
@@ -431,17 +431,12 @@ function ensureSourceEditor() {
   let dialog = $('#receipt-source-editor');
   if (dialog) return dialog;
   dialog = createAppDialog({ id: 'receipt-source-editor', label: 'Editar archivo del ticket' });
-  const header = document.createElement('div');
+  const { header } = createAppDialogHeader({
+    title: '',
+    titleId: 'receipt-source-editor-title',
+    eyebrow: 'Archivo del ticket',
+  });
   header.slot = 'header';
-  header.className = 'app-dialog-header';
-  const title = document.createElement('h2');
-  title.id = 'receipt-source-editor-title';
-  header.append(title);
-  const close = createAppButton({ label: '', variant: 'icon', icon: icon('close') });
-  close.button.className = 'icon-button';
-  close.button.setAttribute('aria-label', 'Cerrar');
-  close.button.addEventListener('click', () => dialog.close());
-  header.append(close.component);
 
   const body = document.createElement('app-stack');
   body.slot = 'body';
@@ -462,9 +457,11 @@ function ensureSourceEditor() {
   const footer = document.createElement('app-inline');
   footer.slot = 'footer';
   footer.className = 'app-dialog-actions';
+  const cancel = createAppButton({ label: 'Cancelar' });
+  cancel.button.dataset.componentDialogClose = 'true';
   const save = createAppButton({ label: 'Guardar archivo', variant: 'primary' });
   save.button.id = 'receipt-source-editor-save';
-  footer.append(save.component);
+  footer.append(cancel.component, save.component);
   dialog.append(header, body, footer);
   document.body.append(dialog);
   $('#receipt-source-retailer').addEventListener('change', event => void populateSourceStoreOptions(event.target.value.trim()));

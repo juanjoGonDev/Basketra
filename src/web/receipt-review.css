@@ -863,6 +863,14 @@
   display: none;
 }
 
+.receipt-source-queue .capture-card__details[data-state="completed"] .capture-card__progress {
+  display: flex;
+  min-height: 2rem;
+  align-items: center;
+  justify-content: flex-end;
+  padding-top: var(--space-1);
+}
+
 .receipt-source-queue .capture-card__action-row {
   display: flex;
   align-items: center;
@@ -871,7 +879,8 @@
   min-width: 0;
   overflow-x: auto;
   gap: var(--space-1);
-  padding-top: var(--space-1);
+  width: 100%;
+  padding: 0;
 }
 
 .receipt-source-queue .capture-card__action-row .capture-card__action,
@@ -1394,8 +1403,8 @@
 
 .receipt-live-summary__actions {
   display: grid;
-  gap: var(--space-2);
-  padding: var(--space-3);
+  gap: var(--space-3);
+  padding: var(--space-4);
   border-top: 1px solid var(--color-outline-variant);
 }
 

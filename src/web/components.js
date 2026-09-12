@@ -62,6 +62,38 @@ export function createAppDialog({ id, label }) {
   return dialog;
 }
 
+/**
+ * Builds the chrome shared by every application dialog. Feature modules may
+ * supply their title and content, but the header spacing and dismissal affordance
+ * deliberately stay in one place.
+ */
+export function createAppDialogHeader({ title, titleId = '', eyebrow = '', className = '' } = {}) {
+  const header = document.createElement('div');
+  header.className = ['app-dialog-header', className].filter(Boolean).join(' ');
+  const copy = document.createElement('div');
+  copy.className = 'app-dialog-header__copy';
+  if (eyebrow) {
+    const label = document.createElement('p');
+    label.className = 'eyebrow';
+    label.textContent = eyebrow;
+    copy.append(label);
+  }
+  const heading = document.createElement('h2');
+  if (titleId) heading.id = titleId;
+  heading.textContent = title || '';
+  copy.append(heading);
+
+  const { component: closeComponent, button: close } = createAppButton({ label: '', variant: 'icon' });
+  closeComponent.classList.add('app-dialog-close');
+  close.className = 'icon-button app-dialog-close__button';
+  close.dataset.componentDialogClose = 'true';
+  close.setAttribute('aria-label', 'Cerrar');
+  close.setAttribute('title', 'Cerrar');
+  close.textContent = '×';
+  header.append(copy, closeComponent);
+  return { header, close, closeComponent };
+}
+
 export function createAppField(label, control) {
   const field = document.createElement('app-field');
   const caption = document.createElement('span');

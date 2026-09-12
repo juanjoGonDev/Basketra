@@ -15,7 +15,7 @@ import {
 import { localDateBoundaryIso, parsePercentageBasisPoints } from './ticket-history-values.js';
 import { createPagedSelection, syncPagedSelectionDom } from './entity-selection.js';
 import { bindCategorySuggestion } from './category-suggestion.js';
-import { createAppDialog } from './components.js';
+import { createAppButton, createAppDialog, createAppDialogHeader } from './components.js';
 import {
   readApplicationLocation,
   readRouteEnum,
@@ -192,11 +192,22 @@ function installHistoryView() {
   enhanceReceiptInvoiceEditor(lineDialog);
   const deleteDialog = createAppDialog({ id: 'ticket-history-delete-dialog', label: 'Eliminar ticket' });
   deleteDialog.className = 'confirm-dialog';
+  const { header } = createAppDialogHeader({ title: 'Eliminar ticket', titleId: 'ticket-history-delete-title' });
+  header.slot = 'header';
   const content = document.createElement('div');
   content.slot = 'body';
   content.className = 'dialog-content';
-  content.innerHTML = `<span class="dialog-icon" data-icon="alert"></span><h2 id="ticket-history-delete-title">Eliminar ticket</h2><p id="ticket-history-delete-identity"></p><p id="ticket-history-delete-impact">Comprobando evidencia histórica…</p><p id="ticket-history-delete-state" class="inline-status" role="status"></p><div class="dialog-actions"><button id="ticket-history-delete-cancel" class="button secondary" type="button">Cancelar</button><button id="ticket-history-delete-confirm" class="button danger" type="button" disabled>Eliminar ticket y datos</button></div>`;
-  deleteDialog.append(content);
+  content.innerHTML = `<span class="dialog-icon" data-icon="alert"></span><p id="ticket-history-delete-identity"></p><p id="ticket-history-delete-impact">Comprobando evidencia histórica…</p><p id="ticket-history-delete-state" class="inline-status" role="status"></p>`;
+  const footer = document.createElement('app-inline');
+  footer.slot = 'footer';
+  footer.className = 'app-dialog-actions';
+  const cancel = createAppButton({ label: 'Cancelar' });
+  cancel.button.id = 'ticket-history-delete-cancel';
+  const confirmDeleteButton = createAppButton({ label: 'Eliminar ticket y datos', variant: 'danger' });
+  confirmDeleteButton.button.id = 'ticket-history-delete-confirm';
+  confirmDeleteButton.button.disabled = true;
+  footer.append(cancel.component, confirmDeleteButton.component);
+  deleteDialog.append(header, content, footer);
   document.body.append(deleteDialog);
 
   hydrateIcons(view);

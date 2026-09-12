@@ -1,5 +1,5 @@
 import { euroInputToMinor, formatEuroMinor, hydrateIcons } from './ui.js';
-import { createAppDialog } from './components.js';
+import { createAppDialog, createAppDialogHeader } from './components.js';
 
 const DIALOG_ID = 'receipt-line-dialog';
 const EDITOR_CALCULATION_FIELD_SELECTOR = '[data-field="quantity"], [data-field="unitPriceEuro"], [data-field="discountType"], [data-field="discountValue"], [data-field="discountQuantity"]';
@@ -39,27 +39,15 @@ export function createReceiptInvoiceLineDialog({
   content.className = 'dialog-content';
   if (contentId) content.id = contentId;
 
-  const header = document.createElement('div');
-  header.className = 'dialog-header';
-  const copy = document.createElement('div');
-  const eyebrow = document.createElement('p');
-  eyebrow.className = 'eyebrow';
-  eyebrow.textContent = 'Línea del ticket';
-  const heading = document.createElement('h2');
-  heading.id = titleId;
-  heading.textContent = title;
-  copy.append(eyebrow, heading);
-
-  const close = document.createElement('button');
+  const { header, close } = createAppDialogHeader({
+    title,
+    titleId,
+    eyebrow: 'Línea del ticket',
+    className: 'dialog-header',
+  });
   close.id = closeId;
-  close.className = 'icon-button';
-  close.type = 'button';
   close.dataset.editorAction = 'close';
   close.setAttribute('aria-label', 'Cerrar editor');
-  const closeIcon = document.createElement('span');
-  closeIcon.dataset.icon = 'close';
-  close.append(closeIcon);
-  header.append(copy, close);
 
   const slot = document.createElement('div');
   slot.id = slotId;
@@ -218,7 +206,7 @@ function editorHeaderValidation(dialog) {
   status.dataset.editorValidation = 'true';
   status.setAttribute('role', 'status');
   const closeButton = editorAction(dialog, 'close');
-  if (closeButton) header.insertBefore(status, closeButton);
+  if (closeButton) header.insertBefore(status, closeButton.closest('app-button') || closeButton);
   else header.append(status);
   return status;
 }

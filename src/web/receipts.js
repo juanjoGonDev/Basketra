@@ -27,7 +27,7 @@ import {
 import { cancelReceiptExtraction } from './receipt-processing.js';
 import { saveReceiptExtractionJobId } from './state.js';
 import { icon } from './ui.js';
-import { createAppButton, createAppDialog, createAppField, createAppSelect } from './components.js';
+import { createAppButton, createAppDialog, createAppDialogHeader, createAppField, createAppSelect } from './components.js';
 import {
   addBlankLine,
   confirmReceipt,
@@ -402,17 +402,13 @@ export function installReceiptEnhancements() {
   if (!$('#receipt-evidence-dialog')) {
     const dialog = createAppDialog({ id: 'receipt-evidence-dialog', label: 'Comprobante' });
     dialog.className = 'receipt-evidence-dialog';
-    const header = document.createElement('div');
+    const { header, close } = createAppDialogHeader({
+      title: 'Comprobante',
+      titleId: 'receipt-evidence-title',
+    });
     header.slot = 'header';
-    header.className = 'app-dialog-header';
-    const title = document.createElement('h2');
-    title.id = 'receipt-evidence-title';
-    title.textContent = 'Comprobante';
-    const close = createAppButton({ label: 'Cerrar', icon: icon('close') });
-    close.button.id = 'close-receipt-evidence';
-    close.button.className = 'icon-button';
-    close.button.setAttribute('aria-label', 'Cerrar comprobante');
-    header.append(title, close.component);
+    close.id = 'close-receipt-evidence';
+    close.setAttribute('aria-label', 'Cerrar comprobante');
     const body = document.createElement('app-stack');
     body.slot = 'body';
     const capture = createAppSelect({ id: 'receipt-evidence-capture', label: 'Archivo' });

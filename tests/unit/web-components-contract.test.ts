@@ -13,6 +13,7 @@ test('shared native web components own the dialog and form primitives', () => {
     assert.match(css, new RegExp(name));
   }
   assert.match(components, /createAppDialog/);
+  assert.match(components, /createAppDialogHeader/);
   assert.match(components, /showModal/);
 });
 
@@ -27,6 +28,7 @@ test('features cannot construct native dialogs outside the shared component modu
   assert.doesNotMatch(read(`${webRoot}/index.html`), /<dialog\b/u);
   const receiptCapture = read(`${webRoot}/receipt-capture.js`);
   assert.match(receiptCapture, /createAppDialog/);
+  assert.match(receiptCapture, /createAppDialogHeader/);
   assert.doesNotMatch(receiptCapture, /receipt-source-editor__|document\.createElement\(['"]dialog['"]\)/u);
 });
 
@@ -52,12 +54,14 @@ test('receipt line pickers use shared dialogs and the invoice refresh supports t
   const worker = read(`${webRoot}/sw.js`);
   const assets = read('src/api/static-assets.ts');
   assert.match(pickers, /createAppDialog/u);
+  assert.match(pickers, /createAppDialogHeader/u);
   assert.match(pickers, /createAppField/u);
   assert.match(pickers, /PAGE_SIZE = 6/u);
   assert.match(pickers, /\/api\/v1\/categories/u);
   assert.match(pickers, /\/api\/v1\/catalog\?q=/u);
   assert.match(pickers, /\/api\/v1\/products/u);
   assert.match(invoice, /item\.closest\('app-dialog\.receipt-invoice-dialog, dialog\.receipt-invoice-dialog'\)/u);
+  assert.match(invoice, /createAppDialogHeader/u);
   assert.match(app, /refreshReceiptInvoiceEditor\(dialog\)/u);
   assert.match(worker, /'\/receipt-line-pickers\.js'/u);
   assert.match(assets, /'receipt-line-pickers\.js'/u);

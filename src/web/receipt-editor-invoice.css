@@ -28,7 +28,7 @@
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: .8rem;
-  padding: 1rem 1rem .9rem;
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--invoice-divider);
   background: var(--color-surface);
 }

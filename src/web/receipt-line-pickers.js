@@ -1,33 +1,15 @@
 import { api } from './api.js';
-import { createAppButton, createAppDialog, createAppField } from './components.js';
+import { createAppButton, createAppDialog, createAppDialogHeader, createAppField } from './components.js';
 
 const PAGE_SIZE = 6;
-
-function closeButton(dialog) {
-  const { component, button } = createAppButton({ label: 'Cerrar', variant: 'icon' });
-  component.classList.add('receipt-picker__close');
-  button.setAttribute('aria-label', 'Cerrar');
-  button.textContent = '×';
-  button.addEventListener('click', () => dialog.close());
-  return component;
-}
 
 function pickerDialog({ id, title, eyebrow }) {
   document.getElementById(id)?.remove();
   const dialog = createAppDialog({ id, label: title });
   dialog.dataset.size = 'picker';
   dialog.classList.add('receipt-picker-dialog');
-  const header = document.createElement('div');
-  header.className = 'app-dialog-header receipt-picker__header';
+  const { header } = createAppDialogHeader({ title, eyebrow });
   header.slot = 'header';
-  const copy = document.createElement('div');
-  const label = document.createElement('p');
-  label.className = 'eyebrow';
-  label.textContent = eyebrow;
-  const heading = document.createElement('h2');
-  heading.textContent = title;
-  copy.append(label, heading);
-  header.append(copy, closeButton(dialog));
   dialog.append(header);
   document.body.append(dialog);
   dialog.addEventListener('close', () => dialog.remove(), { once: true });
