@@ -17,8 +17,6 @@ import {
 } from './receipt-state.js';
 import {
   clearReceiptExtractionJob,
-  currentElapsed,
-  formatElapsed,
   rebuildCombinedReview,
   startAutomaticCaptureProcessing,
   updateGlobalProgress,
@@ -571,10 +569,12 @@ function appendProgressiveOcrEvidence(section, page) {
 export function renderCaptureProgress(card, capture, index) {
   const key = captureKey(capture);
   const page = state.pageStates.get(key) ?? createPageState();
+  page.directPdf ||= capture.mimeType === 'application/pdf';
   const active = ACTIVE_PAGE_STATUSES.has(page.status);
   const details = document.createElement('details');
   details.className = 'capture-card__details';
   details.dataset.capturePageProgress = key;
+  details.dataset.state = page.status;
   details.open = false;
 
   const summary = document.createElement('summary');
@@ -603,10 +603,7 @@ export function renderCaptureProgress(card, capture, index) {
   meta.className = 'capture-card__progress-meta';
   const metaStage = document.createElement('span');
   metaStage.textContent = pageStageDescription(page);
-  const elapsed = document.createElement('span');
-  elapsed.dataset.captureElapsed = key;
-  elapsed.textContent = formatElapsed(currentElapsed(page));
-  meta.append(metaStage, elapsed);
+  meta.append(metaStage);
 
   const track = document.createElement('div');
   track.className = 'capture-card__stage-track';

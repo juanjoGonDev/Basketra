@@ -696,8 +696,8 @@
   z-index: 45;
   right: max(var(--space-4), env(safe-area-inset-right));
   bottom: calc(var(--nav) + env(safe-area-inset-bottom) + var(--space-4) + (var(--touch) * 2) + (var(--space-2) * 2));
-  width: min(24rem, calc(100vw - var(--space-8)));
-  max-height: min(52dvh, 28rem);
+  width: min(21rem, calc(100vw - var(--space-6)));
+  max-height: min(42dvh, 20rem);
   overflow: auto;
   overscroll-behavior: contain;
   border: 1px solid color-mix(in srgb, var(--color-on-surface) 14%, transparent);
@@ -851,7 +851,17 @@
 }
 
 .receipt-source-queue .capture-card__ocr-preview {
-  min-width: 0;
+  display: none;
+}
+
+.receipt-source-queue .capture-card__partial,
+.receipt-source-queue .capture-card__progress-meta,
+.receipt-source-queue .capture-card__secondary-actions {
+  display: none;
+}
+
+.receipt-source-queue .capture-card__details[data-state="completed"] .capture-card__stage-track {
+  display: none;
 }
 
 .receipt-source-queue .capture-card__ocr-text {
@@ -1109,7 +1119,7 @@
   display: flex;
   gap: var(--space-2);
   align-items: center;
-  padding: var(--space-2) 0;
+  padding: var(--space-2) var(--space-3);
   background: var(--color-surface);
 }
 
@@ -1566,8 +1576,8 @@
   .receipt-source-queue__panel {
     right: max(var(--space-3), env(safe-area-inset-right));
     bottom: calc(var(--nav) + env(safe-area-inset-bottom) + var(--space-3) + (var(--touch) * 2) + (var(--space-2) * 2));
-    width: min(22rem, calc(100vw - var(--space-6)));
-    max-height: min(72dvh, 38rem);
+    width: min(20rem, calc(100vw - var(--space-6)));
+    max-height: min(50dvh, 20rem);
   }
 
   .receipt-source-queue .capture-source {

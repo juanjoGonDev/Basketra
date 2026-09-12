@@ -37,6 +37,14 @@ test('component runtime stays local and lightweight', () => {
   assert.ok(statSync(`${webRoot}/components.css`).size < 4_000, 'component stylesheet must stay below 4 KB');
 });
 
+test('receipt presentation keeps amounts inset and invoice actions in one desktop row', () => {
+  const review = read(`${webRoot}/receipt-review.css`);
+  const invoice = read(`${webRoot}/receipt-editor-invoice.css`);
+  assert.match(review, /\.receipt-detected-item\s*\{[\s\S]*?padding: var\(--space-2\) var\(--space-3\);/u);
+  assert.match(invoice, /\.receipt-invoice-dialog \.receipt-invoice-dialog__actions\s*\{[\s\S]*?grid-template-columns: repeat\(4, minmax\(0, 1fr\)\);/u);
+  assert.match(invoice, /\.receipt-editor-summary__stamp\s*\{\s*display: none;/u);
+});
+
 test('the component gallery and its local assets are included in the offline shell', () => {
   const html = read(`${webRoot}/index.html`);
   const worker = read(`${webRoot}/sw.js`);

@@ -745,7 +745,7 @@
     top: .8rem;
     grid-column: 2;
     grid-row: 1 / span 3;
-    min-height: 28.5rem;
+    min-height: 0;
     margin-top: .8rem;
     padding: 1rem 1.05rem;
     grid-template-rows: auto auto auto minmax(5.7rem, 1fr);
@@ -797,20 +797,7 @@
   }
 
   .receipt-invoice-dialog .receipt-editor-summary__stamp {
-    position: relative;
-    align-self: end;
-    justify-self: center;
-    width: 82%;
-    min-height: 5.8rem;
-    display: grid;
-    place-items: center;
-    overflow: hidden;
-    border: 1px solid color-mix(in srgb, var(--color-primary) 9%, var(--color-outline-variant));
-    border-radius: .22rem;
-    background:
-      radial-gradient(circle at 22% 34%, color-mix(in srgb, var(--color-primary) 10%, transparent) 0 1.5px, transparent 2px),
-      radial-gradient(circle at 78% 66%, color-mix(in srgb, var(--color-primary) 10%, transparent) 0 1.5px, transparent 2px),
-      var(--color-surface);
+    display: none;
   }
 
   .receipt-invoice-dialog .receipt-editor-summary__stamp::before,
@@ -858,7 +845,7 @@
   }
 
   .receipt-invoice-dialog .receipt-invoice-dialog__actions {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.7fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: .8rem;
     padding: .75rem 1.5rem 1rem;
   }
