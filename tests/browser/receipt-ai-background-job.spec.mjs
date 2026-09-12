@@ -157,11 +157,20 @@ test('focused ticket validation keeps review in the list and opens the original 
 
   await expect(page.locator('#receipt-review-panel')).toBeHidden();
   await expect(page.locator('#receipt-detected-list')).toContainText('PAN');
+  const lineLayout = await page.locator('#receipt-detected-list .receipt-detected-item').evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    const copy = element.querySelector('.receipt-detected-item__copy').getBoundingClientRect();
+    const amount = element.querySelector('.receipt-detected-item__amount').getBoundingClientRect();
+    return { height: rect.height, copyTop: copy.top, amountTop: amount.top };
+  });
+  expect(lineLayout.height).toBeLessThanOrEqual(48);
+  expect(Math.abs(lineLayout.copyTop - lineLayout.amountTop)).toBeLessThanOrEqual(8);
+  await expect(page.locator('#receipt-detected-list .receipt-detected-item .icon')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Validar ticket', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Ver comprobante', exact: true })).toBeVisible();
   await expect(page.locator('#confirm-receipt')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Editar producto 1', exact: true }).click();
+  await page.getByRole('button', { name: /Editar producto 1/u }).click();
   await expect(page.locator('#receipt-line-dialog')).toBeVisible();
   await page.getByRole('button', { name: 'Validar línea', exact: true }).click();
   await expect(page.locator('#receipt-line-dialog')).toBeHidden();

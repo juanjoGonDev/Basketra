@@ -315,6 +315,11 @@ export function renderProgressiveDetectedItems() {
     if (editable) {
       surface.classList.add('swipe-content');
       surface.dataset.swipeContent = '';
+      surface.dataset.receiptAction = 'edit';
+      surface.dataset.receiptIndex = String(index);
+      surface.tabIndex = 0;
+      surface.setAttribute('role', 'button');
+      surface.setAttribute('aria-label', `Editar producto ${index + 1}: ${item.description || 'sin descripción'}`);
     }
 
     const copy = document.createElement('span');
@@ -357,16 +362,6 @@ export function renderProgressiveDetectedItems() {
       : '—';
 
     surface.append(copy, amount);
-    if (editable) {
-      const actions = document.createElement('button');
-      actions.type = 'button';
-      actions.className = 'icon-button receipt-detected-item__edit';
-      actions.dataset.receiptAction = 'edit';
-      actions.dataset.receiptIndex = String(index);
-      actions.setAttribute('aria-label', `Editar producto ${index + 1}`);
-      actions.innerHTML = icon('edit');
-      surface.append(actions);
-    }
 
     row.append(surface);
     list.append(row);

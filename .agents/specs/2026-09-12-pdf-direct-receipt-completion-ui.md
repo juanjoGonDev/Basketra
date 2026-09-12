@@ -52,3 +52,4 @@ The detected-items list is the sole review surface. Operators edit and validate 
 
 - Browser coverage for list-only validation, modal line validation, summary action visibility, and image/PDF evidence switching.
 - Server coverage for the isolated no-store PDF document endpoint and continued rejection from the image endpoint.
+12. Final detected lines use one compact horizontal row: product, quantities/category context and amount remain aligned without an inline edit icon; the full row opens the line modal by pointer or keyboard.

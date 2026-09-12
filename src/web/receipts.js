@@ -660,6 +660,13 @@ export function bindEvents() {
     }
     if (action.dataset.receiptAction === 'delete') deleteReceiptLine(index);
   });
+  $('#receipt-detected-list')?.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const action = event.target.closest('[data-receipt-action="edit"]');
+    if (!action) return;
+    event.preventDefault();
+    action.click();
+  });
 
   $('#capture-list').addEventListener('click', handleCaptureAction);
   $('#receipt-review').addEventListener('click', handleReceiptAction);
