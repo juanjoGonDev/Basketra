@@ -49,6 +49,7 @@ export const state = {
   jobRealtime: null,
   expandedCaptureKey: '',
   selectedReviewCaptureKey: '',
+  totalMismatchApproved: false,
 };
 
 export let metadata;

@@ -30,6 +30,16 @@ test('receipt confirmation keeps manual lines uncategorized for database fallbac
   assert.equal(parsed.input.items[0]?.categoryId, undefined);
 });
 
+test('receipt confirmation requires an explicit total-mismatch approval flag', () => {
+  const parsed = parseReceiptConfirmation({ ...confirmation(), declaredTotalMinor: 119, acceptTotalMismatch: true });
+  assert.equal(parsed.total.valid, false);
+  assert.equal(parsed.acceptTotalMismatch, true);
+  assert.throws(
+    () => parseReceiptConfirmation({ ...confirmation(), acceptTotalMismatch: 'yes' }),
+    /boolean/,
+  );
+});
+
 test('receipt confirmation rejects oversized category ids at the API boundary', () => {
   assert.throws(
     () => parseReceiptConfirmation(confirmation(`category_${'x'.repeat(121)}`)),

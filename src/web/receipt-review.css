@@ -794,7 +794,7 @@
   grid-template-columns: var(--touch) minmax(0, 1fr);
   gap: var(--space-2);
   align-items: start;
-  padding: var(--space-2) 0;
+  padding: var(--space-2) var(--space-3);
   border: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--color-on-surface) 8%, transparent);
   border-radius: 0;
@@ -1189,6 +1189,26 @@
   font-variant-numeric: tabular-nums;
 }
 
+.receipt-source-editor {
+  width: min(28rem, calc(100vw - var(--space-6)));
+  border: 0;
+  border-radius: var(--radius-lg);
+  padding: 0;
+  color: var(--color-on-surface);
+  background: var(--color-surface);
+  box-shadow: 0 1rem 3rem color-mix(in srgb, var(--color-scrim) 28%, transparent);
+}
+
+.receipt-source-editor::backdrop { background: color-mix(in srgb, var(--color-scrim) 48%, transparent); }
+.receipt-source-editor__form { display: grid; gap: var(--space-3); padding: var(--space-4); }
+.receipt-source-editor header { display: flex; align-items: start; justify-content: space-between; gap: var(--space-3); }
+.receipt-source-editor h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1rem; }
+.receipt-source-editor footer { display: flex; justify-content: flex-end; padding-top: var(--space-1); }
+
+.receipt-product-matcher { display: flex; align-items: center; gap: var(--space-2); }
+.receipt-product-matcher select { min-width: 0; flex: 1 1 auto; }
+.receipt-product-matcher .button { flex: 0 0 auto; min-height: 2.25rem; padding-inline: var(--space-2); font-size: .78rem; }
+
 .receipt-detected-row .swipe-rail__action {
   width: 4.5rem;
 }
@@ -1545,6 +1565,7 @@
   .receipt-detected-item {
     min-height: 2.75rem;
     padding-block: var(--space-2);
+    padding-inline: var(--space-2);
   }
 
   .receipt-detected-item__copy {

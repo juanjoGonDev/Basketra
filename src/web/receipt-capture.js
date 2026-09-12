@@ -403,6 +403,92 @@ export function persistAndRenderCaptures() {
   renderProgressiveDetectedItems();
 }
 
+function captureRetailer(capture) {
+  const page = state.pageStates.get(captureKey(capture));
+  return capture.retailerName || page?.result?.final?.retailerName || '';
+}
+
+function captureStore(capture) {
+  const page = state.pageStates.get(captureKey(capture));
+  return capture.storeName || page?.result?.final?.storeName || '';
+}
+
+async function populateSourceStoreOptions(retailer, selected = '') {
+  const select = $('#receipt-source-store');
+  if (!select) return;
+  select.replaceChildren(new Option('Escribe o elige una tienda', ''));
+  if (!retailer) return;
+  try {
+    const result = await api(`/api/v1/inventory/stores?retailer=${encodeURIComponent(retailer)}&sort=name&limit=100&offset=0`);
+    for (const store of result.stores || []) select.append(new Option(store.name, store.id));
+    const matching = [...select.options].find(option => option.text === selected);
+    if (matching) select.value = matching.value;
+  } catch {
+    // The source can still be saved as a new store name.
+  }
+}
+
+function ensureSourceEditor() {
+  let dialog = $('#receipt-source-editor');
+  if (dialog) return dialog;
+  dialog = document.createElement('dialog');
+  dialog.id = 'receipt-source-editor';
+  dialog.className = 'receipt-source-editor';
+  dialog.innerHTML = `
+    <form method="dialog" class="receipt-source-editor__form">
+      <header><div><p class="eyebrow">Archivo</p><h2 id="receipt-source-editor-title">Editar archivo</h2></div><button class="icon-button" value="cancel" aria-label="Cerrar">${icon('close')}</button></header>
+      <label class="field"><span>Comercio</span><input id="receipt-source-retailer" required maxlength="120" autocomplete="organization"></label>
+      <label class="field"><span>Tienda</span><select id="receipt-source-store"></select></label>
+      <label class="field"><span>Nueva tienda</span><input id="receipt-source-store-name" maxlength="160" placeholder="Solo si no existe"></label>
+      <footer><button id="receipt-source-editor-save" class="button primary" type="button">Guardar archivo</button></footer>
+    </form>`;
+  document.body.append(dialog);
+  $('#receipt-source-retailer').addEventListener('change', event => void populateSourceStoreOptions(event.target.value.trim()));
+  $('#receipt-source-editor-save').addEventListener('click', async () => {
+    const capture = captureByKey(dialog.dataset.captureKey || '');
+    const retailerName = $('#receipt-source-retailer').value.trim();
+    const selected = $('#receipt-source-store');
+    const newStoreName = $('#receipt-source-store-name').value.trim();
+    if (!capture || !retailerName) return;
+    const button = $('#receipt-source-editor-save');
+    button.disabled = true;
+    try {
+      let storeId = selected.value;
+      let storeName = selected.selectedOptions[0]?.text || '';
+      if (newStoreName) {
+        const result = await api('/api/v1/stores', { method: 'POST', body: JSON.stringify({ retailerName, name: newStoreName }) });
+        storeId = result.store.id;
+        storeName = result.store.name;
+      }
+      capture.retailerName = retailerName;
+      capture.storeId = storeId;
+      capture.storeName = storeName;
+      persistAndRenderCaptures();
+      closeDialog(dialog);
+      toast('Archivo actualizado');
+    } catch {
+      toast('No se pudo guardar el archivo');
+    } finally {
+      button.disabled = false;
+    }
+  });
+  return dialog;
+}
+
+export async function showCaptureSourceEditor(index) {
+  const capture = state.captures[index];
+  if (!capture) return;
+  const dialog = ensureSourceEditor();
+  dialog.dataset.captureKey = captureKey(capture);
+  $('#receipt-source-editor-title').textContent = capture.name;
+  const retailer = captureRetailer(capture);
+  const store = captureStore(capture);
+  $('#receipt-source-retailer').value = retailer;
+  $('#receipt-source-store-name').value = '';
+  await populateSourceStoreOptions(retailer, store);
+  openDialog(dialog);
+}
+
 function pageDiagnostic(page) {
   if (page.aiStatus === 'error' && typeof page.aiRecovery?.diagnostic === 'string') {
     return page.aiRecovery.diagnostic;
@@ -515,6 +601,16 @@ export function renderCaptureProgress(card, capture, index) {
     section.append(partial);
   }
   appendProgressiveOcrEvidence(section, page);
+
+  const editSource = document.createElement('button');
+  editSource.type = 'button';
+  editSource.className = 'icon-button capture-card__action';
+  editSource.dataset.captureIndex = String(index);
+  editSource.dataset.captureAction = 'edit-source';
+  editSource.setAttribute('aria-label', 'Editar comercio y tienda del archivo');
+  editSource.title = 'Editar comercio y tienda';
+  editSource.innerHTML = icon('edit');
+  section.append(editSource);
 
   const showPrimaryAiRecovery = (page.status === 'error' || page.status === 'manual')
     && page.errorCode.startsWith('AI_')
@@ -880,6 +976,7 @@ export function handleCaptureAction(event) {
   const index = Number(button.dataset.captureIndex);
   const action = button.dataset.captureAction;
   if (action === 'preview') showPreview(index);
+  if (action === 'edit-source') void showCaptureSourceEditor(index);
   if (action === 'up') moveCapture(index, -1);
   if (action === 'down') moveCapture(index, 1);
   if (action === 'delete') deleteCapture(index);

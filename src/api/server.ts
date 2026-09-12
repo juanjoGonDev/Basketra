@@ -1214,8 +1214,8 @@ export class BasketraServer {
   }
 
   private async confirmReceipt(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const { input, total } = parseReceiptConfirmation(await this.readJson(request));
-    if (!total.valid) throw new ApiError(409, 'RECEIPT_TOTAL_MISMATCH', 'Receipt total must be reviewed before confirmation');
+    const { input, total, acceptTotalMismatch } = parseReceiptConfirmation(await this.readJson(request));
+    if (!total.valid && !acceptTotalMismatch) throw new ApiError(409, 'RECEIPT_TOTAL_MISMATCH', 'Receipt total requires explicit approval before confirmation');
     const receiptId = this.#database.importReceipt(input);
     this.json(response, 201, { receiptId });
   }

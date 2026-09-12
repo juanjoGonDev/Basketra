@@ -27,6 +27,7 @@ function parseDiscountFields(item: Record<string, unknown>, path: string): Recei
 export function parseReceiptConfirmation(value: unknown): Readonly<{
   input: ReceiptImportInput;
   total: ReturnType<typeof validateReceiptTotal>;
+  acceptTotalMismatch: boolean;
 }> {
   const root = asRecord(value);
   if (root['storeID'] !== undefined) throw new RangeError('$.storeID is invalid; use $.storeId');
@@ -49,6 +50,9 @@ export function parseReceiptConfirmation(value: unknown): Readonly<{
     const categoryId = item['categoryId'] === undefined || item['categoryId'] === null || item['categoryId'] === ''
       ? undefined
       : asString(item['categoryId'], `${path}.categoryId`, { min: 1, max: 128 });
+    const productVariantId = item['productVariantId'] === undefined || item['productVariantId'] === null || item['productVariantId'] === ''
+      ? undefined
+      : asString(item['productVariantId'], `${path}.productVariantId`, { min: 1, max: 128 });
     return {
       description: line.description,
       quantity: line.quantity,
@@ -56,12 +60,16 @@ export function parseReceiptConfirmation(value: unknown): Readonly<{
       lineTotalMinor: line.lineTotalMinor,
       discountMinor: calculateReceiptLineDiscountMinor(line),
       ...(categoryId ? { categoryId } : {}),
+      ...(productVariantId ? { productVariantId } : {}),
       status: confidence < REVIEW_CONFIDENCE_THRESHOLD && !userConfirmed ? 'needs-review' : 'confirmed',
       confidence: userConfirmed ? 1 : confidence,
     };
   });
   if (items.length === 0) throw new RangeError('At least one receipt item is required');
   const total = validateReceiptTotal(items, declaredTotalMinor);
+  const acceptTotalMismatch = root['acceptTotalMismatch'] === undefined
+    ? false
+    : asBoolean(root['acceptTotalMismatch'], '$.acceptTotalMismatch');
 
   const captures = root['captures'] === undefined ? undefined : asArray(root['captures'], '$.captures', 20).map((entry, index) => {
     const capture = asRecord(entry, `$.captures[${index}]`);
@@ -115,5 +123,6 @@ export function parseReceiptConfirmation(value: unknown): Readonly<{
       ...(corrections ? { corrections } : {}),
     },
     total,
+    acceptTotalMismatch,
   };
 }

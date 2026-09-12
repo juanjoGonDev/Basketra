@@ -555,6 +555,42 @@ function renderUnassignedDiscountNotice() {
   review.querySelector('.review-summary')?.insertAdjacentElement('afterend', notice);
 }
 
+function addProductMatcher(fieldset, item) {
+  if (fieldset.querySelector('[data-product-matcher]')) return;
+  const matcher = document.createElement('div');
+  matcher.className = 'receipt-product-matcher';
+  matcher.dataset.productMatcher = 'true';
+  const select = document.createElement('select');
+  select.dataset.field = 'productVariantId';
+  select.setAttribute('aria-label', 'Producto guardado relacionado');
+  select.append(new Option('Sin producto guardado', ''));
+  const search = document.createElement('button');
+  search.type = 'button';
+  search.className = 'button secondary';
+  search.textContent = 'Relacionar producto';
+  search.addEventListener('click', async () => {
+    const description = fieldset.querySelector('[data-field="description"]')?.value.trim();
+    if (!description) return;
+    search.disabled = true;
+    try {
+      const result = await api(`/api/v1/products/suggestions?q=${encodeURIComponent(description)}&limit=1`);
+      const candidate = result.suggestions?.[0];
+      if (!candidate) { toast('No hay un producto guardado similar'); return; }
+      select.replaceChildren(new Option('Sin producto guardado', ''), new Option(candidate.name, candidate.id));
+      select.value = candidate.id;
+      toast('Producto guardado relacionado');
+    } catch {
+      toast('No se pudo buscar el producto guardado');
+    } finally {
+      search.disabled = false;
+    }
+  });
+  if (item.productVariantId) select.append(new Option('Producto relacionado', item.productVariantId));
+  select.value = item.productVariantId || '';
+  matcher.append(search, select);
+  fieldset.querySelector('.receipt-category-field')?.insertAdjacentElement('afterend', matcher);
+}
+
 function enhanceReceiptLines(lines) {
   installReceiptLineEnhancements();
   state.items.forEach((item, index) => {
@@ -563,6 +599,7 @@ function enhanceReceiptLines(lines) {
     upgradeReceiptTotal(fieldset);
     addReceiptDiscountFields(fieldset, item);
     categoryCreator(fieldset);
+    addProductMatcher(fieldset, item);
     const validation = lines[index] || {};
     if (validation.status === 'confirmed') return;
     const status = fieldset.querySelector('.receipt-item__legend-actions .status-pill');
@@ -779,6 +816,7 @@ export function readReceiptItems() {
       lineTotalMinor: euroInputToMinor(fieldset.querySelector('[data-field="lineTotalEuro"]').value),
       ...(discount ? { discount } : {}),
       ...(fieldset.querySelector('[data-field="categoryId"]')?.value ? { categoryId: fieldset.querySelector('[data-field="categoryId"]').value } : {}),
+      ...(fieldset.querySelector('[data-field="productVariantId"]')?.value ? { productVariantId: fieldset.querySelector('[data-field="productVariantId"]').value } : {}),
       ...(previous.taxCategory ? { taxCategory: previous.taxCategory } : {}),
       ...(previous.sourceLines ? { sourceLines: previous.sourceLines } : {}),
       confidence: 1,
@@ -1075,8 +1113,10 @@ export async function confirmReceipt() {
       focusInvalidLine(invalid.index);
       return;
     }
-    if (!validation.total.valid) {
-      $('#receipt-state').textContent = 'El total no coincide. Corrige las líneas o el total antes de confirmar.';
+    if (!validation.total.valid && !state.totalMismatchApproved) {
+      $('#receipt-state').textContent = '';
+      state.totalMismatchApproved = true;
+      toast('El total no coincide. Vuelve a confirmar para aceptarlo.');
       return;
     }
 
@@ -1092,6 +1132,7 @@ export async function confirmReceipt() {
         retailerName,
         ...(detectedStoreSelected ? { storeId: state.detectedStoreId } : {}),
         ...(storeName ? { storeName } : {}),
+        ...(state.totalMismatchApproved ? { acceptTotalMismatch: true } : {}),
         deterministic: state.extraction?.deterministic || { items },
         ...(aiPages.length > 0 ? { ai: { pages: aiPages } } : {}),
         captures: state.captures.map(capture => ({
@@ -1104,7 +1145,7 @@ export async function confirmReceipt() {
         corrections: collectCorrections(items),
       }),
     });
-    $('#receipt-state').textContent = `Ticket importado: ${result.receiptId}`;
+    $('#receipt-state').textContent = '';
     toast('Ticket confirmado');
     abortPageWork();
     state.captures = [];
@@ -1117,6 +1158,7 @@ export async function confirmReceipt() {
     state.processing = false;
     state.manualReviewRequired = false;
     state.progressVisible = false;
+    state.totalMismatchApproved = false;
     persistAndRenderCaptures();
     $('#receipt-progress').hidden = true;
     $('#receipt-review').hidden = true;
