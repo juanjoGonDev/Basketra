@@ -855,13 +855,28 @@
 }
 
 .receipt-source-queue .capture-card__partial,
-.receipt-source-queue .capture-card__progress-meta,
-.receipt-source-queue .capture-card__secondary-actions {
+.receipt-source-queue .capture-card__progress-meta {
   display: none;
 }
 
 .receipt-source-queue .capture-card__details[data-state="completed"] .capture-card__stage-track {
   display: none;
+}
+
+.receipt-source-queue .capture-card__action-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  padding-top: var(--space-1);
+}
+
+.receipt-source-queue .capture-card__action-row .capture-card__action,
+.receipt-source-queue .capture-card__action-row .capture-card__actions button {
+  width: 2rem;
+  min-height: 2rem;
+  flex: 0 0 2rem;
+  padding: 0;
 }
 
 .receipt-source-queue .capture-card__ocr-text {
@@ -1214,6 +1229,11 @@
 
 .receipt-detected-row[data-swipe-open="true"] .receipt-detected-item {
   box-shadow: -0.2rem 0 .5rem color-mix(in srgb, var(--color-scrim) 8%, transparent);
+}
+
+[data-swipe-kind="receipt-line"] .swipe-rail__commit {
+  left: auto;
+  width: min(9rem, 58%);
 }
 
 .receipt-detected-item[data-provisional="true"] .receipt-detected-item__copy::before {

@@ -634,7 +634,10 @@ export function renderCaptureProgress(card, capture, index) {
   editSource.setAttribute('aria-label', 'Editar comercio y tienda del archivo');
   editSource.title = 'Editar comercio y tienda';
   editSource.innerHTML = icon('edit');
-  section.append(editSource);
+  const actionRow = document.createElement('div');
+  actionRow.className = 'capture-card__action-row';
+  actionRow.append(editSource);
+  section.append(actionRow);
 
   const showPrimaryAiRecovery = (page.status === 'error' || page.status === 'manual')
     && page.errorCode.startsWith('AI_')
@@ -645,8 +648,7 @@ export function renderCaptureProgress(card, capture, index) {
     || showPrimaryAiRecovery;
   const showAiRecovery = page.status === 'completed' && page.aiStatus === 'error';
   if (showPrimaryRecovery || showAiRecovery) {
-    const actions = document.createElement('div');
-    actions.className = 'capture-card__page-actions';
+    const actions = actionRow;
 
     if (showPrimaryRecovery) {
       const button = document.createElement('button');
@@ -712,13 +714,11 @@ export function renderCaptureProgress(card, capture, index) {
       actions.append(diagnosticButton);
     }
 
-    section.append(actions);
   }
 
   const secondaryActions = card.querySelector('.capture-card__actions');
   if (secondaryActions) {
-    secondaryActions.classList.add('capture-card__secondary-actions');
-    section.append(secondaryActions);
+    secondaryActions.querySelectorAll('button').forEach(button => actionRow.append(button));
   }
 
   details.append(summary, section);

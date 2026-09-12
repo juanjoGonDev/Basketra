@@ -11,6 +11,7 @@
 }
 
 .receipt-invoice-dialog .receipt-invoice-dialog__content {
+  height: min(92dvh, 41rem);
   max-height: min(100dvh, 48rem);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
@@ -538,6 +539,7 @@
 
   .receipt-invoice-dialog .receipt-invoice-dialog__content {
     height: auto;
+    height: auto;
     max-height: 100dvh;
     display: flex;
     flex-direction: column;
@@ -712,6 +714,7 @@
   }
 
   .receipt-invoice-dialog .receipt-invoice-dialog__content {
+    height: min(92dvh, 41rem);
     max-height: min(92dvh, 41rem);
   }
 
