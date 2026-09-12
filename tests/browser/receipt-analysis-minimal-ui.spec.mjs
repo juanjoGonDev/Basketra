@@ -309,7 +309,7 @@ test('durable OCR evidence appears progressively in the body while source detail
     return before !== after;
   });
   expect(reducedRotationProgressed).toBe(true);
-  await page.emulateMedia({ reducedMotion: null });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
 
   await page.evaluate(async () => {
     const [{ state, captureKey }, { renderReceiptQueueStatus }] = await Promise.all([
@@ -368,7 +368,7 @@ test('durable OCR evidence appears progressively in the body while source detail
 
   await queue.locator(':scope > summary').click();
   await expect(queue).toHaveAttribute('open', '');
-  await expect(page.locator('#receipt-progress')).toBeVisible();
+  await expect(page.locator('#receipt-progress')).toBeHidden();
   await expect(queue.locator('.capture-card')).toHaveCount(1);
   await expect(queue.locator('.capture-card .status-pill')).toContainText('Verificando con IA');
   await page.screenshot({

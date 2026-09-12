@@ -65,9 +65,7 @@ export function renderReceiptQueueStatus() {
   summary.textContent = String(total);
   const summaryLabel = [pluralFiles(total), suffix].filter(Boolean).join(' · ');
   queue.querySelector(':scope > summary')?.setAttribute('aria-label', `Archivos del análisis: ${summaryLabel}`);
-  detail.textContent = total === 0
-    ? 'Añade imágenes o PDF con el botón +'
-    : `${completed} de ${total} ${total === 1 ? 'página procesada' : 'páginas procesadas'}`;
+  detail.textContent = total === 0 ? '' : suffix;
 
   queue.dataset.state = failed
     ? 'error'
@@ -421,6 +419,7 @@ function pageDiagnostic(page) {
 }
 
 function appendProgressiveOcrEvidence(section, page) {
+  if (page.directPdf) return;
   const evidence = page.ocrEvidence;
   if (!evidence || typeof evidence.text !== 'string' || !evidence.text) return;
 
@@ -468,7 +467,7 @@ export function renderCaptureProgress(card, capture, index) {
   const details = document.createElement('details');
   details.className = 'capture-card__details';
   details.dataset.capturePageProgress = key;
-  details.open = state.expandedCaptureKey === key;
+  details.open = false;
 
   const summary = document.createElement('summary');
   summary.className = 'capture-card__summary';
@@ -476,9 +475,7 @@ export function renderCaptureProgress(card, capture, index) {
   summaryCopy.className = 'capture-card__summary-copy';
   const position = document.createElement('strong');
   position.textContent = capture.name;
-  const stage = document.createElement('small');
-  stage.textContent = `Página ${index + 1} de ${state.captures.length} · ${pageStageDescription(page)}`;
-  summaryCopy.append(position, stage);
+  summaryCopy.append(position);
   const status = document.createElement('span');
   status.className = `status-pill ${pageStatusClass(page)}`;
   status.textContent = page.status === 'completed' && page.aiStatus === 'error'
@@ -539,19 +536,27 @@ export function renderCaptureProgress(card, capture, index) {
     if (showPrimaryRecovery) {
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = 'button secondary';
+      button.className = 'icon-button capture-card__action';
       button.dataset.captureIndex = String(index);
       if (active) {
         button.dataset.captureAction = 'cancel-processing';
-        button.textContent = page.status === 'ai' && (page.rawText || page.result)
+        const label = page.status === 'ai' && (page.rawText || page.result)
           ? 'Cancelar corrección con IA'
           : (page.directPdf ? 'Cancelar este PDF' : 'Cancelar esta imagen');
+        button.setAttribute('aria-label', label);
+        button.title = label;
+        button.innerHTML = icon('close');
       } else if (showPrimaryAiRecovery) {
         button.dataset.captureAction = 'retry-ai';
-        button.textContent = 'Volver a analizar con IA';
+        button.setAttribute('aria-label', 'Volver a analizar con IA');
+        button.title = 'Volver a analizar con IA';
+        button.innerHTML = icon('refresh');
       } else {
         button.dataset.captureAction = 'retry-processing';
-        button.textContent = page.recovery?.retryLabel || (page.directPdf ? 'Reintentar PDF' : 'Reintentar imagen');
+        const label = page.recovery?.retryLabel || (page.directPdf ? 'Reintentar PDF' : 'Reintentar imagen');
+        button.setAttribute('aria-label', label);
+        button.title = label;
+        button.innerHTML = icon('refresh');
       }
       actions.append(button);
     }
@@ -559,30 +564,36 @@ export function renderCaptureProgress(card, capture, index) {
     if ((page.status === 'error' && page.recovery?.allowManualReview) || showAiRecovery) {
       const manualButton = document.createElement('button');
       manualButton.type = 'button';
-      manualButton.className = 'button secondary';
+      manualButton.className = 'icon-button capture-card__action';
       manualButton.dataset.captureIndex = String(index);
       manualButton.dataset.captureAction = 'manual-review';
-      manualButton.textContent = 'Revisar manualmente';
+      manualButton.setAttribute('aria-label', 'Revisar manualmente');
+      manualButton.title = 'Revisar manualmente';
+      manualButton.innerHTML = icon('edit');
       actions.append(manualButton);
     }
 
     if (showAiRecovery) {
       const aiButton = document.createElement('button');
       aiButton.type = 'button';
-      aiButton.className = 'button secondary';
+      aiButton.className = 'icon-button capture-card__action';
       aiButton.dataset.captureIndex = String(index);
       aiButton.dataset.captureAction = 'retry-ai';
-      aiButton.textContent = 'Volver a analizar con IA';
+      aiButton.setAttribute('aria-label', 'Volver a analizar con IA');
+      aiButton.title = 'Volver a analizar con IA';
+      aiButton.innerHTML = icon('refresh');
       actions.append(aiButton);
     }
 
     if (pageDiagnostic(page)) {
       const diagnosticButton = document.createElement('button');
       diagnosticButton.type = 'button';
-      diagnosticButton.className = 'button secondary';
+      diagnosticButton.className = 'icon-button capture-card__action';
       diagnosticButton.dataset.captureIndex = String(index);
       diagnosticButton.dataset.captureAction = 'copy-ai-diagnostic';
-      diagnosticButton.textContent = 'Copiar diagnóstico';
+      diagnosticButton.setAttribute('aria-label', 'Copiar diagnóstico');
+      diagnosticButton.title = 'Copiar diagnóstico';
+      diagnosticButton.innerHTML = icon('copy');
       actions.append(diagnosticButton);
     }
 
@@ -636,7 +647,9 @@ export function pageStageDescription(page) {
   if (page.status === 'ai') return page.directPdf
     ? 'Analizando el PDF directamente con IA'
     : 'Corrigiendo el OCR con IA';
-  if (page.status === 'completed' && page.aiStatus === 'error') return 'OCR listo · IA sin corregir';
+  if (page.status === 'completed' && page.aiStatus === 'error') {
+    return page.directPdf ? 'PDF conservado · IA sin completar' : 'OCR listo · IA sin corregir';
+  }
   if (page.status === 'completed') return page.aiStatus === 'completed'
     ? (page.directPdf ? 'PDF analizado con IA' : 'OCR corregido con IA')
     : 'OCR listo para revisar';
@@ -652,6 +665,7 @@ export function pagePartialText(page) {
   if (page.status === 'error') return page.error || 'No se pudo procesar esta imagen.';
   const itemCount = page.result?.final?.items?.length;
   const ocrItemCount = page.ocrEvidence?.deterministic?.items?.length;
+  if (page.directPdf && !Number.isSafeInteger(itemCount)) return '';
   const hasStructuredItems = Number.isSafeInteger(itemCount) && itemCount > 0;
   const hasOcrEvidence = (Number.isSafeInteger(ocrItemCount) && ocrItemCount > 0) || Boolean(page.rawText);
   if (page.status === 'manual' && !hasStructuredItems && !hasOcrEvidence) {

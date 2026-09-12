@@ -13,6 +13,7 @@ function localExtraction(text = 'PAN 1,50\nTOTAL 1,50') {
     unitPriceMinor: 150,
     lineTotalMinor: 150,
     confidence: 0.8,
+    categoryId: 'category_bakery',
     sourceLines: [1],
   };
   return {
@@ -24,6 +25,7 @@ function localExtraction(text = 'PAN 1,50\nTOTAL 1,50') {
     },
     final: {
       items: [item],
+      categories: [{ id: 'category_bakery', name: 'Panadería', color: '#A5662B' }],
       declaredTotalMinor: 150,
       warnings: [],
       review: {
@@ -39,7 +41,7 @@ function localExtraction(text = 'PAN 1,50\nTOTAL 1,50') {
   };
 }
 
-async function prepareReceipt(page, name = 'receipt.png') {
+async function prepareReceipt(page, name = 'receipt.png', mimeType = 'image/png', buffer = validPng) {
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -47,9 +49,76 @@ async function prepareReceipt(page, name = 'receipt.png') {
   }));
   await page.goto('/');
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
-  await page.locator('#receipt-files').setInputFiles({ name, mimeType: 'image/png', buffer: validPng });
+  await page.locator('#receipt-files').setInputFiles({ name, mimeType, buffer });
   await expect(page.locator('.capture-card')).toHaveCount(1);
 }
+
+test('completed PDF progress renders structured category lines without any OCR UI', async ({ page }) => {
+  await installControlledEventSource(page);
+  const pdf = Buffer.from('%PDF-1.4\nfixture');
+  const interpretation = {
+    currency: 'EUR',
+    correctedText: 'BANANA 1,37',
+    items: [{
+      description: 'BANANA',
+      quantity: 1,
+      unitPriceMinor: 137,
+      lineTotalMinor: 137,
+      confidence: 0.98,
+      categoryId: 'category_fruit',
+      sourceLines: [1],
+    }],
+    newCategories: [],
+    warnings: [],
+  };
+
+  await page.route('**/api/v1/receipts/extraction-jobs', route => route.fulfill({
+    status: 202,
+    contentType: 'application/json',
+    body: JSON.stringify({ job: { id: 'receiptextractionjob_pdfprogress', status: 'queued' } }),
+  }));
+  await page.route('**/api/v1/receipts/extraction-jobs/receiptextractionjob_pdfprogress', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      job: {
+        id: 'receiptextractionjob_pdfprogress',
+        status: 'running',
+        progress: {
+          phase: 'ai_running',
+          pages: [{
+            position: 0,
+            stage: 'completed',
+            ocr: { text: '', confidence: 0, source: 'provider', deterministic: { items: [], metadata: {} } },
+            interpretation,
+          }],
+        },
+      },
+    }),
+  }));
+
+  await prepareReceipt(page, 'receipt.pdf', 'application/pdf', pdf);
+  await page.evaluate(async () => {
+    const [{ state }, { renderProgressiveDetectedItems }] = await Promise.all([
+      import('/receipt-state.js'),
+      import('/receipt-capture.js'),
+    ]);
+    state.receiptCategories = [{ id: 'category_fruit', name: 'Fruta', color: '#32A852' }];
+    renderProgressiveDetectedItems();
+  });
+
+  await expect(page.locator('#receipt-detected-list')).toContainText('BANANA');
+  await expect(page.locator('#receipt-detected-list .receipt-detected-item__category')).toHaveText('Fruta');
+  await expect(page.locator('#receipt-detected-list .receipt-detected-item__category-swatch')).toBeVisible();
+  await expect(page.locator('#receipt-state')).not.toContainText('OCR');
+
+  const queue = page.locator('#receipt-source-queue');
+  await queue.locator(':scope > summary').click();
+  const card = queue.locator('.capture-card');
+  await expect(card).not.toContainText('OCR');
+  await expect(card.locator('.capture-card__ocr-preview')).toHaveCount(0);
+  await expect(card.locator('.capture-card__details')).not.toHaveAttribute('open', '');
+});
 
 test('AI-enabled automatic analysis uses one whole-ticket durable job and no browser OCR request', async ({ page }) => {
   await installControlledEventSource(page);
@@ -72,15 +141,18 @@ test('AI-enabled automatic analysis uses one whole-ticket durable job and no bro
       body: JSON.stringify({ job: { id: 'receiptextractionjob_async1', status: 'queued' } }),
     });
   });
-  await page.route('**/api/v1/receipts/extraction-jobs/receiptextractionjob_async1', route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({ job: { id: 'receiptextractionjob_async1', status: 'completed', extraction: localExtraction() } }),
-  }));
+  await page.route('**/api/v1/receipts/extraction-jobs/receiptextractionjob_async1', route => {
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ job: { id: 'receiptextractionjob_async1', status: 'completed', extraction: localExtraction() } }),
+    });
+  });
 
   await prepareReceipt(page);
 
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada');
+  await expect(page.locator('#receipt-detected-list .receipt-detected-item__category')).toHaveText('Panadería');
   expect(jobCreates).toBe(1);
   expect(directExtractionRequests).toBe(0);
   await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.receiptExtractionJobId'))).toBe('receiptextractionjob_async1');

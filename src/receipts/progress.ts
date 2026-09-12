@@ -4,6 +4,7 @@ import type {
   ReceiptDurableJobState,
   ReceiptDurablePageState,
 } from './durable-job-store.ts';
+import { RECEIPT_SCHEMA, type AiReceiptInterpretation } from './extraction.ts';
 
 export const RECEIPT_JOB_PROGRESS_STAGES = ['queued', 'ocr', 'ai', 'completed', 'error'] as const;
 export type ReceiptJobProgressStage = typeof RECEIPT_JOB_PROGRESS_STAGES[number];
@@ -17,6 +18,7 @@ export type ReceiptJobPageProgress = Readonly<{
   position: number;
   stage: ReceiptJobProgressStage;
   ocr?: ReceiptJobProgressOcr;
+  interpretation?: AiReceiptInterpretation;
 }>;
 
 export type ReceiptJobProgress = Readonly<{
@@ -31,8 +33,21 @@ export function buildReceiptJobProgress(state: ReceiptDurableJobState): ReceiptJ
       position: page.position,
       stage: pageProgressStage(page),
       ...(page.ocr ? { ocr: publicOcrEvidence(page.ocr) } : {}),
+      ...(publicRemoteInterpretation(page.remoteStatus, page.remoteResult)),
     })),
   };
+}
+
+function publicRemoteInterpretation(
+  status: ReceiptDurablePageState['remoteStatus'],
+  value: unknown,
+): Readonly<{ interpretation: AiReceiptInterpretation }> | Record<string, never> {
+  if (status !== 'completed' || value === undefined) return {};
+  try {
+    return { interpretation: RECEIPT_SCHEMA.parse(value) };
+  } catch {
+    return {};
+  }
 }
 
 function pageProgressStage(page: ReceiptDurablePageState): ReceiptJobProgressStage {

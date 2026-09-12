@@ -228,6 +228,13 @@ function parseProgressiveOcr(value, { allowEmptyText = false } = {}) {
   return value;
 }
 
+function parseProgressiveInterpretation(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (!Array.isArray(value.items) || value.items.length > MAX_PROGRESSIVE_OCR_ITEMS) return null;
+  if (typeof value.currency !== 'string' || !value.currency) return null;
+  return value;
+}
+
 export function applyReceiptJobProgress(progress) {
   if (!progress || typeof progress !== 'object' || !Array.isArray(progress.pages)) return false;
   ensurePageStates();
@@ -245,6 +252,10 @@ export function applyReceiptJobProgress(progress) {
       allowEmptyText: directPdf,
     });
     if (candidate.ocr !== undefined && !ocrEvidence) continue;
+    const interpretation = candidate.interpretation === undefined
+      ? null
+      : parseProgressiveInterpretation(candidate.interpretation);
+    if (candidate.interpretation !== undefined && !interpretation) continue;
 
     seen.add(position);
     const page = capture ? state.pageStates.get(captureKey(capture)) : null;
@@ -257,6 +268,9 @@ export function applyReceiptJobProgress(progress) {
     if (ocrEvidence) {
       page.ocrEvidence = ocrEvidence;
       page.rawText = ocrEvidence.text;
+    }
+    if (interpretation) {
+      page.result = { final: interpretation };
     }
 
     if (candidate.stage === 'queued') {
@@ -298,8 +312,11 @@ async function startDurableAutomaticCaptureProcessing() {
   setPagesForBackgroundJob('queued');
   if (!state.progressTimer) startReceiptProgress();
   persistAndRenderCaptures();
-  const hasPdf = state.captures.some(capture => capture.mimeType === 'application/pdf');
-  $('#receipt-state').textContent = hasPdf
+  const pdfOnly = state.captures.every(capture => capture.mimeType === 'application/pdf');
+  const hasPdf = !pdfOnly && state.captures.some(capture => capture.mimeType === 'application/pdf');
+  $('#receipt-state').textContent = pdfOnly
+    ? 'Iniciando validación durable del PDF con IA.'
+    : hasPdf
     ? 'Iniciando análisis durable. Los PDF se envían directamente a la IA; las imágenes conservan OCR local.'
     : 'Iniciando análisis durable. OCR y corrección IA se conservarán para continuar tras una recarga.';
 
@@ -510,6 +527,8 @@ export function completeBackgroundJob(extraction) {
   applyExtraction(extraction);
   state.processing = false;
   state.finalizing = false;
+  state.jobRealtime?.close();
+  state.jobRealtime = null;
   stopReceiptProgress();
   persistAndRenderCaptures();
   const articleCount = extraction.final?.articleCount;
@@ -559,7 +578,13 @@ export async function refreshReceiptExtractionJob() {
   if (!jobId || hasManualReviewOverride()) return;
   const result = await api(`/api/v1/receipts/extraction-jobs/${encodeURIComponent(jobId)}`);
   const job = result.job;
-  if (!job || job.id !== jobId || state.activeJobId !== jobId || hasManualReviewOverride()) return;
+  if (
+    !job
+    || job.id !== jobId
+    || state.activeJobId !== jobId
+    || hasManualReviewOverride()
+    || state.extraction
+  ) return;
   if (job.status === 'queued' || job.status === 'running') {
     state.processing = true;
     if (!applyReceiptJobProgress(job.progress)) setPagesForBackgroundJob(job.status);

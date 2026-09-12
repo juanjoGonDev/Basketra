@@ -195,7 +195,6 @@ export function installReceiptEnhancements() {
     queueTitle.textContent = 'Archivos del análisis';
     const queueHelp = document.createElement('small');
     queueHelp.id = 'receipt-source-queue-detail';
-    queueHelp.textContent = 'Añade imágenes o PDF con el botón +';
     queueHeading.append(queueTitle, queueHelp);
 
     const cancelAll = document.createElement('button');

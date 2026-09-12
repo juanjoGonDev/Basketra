@@ -133,3 +133,49 @@ test('direct PDFs remain queued until WebAPI has accepted their validation sessi
   assert.equal(progress.pages[0]?.stage, 'queued');
   assert.equal(progress.pages[0]?.ocr?.text, '');
 });
+
+test('completed direct PDFs expose their validated lines for the progressive receipt view', () => {
+  const progress = buildReceiptJobProgress({
+    ...durableState(),
+    pageCount: 1,
+    pages: [{
+      position: 0,
+      ocr: {
+        position: 0,
+        storageKey: `${'d'.repeat(64)}.pdf`,
+        mimeType: 'application/pdf',
+        text: '',
+        confidence: 0,
+        source: 'provider',
+        deterministic: { items: [], metadata: {} },
+      },
+      remoteStatus: 'completed',
+      remoteResult: {
+        currency: 'EUR',
+        correctedText: 'PDF receipt',
+        items: [{
+          description: 'BANANA',
+          quantity: 1,
+          unitPriceMinor: 137,
+          lineTotalMinor: 137,
+          confidence: 0.98,
+          categoryId: 'category_fruit',
+          sourceLines: [1],
+        }],
+        newCategories: [],
+        warnings: [],
+      },
+    }],
+  });
+
+  assert.deepEqual(progress.pages[0]?.interpretation?.items, [{
+    description: 'BANANA',
+    quantity: 1,
+    unitPriceMinor: 137,
+    lineTotalMinor: 137,
+    confidence: 0.98,
+    categoryId: 'category_fruit',
+    sourceLines: [1],
+  }]);
+  assert.doesNotMatch(JSON.stringify(progress), /storageKey|mimeType|resp_/u);
+});

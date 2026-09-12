@@ -692,7 +692,7 @@
   right: max(var(--space-4), env(safe-area-inset-right));
   bottom: calc(var(--nav) + env(safe-area-inset-bottom) + var(--space-4) + (var(--touch) * 2) + (var(--space-2) * 2));
   width: min(24rem, calc(100vw - var(--space-8)));
-  max-height: min(68dvh, 36rem);
+  max-height: min(52dvh, 28rem);
   overflow: auto;
   overscroll-behavior: contain;
   border: 1px solid color-mix(in srgb, var(--color-on-surface) 14%, transparent);
@@ -729,6 +729,10 @@
   font-size: .72rem;
 }
 
+.receipt-source-queue__header small:empty {
+  display: none;
+}
+
 .receipt-source-queue__cancel {
   flex: 0 0 auto;
   color: var(--color-error);
@@ -739,6 +743,11 @@
   padding: var(--space-2) var(--space-4) 0;
   color: var(--color-on-surface-variant);
   font-size: .7rem;
+}
+
+/* Attachment limits already constrain the picker; do not repeat them in the compact queue. */
+.receipt-source-queue__limit-help {
+  display: none;
 }
 
 .receipt-source-queue__limit-help:empty {
@@ -821,6 +830,12 @@
   font-size: .75rem;
 }
 
+.receipt-source-queue .capture-card__summary-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .receipt-source-queue .capture-card__summary .status-pill {
   align-self: center;
   font-size: .66rem;
@@ -842,7 +857,13 @@
 }
 
 .receipt-source-queue .capture-card__page-actions {
-  grid-template-columns: 1fr;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.receipt-source-queue .capture-card__action {
+  flex: 0 0 var(--touch);
 }
 
 .receipt-source-queue .capture-card__secondary-actions {
@@ -864,6 +885,11 @@
   background: transparent;
   box-shadow: none;
   backdrop-filter: none;
+}
+
+/* The floating trigger carries aggregate progress; the old full progress block is redundant. */
+.receipt-progress--compact {
+  display: none !important;
 }
 
 .receipt-progress--compact .receipt-progress__heading strong {

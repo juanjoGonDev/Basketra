@@ -1,5 +1,5 @@
 import { api, setBusy } from './api.js';
-import { euroInputToMinor, formatEuroMinor, minorToEuroInput, receiptReview } from './ui.js';
+import { euroInputToMinor, formatEuroMinor, icon, minorToEuroInput, receiptReview } from './ui.js';
 import {
   REVIEWABLE_PAGE_STATUSES,
   $,
