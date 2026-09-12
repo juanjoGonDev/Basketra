@@ -120,6 +120,58 @@ test('completed PDF progress renders structured category lines without any OCR U
   await expect(card.locator('.capture-card__details')).not.toHaveAttribute('open', '');
 });
 
+test('focused ticket validation keeps review in the list and opens the original PDF evidence', async ({ page }) => {
+  await installControlledEventSource(page);
+  const pdf = Buffer.from('%PDF-1.4\nfixture');
+  let lineValidationRequests = 0;
+
+  await page.route('**/api/v1/receipts/extraction-jobs', route => route.fulfill({
+    status: 202,
+    contentType: 'application/json',
+    body: JSON.stringify({ job: { id: 'receiptextractionjob_focused', status: 'queued' } }),
+  }));
+  await page.route('**/api/v1/receipts/extraction-jobs/receiptextractionjob_focused', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ job: { id: 'receiptextractionjob_focused', status: 'completed', extraction: localExtraction() } }),
+  }));
+  await page.route('**/api/v1/receipts/validate', route => {
+    lineValidationRequests += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        lines: [{ validation: { status: 'confirmed', expectedMinor: 150, differenceMinor: 0 } }],
+        total: { expectedMinor: 150, differenceMinor: 0, valid: true },
+      }),
+    });
+  });
+  await page.route('**/api/v1/files/**/document', route => route.fulfill({
+    status: 200,
+    contentType: 'application/pdf',
+    body: pdf,
+    headers: { 'cache-control': 'private, no-store, max-age=0', 'content-disposition': 'inline' },
+  }));
+
+  await prepareReceipt(page, 'focused.pdf', 'application/pdf', pdf);
+
+  await expect(page.locator('#receipt-review-panel')).toBeHidden();
+  await expect(page.locator('#receipt-detected-list')).toContainText('PAN');
+  await expect(page.getByRole('button', { name: 'Validar ticket', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Ver comprobante', exact: true })).toBeVisible();
+  await expect(page.locator('#confirm-receipt')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Editar producto 1', exact: true }).click();
+  await expect(page.locator('#receipt-line-dialog')).toBeVisible();
+  await page.getByRole('button', { name: 'Validar línea', exact: true }).click();
+  await expect(page.locator('#receipt-line-dialog')).toBeHidden();
+  await expect.poll(() => lineValidationRequests).toBe(1);
+
+  await page.getByRole('button', { name: 'Ver comprobante', exact: true }).click();
+  await expect(page.locator('#receipt-evidence-dialog')).toBeVisible();
+  await expect(page.locator('#receipt-evidence-content iframe')).toHaveAttribute('src', /\/api\/v1\/files\/.+\/document$/);
+});
+
 test('AI-enabled automatic analysis uses one whole-ticket durable job and no browser OCR request', async ({ page }) => {
   await installControlledEventSource(page);
   let directExtractionRequests = 0;

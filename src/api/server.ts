@@ -322,6 +322,8 @@ export class BasketraServer {
       if (request.method === 'GET' && url.pathname === '/api/v1/retailers/suggestions') return this.suggestRetailers(response, url.searchParams);
 
       if (request.method === 'POST' && url.pathname === '/api/v1/files') return await this.storeFile(request, response);
+      const documentMatch = /^\/api\/v1\/files\/([^/]+)\/document$/.exec(url.pathname);
+      if (request.method === 'GET' && documentMatch?.[1]) return this.serveStoredDocument(response, decodePathSegment(documentMatch[1]));
       const fileMatch = /^\/api\/v1\/files\/([^/]+)$/.exec(url.pathname);
       if (request.method === 'GET' && fileMatch?.[1]) return this.serveStoredFile(response, decodePathSegment(fileMatch[1]));
       if (request.method === 'POST' && url.pathname === '/api/v1/receipts/extract') return await this.extractReceipt(request, response);
@@ -1029,6 +1031,31 @@ export class BasketraServer {
     if (!file.mimeType.startsWith('image/')) throw new ApiError(415, 'FILE_PREVIEW_UNSUPPORTED', 'Only stored images can be previewed');
     response.writeHead(200, {
       'content-type': file.mimeType,
+      'content-length': String(file.bytes.byteLength),
+      'cache-control': 'private, no-store, max-age=0',
+      'content-disposition': 'inline',
+    });
+    response.end(file.bytes);
+  }
+
+  private serveStoredDocument(response: ServerResponse, storageKey: string): void {
+    if (!/^[a-f0-9]{64}\.pdf$/.test(storageKey)) {
+      throw new ApiError(400, 'INVALID_STORAGE_KEY', 'Stored document key is invalid');
+    }
+    let file;
+    try {
+      file = this.#fileStore.read(storageKey);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Stored file does not exist') {
+        throw new ApiError(404, 'FILE_NOT_FOUND', 'Stored file was not found');
+      }
+      throw error;
+    }
+    if (file.mimeType !== 'application/pdf') {
+      throw new ApiError(415, 'FILE_DOCUMENT_UNSUPPORTED', 'Only stored PDFs can be displayed as documents');
+    }
+    response.writeHead(200, {
+      'content-type': 'application/pdf',
       'content-length': String(file.bytes.byteLength),
       'cache-control': 'private, no-store, max-age=0',
       'content-disposition': 'inline',

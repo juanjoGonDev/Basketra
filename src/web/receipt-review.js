@@ -89,12 +89,7 @@ export function renderReviewReference() {
 export function showReviewPanelForCapture(index) {
   const capture = state.captures[index];
   if (capture) state.selectedReviewCaptureKey = captureKey(capture);
-  const panel = $('#receipt-review-panel');
-  if (!panel) return;
-  panel.hidden = false;
-  panel.open = true;
-  renderReviewReference();
-  panel.scrollIntoView({ block: 'start', behavior: 'auto' });
+  $('#receipt-detected-stream')?.scrollIntoView({ block: 'start', behavior: 'auto' });
 }
 
 function receiptItemAt(index) {
@@ -622,7 +617,6 @@ async function loadReceiptCategories() {
 export function renderReview(lines = [], total) {
   const review = $('#receipt-review');
   const panel = $('#receipt-review-panel');
-  const keepPanelOpen = panel?.open === true;
   const hasReviewContent = state.items.length > 0 || state.captures.length > 0 || Boolean(state.extraction);
   review.hidden = !hasReviewContent;
   review.innerHTML = hasReviewContent
@@ -631,8 +625,8 @@ export function renderReview(lines = [], total) {
   if (hasReviewContent) enhanceReceiptLines(lines);
   $('#confirm-receipt').hidden = state.items.length === 0;
   if (panel) {
-    panel.hidden = !hasReviewContent;
-    panel.open = hasReviewContent && keepPanelOpen;
+    panel.hidden = true;
+    panel.open = false;
   }
   renderReviewReference();
   renderProgressiveDetectedItems();

@@ -267,6 +267,7 @@ function installReceiptLineEditor() {
     actions: [
       { id: 'delete-receipt-line-editor', className: 'button danger-outline', label: 'Eliminar', icon: 'trash' },
       { id: 'cancel-receipt-line-editor', className: 'button secondary', label: 'Cancelar' },
+      { id: 'validate-receipt-line-editor', className: 'button secondary', label: 'Validar línea', icon: 'check', editorAction: 'validate' },
       { id: 'save-receipt-line-editor', className: 'button primary', label: 'Guardar línea', icon: 'check', editorAction: 'save' },
     ],
   });
@@ -291,6 +292,23 @@ function installReceiptLineEditor() {
     description.removeAttribute('aria-invalid');
     closeReceiptLineEditor();
     $('#receipt-review')?.dispatchEvent(new CustomEvent('basketra:receipt-line-saved', { bubbles: true }));
+  });
+  $('#validate-receipt-line-editor').addEventListener('click', event => {
+    const item = receiptEditorSession?.item;
+    const index = Number(item?.dataset.itemIndex);
+    if (!item || !Number.isInteger(index) || index < 0) return;
+    const description = receiptInput(item, 'description');
+    if (!description?.value.trim()) {
+      description?.setAttribute('aria-invalid', 'true');
+      $('#receipt-line-editor-state').textContent = 'Indica el producto antes de validar esta línea.';
+      description?.focus();
+      return;
+    }
+    closeReceiptLineEditor();
+    $('#receipt-review')?.dispatchEvent(new CustomEvent('basketra:receipt-validate-line', {
+      bubbles: true,
+      detail: { index, button: event.currentTarget },
+    }));
   });
   $('#delete-receipt-line-editor').addEventListener('click', () => closeReceiptLineEditor({ deleteLine: true }));
   dialog.addEventListener('input', event => {

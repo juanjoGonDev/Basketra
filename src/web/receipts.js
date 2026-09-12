@@ -4,7 +4,9 @@ import {
   $$,
   closeDialog,
   configureReceiptContext,
+  captureKey,
   ensurePageStates,
+  openDialog,
   state,
 } from './receipt-state.js';
 import {
@@ -35,6 +37,7 @@ import {
   scheduleRetailerSuggestions,
   selectRetailerSuggestion,
   selectedReviewCapture,
+  validateReceiptLine,
   validateRows,
 } from './receipt-review.js';
 
@@ -88,8 +91,16 @@ export function syncStickyReviewSummary() {
   const sticky = $('#receipt-review-sticky-summary');
   const review = $('#receipt-review');
   const confirm = $('#confirm-receipt');
-  const expand = $('#receipt-review-expand');
   if (!sticky || !review || !confirm) return;
+
+  const primaryActions = $('#receipt-live-summary-actions');
+  if (primaryActions) {
+    sticky.hidden = true;
+    if (state.items.length > 0) primaryActions.append(confirm);
+    return;
+  }
+
+  const expand = $('#receipt-review-expand');
 
   const total = review.querySelector('.review-total') || sticky.querySelector('.review-total');
   const status = review.querySelector('.review-summary .status-pill') || sticky.querySelector('.status-pill');
@@ -130,6 +141,51 @@ export function installReviewContextObservers() {
   }
   syncCompactReviewEvidence();
   syncStickyReviewSummary();
+}
+
+function selectedEvidenceCapture() {
+  const selector = $('#receipt-evidence-capture');
+  return state.captures.find(capture => captureKey(capture) === selector?.value) || state.captures[0] || null;
+}
+
+export function renderReceiptEvidence() {
+  const selector = $('#receipt-evidence-capture');
+  const content = $('#receipt-evidence-content');
+  if (!selector || !content) return;
+
+  const previous = selector.value;
+  selector.replaceChildren();
+  for (const [index, capture] of state.captures.entries()) {
+    const option = document.createElement('option');
+    option.value = captureKey(capture);
+    option.textContent = `${index + 1}. ${capture.name}`;
+    selector.append(option);
+  }
+  selector.disabled = state.captures.length < 2;
+  selector.value = state.captures.some(capture => captureKey(capture) === previous)
+    ? previous
+    : captureKey(state.captures[0] || {});
+
+  const capture = selectedEvidenceCapture();
+  content.replaceChildren();
+  if (!capture) return;
+  if (capture.mimeType.startsWith('image/')) {
+    const image = document.createElement('img');
+    image.src = `/api/v1/files/${encodeURIComponent(capture.storageKey)}`;
+    image.alt = `Comprobante: ${capture.name}`;
+    content.append(image);
+    return;
+  }
+  const documentView = document.createElement('iframe');
+  documentView.src = `/api/v1/files/${encodeURIComponent(capture.storageKey)}/document`;
+  documentView.title = `Comprobante PDF: ${capture.name}`;
+  content.append(documentView);
+}
+
+export function showReceiptEvidence() {
+  if (state.captures.length === 0) return;
+  renderReceiptEvidence();
+  openDialog($('#receipt-evidence-dialog'));
 }
 
 export function keepMobileReviewFocusVisible(target) {
@@ -323,7 +379,39 @@ export function installReceiptEnhancements() {
         <span id="receipt-summary-total-label">Total provisional</span>
         <strong id="receipt-summary-total">0,00 €</strong>
       </div>`;
+    const actions = document.createElement('div');
+    actions.id = 'receipt-live-summary-actions';
+    actions.className = 'receipt-live-summary__actions';
+    const evidence = document.createElement('button');
+    evidence.id = 'receipt-show-evidence';
+    evidence.type = 'button';
+    evidence.className = 'button secondary';
+    evidence.innerHTML = `${icon('image')}<span>Ver comprobante</span>`;
+    const validate = document.createElement('button');
+    validate.id = 'validate-receipt-ticket';
+    validate.type = 'button';
+    validate.className = 'button secondary';
+    validate.innerHTML = `${icon('check')}<span>Validar ticket</span>`;
+    actions.append(evidence, validate);
+    summary.append(actions);
     analysisBody.append(summary);
+  }
+
+  if (!$('#receipt-evidence-dialog')) {
+    const dialog = document.createElement('dialog');
+    dialog.id = 'receipt-evidence-dialog';
+    dialog.className = 'receipt-evidence-dialog';
+    dialog.setAttribute('aria-labelledby', 'receipt-evidence-title');
+    dialog.innerHTML = `
+      <header>
+        <div>
+          <h2 id="receipt-evidence-title">Comprobante</h2>
+          <label class="field" for="receipt-evidence-capture"><span>Archivo</span><select id="receipt-evidence-capture"></select></label>
+        </div>
+        <button id="close-receipt-evidence" class="icon-button" type="button" aria-label="Cerrar comprobante">${icon('close')}</button>
+      </header>
+      <div id="receipt-evidence-content" class="receipt-evidence-dialog__content"></div>`;
+    document.body.append(dialog);
   }
 
   if (!$('#receipt-review-panel')) {
@@ -506,11 +594,6 @@ export function bindEvents() {
   $('#receipt-add-manual')?.addEventListener('click', () => {
     setReceiptAddMenuOpen(false);
     const index = addBlankLine({ focus: false });
-    const reviewPanel = $('#receipt-review-panel');
-    if (reviewPanel) {
-      reviewPanel.hidden = false;
-      reviewPanel.open = false;
-    }
     $('#receipt-review')?.dispatchEvent(new CustomEvent('basketra:receipt-edit-line', {
       bubbles: true,
       detail: { index, draftNew: true },
@@ -557,6 +640,12 @@ export function bindEvents() {
     }
   });
 
+  $('#receipt-review')?.addEventListener('basketra:receipt-validate-line', event => {
+    const index = Number(event.detail?.index);
+    if (!Number.isInteger(index) || index < 0 || !state.items[index]) return;
+    void validateReceiptLine(index, event.detail?.button);
+  });
+
   $('#receipt-detected-list')?.addEventListener('click', event => {
     const action = event.target.closest('[data-receipt-action]');
     if (!action) return;
@@ -580,6 +669,12 @@ export function bindEvents() {
   });
   $('#receipt-review-expand')?.addEventListener('click', () => {
     showPreview(state.captures.indexOf(selectedReviewCapture()));
+  });
+  $('#close-receipt-evidence')?.addEventListener('click', () => closeDialog($('#receipt-evidence-dialog')));
+  $('#receipt-evidence-capture')?.addEventListener('change', renderReceiptEvidence);
+  document.addEventListener('click', event => {
+    if (event.target.closest('#receipt-show-evidence')) showReceiptEvidence();
+    if (event.target.closest('#validate-receipt-ticket')) void validateRows();
   });
   $('#receipt-review-panel').addEventListener('focusin', event => {
     if (!window.matchMedia(MOBILE_REVIEW_MEDIA).matches) return;

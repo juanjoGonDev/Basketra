@@ -360,11 +360,11 @@ export function renderProgressiveDetectedItems() {
     if (editable) {
       const actions = document.createElement('button');
       actions.type = 'button';
-      actions.className = 'icon-button receipt-detected-item__menu';
-      actions.dataset.swipeToggle = '';
-      actions.setAttribute('aria-expanded', 'false');
-      actions.setAttribute('aria-label', `Mostrar acciones del producto ${index + 1}`);
-      actions.innerHTML = icon('more');
+      actions.className = 'icon-button receipt-detected-item__edit';
+      actions.dataset.receiptAction = 'edit';
+      actions.dataset.receiptIndex = String(index);
+      actions.setAttribute('aria-label', `Editar producto ${index + 1}`);
+      actions.innerHTML = icon('edit');
       surface.append(actions);
     }
 
@@ -377,7 +377,7 @@ export function renderProgressiveDetectedItems() {
   help.hidden = snapshot.items.length === 0;
   help.textContent = snapshot.provisional
     ? 'Las líneas son provisionales hasta completar la revisión conjunta.'
-    : 'Resultado combinado listo. Abre la vista previa para validar y corregir.';
+    : 'Edita una línea si requiere revisión o valida el ticket cuando esté listo.';
   renderReceiptAnalysisSummary(snapshot);
 }
 

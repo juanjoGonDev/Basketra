@@ -116,6 +116,11 @@
   display: none;
 }
 
+/* The editor form remains mounted for the line dialog; ticket review happens in the detected list. */
+#receipt-review-panel {
+  display: none !important;
+}
+
 .receipt-review-panel > summary > span {
   display: grid;
   min-width: 0;
@@ -1352,6 +1357,66 @@
 .receipt-live-summary__total strong {
   font-size: 1.15rem;
   font-variant-numeric: tabular-nums;
+}
+
+.receipt-live-summary__actions {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-top: 1px solid var(--color-outline-variant);
+}
+
+.receipt-live-summary__actions .button {
+  justify-content: center;
+}
+
+.receipt-evidence-dialog {
+  width: min(72rem, calc(100vw - var(--space-8)));
+  max-width: 72rem;
+  height: min(88dvh, 58rem);
+  max-height: 88dvh;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-on-surface);
+  padding: 0;
+}
+
+.receipt-evidence-dialog::backdrop {
+  background: color-mix(in srgb, var(--color-scrim) 42%, transparent);
+}
+
+.receipt-evidence-dialog > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-outline-variant);
+}
+
+.receipt-evidence-dialog h2 {
+  margin: 0 0 var(--space-2);
+  font-size: 1rem;
+}
+
+.receipt-evidence-dialog .field {
+  min-width: min(30rem, calc(100vw - var(--space-12)));
+}
+
+.receipt-evidence-dialog__content {
+  display: grid;
+  height: calc(100% - 6.5rem);
+  min-height: 0;
+  place-items: center;
+  background: var(--color-surface-container-low);
+}
+
+.receipt-evidence-dialog__content > :is(img, iframe) {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  object-fit: contain;
 }
 
 .receipt-review-panel__summary-meta {

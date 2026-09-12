@@ -181,6 +181,13 @@ test('HTTP API works without an application token and completes list and receipt
     assert.equal(uploadedPdf.status, 201);
     const pdfKey = (await json<{ file: { storageKey: string } }>(uploadedPdf)).file.storageKey;
     assert.equal((await request(baseUrl, `/api/v1/files/${pdfKey}`)).status, 400);
+    const document = await request(baseUrl, `/api/v1/files/${pdfKey}/document`);
+    assert.equal(document.status, 200);
+    assert.equal(document.headers.get('content-type'), 'application/pdf');
+    assert.match(document.headers.get('cache-control') ?? '', /no-store/);
+    assert.equal(document.headers.get('content-disposition'), 'inline');
+    assert.deepEqual(new Uint8Array(await document.arrayBuffer()), new Uint8Array(Buffer.from(pdfBase64, 'base64')));
+    assert.equal((await request(baseUrl, `/api/v1/files/${storageKey}/document`)).status, 400);
 
     const extracted = await request(baseUrl, '/api/v1/receipts/extract', { method: 'POST', body: JSON.stringify({ captures: [{ storageKey, originalName: 'receipt.png', embeddedText: 'Leche;1;120;120\nTOTAL 1,20' }], verifyWithAi: false }) });
     assert.equal(extracted.status, 200);
