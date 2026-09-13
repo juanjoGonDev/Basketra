@@ -970,11 +970,6 @@
   gap: var(--space-3);
 }
 
-/* The open top-right menu reserves its own vertical lane instead of covering ticket data. */
-.view[data-view="scan"].has-receipt-add-menu .receipt-analysis-overview {
-  margin-top: calc((var(--touch) * 3) + var(--space-5));
-}
-
 .receipt-analysis-identity,
 .receipt-live-total-card,
 .receipt-detected-stream,
@@ -1568,8 +1563,7 @@
   position: fixed;
   z-index: 32;
   right: max(var(--space-4), env(safe-area-inset-right));
-  top: calc(var(--header) + env(safe-area-inset-top) + var(--space-4));
-  bottom: auto;
+  bottom: calc(var(--nav) + env(safe-area-inset-bottom) + var(--space-4));
   display: grid;
   place-items: center;
   padding: 0;
@@ -1594,13 +1588,10 @@
   position: fixed;
   z-index: 34;
   right: max(var(--space-4), env(safe-area-inset-right));
-  top: calc(var(--header) + env(safe-area-inset-top) + var(--space-4) + var(--touch) + var(--space-2));
-  bottom: auto;
+  bottom: calc(var(--nav) + env(safe-area-inset-bottom) + (var(--touch) * 2) + var(--space-6));
   display: grid;
   justify-items: end;
   gap: var(--space-2);
-  max-height: calc(100dvh - var(--header) - env(safe-area-inset-top) - var(--space-6));
-  overflow-y: auto;
 }
 
 .receipt-add-menu[hidden] {
@@ -1777,8 +1768,7 @@
 @media (min-width: 64rem) {
   .receipt-add-trigger {
     right: max(2rem, env(safe-area-inset-right));
-    top: calc(var(--header) + 2rem);
-    bottom: auto;
+    bottom: 2rem;
   }
 
   .receipt-source-queue {
@@ -1793,8 +1783,7 @@
 
   .receipt-add-menu {
     right: max(2rem, env(safe-area-inset-right));
-    top: calc(var(--header) + 2rem + var(--touch) + var(--space-2));
-    bottom: auto;
+    bottom: calc(2rem + var(--touch) + var(--space-4));
   }
 }
 

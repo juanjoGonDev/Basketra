@@ -587,7 +587,6 @@ function setReceiptAddMenuOpen(open) {
   menu.hidden = !open;
   trigger.setAttribute('aria-expanded', String(open));
   trigger.classList.toggle('is-open', open);
-  document.querySelector('.view[data-view="scan"]')?.classList.toggle('has-receipt-add-menu', open);
 }
 
 function prepareAiAssistedCapture() {
