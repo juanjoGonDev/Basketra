@@ -220,9 +220,12 @@ test('detected-store edit opens the shared source editor for its capture', async
   expect(actionLayout[0].bottom).toBeLessThanOrEqual(actionLayout[1].top);
   expect(actionLayout[1].bottom).toBeLessThanOrEqual(actionLayout[2].top);
   expect(actionLayout.map(action => action.height)).toEqual([actionLayout[0].height, actionLayout[0].height, actionLayout[0].height]);
+  await dialog.locator('.app-search-select__trigger').click();
   await dialog.locator('#receipt-source-store-search').fill('Centro');
   await expect(dialog.locator('#receipt-source-store option')).toHaveCount(2);
   await expect(dialog.locator('#receipt-source-store option').nth(1)).toHaveText('Centro');
+  await dialog.getByRole('option', { name: 'Centro', exact: true }).click();
+  await expect(dialog.locator('#receipt-source-store')).toHaveValue('store_centro');
   await dialog.locator('#receipt-source-store-name').fill('Nueva tienda');
   await dialog.getByRole('button', { name: 'Guardar archivo' }).click();
   await expect.poll(() => createdStores.length).toBe(1);

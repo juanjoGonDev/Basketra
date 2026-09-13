@@ -1,7 +1,8 @@
 import { api } from './api.js';
 import { saveCaptures } from './state.js';
 import { captureItem, formatEuroMinor, icon, swipeActionRail } from './ui.js';
-import { createAppButton, createAppDialog, createAppDialogDescription, createAppDialogHeader, createAppField, createAppSearchSelect } from './components.js';
+import { createAppButton, createAppDialog, createAppDialogDescription, createAppDialogHeader, createAppField } from './components.js';
+import { createAppSearchSelect } from './search-select.js';
 import {
   ACTIVE_PAGE_STATUSES,
   REVIEWABLE_PAGE_STATUSES,
@@ -494,9 +495,9 @@ function ensureSourceEditor() {
   dialog.append(header, body, footer);
   document.body.append(dialog);
   $('#receipt-source-retailer').addEventListener('change', event => void populateSourceStoreOptions(event.target.value.trim()));
-  store.search.addEventListener('input', event => {
+  store.wrapper.addEventListener('app-search-select-search', event => {
     const retailerName = $('#receipt-source-retailer').value.trim();
-    void populateSourceStoreOptions(retailerName, '', event.target.value.trim());
+    void populateSourceStoreOptions(retailerName, '', event.detail.query);
   });
   $('#receipt-source-editor-save').addEventListener('click', async () => {
     const capture = captureByKey(dialog.dataset.captureKey || '');

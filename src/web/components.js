@@ -125,20 +125,6 @@ export function createAppSelect({ id, label, required = false } = {}) {
  * A compact, reusable search + native-select control. Features own the data
  * source while this primitive owns the consistent field structure.
  */
-export function createAppSearchSelect({ id, label, searchLabel = 'Buscar', placeholder = '', required = false } = {}) {
-  const search = document.createElement('input');
-  search.id = `${id}-search`;
-  search.type = 'search';
-  search.autocomplete = 'off';
-  search.maxLength = 120;
-  search.placeholder = placeholder;
-  const { wrapper: selectWrapper, select } = createAppSelect({ id, label, required });
-  search.setAttribute('aria-controls', id);
-  const wrapper = document.createElement('app-search-select');
-  wrapper.append(createAppField(searchLabel, search), selectWrapper);
-  return { wrapper, search, select };
-}
-
 export function createAppButton({ label, variant = 'secondary', type = 'button', icon = '' } = {}) {
   const component = document.createElement('app-button');
   component.dataset.variant = variant;

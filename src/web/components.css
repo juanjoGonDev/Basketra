@@ -1,11 +1,12 @@
 app-stack { display: grid; gap: var(--space-3); }
 app-inline { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 app-field { display: grid; gap: var(--space-1); min-width: 0; }
-app-field > span { color: var(--color-on-surface); font-size: .78rem; font-weight: 700; }
+app-field > span { color: var(--color-on-surface-variant); font-size: .78rem; font-weight: 650; }
 app-field[data-state="error"] > small { color: var(--color-error); font-size: .75rem; }
-app-field :is(input, select) { width: 100%; min-width: 0; }
+app-field :is(input, select) { width: 100%; min-width: 0; min-height: var(--touch); padding: .75rem 1rem; border: 1px solid color-mix(in srgb, var(--color-on-surface) 22%, transparent); border-radius: var(--radius-interactive); background: var(--color-surface); color: var(--color-on-surface); box-shadow: none; }
+app-field :is(input, select):hover { border-color: var(--color-outline); }
+app-field :is(input, select):focus-visible { border-color: var(--color-primary); outline-width: .125rem; }
 app-select { display: block; min-width: 0; }
-app-search-select { display: grid; gap: var(--space-3); min-width: 0; }
 app-button { display: inline-block; }
 
 app-dialog::part(native-dialog) {
