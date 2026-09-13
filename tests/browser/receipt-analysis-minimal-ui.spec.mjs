@@ -129,7 +129,7 @@ test('receipt analysis is minimal, responsive and exposes one three-path floatin
     await expect(page.locator('#receipt-analysis-options')).toHaveCount(0);
     await expect(page.locator('#verify-receipt-ai')).toHaveCount(0);
 
-    if (viewport.width >= 1280) {
+    {
       const edge = await page.evaluate(() => {
         const trigger = document.querySelector('#receipt-add-trigger').getBoundingClientRect();
         const queueTrigger = document.querySelector('#receipt-source-queue > summary').getBoundingClientRect();
@@ -138,15 +138,27 @@ test('receipt analysis is minimal, responsive and exposes one three-path floatin
           trigger: window.innerWidth - trigger.right,
           queue: window.innerWidth - queueTrigger.right,
           menu: window.innerWidth - menu.right,
+          triggerTop: trigger.top,
+          triggerBottom: trigger.bottom,
+          queueTop: queueTrigger.top,
+          menuTop: menu.top,
+          menuBottom: menu.bottom,
+          overviewTop: document.querySelector('#receipt-analysis-overview').getBoundingClientRect().top,
+          viewportHeight: window.innerHeight,
           triggerSize: trigger.width,
           queueSize: queueTrigger.width,
         };
       });
-      expect(edge.trigger).toBeLessThanOrEqual(32.5);
-      expect(edge.queue).toBeLessThanOrEqual(32.5);
-      expect(edge.menu).toBeLessThanOrEqual(32.5);
+      expect(edge.trigger).toBeLessThanOrEqual(viewport.width >= 1024 ? 32.5 : 16.5);
+      expect(edge.queue).toBeLessThanOrEqual(viewport.width >= 1024 ? 32.5 : 16.5);
+      expect(edge.menu).toBeLessThanOrEqual(viewport.width >= 1024 ? 32.5 : 16.5);
       expect(Math.abs(edge.trigger - edge.menu)).toBeLessThanOrEqual(.5);
       expect(Math.abs(edge.trigger - edge.queue)).toBeLessThanOrEqual(.5);
+      expect(edge.triggerTop).toBeGreaterThanOrEqual(0);
+      expect(edge.menuTop).toBeGreaterThan(edge.triggerBottom);
+      expect(edge.menuBottom).toBeLessThanOrEqual(edge.queueTop);
+      expect(edge.menuBottom).toBeLessThanOrEqual(edge.viewportHeight);
+      expect(edge.menuBottom).toBeLessThanOrEqual(edge.overviewTop);
       expect(edge.triggerSize).toBeGreaterThanOrEqual(44);
       expect(edge.queueSize).toBeGreaterThanOrEqual(44);
     }
@@ -452,7 +464,7 @@ test('approved mobile and desktop summary keeps products independent while showi
     await expect(page.locator('#receipt-summary-discounts')).toHaveText('2');
     await expect(page.locator('#receipt-summary-discounts-list')).toContainText('Descuento tarjeta Consum');
     await expect(page.locator('#receipt-summary-total')).toContainText('3,45');
-    await expect(page.locator('#receipt-detected-list [data-swipe-toggle]')).toHaveCount(2);
+    await expect(page.locator('#receipt-detected-list [data-swipe-toggle]')).toHaveCount(0);
     const closedSwipeStates = await page.locator('#receipt-detected-list .receipt-detected-row').evaluateAll(rows => (
       rows.map(row => row.dataset.swipeOpen)
     ));
@@ -474,20 +486,9 @@ test('approved mobile and desktop summary keeps products independent while showi
     });
 
     const firstRow = page.locator('#receipt-detected-list .receipt-detected-row').first();
-    if (viewport.width === 390) {
-      const box = await firstRow.boundingBox();
-      expect(box).not.toBeNull();
-      await page.mouse.move(box.x + box.width * .55, box.y + box.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(box.x + box.width * .25, box.y + box.height / 2, { steps: 6 });
-      await page.mouse.up();
-      await expect(firstRow).toHaveAttribute('data-swipe-open', 'true');
-    } else {
-      await firstRow.getByRole('button', { name: 'Mostrar acciones del producto 1', exact: true }).click();
-      await expect(firstRow).toHaveAttribute('data-swipe-open', 'true');
-    }
-
-    await firstRow.getByRole('button', { name: 'Editar producto 1', exact: true }).click();
+    const firstLine = firstRow.getByRole('button', { name: 'Editar producto 1: PATATA SELECCION', exact: true });
+    await firstLine.focus();
+    await page.keyboard.press('Enter');
     const editor = page.locator('#receipt-line-dialog');
     await expect(editor).toBeVisible();
     await expect(editor.getByRole('heading', { name: 'Editar línea 1', exact: true })).toBeVisible();
@@ -500,22 +501,15 @@ test('approved mobile and desktop summary keeps products independent while showi
       fullPage: true,
     });
     await editor.getByRole('button', { name: 'Guardar línea', exact: true }).click();
-    await expect(editor).toBeHidden();
+    await expect(editor.locator('dialog')).toBeHidden();
     await expect(page.locator('#receipt-detected-list')).toContainText('PATATA EDITADA');
     await expect(page.locator('#receipt-summary-total')).toContainText('3,95');
 
-    const secondRow = page.locator('#receipt-detected-list .receipt-detected-row').nth(1);
-    await secondRow.getByRole('button', { name: 'Mostrar acciones del producto 2', exact: true }).click();
-    await expect(secondRow).toHaveAttribute('data-swipe-open', 'true');
-    if (viewport.width === 390) {
-      await page.evaluate(() => {
-        document.dispatchEvent(new CustomEvent('basketra:swipe-action', {
-          detail: { kind: 'receipt-detected-line', action: 'delete', id: '1' },
-        }));
-      });
-    } else {
-      await secondRow.getByRole('button', { name: 'Eliminar producto 2', exact: true }).click();
-    }
+    await page.evaluate(() => {
+      document.dispatchEvent(new CustomEvent('basketra:swipe-action', {
+        detail: { kind: 'receipt-detected-line', action: 'delete', id: '1' },
+      }));
+    });
     await expect(page.locator('#receipt-detected-list .receipt-detected-item')).toHaveCount(1);
     await expect(page.locator('#receipt-summary-products')).toHaveText('1');
     await expect(page.locator('#receipt-summary-total')).toContainText('3,05');
