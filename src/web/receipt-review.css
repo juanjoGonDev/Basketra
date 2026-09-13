@@ -1032,6 +1032,19 @@
   white-space: nowrap;
 }
 
+.receipt-draft-selector {
+  display: block;
+  max-width: 100%;
+  margin-top: var(--space-1);
+}
+
+.receipt-draft-selector select {
+  width: 100%;
+  min-height: 2rem;
+  padding-block: .2rem;
+  font-size: .74rem;
+}
+
 .receipt-live-analysis {
   min-width: 0;
   display: grid;

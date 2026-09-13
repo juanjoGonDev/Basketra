@@ -197,6 +197,18 @@ function renderReceiptAnalysisSummary(snapshot) {
   const retailer = $('#receipt-live-retailer-name');
   if (retailer) retailer.textContent = currentRetailerLabel(snapshot);
 
+  const draftField = $('#receipt-draft-selector-field');
+  const draftSelector = $('#receipt-draft-selector');
+  if (draftField && draftSelector) {
+    const drafts = state.receiptDrafts;
+    draftField.hidden = drafts.length < 2;
+    draftSelector.replaceChildren(...drafts.map((draft, index) => {
+      const capture = captureByKey(draft.captureKeys[0]);
+      return new Option(`Ticket ${index + 1} · ${capture?.name || 'sin archivo'}`, draft.key);
+    }));
+    draftSelector.value = state.activeReceiptDraftKey;
+  }
+
   const progress = receiptProgressSnapshot();
   const stage = $('#receipt-live-stage');
   const progressLabel = $('#receipt-live-progress-label');
@@ -485,6 +497,9 @@ function ensureSourceEditor() {
       capture.storeId = storeId;
       capture.storeName = storeName;
       persistAndRenderCaptures();
+      document.dispatchEvent(new CustomEvent('basketra:receipt-capture-source-changed', {
+        detail: { captureKey: captureKey(capture) },
+      }));
       dialog.close();
       toast('Archivo actualizado');
     } catch {

@@ -12,7 +12,7 @@ import {
   state,
 } from './receipt-state.js';
 import { persistAndRenderCaptures } from './receipt-capture.js';
-import { applyExtraction } from './receipt-review.js';
+import { applyCaptureDrafts } from './receipt-review.js';
 import {
   cancelReceiptExtraction,
   enqueueCapture,
@@ -195,6 +195,8 @@ export function clearCombinedReview({ keepPanel = false } = {}) {
   state.assemblyController = null;
   state.finalizing = false;
   state.extraction = null;
+  state.receiptDrafts = [];
+  state.activeReceiptDraftKey = '';
   state.items = [];
   state.originalItems = [];
   state.originalText = '';
@@ -517,24 +519,30 @@ export function completeBackgroundJob(extraction) {
     const result = pages.find(candidate => candidate?.position === index);
     page.status = 'completed';
     page.rawText = typeof result?.text === 'string' ? result.text : '';
-    page.result = extraction;
+    const interpretation = extraction.ai?.pages?.find(candidate => candidate.position === index)?.interpretation;
+    page.result = interpretation
+      ? {
+        final: interpretation,
+        ai: { interpretation },
+        originalText: typeof result?.text === 'string' ? result.text : '',
+      }
+      : extraction;
     page.aiStatus = extraction.ai ? 'completed' : 'idle';
     page.aiError = '';
     page.aiErrorCode = '';
     page.aiRecovery = null;
     page.elapsedMs = Date.now() - page.startedAt;
   }
-  applyExtraction(extraction);
+  applyCaptureDrafts();
   state.processing = false;
   state.finalizing = false;
   state.jobRealtime?.close();
   state.jobRealtime = null;
   stopReceiptProgress();
   persistAndRenderCaptures();
-  const articleCount = extraction.final?.articleCount;
-  $('#receipt-state').textContent = articleCount === undefined
+  $('#receipt-state').textContent = state.receiptDrafts.length === 1
     ? 'Ticket preparado. Revisa las líneas, cantidades y total antes de confirmar.'
-    : `Ticket preparado. Se detectaron ${articleCount} artículos; revisa las líneas y el total.`;
+    : `${state.receiptDrafts.length} tickets preparados. Revisa y confirma cada uno por separado.`;
 }
 
 export function failBackgroundJob(errorCode = 'RECEIPT_EXTRACTION_FAILED', job) {

@@ -15,6 +15,15 @@ Receipt analysis must remain a dense professional workspace: final lines stay on
 
 ## Checklist
 
+## Current implementation status
+
+The receipt UI has shared overlay primitives, per-capture source editing and a
+compact row treatment, but that is only presentation work. It does **not**
+complete this specification: draft grouping, independent confirmation,
+capture-to-line ownership and durable catalog assignment still require their
+own state, API and browser coverage. No unchecked item below may be described
+as delivered until its corresponding automated evidence exists.
+
 - [ ] Dense detected row has horizontal padding, aligned amount, no inline edit icon, pointer/keyboard opens the modal.
 - [ ] Terminal receipt feedback has no raw ids or duplicated inline notification.
 - [ ] Source editor lists each file and permits retailer/store selection or explicit store creation.

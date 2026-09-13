@@ -22,7 +22,7 @@ import {
   updateGlobalProgress,
 } from './receipt-lifecycle.js';
 import {
-  applyExtraction,
+  applyCaptureDrafts,
   applyRetailerCandidate,
   renderReviewReference,
   showReviewPanelForCapture,
@@ -420,32 +420,12 @@ export async function assembleCompletedPages(token) {
   if (token !== state.runToken || state.finalizing) return;
   state.finalizing = true;
   updateGlobalProgress();
-  const controller = new AbortController();
-  state.assemblyController = controller;
   try {
-    const requests = state.captures.map(capture => {
-      const page = state.pageStates.get(captureKey(capture));
-      return captureRequest(capture, canonicalPageText(page));
-    });
-    const result = await requestExtraction(requests, false, controller.signal);
-    if (token !== state.runToken || controller.signal.aborted) return;
-    const rawOriginalText = state.captures
-      .map(capture => state.pageStates.get(captureKey(capture))?.rawText || '')
-      .filter(Boolean)
-      .join('\n')
-      .trim();
-    applyExtraction(result.extraction, rawOriginalText || result.extraction.originalText || '');
-    const articleCount = result.extraction.final.articleCount;
-    const hasManualPages = state.captures.some(capture => (
-      state.pageStates.get(captureKey(capture))?.status === 'manual'
-    ));
-    if (hasManualPages) {
-      $('#receipt-state').textContent = 'Revisión manual preparada. Corrige cantidades e importes y pulsa “Validar líneas” antes de confirmar.';
-    } else {
-      $('#receipt-state').textContent = articleCount === undefined
-        ? 'Todas las imágenes están combinadas. Revisa las líneas, cantidades y total antes de confirmar.'
-        : `Todas las imágenes están combinadas. El ticket indica ${articleCount} artículos; revisa las líneas y el total.`;
-    }
+    if (token !== state.runToken) return;
+    const drafts = applyCaptureDrafts();
+    $('#receipt-state').textContent = drafts.length === 1
+      ? 'Ticket preparado. Revisa las líneas, cantidades y total antes de confirmar.'
+      : `${drafts.length} tickets preparados. Revisa y confirma cada uno por separado.`;
   } catch (error) {
     if (error.name !== 'AbortError' && token === state.runToken) {
       $('#receipt-state').textContent = `${error.message}. Las páginas completadas se conservan; vuelve a procesar para combinar.`;

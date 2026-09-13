@@ -49,6 +49,8 @@ export const state = {
   jobRealtime: null,
   expandedCaptureKey: '',
   selectedReviewCaptureKey: '',
+  receiptDrafts: [],
+  activeReceiptDraftKey: '',
   totalMismatchApproved: false,
 };
 

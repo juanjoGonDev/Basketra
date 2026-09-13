@@ -35,8 +35,10 @@ import {
   handleReceiptAction,
   hideRetailerSuggestions,
   readReceiptItems,
+  refreshReceiptDraftSource,
   renderReviewReference,
   scheduleRetailerSuggestions,
+  selectReceiptDraft,
   selectRetailerSuggestion,
   selectedReviewCapture,
   validateReceiptLine,
@@ -147,7 +149,11 @@ export function installReviewContextObservers() {
 
 function selectedEvidenceCapture() {
   const selector = $('#receipt-evidence-capture');
-  return state.captures.find(capture => captureKey(capture) === selector?.value) || state.captures[0] || null;
+  const draft = state.receiptDrafts.find(candidate => candidate.key === state.activeReceiptDraftKey);
+  const captures = draft
+    ? draft.captureKeys.map(key => state.captures.find(capture => captureKey(capture) === key)).filter(Boolean)
+    : state.captures;
+  return captures.find(capture => captureKey(capture) === selector?.value) || captures[0] || null;
 }
 
 export function renderReceiptEvidence() {
@@ -157,16 +163,20 @@ export function renderReceiptEvidence() {
 
   const previous = selector.value;
   selector.replaceChildren();
-  for (const [index, capture] of state.captures.entries()) {
+  const draft = state.receiptDrafts.find(candidate => candidate.key === state.activeReceiptDraftKey);
+  const captures = draft
+    ? draft.captureKeys.map(key => state.captures.find(capture => captureKey(capture) === key)).filter(Boolean)
+    : state.captures;
+  for (const [index, capture] of captures.entries()) {
     const option = document.createElement('option');
     option.value = captureKey(capture);
     option.textContent = `${index + 1}. ${capture.name}`;
     selector.append(option);
   }
-  selector.disabled = state.captures.length < 2;
-  selector.value = state.captures.some(capture => captureKey(capture) === previous)
+  selector.disabled = captures.length < 2;
+  selector.value = captures.some(capture => captureKey(capture) === previous)
     ? previous
-    : captureKey(state.captures[0] || {});
+    : captureKey(captures[0] || {});
 
   const capture = selectedEvidenceCapture();
   content.replaceChildren();
@@ -303,6 +313,10 @@ export function installReceiptEnhancements() {
           <span class="receipt-live-retailer__copy">
             <small>Tienda detectada</small>
             <span class="receipt-live-retailer__name"><strong id="receipt-live-retailer-name">Sin identificar</strong><button id="receipt-edit-detected-store" class="icon-button" type="button" aria-label="Editar tienda detectada" title="Editar tienda">${icon('edit')}</button></span>
+            <label id="receipt-draft-selector-field" class="receipt-draft-selector" hidden>
+              <span class="sr-only">Ticket en revisión</span>
+              <select id="receipt-draft-selector" aria-label="Ticket en revisión"></select>
+            </label>
           </span>
         </div>
         <div class="receipt-live-analysis">
@@ -682,14 +696,27 @@ export function bindEvents() {
   $('#capture-list').addEventListener('click', handleCaptureAction);
   $('#receipt-review').addEventListener('click', handleReceiptAction);
   $('#receipt-review-capture').addEventListener('change', event => {
-    state.selectedReviewCaptureKey = event.target.value;
-    renderReviewReference();
+    if (!selectReceiptDraft(event.target.value)) {
+      state.selectedReviewCaptureKey = event.target.value;
+      renderReviewReference();
+    }
+  });
+  $('#receipt-draft-selector')?.addEventListener('change', event => {
+    selectReceiptDraft(event.target.value);
   });
   $('#receipt-review-expand')?.addEventListener('click', () => {
     showPreview(state.captures.indexOf(selectedReviewCapture()));
   });
   $('#close-receipt-evidence')?.addEventListener('click', () => closeDialog($('#receipt-evidence-dialog')));
   $('#receipt-evidence-capture')?.addEventListener('change', renderReceiptEvidence);
+  document.addEventListener('basketra:receipt-capture-source-changed', event => {
+    refreshReceiptDraftSource(event.detail?.captureKey || '');
+  });
+  document.addEventListener('basketra:show-receipt-evidence', event => {
+    const key = event.detail?.captureKey;
+    if (typeof key === 'string' && key) state.selectedReviewCaptureKey = key;
+    showReceiptEvidence();
+  });
   document.addEventListener('click', event => {
     if (event.target.closest('#receipt-show-evidence')) showReceiptEvidence();
     if (event.target.closest('#validate-receipt-ticket')) void validateRows();

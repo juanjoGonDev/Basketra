@@ -187,3 +187,94 @@ test('detected-store edit opens the shared source editor for its capture', async
   await expect(dialog.locator('.app-dialog-header .eyebrow')).toHaveText('Archivo del ticket');
   await expect(dialog.getByRole('button', { name: 'Cerrar' })).toHaveText('×');
 });
+
+test('completed captures become independent receipt drafts with their own store and total', async ({ page }) => {
+  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify({ configured: false }),
+  }));
+  await page.route('**/api/v1/categories', route => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify({ categories: [] }),
+  }));
+  await page.goto('/');
+  await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
+  await page.evaluate(async () => {
+    const { state, captureKey, createPageState } = await import('/receipt-state.js');
+    const { applyCaptureDrafts } = await import('/receipt-review.js');
+    state.captures = [
+      { storageKey: 'draft-one', name: 'uno.pdf', mimeType: 'application/pdf', retailerName: 'Mercado Uno', storeName: 'Centro Uno', storeId: 'store_one' },
+      { storageKey: 'draft-two', name: 'dos.pdf', mimeType: 'application/pdf', retailerName: 'Mercado Dos', storeName: 'Centro Dos', storeId: 'store_two' },
+    ];
+    for (const [index, capture] of state.captures.entries()) {
+      const page = createPageState();
+      page.status = 'completed';
+      page.result = { final: {
+        items: [{ description: `Producto ${index + 1}`, quantity: 1, unitPriceMinor: (index + 1) * 100, lineTotalMinor: (index + 1) * 100 }],
+        declaredTotalMinor: (index + 1) * 100,
+        retailerName: capture.retailerName,
+        storeName: capture.storeName,
+        categories: [], warnings: [], review: { lines: [], total: { expectedMinor: (index + 1) * 100, differenceMinor: 0, valid: true } },
+      } };
+      state.pageStates.set(captureKey(capture), page);
+    }
+    applyCaptureDrafts();
+    window.__receiptDrafts = state.receiptDrafts.map(draft => ({ key: draft.key, captureKeys: draft.captureKeys }));
+  });
+  await expect.poll(() => page.evaluate(() => window.__receiptDrafts)).toEqual([
+    { key: 'draft-one', captureKeys: ['draft-one'] },
+    { key: 'draft-two', captureKeys: ['draft-two'] },
+  ]);
+  await expect(page.locator('#receipt-draft-selector-field')).toBeVisible();
+  await expect(page.locator('#receipt-draft-selector option')).toHaveCount(2);
+  await page.locator('#receipt-draft-selector').selectOption('draft-two');
+  await expect(page.locator('#receipt-review-capture')).toHaveValue('draft-two');
+  await expect(page.locator('#receipt-retailer')).toHaveValue('Mercado Dos');
+  await expect(page.locator('#receipt-store')).toHaveValue('Centro Dos');
+  await expect(page.locator('#receipt-total')).toHaveValue('2.00');
+  await expect(page.locator('#receipt-review')).toContainText('Producto 2');
+  await expect(page.locator('#receipt-review')).not.toContainText('Producto 1');
+  await page.evaluate(async () => {
+    const { showReceiptEvidence } = await import('/receipts.js');
+    showReceiptEvidence();
+  });
+  await expect(page.locator('#receipt-evidence-dialog').locator('dialog')).toBeVisible();
+  await expect(page.locator('#receipt-evidence-capture option')).toHaveCount(1);
+  await expect(page.locator('#receipt-evidence-capture option')).toHaveText(/dos\.pdf/u);
+});
+
+test('a total warning is accepted per receipt draft and imports only that draft evidence', async ({ page }) => {
+  const confirmations = [];
+  await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({ json: { configured: false } }));
+  await page.route('**/api/v1/categories', route => route.fulfill({ json: { categories: [] } }));
+  await page.route('**/api/v1/receipts/validate', async route => route.fulfill({ json: {
+    lines: [{ validation: { status: 'confirmed' } }], total: { expectedMinor: 120, differenceMinor: -20, valid: false },
+  } }));
+  await page.route('**/api/v1/receipts/confirm', async route => {
+    confirmations.push(route.request().postDataJSON());
+    await route.fulfill({ json: { receipt: { id: 'receipt_one' } } });
+  });
+  await page.goto('/');
+  await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
+  await page.evaluate(async () => {
+    const { state, captureKey, createPageState } = await import('/receipt-state.js');
+    const { applyCaptureDrafts } = await import('/receipt-review.js');
+    state.captures = [
+      { storageKey: 'confirm-one', name: 'uno.pdf', mimeType: 'application/pdf', retailerName: 'Mercado Uno', storeName: 'Centro Uno', storeId: 'store_one' },
+      { storageKey: 'confirm-two', name: 'dos.pdf', mimeType: 'application/pdf', retailerName: 'Mercado Dos', storeName: 'Centro Dos', storeId: 'store_two' },
+    ];
+    for (const capture of state.captures) {
+      const page = createPageState(); page.status = 'completed';
+      page.result = { final: { items: [{ description: 'Producto', quantity: 1, unitPriceMinor: 120, lineTotalMinor: 120 }], declaredTotalMinor: 100, retailerName: capture.retailerName, storeName: capture.storeName, categories: [], warnings: [], review: { lines: [], total: { expectedMinor: 120, differenceMinor: -20, valid: false } } } };
+      state.pageStates.set(captureKey(capture), page);
+    }
+    applyCaptureDrafts();
+  });
+  await page.locator('#confirm-receipt').click();
+  await expect.poll(() => confirmations.length).toBe(0);
+  await page.locator('#confirm-receipt').click();
+  await expect.poll(() => confirmations.length).toBe(1);
+  expect(confirmations[0].captures).toEqual([expect.objectContaining({ storageKey: 'confirm-one' })]);
+  expect(confirmations[0].captures).toHaveLength(1);
+  expect(confirmations[0].acceptTotalMismatch).toBe(true);
+  await expect(page.locator('#receipt-review-capture')).toHaveValue('confirm-two');
+  await expect(page.locator('#receipt-retailer')).toHaveValue('Mercado Dos');
+});
