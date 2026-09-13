@@ -171,9 +171,13 @@ test('detected-store edit opens the shared source editor for its capture', async
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     contentType: 'application/json', body: JSON.stringify({ configured: false }),
   }));
-  await page.route('**/api/v1/inventory/stores?*', route => route.fulfill({
-    contentType: 'application/json', body: JSON.stringify({ stores: [] }),
-  }));
+  await page.route('**/api/v1/inventory/stores?*', route => {
+    const query = new URL(route.request().url()).searchParams.get('q') || '';
+    const stores = query.toLocaleLowerCase('es-ES').includes('centro')
+      ? [{ id: 'store_centro', name: 'Centro' }]
+      : [{ id: 'store_vicar', name: 'VÍCAR' }, { id: 'store_centro', name: 'Centro' }];
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ stores }) });
+  });
   await page.route('**/api/v1/stores', async route => {
     createdStores.push(route.request().postDataJSON());
     await route.fulfill({ json: { store: { id: 'store_new', name: 'Nueva tienda' } } });
@@ -203,7 +207,8 @@ test('detected-store edit opens the shared source editor for its capture', async
   const dialog = page.locator('#receipt-source-editor');
   await expect(dialog.locator('dialog')).toBeVisible();
   await expect(dialog.locator('#receipt-source-retailer')).toHaveValue('Consum');
-  await expect(dialog.locator('#receipt-source-editor-title')).toHaveText('ticket.pdf');
+  await expect(dialog.locator('#receipt-source-editor-title')).toHaveText('Editar archivo');
+  await expect(dialog.locator('#receipt-source-editor-file')).toHaveText('ticket.pdf');
   await expect(dialog.locator('.app-dialog-header .eyebrow')).toHaveText('Archivo del ticket');
   await expect(dialog.getByRole('button', { name: 'Cerrar' })).toHaveText('×');
   const actionLayout = await page.evaluate(() => ['receipt-show-evidence', 'validate-receipt-ticket', 'confirm-receipt']
@@ -215,6 +220,9 @@ test('detected-store edit opens the shared source editor for its capture', async
   expect(actionLayout[0].bottom).toBeLessThanOrEqual(actionLayout[1].top);
   expect(actionLayout[1].bottom).toBeLessThanOrEqual(actionLayout[2].top);
   expect(actionLayout.map(action => action.height)).toEqual([actionLayout[0].height, actionLayout[0].height, actionLayout[0].height]);
+  await dialog.locator('#receipt-source-store-search').fill('Centro');
+  await expect(dialog.locator('#receipt-source-store option')).toHaveCount(2);
+  await expect(dialog.locator('#receipt-source-store option').nth(1)).toHaveText('Centro');
   await dialog.locator('#receipt-source-store-name').fill('Nueva tienda');
   await dialog.getByRole('button', { name: 'Guardar archivo' }).click();
   await expect.poll(() => createdStores.length).toBe(1);

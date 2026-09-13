@@ -5,6 +5,7 @@ app-field > span { color: var(--color-on-surface); font-size: .78rem; font-weigh
 app-field[data-state="error"] > small { color: var(--color-error); font-size: .75rem; }
 app-field :is(input, select) { width: 100%; min-width: 0; }
 app-select { display: block; min-width: 0; }
+app-search-select { display: grid; gap: var(--space-3); min-width: 0; }
 app-button { display: inline-block; }
 
 app-dialog::part(native-dialog) {
@@ -53,6 +54,7 @@ app-dialog[data-size="picker"]::part(surface) {
 .app-dialog-header__copy { display: grid; min-width: 0; gap: .15rem; }
 .app-dialog-header .eyebrow { margin: 0; }
 .app-dialog-header h2 { min-width: 0; margin: 0; overflow: hidden; font-size: 1rem; text-overflow: ellipsis; white-space: nowrap; }
+.app-dialog-description { min-width: 0; margin: 0; overflow: hidden; color: var(--color-on-surface-variant); font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
 .app-dialog-close { flex: 0 0 auto; }
 .app-dialog-close__button { display: grid; width: 2.25rem; min-width: 2.25rem; height: 2.25rem; min-height: 2.25rem; padding: 0; place-items: center; border-radius: 999px; font-size: 1.4rem; line-height: 1; }
 .app-dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }

@@ -1,7 +1,7 @@
 import { api } from './api.js';
 import { saveCaptures } from './state.js';
 import { captureItem, formatEuroMinor, icon, swipeActionRail } from './ui.js';
-import { createAppButton, createAppDialog, createAppDialogHeader, createAppField, createAppSelect } from './components.js';
+import { createAppButton, createAppDialog, createAppDialogDescription, createAppDialogHeader, createAppField, createAppSearchSelect } from './components.js';
 import {
   ACTIVE_PAGE_STATUSES,
   REVIEWABLE_PAGE_STATUSES,
@@ -428,13 +428,19 @@ function captureStore(capture) {
   return capture.storeName || page?.result?.final?.storeName || '';
 }
 
-async function populateSourceStoreOptions(retailer, selected = '') {
+let sourceStoreSearchVersion = 0;
+
+async function populateSourceStoreOptions(retailer, selected = '', query = '') {
   const select = $('#receipt-source-store');
   if (!select) return;
+  const version = ++sourceStoreSearchVersion;
   select.replaceChildren(new Option('Escribe o elige una tienda', ''));
   if (!retailer) return;
   try {
-    const result = await api(`/api/v1/inventory/stores?retailer=${encodeURIComponent(retailer)}&sort=name&limit=100&offset=0`);
+    const params = new URLSearchParams({ retailer, sort: 'name', limit: '100', offset: '0' });
+    if (query) params.set('q', query);
+    const result = await api(`/api/v1/inventory/stores?${params}`);
+    if (version !== sourceStoreSearchVersion) return;
     for (const store of result.stores || []) select.append(new Option(store.name, store.id));
     const matching = [...select.options].find(option => option.text === selected);
     if (matching) select.value = matching.value;
@@ -448,7 +454,7 @@ function ensureSourceEditor() {
   if (dialog) return dialog;
   dialog = createAppDialog({ id: 'receipt-source-editor', label: 'Editar archivo del ticket' });
   const { header } = createAppDialogHeader({
-    title: '',
+    title: 'Editar archivo',
     titleId: 'receipt-source-editor-title',
     eyebrow: 'Archivo del ticket',
   });
@@ -456,13 +462,20 @@ function ensureSourceEditor() {
 
   const body = document.createElement('app-stack');
   body.slot = 'body';
+  const filename = createAppDialogDescription({ id: 'receipt-source-editor-file' });
+  body.append(filename);
   const retailer = document.createElement('input');
   retailer.id = 'receipt-source-retailer';
   retailer.required = true;
   retailer.maxLength = 120;
   retailer.autocomplete = 'organization';
   body.append(createAppField('Comercio', retailer));
-  const store = createAppSelect({ id: 'receipt-source-store', label: 'Tienda' });
+  const store = createAppSearchSelect({
+    id: 'receipt-source-store',
+    label: 'Tienda guardada',
+    searchLabel: 'Buscar tienda',
+    placeholder: 'Nombre de la tienda',
+  });
   body.append(store.wrapper);
   const newStore = document.createElement('input');
   newStore.id = 'receipt-source-store-name';
@@ -481,6 +494,10 @@ function ensureSourceEditor() {
   dialog.append(header, body, footer);
   document.body.append(dialog);
   $('#receipt-source-retailer').addEventListener('change', event => void populateSourceStoreOptions(event.target.value.trim()));
+  store.search.addEventListener('input', event => {
+    const retailerName = $('#receipt-source-retailer').value.trim();
+    void populateSourceStoreOptions(retailerName, '', event.target.value.trim());
+  });
   $('#receipt-source-editor-save').addEventListener('click', async () => {
     const capture = captureByKey(dialog.dataset.captureKey || '');
     const retailerName = $('#receipt-source-retailer').value.trim();
@@ -520,11 +537,13 @@ export async function showCaptureSourceEditor(index) {
   if (!capture) return;
   const dialog = ensureSourceEditor();
   dialog.dataset.captureKey = captureKey(capture);
-  $('#receipt-source-editor-title').textContent = capture.name;
+  $('#receipt-source-editor-title').textContent = 'Editar archivo';
+  $('#receipt-source-editor-file').textContent = capture.name;
   const retailer = captureRetailer(capture);
   const store = captureStore(capture);
   $('#receipt-source-retailer').value = retailer;
   $('#receipt-source-store-name').value = '';
+  $('#receipt-source-store-search').value = '';
   await populateSourceStoreOptions(retailer, store);
   dialog.showModal();
   dialog.focus();
