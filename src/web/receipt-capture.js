@@ -431,7 +431,7 @@ function captureStore(capture) {
 
 let sourceStoreSearchVersion = 0;
 
-async function populateSourceStoreOptions(retailer, selected = '', query = '') {
+async function populateSourceStoreOptions(retailer, selected = '') {
   const select = $('#receipt-source-store');
   if (!select) return;
   const version = ++sourceStoreSearchVersion;
@@ -439,7 +439,6 @@ async function populateSourceStoreOptions(retailer, selected = '', query = '') {
   if (!retailer) return;
   try {
     const params = new URLSearchParams({ retailer, sort: 'name', limit: '100', offset: '0' });
-    if (query) params.set('q', query);
     const result = await api(`/api/v1/inventory/stores?${params}`);
     if (version !== sourceStoreSearchVersion) return;
     for (const store of result.stores || []) select.append(new Option(store.name, store.id));
@@ -495,10 +494,6 @@ function ensureSourceEditor() {
   dialog.append(header, body, footer);
   document.body.append(dialog);
   $('#receipt-source-retailer').addEventListener('change', event => void populateSourceStoreOptions(event.target.value.trim()));
-  store.wrapper.addEventListener('app-search-select-search', event => {
-    const retailerName = $('#receipt-source-retailer').value.trim();
-    void populateSourceStoreOptions(retailerName, '', event.detail.query);
-  });
   $('#receipt-source-editor-save').addEventListener('click', async () => {
     const capture = captureByKey(dialog.dataset.captureKey || '');
     const retailerName = $('#receipt-source-retailer').value.trim();

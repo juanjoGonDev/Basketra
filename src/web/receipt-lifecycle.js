@@ -473,8 +473,12 @@ export async function retryFailedReceiptExtractionJob() {
   }
 
   abortPageWork();
-  clearCombinedReview();
   ensurePageStates();
+  for (const capture of captures) {
+    const key = captureKey(capture);
+    const page = state.pageStates.get(key);
+    if (page) state.pageStates.set(key, createPageState(page));
+  }
   state.jobRealtime?.close();
   state.jobRealtime = null;
   state.activeJobId = retryJobId;

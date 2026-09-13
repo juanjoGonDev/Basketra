@@ -237,6 +237,51 @@ test('detected-store edit opens the shared source editor for its capture', async
   })).toBe('Nueva tienda');
 });
 
+test('a refreshed capture replaces only its own provisional draft', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
+  const drafts = await page.evaluate(async () => {
+    const { state, captureKey, createPageState } = await import('/receipt-state.js');
+    const { applyCaptureDrafts } = await import('/receipt-review.js');
+    const result = description => ({
+      originalText: description,
+      final: {
+        items: [{ description, quantity: 1, unitPriceMinor: 100, lineTotalMinor: 100 }],
+        declaredTotalMinor: 100,
+        categories: [],
+        warnings: [],
+        review: { lines: [], total: { expectedMinor: 100, differenceMinor: 0, valid: true } },
+      },
+    });
+    state.captures = [
+      { storageKey: 'first-source', name: 'primero.png', mimeType: 'image/png' },
+      { storageKey: 'second-source', name: 'segundo.png', mimeType: 'image/png' },
+    ];
+    for (const [index, capture] of state.captures.entries()) {
+      const receiptPage = createPageState();
+      receiptPage.status = 'completed';
+      receiptPage.result = result(index === 0 ? 'OCR PRIMERO' : 'OCR SEGUNDO');
+      state.pageStates.set(captureKey(capture), receiptPage);
+    }
+    applyCaptureDrafts();
+    const second = state.captures[1];
+    const refreshed = createPageState(state.pageStates.get(captureKey(second)));
+    refreshed.status = 'completed';
+    refreshed.result = result('IA SEGUNDO');
+    state.pageStates.set(captureKey(second), refreshed);
+    applyCaptureDrafts();
+    return state.receiptDrafts.map(draft => ({
+      key: draft.key,
+      resultVersion: draft.resultVersion,
+      items: draft.items.map(item => ({ description: item.description, sourceCaptureKey: item.sourceCaptureKey })),
+    }));
+  });
+  expect(drafts).toEqual([
+    { key: 'first-source', resultVersion: 1, items: [{ description: 'OCR PRIMERO', sourceCaptureKey: 'first-source' }] },
+    { key: 'second-source', resultVersion: 2, items: [{ description: 'IA SEGUNDO', sourceCaptureKey: 'second-source' }] },
+  ]);
+});
+
 test('completed captures become independent receipt drafts with their own store and total', async ({ page }) => {
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     contentType: 'application/json', body: JSON.stringify({ configured: false }),

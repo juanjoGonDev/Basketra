@@ -13,7 +13,6 @@ import { persistAndRenderCaptures } from './receipt-capture.js';
 import {
   abortPageWork,
   captureRequest,
-  clearCombinedReview,
   clearReceiptExtractionJob,
   requestExtraction,
   retryFailedReceiptExtractionJob,
@@ -307,7 +306,6 @@ export function retryCaptureProcessing(index) {
     return;
   }
 
-  clearCombinedReview();
   state.verifyWithAi = state.aiConfigured;
   state.processing = true;
   if (!state.progressTimer) startReceiptProgress();
@@ -346,7 +344,6 @@ export async function retryAiCorrection(index) {
     if (task.key === key && task.token === state.runToken) task.controller.abort();
   }
   state.pageQueue = state.pageQueue.filter(entry => entry.key !== key);
-  clearCombinedReview({ keepPanel: true });
   page.version += 1;
   page.status = 'ready';
   page.error = '';

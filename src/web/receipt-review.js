@@ -65,6 +65,7 @@ function extractionForCapture(capture) {
     : undefined;
   return {
     ...result,
+    resultVersion: page?.version || 0,
     originalText: result.originalText || page?.rawText || '',
     final: {
       ...final,
@@ -127,9 +128,16 @@ export function applyCaptureDrafts() {
       key,
       captureKeys: [key],
       extraction,
-      items: existing ? cloneItems(existing.items) : cloneItems(extraction.final.items),
-      originalItems: existing ? cloneItems(existing.originalItems) : cloneItems(extraction.final.items),
-      originalText: existing?.originalText || extraction.originalText || '',
+      resultVersion: extraction.resultVersion,
+      items: existing?.resultVersion === extraction.resultVersion
+        ? cloneItems(existing.items)
+        : cloneItems(extraction.final.items),
+      originalItems: existing?.resultVersion === extraction.resultVersion
+        ? cloneItems(existing.originalItems)
+        : cloneItems(extraction.final.items),
+      originalText: existing?.resultVersion === extraction.resultVersion
+        ? (existing.originalText || extraction.originalText || '')
+        : (extraction.originalText || ''),
       retailerName: existing?.retailerName || capture.retailerName || extraction.final.retailerName || '',
       storeName: existing?.storeName || capture.storeName || extraction.final.storeName || '',
       totalMismatchApproved: existing?.totalMismatchApproved === true,

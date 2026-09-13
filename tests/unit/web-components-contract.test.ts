@@ -78,9 +78,11 @@ test('the component gallery and its local assets are included in the offline she
   assert.match(worker, /'\/components\.js'/);
   assert.match(worker, /'\/components\.css'/);
   assert.match(worker, /'\/search-select\.js'/);
+  assert.match(worker, /'\/search-normalize\.js'/);
   assert.match(worker, /'\/search-select\.css'/);
   assert.match(assets, /'components\.js'/);
   assert.match(assets, /'components\.css'/);
   assert.match(assets, /'search-select\.js'/);
+  assert.match(assets, /'search-normalize\.js'/);
   assert.match(assets, /'search-select\.css'/);
 });

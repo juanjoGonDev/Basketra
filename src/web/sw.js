@@ -10,6 +10,7 @@ const SHELL = [
   '/category-suggestion.js',
   '/components.js',
   '/search-select.js',
+  '/search-normalize.js',
   '/components.css',
   '/search-select.css',
   '/catalog.css',

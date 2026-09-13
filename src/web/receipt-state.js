@@ -87,7 +87,6 @@ export function captureByKey(key) {
 export function createPageState(previous = {}) {
   return {
     status: 'ready',
-    version: Number(previous.version || 0) + 1,
     startedAt: 0,
     elapsedMs: 0,
     rawText: '',
@@ -101,6 +100,7 @@ export function createPageState(previous = {}) {
     aiErrorCode: '',
     aiRecovery: null,
     ...previous,
+    version: Number(previous.version || 0) + 1,
     status: 'ready',
     startedAt: 0,
     elapsedMs: 0,

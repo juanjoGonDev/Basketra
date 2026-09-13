@@ -1,4 +1,5 @@
 import { createAppField, createAppSelect } from './components.js';
+import { normalizeSearchText } from './search-normalize.js';
 
 export function createAppSearchSelect({ id, label, searchLabel = 'Buscar', placeholder = '', required = false } = {}) {
   const { wrapper: selectWrapper, select } = createAppSelect({ id, label, required });
@@ -31,13 +32,13 @@ export function createAppSearchSelect({ id, label, searchLabel = 'Buscar', place
 
   const display = trigger.firstElementChild;
   const refresh = () => {
-    const query = search.value.trim().toLocaleLowerCase('es-ES');
+    const query = normalizeSearchText(search.value.trim());
     const selected = select.selectedOptions[0];
     display.textContent = selected?.value ? selected.text : 'Elige una tienda guardada';
     trigger.classList.toggle('is-placeholder', !selected?.value);
     list.replaceChildren();
     for (const option of select.options) {
-      if (!option.value || (query && !option.text.toLocaleLowerCase('es-ES').includes(query))) continue;
+      if (!option.value || (query && !normalizeSearchText(option.text).includes(query))) continue;
       const item = document.createElement('button');
       item.type = 'button';
       item.className = 'app-search-select__option';
@@ -76,4 +77,3 @@ export function createAppSearchSelect({ id, label, searchLabel = 'Buscar', place
   refresh();
   return { wrapper, search, select, refresh, open };
 }
-
