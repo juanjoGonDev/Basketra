@@ -13,6 +13,7 @@ import type { RuntimeSettings } from '../infrastructure/runtime-settings.ts';
 import type { RuntimeTempStorageMode } from '../infrastructure/runtime-temp.ts';
 import { AiProviderProbeStore, type AiProviderProbeTrigger } from './ai-provider-probe-store.ts';
 import { ApplicationLogStore, sanitizeClientLog, type LogSource } from './log-store.ts';
+import { ApplicationLogger } from './logger.ts';
 import { importBackupStream, listImportedBackups, RESTORE_CONFIRMATION, stagePendingRestore } from './restore.ts';
 import { resolveRuntimeVersion } from './version.ts';
 
@@ -70,6 +71,11 @@ function safeBackupName(value: string): string {
   return value;
 }
 
+
+function requestPath(value: string): string {
+  return new URL(value, 'http://basketra.local').pathname.slice(0, 240);
+}
+
 function headerValue(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? '' : value ?? '';
 }
@@ -106,6 +112,7 @@ export class OperationsGateway {
   readonly #inner: BasketraServer;
   readonly #server: Server;
   readonly #logStore: ApplicationLogStore;
+  readonly #logger: ApplicationLogger;
   readonly #probeStore: AiProviderProbeStore;
   readonly #startedAt: string;
   readonly #publicDir: string;
@@ -126,9 +133,10 @@ export class OperationsGateway {
     this.#tempStorageMode = options.tempStorageMode ?? 'unverified';
     this.#inner = new BasketraServer({ ...config, host: '127.0.0.1', port: 0 });
     this.#logStore = new ApplicationLogStore(config.dataDir, { clock: this.#clock });
+    this.#logger = new ApplicationLogger(this.#logStore, { clock: this.#clock });
     this.#probeStore = new AiProviderProbeStore(config.dataDir, this.#clock);
     this.#publicDir = resolve(dirname(fileURLToPath(import.meta.url)), '../web');
-    this.#server = createServer((request, response) => void this.handle(request, response));
+    this.#server = createServer((request, response) => void this.handleWithLogging(request, response));
   }
 
   runtimeSettings(): RuntimeSettings {
@@ -147,22 +155,8 @@ export class OperationsGateway {
       });
     });
     const runtime = resolveRuntimeVersion();
-    this.#logStore.append({
-      source: 'server',
-      level: 'info',
-      event: 'server.started',
-      code: runtime.version.replaceAll('.', '_').replaceAll('-', '_').toUpperCase(),
-    });
-    this.#logStore.append({
-      source: 'server',
-      level: this.#tempStorageMode === 'data-fallback' ? 'warn' : 'info',
-      event: 'server.temp_storage',
-      code: this.#tempStorageMode === 'data-fallback'
-        ? 'DATA_FALLBACK'
-        : this.#tempStorageMode === 'primary'
-          ? 'PRIMARY'
-          : 'UNVERIFIED',
-    });
+    this.#logger.child('Gateway').success('server.started', { code: runtime.version.replaceAll('.', '_').replaceAll('-', '_').toUpperCase() });
+    this.#logger.child('Gateway')[this.#tempStorageMode === 'data-fallback' ? 'warn' : 'info']('server.temp_storage', { code: this.#tempStorageMode === 'data-fallback' ? 'DATA_FALLBACK' : this.#tempStorageMode === 'primary' ? 'PRIMARY' : 'UNVERIFIED' });
     this.#startupProbeController = new AbortController();
     this.#startupProbePromise = this.runAiProviderProbe(
       'startup',
@@ -181,8 +175,7 @@ export class OperationsGateway {
 
   address(): Readonly<{ host: string; port: number }> {
     const address = this.#server.address();
-    if (!address || typeof address === 'string') return { host: this.config.host, port: this.config.port };
-    return { host: address.address, port: address.port };
+    return { host: (address as { address: string }).address, port: (address as { port: number }).port };
   }
 
   async close(): Promise<void> {
@@ -193,9 +186,19 @@ export class OperationsGateway {
     await this.#inner.close();
   }
 
-  private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  private async handleWithLogging(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const requestId = randomUUID();
     const started = Date.now();
+    response.once('finish' as never, () => {
+      const status = (response as unknown as { statusCode: number }).statusCode;
+      this.#logger.child('HTTP')[status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info']('http.request_completed', {
+        requestId, method: (request as { method: string }).method, path: requestPath(request.url!), status, durationMs: Date.now() - started,
+      });
+    });
+    await this.handle(request, response, requestId, started);
+  }
+
+  private async handle(request: IncomingMessage, response: ServerResponse, requestId: string, started: number): Promise<void> {
     try {
       const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
       if (request.method === 'GET' && DIRECT_ASSETS.has(url.pathname.slice(1))) {
@@ -241,13 +244,10 @@ export class OperationsGateway {
       return this.proxy(request, response, requestId, started);
     } catch (error) {
       const code = error instanceof Error ? error.message : 'OPERATIONS_INTERNAL_ERROR';
-      this.#logStore.append({
-        source: 'server',
-        level: 'error',
-        event: 'operations.request_failed',
+      this.#logger.child('Gateway').error('operations.request_failed', {
         requestId,
         method: request.method ?? 'UNKNOWN',
-        path: (request.url ?? '/').split('?')[0]?.slice(0, 240) || '/',
+        path: requestPath(request.url!),
         code: /^[A-Z0-9_.-]+$/.test(code) ? code.slice(0, 80) : 'OPERATIONS_INTERNAL_ERROR',
         durationMs: Date.now() - started,
       });
@@ -407,7 +407,7 @@ export class OperationsGateway {
     }
     if (isContainerRuntime() && LOOPBACK_HOSTS.has(new URL(settings.aiBaseUrl!).hostname)) {
       this.#probeStore.recordFailure(trigger, Date.now() - started, 'AI_LOOPBACK_CONTAINER');
-      this.#logStore.append({ source: 'server', level: 'warn', event: 'ai.loopback_rejected', requestId, code: 'AI_LOOPBACK_CONTAINER' });
+      this.#logger.child('AI').warn('ai.loopback_rejected', { requestId, code: 'AI_LOOPBACK_CONTAINER' });
       return {
         ok: false,
         status: 502,
@@ -434,10 +434,7 @@ export class OperationsGateway {
         imageStructuredOutput: connection.imageStructuredOutput!,
       };
       this.#probeStore.recordSuccess(trigger, Date.now() - started, successfulConnection);
-      this.#logStore.append({
-        source: 'server',
-        level: 'info',
-        event: 'ai.capability_probe_ok',
+      this.#logger.child('AI').success('ai.capability_probe_ok', {
         requestId,
         code: trigger === 'startup' ? 'STARTUP' : 'MANUAL',
       });
@@ -446,10 +443,7 @@ export class OperationsGateway {
       if (signal?.aborted) throw error;
       const mapped = mapError(error);
       this.#probeStore.recordFailure(trigger, Date.now() - started, mapped.code);
-      this.#logStore.append({
-        source: 'server',
-        level: 'warn',
-        event: 'ai.capability_probe_failed',
+      this.#logger.child('AI').warn('ai.capability_probe_failed', {
         requestId,
         status: mapped.status,
         code: mapped.code,
@@ -512,7 +506,7 @@ export class OperationsGateway {
       request,
       DEFAULT_DATABASE_STORAGE_LIMITS.maxDatabaseBytes,
     );
-    this.#logStore.append({ source: 'server', level: 'info', event: 'backup.imported', requestId, code: `SCHEMA_${backup.schemaVersion}` });
+    this.#logger.child('Backup').success('backup.imported', { requestId, code: `SCHEMA_${backup.schemaVersion}` });
     this.json(response, 201, { backup }, requestId);
   }
 
@@ -535,7 +529,7 @@ export class OperationsGateway {
       confirmation,
       now: this.#clock(),
     });
-    this.#logStore.append({ source: 'server', level: 'warn', event: 'restore.staged', requestId, code: 'RESTART_REQUIRED' });
+    this.#logger.child('Backup').warn('restore.staged', { requestId, code: 'RESTART_REQUIRED' });
     this.json(response, 202, { restore: { staged: true, pending, restartRequired: true } }, requestId);
     if (this.#requestRestart) {
       const timer = setTimeout(() => this.#requestRestart?.(), 250);
@@ -561,7 +555,7 @@ export class OperationsGateway {
       else response.end();
     });
     stream.pipe(response);
-    this.#logStore.append({ source: 'server', level: 'info', event: 'backup.downloaded', requestId });
+    this.#logger.child('Backup').info('backup.downloaded', { requestId });
   }
 
   private serveDirectAsset(response: ServerResponse, asset: string, requestId: string): void {
@@ -589,13 +583,10 @@ export class OperationsGateway {
         if (!upstreamResponse.destroyed) upstreamResponse.destroy();
       });
       if (status >= 400) {
-        this.#logStore.append({
-          source: 'server',
-          level: status >= 500 ? 'error' : 'warn',
-          event: 'http.request_failed',
+        this.#logger.child('HTTP')[status >= 500 ? 'error' : 'warn']('http.request_failed', {
           requestId: typeof headers['x-request-id'] === 'string' ? headers['x-request-id'] : requestId,
           method: request.method ?? 'UNKNOWN',
-          path: (request.url ?? '/').split('?')[0]?.slice(0, 240) || '/',
+          path: requestPath(request.url!),
           status,
           durationMs: Date.now() - started,
         });

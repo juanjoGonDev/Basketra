@@ -110,6 +110,8 @@ test('runtime metadata exposes only verified temporary-storage modes and bounded
       const logs=await json(await fetch(`${base}/api/v1/logs?source=server&limit=20`));
       const serialized=JSON.stringify(logs);
       assert.match(serialized,/server\.temp_storage/u);
+      assert.match(serialized,/http\.request_completed/u);
+      assert.match(serialized,/\/api\/v1\/runtime/u);
       assert.match(serialized,mode==='primary'?/PRIMARY/u:/DATA_FALLBACK/u);
       assert.equal(serialized.includes(directory),false);
     }finally{
