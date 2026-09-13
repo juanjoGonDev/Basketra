@@ -263,7 +263,7 @@ test('a total warning is accepted per receipt draft and imports only that draft 
     ];
     for (const capture of state.captures) {
       const page = createPageState(); page.status = 'completed';
-      page.result = { final: { items: [{ description: 'Producto', quantity: 1, unitPriceMinor: 120, lineTotalMinor: 120 }], declaredTotalMinor: 100, retailerName: capture.retailerName, storeName: capture.storeName, categories: [], warnings: [], review: { lines: [], total: { expectedMinor: 120, differenceMinor: -20, valid: false } } } };
+      page.result = { final: { items: [{ description: 'Producto', quantity: 1, unitPriceMinor: 120, lineTotalMinor: 120, productVariantId: 'variant_saved', categoryId: 'category_food' }], declaredTotalMinor: 100, retailerName: capture.retailerName, storeName: capture.storeName, categories: [], warnings: [], review: { lines: [], total: { expectedMinor: 120, differenceMinor: -20, valid: false } } } };
       state.pageStates.set(captureKey(capture), page);
     }
     applyCaptureDrafts();
@@ -275,6 +275,7 @@ test('a total warning is accepted per receipt draft and imports only that draft 
   expect(confirmations[0].captures).toEqual([expect.objectContaining({ storageKey: 'confirm-one' })]);
   expect(confirmations[0].captures).toHaveLength(1);
   expect(confirmations[0].acceptTotalMismatch).toBe(true);
+  expect(confirmations[0].items).toEqual([expect.objectContaining({ productVariantId: 'variant_saved', categoryId: 'category_food' })]);
   await expect(page.locator('#receipt-review-capture')).toHaveValue('confirm-two');
   await expect(page.locator('#receipt-retailer')).toHaveValue('Mercado Dos');
 });
