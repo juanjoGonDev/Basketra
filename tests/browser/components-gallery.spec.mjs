@@ -163,21 +163,37 @@ test('direct PDF status copy never falls back to OCR terminology', async ({ page
 });
 
 test('detected-store edit opens the shared source editor for its capture', async ({ page }) => {
+  const createdStores = [];
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     contentType: 'application/json', body: JSON.stringify({ configured: false }),
   }));
   await page.route('**/api/v1/inventory/stores?*', route => route.fulfill({
     contentType: 'application/json', body: JSON.stringify({ stores: [] }),
   }));
+  await page.route('**/api/v1/stores', async route => {
+    createdStores.push(route.request().postDataJSON());
+    await route.fulfill({ json: { store: { id: 'store_new', name: 'Nueva tienda' } } });
+  });
   await page.goto('/');
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
   await page.evaluate(async () => {
-    const { state } = await import('/receipt-state.js');
+    const { state, captureKey, createPageState } = await import('/receipt-state.js');
+    const { applyCaptureDrafts } = await import('/receipt-review.js');
     state.captures = [{
       storageKey: 'capture-source-editor-test', name: 'ticket.pdf', mimeType: 'application/pdf',
       retailerName: 'Consum', storeName: 'VÍCAR', storeId: '',
     }];
+    const capture = state.captures[0];
+    const page = createPageState();
+    page.status = 'completed';
+    page.result = { final: {
+      items: [{ description: 'Producto', quantity: 1, unitPriceMinor: 100, lineTotalMinor: 100 }],
+      declaredTotalMinor: 100, retailerName: 'Consum', storeName: 'VÍCAR', categories: [], warnings: [],
+      review: { lines: [], total: { expectedMinor: 100, differenceMinor: 0, valid: true } },
+    } };
+    state.pageStates.set(captureKey(capture), page);
     state.selectedReviewCaptureKey = 'capture-source-editor-test';
+    applyCaptureDrafts();
   });
   await page.getByRole('button', { name: 'Editar tienda detectada' }).click();
   const dialog = page.locator('#receipt-source-editor');
@@ -186,6 +202,15 @@ test('detected-store edit opens the shared source editor for its capture', async
   await expect(dialog.locator('#receipt-source-editor-title')).toHaveText('ticket.pdf');
   await expect(dialog.locator('.app-dialog-header .eyebrow')).toHaveText('Archivo del ticket');
   await expect(dialog.getByRole('button', { name: 'Cerrar' })).toHaveText('×');
+  await dialog.locator('#receipt-source-store-name').fill('Nueva tienda');
+  await dialog.getByRole('button', { name: 'Guardar archivo' }).click();
+  await expect.poll(() => createdStores.length).toBe(1);
+  expect(createdStores[0]).toEqual({ retailerName: 'Consum', name: 'Nueva tienda' });
+  await expect(page.locator('#receipt-store')).toHaveValue('Nueva tienda');
+  await expect.poll(() => page.evaluate(async () => {
+    const { state } = await import('/receipt-state.js');
+    return state.receiptDrafts[0]?.storeName;
+  })).toBe('Nueva tienda');
 });
 
 test('completed captures become independent receipt drafts with their own store and total', async ({ page }) => {
@@ -217,6 +242,10 @@ test('completed captures become independent receipt drafts with their own store 
       state.pageStates.set(captureKey(capture), page);
     }
     applyCaptureDrafts();
+    state.retailerCandidates.set('mercado uno', 'Mercado Uno');
+    state.retailerCandidates.set('mercado dos', 'Mercado Dos');
+    const { renderProgressiveDetectedItems } = await import('/receipt-capture.js');
+    renderProgressiveDetectedItems();
     window.__receiptDrafts = state.receiptDrafts.map(draft => ({ key: draft.key, captureKeys: draft.captureKeys }));
   });
   await expect.poll(() => page.evaluate(() => window.__receiptDrafts)).toEqual([
@@ -232,6 +261,7 @@ test('completed captures become independent receipt drafts with their own store 
   await expect(page.locator('#receipt-total')).toHaveValue('2.00');
   await expect(page.locator('#receipt-review')).toContainText('Producto 2');
   await expect(page.locator('#receipt-review')).not.toContainText('Producto 1');
+  await expect(page.locator('#receipt-live-retailer-name')).toHaveText('Mercado Dos');
   await page.evaluate(async () => {
     const { showReceiptEvidence } = await import('/receipts.js');
     showReceiptEvidence();

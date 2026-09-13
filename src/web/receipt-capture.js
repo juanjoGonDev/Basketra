@@ -145,6 +145,10 @@ function receiptDiscountEntries(items) {
 }
 
 function currentRetailerLabel(snapshot) {
+  const activeDraft = state.receiptDrafts.find(draft => draft.key === state.activeReceiptDraftKey);
+  if (typeof activeDraft?.retailerName === 'string' && activeDraft.retailerName.trim()) {
+    return activeDraft.retailerName.trim();
+  }
   const candidates = [...state.retailerCandidates.values()].filter(Boolean);
   if (candidates.length === 1) return candidates[0];
   if (candidates.length > 1) return 'Varios comercios detectados';
