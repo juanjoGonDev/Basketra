@@ -391,6 +391,7 @@ export function cancelReceiptExtraction() {
   abortPageWork({ markCancelled: true });
   state.processing = false;
   state.finalizing = false;
+  stopReceiptProgress({ hide: true });
   persistAndRenderCaptures();
   $('#receipt-state').textContent = 'Análisis cancelado. Las capturas, los OCR parciales y las páginas completadas se conservan.';
 }

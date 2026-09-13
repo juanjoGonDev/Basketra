@@ -1,4 +1,4 @@
-import { loadCaptures, loadReceiptExtractionJobId } from './state.js';
+import { loadCaptures, loadReceiptExtractionJobCaptureKeys, loadReceiptExtractionJobId } from './state.js';
 
 export const PAGE_CONCURRENCY = 2;
 export const ACTIVE_PAGE_STATUSES = new Set(['preparing', 'ocr', 'ai']);
@@ -45,6 +45,7 @@ export const state = {
   retailerManuallyEdited: false,
   settingRetailerValue: false,
   activeJobId: loadReceiptExtractionJobId(),
+  activeJobCaptureKeys: loadReceiptExtractionJobCaptureKeys(),
   failedBackgroundJobId: '',
   jobRealtime: null,
   expandedCaptureKey: '',

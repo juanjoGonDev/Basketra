@@ -1,6 +1,7 @@
 import { api, realtimeEndpoint } from './api.js';
 import { buildReceiptAiRecovery } from './receipt-ai-recovery.js';
-import { saveReceiptExtractionJobId } from './state.js';
+import { capturesByKeys } from './receipt-job-scope.js';
+import { saveReceiptExtractionJobCaptureKeys, saveReceiptExtractionJobId } from './state.js';
 import {
   ACTIVE_PAGE_STATUSES,
   REVIEWABLE_PAGE_STATUSES,
@@ -237,7 +238,11 @@ function parseProgressiveInterpretation(value) {
   return value;
 }
 
-export function applyReceiptJobProgress(progress) {
+function activeJobCaptures() {
+  return capturesByKeys(state.captures, state.activeJobCaptureKeys);
+}
+
+export function applyReceiptJobProgress(progress, captures = activeJobCaptures()) {
   if (!progress || typeof progress !== 'object' || !Array.isArray(progress.pages)) return false;
   ensurePageStates();
   const seen = new Set();
@@ -246,9 +251,9 @@ export function applyReceiptJobProgress(progress) {
   for (const candidate of progress.pages) {
     if (!candidate || typeof candidate !== 'object') continue;
     const position = candidate.position;
-    if (!Number.isSafeInteger(position) || position < 0 || position >= state.captures.length || seen.has(position)) continue;
+    if (!Number.isSafeInteger(position) || position < 0 || position >= captures.length || seen.has(position)) continue;
     if (!DURABLE_PROGRESS_STAGES.has(candidate.stage)) continue;
-    const capture = state.captures[position];
+    const capture = captures[position];
     const directPdf = capture?.mimeType === 'application/pdf';
     const ocrEvidence = candidate.ocr === undefined ? null : parseProgressiveOcr(candidate.ocr, {
       allowEmptyText: directPdf,
@@ -302,20 +307,18 @@ export function applyReceiptJobProgress(progress) {
   return applied;
 }
 
-async function startDurableAutomaticCaptureProcessing() {
-  if (durableInitialJobPending || state.captures.length === 0) return;
+async function startDurableAutomaticCaptureProcessing(captures) {
+  if (durableInitialJobPending || captures.length === 0) return;
   durableInitialJobPending = true;
-  abortPageWork();
   const token = state.runToken;
-  clearCombinedReview();
   ensurePageStates();
   state.verifyWithAi = true;
   state.processing = true;
-  setPagesForBackgroundJob('queued');
+  setPagesForBackgroundJob('queued', captures);
   if (!state.progressTimer) startReceiptProgress();
   persistAndRenderCaptures();
-  const pdfOnly = state.captures.every(capture => capture.mimeType === 'application/pdf');
-  const hasPdf = !pdfOnly && state.captures.some(capture => capture.mimeType === 'application/pdf');
+  const pdfOnly = captures.every(capture => capture.mimeType === 'application/pdf');
+  const hasPdf = !pdfOnly && captures.some(capture => capture.mimeType === 'application/pdf');
   $('#receipt-state').textContent = pdfOnly
     ? 'Iniciando validación durable del PDF con IA.'
     : hasPdf
@@ -326,7 +329,7 @@ async function startDurableAutomaticCaptureProcessing() {
     const created = await api('/api/v1/receipts/extraction-jobs', {
       method: 'POST',
       body: JSON.stringify({
-        captures: state.captures.map(capture => captureRequest(capture)),
+        captures: captures.map(capture => captureRequest(capture)),
         verifyWithAi: true,
       }),
     });
@@ -346,10 +349,12 @@ async function startDurableAutomaticCaptureProcessing() {
     }
 
     state.activeJobId = jobId;
+    state.activeJobCaptureKeys = captures.map(captureKey);
     state.failedBackgroundJobId = '';
     saveReceiptExtractionJobId(jobId);
-    if (!applyReceiptJobProgress(created.job?.progress)) {
-      setPagesForBackgroundJob(created.job?.status ?? 'queued');
+    saveReceiptExtractionJobCaptureKeys(state.activeJobCaptureKeys);
+    if (!applyReceiptJobProgress(created.job?.progress, captures)) {
+      setPagesForBackgroundJob(created.job?.status ?? 'queued', captures);
     }
     persistAndRenderCaptures();
     watchReceiptExtractionJob();
@@ -358,7 +363,9 @@ async function startDurableAutomaticCaptureProcessing() {
     if (!state.activeJobId && token === state.runToken) {
       state.processing = false;
       stopReceiptProgress();
-      for (const page of state.pageStates.values()) {
+      for (const capture of captures) {
+        const page = state.pageStates.get(captureKey(capture));
+        if (!page) continue;
         page.status = 'error';
         page.errorCode = typeof error?.code === 'string' ? error.code : 'AI_EXTRACTION_JOB_CREATE_FAILED';
         page.error = 'No se pudo crear el análisis durable. Las capturas siguen guardadas y no se ha iniciado un OCR alternativo.';
@@ -380,11 +387,11 @@ export function startAutomaticCaptureProcessing(captures, { resetAll = false } =
     captures = [...state.captures];
   }
 
-  clearCombinedReview();
+  if (resetAll) clearCombinedReview();
   ensurePageStates();
   state.verifyWithAi = state.aiConfigured;
   if (state.verifyWithAi) {
-    void startDurableAutomaticCaptureProcessing();
+    void startDurableAutomaticCaptureProcessing(captures);
     return;
   }
 
@@ -429,12 +436,13 @@ export function requestExtraction(captures, verifyWithAi, signal) {
 
 export async function retryFailedReceiptExtractionJob() {
   const sourceJobId = state.activeJobId;
+  const captures = activeJobCaptures();
   if (
     durableRetryPending
     || !sourceJobId
     || state.failedBackgroundJobId !== sourceJobId
     || !state.aiConfigured
-    || state.captures.length === 0
+    || captures.length === 0
   ) {
     return false;
   }
@@ -446,7 +454,7 @@ export async function retryFailedReceiptExtractionJob() {
     created = await api('/api/v1/receipts/extraction-jobs', {
       method: 'POST',
       body: JSON.stringify({
-        captures: state.captures.map(capture => captureRequest(capture)),
+        captures: captures.map(capture => captureRequest(capture)),
         verifyWithAi: true,
         retryOfJobId: sourceJobId,
       }),
@@ -470,12 +478,14 @@ export async function retryFailedReceiptExtractionJob() {
   state.jobRealtime?.close();
   state.jobRealtime = null;
   state.activeJobId = retryJobId;
+  state.activeJobCaptureKeys = captures.map(captureKey);
   state.failedBackgroundJobId = '';
   saveReceiptExtractionJobId(retryJobId);
+  saveReceiptExtractionJobCaptureKeys(state.activeJobCaptureKeys);
   state.verifyWithAi = true;
   state.processing = true;
-  if (!applyReceiptJobProgress(created.job?.progress)) {
-    setPagesForBackgroundJob(created.job?.status ?? 'queued');
+  if (!applyReceiptJobProgress(created.job?.progress, captures)) {
+    setPagesForBackgroundJob(created.job?.status ?? 'queued', captures);
   }
   startReceiptProgress();
   persistAndRenderCaptures();
@@ -491,15 +501,17 @@ export function clearReceiptExtractionJob({ cancel = false } = {}) {
   state.jobRealtime?.close();
   state.jobRealtime = null;
   state.activeJobId = '';
+  state.activeJobCaptureKeys = [];
   state.failedBackgroundJobId = '';
   saveReceiptExtractionJobId('');
+  saveReceiptExtractionJobCaptureKeys([]);
   if (cancel && jobId) void api(`/api/v1/receipts/extraction-jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' }).catch(() => {});
 }
 
-export function setPagesForBackgroundJob(status) {
+export function setPagesForBackgroundJob(status, captures = activeJobCaptures()) {
   state.failedBackgroundJobId = '';
   const nextStatus = status === 'running' ? (state.verifyWithAi ? 'ai' : 'ocr') : 'preparing';
-  for (const capture of state.captures) {
+  for (const capture of captures) {
     const page = state.pageStates.get(captureKey(capture));
     if (!page) continue;
     page.directPdf = capture.mimeType === 'application/pdf';
@@ -511,10 +523,10 @@ export function setPagesForBackgroundJob(status) {
   }
 }
 
-export function completeBackgroundJob(extraction) {
+export function completeBackgroundJob(extraction, captures = activeJobCaptures()) {
   state.failedBackgroundJobId = '';
   const pages = Array.isArray(extraction.pages) ? extraction.pages : [];
-  for (const [index, capture] of state.captures.entries()) {
+  for (const [index, capture] of captures.entries()) {
     const page = state.pageStates.get(captureKey(capture));
     const result = pages.find(candidate => candidate?.position === index);
     page.status = 'completed';
@@ -536,21 +548,20 @@ export function completeBackgroundJob(extraction) {
   applyCaptureDrafts();
   state.processing = false;
   state.finalizing = false;
-  state.jobRealtime?.close();
-  state.jobRealtime = null;
-  stopReceiptProgress();
+  clearReceiptExtractionJob();
+  stopReceiptProgress({ hide: true });
   persistAndRenderCaptures();
   $('#receipt-state').textContent = state.receiptDrafts.length === 1
     ? 'Ticket preparado. Revisa las líneas, cantidades y total antes de confirmar.'
     : `${state.receiptDrafts.length} tickets preparados. Revisa y confirma cada uno por separado.`;
 }
 
-export function failBackgroundJob(errorCode = 'RECEIPT_EXTRACTION_FAILED', job) {
+export function failBackgroundJob(errorCode = 'RECEIPT_EXTRACTION_FAILED', job, captures = activeJobCaptures()) {
   const error = jobError(job, errorCode);
   state.failedBackgroundJobId = error.code.startsWith('AI_') && job?.id === state.activeJobId
     ? state.activeJobId
     : '';
-  for (const [index, capture] of state.captures.entries()) {
+  for (const [index, capture] of captures.entries()) {
     const page = state.pageStates.get(captureKey(capture));
     if (!page) continue;
     if (page.status === 'completed' && page.aiStatus === 'completed') continue;
@@ -583,6 +594,7 @@ function hasManualReviewOverride() {
 
 export async function refreshReceiptExtractionJob() {
   const jobId = state.activeJobId;
+  const captures = activeJobCaptures();
   if (!jobId || hasManualReviewOverride()) return;
   const result = await api(`/api/v1/receipts/extraction-jobs/${encodeURIComponent(jobId)}`);
   const job = result.job;
@@ -591,17 +603,16 @@ export async function refreshReceiptExtractionJob() {
     || job.id !== jobId
     || state.activeJobId !== jobId
     || hasManualReviewOverride()
-    || state.extraction
   ) return;
   if (job.status === 'queued' || job.status === 'running') {
     state.processing = true;
-    if (!applyReceiptJobProgress(job.progress)) setPagesForBackgroundJob(job.status);
+    if (!applyReceiptJobProgress(job.progress, captures)) setPagesForBackgroundJob(job.status, captures);
     startReceiptProgress();
     persistAndRenderCaptures();
     return;
   }
   if (job.status === 'completed' && job.extraction) {
-    completeBackgroundJob(job.extraction);
+    completeBackgroundJob(job.extraction, captures);
     return;
   }
   if (job.status === 'cancelled') {
@@ -610,9 +621,9 @@ export async function refreshReceiptExtractionJob() {
     return;
   }
 
-  if (job.progress) applyReceiptJobProgress(job.progress);
+  if (job.progress) applyReceiptJobProgress(job.progress, captures);
   const errorCode = typeof job.errorCode === 'string' ? job.errorCode : '';
-  failBackgroundJob(errorCode || undefined, job);
+  failBackgroundJob(errorCode || undefined, job, captures);
 }
 
 export function watchReceiptExtractionJob() {

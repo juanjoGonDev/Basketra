@@ -616,6 +616,8 @@ test('queue cancel-all preserves uploaded captures and marks active work cancell
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Cancelada');
   await expect(page.locator('#receipt-review')).toBeHidden();
   await expect(page.locator('#receipt-state')).toContainText('se conservan');
+  await expect(page.locator('#receipt-progress')).toBeHidden();
+  await expect(queue).toHaveAttribute('data-state', 'idle');
   await expectNoHorizontalOverflow(page);
 });
 

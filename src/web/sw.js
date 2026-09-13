@@ -27,6 +27,7 @@ const SHELL = [
   '/shopping-list-density.css',
   '/receipts.js',
   '/receipt-state.js',
+  '/receipt-job-scope.js',
   '/receipt-capture.js',
   '/receipt-lifecycle.js',
   '/receipt-processing.js',
