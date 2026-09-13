@@ -34,9 +34,11 @@ test('receipt layout keeps measured edge padding and compact action heights', as
     const confirm = document.createElement('button');
     confirm.id = 'confirm-receipt';
     confirm.className = 'button primary';
+    const secondary = document.createElement('button');
+    secondary.className = 'button secondary';
     const actions = document.createElement('div');
     actions.className = 'receipt-live-summary__actions';
-    actions.append(confirm);
+    actions.append(secondary, confirm);
     document.body.append(actions);
     const queue = document.createElement('section');
     queue.className = 'receipt-source-queue';
@@ -49,6 +51,7 @@ test('receipt layout keeps measured edge padding and compact action heights', as
       rowPaddingLeft: Number.parseFloat(getComputedStyle(row).paddingLeft),
       rowPaddingRight: Number.parseFloat(getComputedStyle(row).paddingRight),
       confirmHeight: Number.parseFloat(getComputedStyle(confirm).minHeight),
+      secondaryHeight: Number.parseFloat(getComputedStyle(secondary).minHeight),
       actionPadding: Number.parseFloat(getComputedStyle(actions).paddingLeft),
       actionGap: Number.parseFloat(getComputedStyle(actions).gap),
       queueActionWrap: getComputedStyle(actionRow).flexWrap,
@@ -62,6 +65,7 @@ test('receipt layout keeps measured edge padding and compact action heights', as
   expect(metrics.queueActionWrap).toBe('nowrap');
   expect(new Set(metrics.queueActionTops).size).toBe(1);
   expect(metrics.confirmHeight).toBeGreaterThanOrEqual(40);
+  expect(metrics.confirmHeight).toBe(metrics.secondaryHeight);
 });
 
 test('receipt category and product pickers use shared paginated dialogs', async ({ page }) => {
@@ -202,6 +206,15 @@ test('detected-store edit opens the shared source editor for its capture', async
   await expect(dialog.locator('#receipt-source-editor-title')).toHaveText('ticket.pdf');
   await expect(dialog.locator('.app-dialog-header .eyebrow')).toHaveText('Archivo del ticket');
   await expect(dialog.getByRole('button', { name: 'Cerrar' })).toHaveText('×');
+  const actionLayout = await page.evaluate(() => ['receipt-show-evidence', 'validate-receipt-ticket', 'confirm-receipt']
+    .map(id => {
+      const box = document.getElementById(id)?.getBoundingClientRect();
+      return box ? { top: box.top, bottom: box.bottom, height: box.height } : null;
+    }));
+  expect(actionLayout.every(Boolean)).toBe(true);
+  expect(actionLayout[0].bottom).toBeLessThanOrEqual(actionLayout[1].top);
+  expect(actionLayout[1].bottom).toBeLessThanOrEqual(actionLayout[2].top);
+  expect(actionLayout.map(action => action.height)).toEqual([actionLayout[0].height, actionLayout[0].height, actionLayout[0].height]);
   await dialog.locator('#receipt-source-store-name').fill('Nueva tienda');
   await dialog.getByRole('button', { name: 'Guardar archivo' }).click();
   await expect.poll(() => createdStores.length).toBe(1);

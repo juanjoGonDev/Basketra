@@ -238,7 +238,7 @@ export function installReceiptEnhancements() {
   intro?.remove();
 
   if (!confirm.querySelector('.confirm-receipt__label-expanded')) {
-    confirm.innerHTML = `${icon('check')}<span class="confirm-receipt__label-expanded">Confirmar e importar</span><span class="confirm-receipt__label-compact">Validar</span>`;
+    confirm.innerHTML = `${icon('check')}<span class="confirm-receipt__label-expanded">Confirmar e importar</span><span class="confirm-receipt__label-compact">Importar</span>`;
   }
 
   if (!$('#receipt-source-queue')) {

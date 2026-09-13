@@ -1422,14 +1422,18 @@
 }
 
 .receipt-live-summary__actions .button {
+  min-height: var(--touch);
+  height: var(--touch);
   justify-content: center;
 }
 
 .receipt-live-summary__actions #confirm-receipt {
-  height: var(--touch);
-  min-height: var(--touch);
+  position: static;
+  bottom: auto;
+  z-index: auto;
   margin: 0;
   padding: 0 var(--space-3);
+  box-shadow: none;
 }
 
 .receipt-live-retailer__name {
