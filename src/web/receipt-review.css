@@ -545,7 +545,8 @@
   position: fixed;
   z-index: 33;
   right: max(var(--space-4), env(safe-area-inset-right));
-  bottom: calc(var(--nav) + env(safe-area-inset-bottom) + var(--space-4) + var(--touch) + var(--space-2));
+  top: calc(var(--header) + env(safe-area-inset-top) + var(--space-4));
+  bottom: auto;
   width: var(--touch);
   min-width: var(--touch);
 }
@@ -695,7 +696,8 @@
   position: fixed;
   z-index: 45;
   right: max(var(--space-4), env(safe-area-inset-right));
-  bottom: calc(var(--nav) + env(safe-area-inset-bottom) + var(--space-4) + (var(--touch) * 2) + (var(--space-2) * 2));
+  top: calc(var(--header) + env(safe-area-inset-top) + var(--space-4) + var(--touch) + var(--space-2));
+  bottom: auto;
   width: min(21rem, calc(100vw - var(--space-6)));
   max-height: min(42dvh, 20rem);
   overflow: auto;
@@ -1687,7 +1689,8 @@
 
   .receipt-source-queue__panel {
     right: max(var(--space-3), env(safe-area-inset-right));
-    bottom: calc(var(--nav) + env(safe-area-inset-bottom) + var(--space-3) + (var(--touch) * 2) + (var(--space-2) * 2));
+    top: calc(var(--header) + env(safe-area-inset-top) + var(--space-3) + var(--touch) + var(--space-2));
+    bottom: auto;
     width: min(20rem, calc(100vw - var(--space-6)));
     max-height: min(50dvh, 20rem);
   }
@@ -1773,12 +1776,14 @@
 
   .receipt-source-queue {
     right: max(2rem, env(safe-area-inset-right));
-    bottom: calc(2rem + var(--touch) + var(--space-2));
+    top: calc(var(--header) + 2rem);
+    bottom: auto;
   }
 
   .receipt-source-queue__panel {
     right: max(2rem, env(safe-area-inset-right));
-    bottom: calc(2rem + (var(--touch) * 2) + (var(--space-2) * 2));
+    top: calc(var(--header) + 2rem + var(--touch) + var(--space-2));
+    bottom: auto;
   }
 
   .receipt-add-menu {
