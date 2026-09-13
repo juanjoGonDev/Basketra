@@ -17,6 +17,7 @@ import {
   clearReceiptExtractionJob,
   requestExtraction,
   retryFailedReceiptExtractionJob,
+  startAutomaticCaptureProcessing,
   startReceiptProgress,
   stopReceiptProgress,
   updateGlobalProgress,
@@ -297,9 +298,16 @@ export function retryCaptureProcessing(index) {
     if (task.key === key && task.token === state.runToken) task.controller.abort();
   }
   state.pageQueue = state.pageQueue.filter(entry => entry.key !== key);
-  clearCombinedReview();
   const page = createPageState(previous);
   state.pageStates.set(key, page);
+
+  if (capture.mimeType === 'application/pdf' && state.aiConfigured) {
+    persistAndRenderCaptures();
+    startAutomaticCaptureProcessing([capture]);
+    return;
+  }
+
+  clearCombinedReview();
   state.verifyWithAi = state.aiConfigured;
   state.processing = true;
   if (!state.progressTimer) startReceiptProgress();

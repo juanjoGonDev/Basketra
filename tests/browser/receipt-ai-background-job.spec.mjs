@@ -418,3 +418,51 @@ test('a later upload keeps the completed receipt visible and queues only the new
     return state.receiptDrafts.map(draft => ({ key: draft.key, items: draft.items.map(item => item.description) }));
   })).toEqual([{ key: expect.any(String), items: ['PRIMER TICKET'] }]);
 });
+
+test('retrying a cancelled PDF starts another durable AI job without local OCR', async ({ page }) => {
+  await installControlledEventSource(page);
+  const submittedJobs = [];
+  let localOcrRequests = 0;
+  await page.route('**/api/v1/receipts/extract', route => {
+    localOcrRequests += 1;
+    return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'OCR_MUST_NOT_RUN_FOR_PDF' } }) });
+  });
+  await page.route('**/api/v1/receipts/extraction-jobs', route => {
+    submittedJobs.push(route.request().postDataJSON());
+    const jobId = `receiptextractionjob_retry_pdf_${submittedJobs.length}`;
+    return route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ job: { id: jobId, status: 'queued' } }),
+    });
+  });
+  await page.route(/\/api\/v1\/receipts\/extraction-jobs\/receiptextractionjob_retry_pdf_\d+$/, route => {
+    const jobId = route.request().url().split('/').at(-1);
+    const completed = jobId.endsWith('_2');
+    if (route.request().method() === 'DELETE') return route.fulfill({ status: 204, body: '' });
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ job: completed
+        ? { id: jobId, status: 'completed', extraction: completedExtraction('PDF REINTENTADO', 150) }
+        : { id: jobId, status: 'running' },
+      }),
+    });
+  });
+
+  await prepareReceipt(page, 'cancelled.pdf', 'application/pdf', Buffer.from('%PDF-1.4\nfixture'));
+  await expect(page.locator('.capture-card .status-pill')).toHaveText(/En cola IA|Verificando con IA/u);
+  const queue = page.locator('#receipt-source-queue');
+  if (!(await queue.evaluate(element => element.open))) await queue.locator(':scope > summary').click();
+  await page.getByRole('button', { name: 'Cancelar todo el análisis', exact: true }).click();
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Cancelada');
+  await page.locator('.capture-card__details > summary').click();
+
+  await page.getByRole('button', { name: 'Reintentar PDF', exact: true }).click();
+  await expect.poll(() => submittedJobs.length).toBe(2);
+  expect(submittedJobs[1].captures.map(capture => capture.originalName)).toEqual(['cancelled.pdf']);
+  expect(localOcrRequests).toBe(0);
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada');
+  await expect(page.locator('#receipt-detected-list')).toContainText('PDF REINTENTADO');
+  await expect(page.locator('#receipt-source-queue')).not.toContainText('OCR');
+});
