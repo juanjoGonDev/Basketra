@@ -283,6 +283,29 @@ test('durable OCR evidence appears progressively in the body while source detail
   await expect(queue.locator(':scope > summary')).toHaveAttribute('aria-label', /1 archivo · 1 procesando/);
   await expect(page.locator('#receipt-source-queue-summary')).toHaveText('1');
   await expect(page.locator('#receipt-progress')).toBeHidden();
+  await queue.locator(':scope > summary').click();
+  const queueRow = await queue.locator('.capture-card').evaluate(card => {
+    const preview = card.querySelector('.capture-card__preview').getBoundingClientRect();
+    const summary = card.querySelector('.capture-card__summary').getBoundingClientRect();
+    const filename = card.querySelector('.capture-card__summary-copy strong').getBoundingClientRect();
+    const status = card.querySelector('.capture-card__summary .status-pill').getBoundingClientRect();
+    return {
+      previewCenter: preview.top + preview.height / 2,
+      summaryCenter: summary.top + summary.height / 2,
+      filenameCenter: filename.top + filename.height / 2,
+      statusCenter: status.top + status.height / 2,
+      filenameRight: filename.right,
+      statusLeft: status.left,
+    };
+  });
+  expect(Math.abs(queueRow.previewCenter - queueRow.summaryCenter)).toBeLessThanOrEqual(2);
+  expect(Math.abs(queueRow.filenameCenter - queueRow.statusCenter)).toBeLessThanOrEqual(2);
+  expect(queueRow.statusLeft).toBeGreaterThan(queueRow.filenameRight);
+  await page.screenshot({
+    path: testInfo.outputPath('receipt-file-queue-single-row-390.png'),
+    fullPage: true,
+  });
+  await page.keyboard.press('Escape');
   const spinner = queue.locator('.receipt-source-queue__spinner');
   const workingVisual = await spinner.evaluate(element => {
     const spinnerStyle = getComputedStyle(element);
