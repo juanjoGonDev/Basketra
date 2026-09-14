@@ -406,23 +406,23 @@ test('automatic local OCR creates editable euro rows with source context and imp
 
   await expect(page.locator('#capture-list li')).toHaveCount(2);
   await expect(page.locator('#capture-list img[data-capture-preview-image]')).toHaveCount(2);
-  await expect(page.locator('#receipt-state')).toContainText('Todas las imágenes están combinadas');
+  await expect(page.locator('#receipt-state')).toContainText('2 tickets preparados');
   await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
-  await page.locator('#receipt-review-panel > summary').click();
-  await expect(page.locator('#receipt-review-reference-image')).toBeVisible();
+  await expect(page.locator('#receipt-show-evidence')).toBeVisible();
   await expect(page.locator('.receipt-item')).toHaveCount(1);
   await expect(page.getByLabel('Precio unitario (€)').first()).toHaveValue('1.20');
   await expect(page.getByLabel('Total calculado (€)').first()).toHaveText('1.20');
   await expect(page.getByLabel('Total declarado (€)')).toHaveValue('1.20');
-  await expect(page.locator('#receipt-review-sticky-summary')).toContainText('1,20 €');
+  await expect(page.locator('#receipt-live-summary')).toContainText('1,20 €');
   await expect(page.getByText(/céntimos|cént\./i)).toHaveCount(0);
 
-  const firstLineShell = page.locator('[data-swipe-kind="receipt-line"]').first();
-  await page.getByRole('button', { name: 'Mostrar acciones de la línea 1' }).click();
+  const detectedLineShells = page.locator('#receipt-detected-list [data-swipe-kind="receipt-detected-line"]');
+  const firstLineShell = detectedLineShells.first();
+  await swipe(page, firstLineShell, 'left');
   await expect(firstLineShell).toHaveAttribute('data-swipe-open', 'true');
-  const firstLineEdit = firstLineShell.getByRole('button', { name: 'Editar línea 1', exact: true });
+  const firstLineEdit = firstLineShell.locator('[data-receipt-action="edit"]').first();
   await expect(firstLineEdit).toBeVisible();
-  await expect(firstLineShell.getByRole('button', { name: 'Eliminar línea 1', exact: true })).toBeVisible();
+  await expect(firstLineShell.locator('[data-receipt-action="delete"]').first()).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('swipe-reveal.png') });
   await firstLineEdit.click();
   const editorDialog = page.locator('#receipt-line-dialog');
@@ -432,10 +432,11 @@ test('automatic local OCR creates editable euro rows with source context and imp
   await editorDescription.fill('Whole milk');
   await editorDialog.getByRole('button', { name: 'Guardar línea', exact: true }).click();
 
-  await page.getByRole('button', { name: 'Añadir línea', exact: true }).click();
+  await page.locator('#receipt-add-trigger').click();
+  await page.locator('#receipt-add-manual').click();
   await expect(page.locator('.receipt-item')).toHaveCount(2);
   await expect(page.locator('#receipt-detected-list .receipt-detected-item')).toHaveCount(2);
-  await page.locator('#receipt-detected-list .receipt-detected-item').last().click();
+  // Adding a manual line opens the editor for the new draft straight away.
   await expect(editorDialog).toBeVisible();
   await editorDialog.locator('[data-field="description"]').fill('Bread');
   await editorDialog.locator('[data-field="quantity"]').fill('1');
@@ -443,10 +444,10 @@ test('automatic local OCR creates editable euro rows with source context and imp
   await expect(editorDialog.locator('[data-field="lineTotalEuro"]')).toHaveText('0.20');
   await editorDialog.getByRole('button', { name: 'Guardar línea', exact: true }).click();
 
-  const manualLineShell = page.locator('[data-swipe-kind="receipt-line"]').last();
-  await page.getByRole('button', { name: 'Mostrar acciones de la línea 2' }).click();
+  const manualLineShell = detectedLineShells.last();
+  await swipe(page, manualLineShell, 'left');
   await expect(manualLineShell).toHaveAttribute('data-swipe-open', 'true');
-  await page.getByRole('button', { name: 'Eliminar línea 2', exact: true }).click();
+  await manualLineShell.locator('[data-receipt-action="delete"]').first().click();
   await expect(page.locator('.receipt-item')).toHaveCount(1);
   await expect(page.locator('#toast-message')).toHaveText('Línea eliminada');
   await expect(page.getByRole('button', { name: 'Deshacer' })).toBeVisible();
@@ -456,17 +457,16 @@ test('automatic local OCR creates editable euro rows with source context and imp
   await expect(page.locator('.receipt-item').last().locator('[data-field="description"]')).toHaveValue('Bread');
   await expect(page.locator('.receipt-item').last().locator('[data-field="unitPriceEuro"]')).toHaveValue('0.20');
 
-  const manualDetails = page.locator('.manual-entry');
-  await expect(manualDetails).not.toHaveAttribute('open', '');
-  await manualDetails.locator('summary').click();
-  await expect(manualDetails).toHaveAttribute('open', '');
-  await page.getByLabel('Total declarado (€)').fill('1.40');
-  await page.getByRole('button', { name: 'Validar líneas e importes', exact: true }).click();
-  await expect(page.locator('#receipt-state')).toContainText('Líneas y total validados');
+  // The calculated-total summary owns the derived total and the ticket validation action.
+  await page.locator('#validate-receipt-ticket').click();
+  await expect(page.locator('#receipt-state')).toContainText('El total no coincide');
   await fillRequiredReceiptStore(page);
 
+  // A derived-total mismatch is acknowledged once before the import is accepted.
   await page.locator('#confirm-receipt').click();
-  await expect(page.locator('#receipt-state')).toContainText('Ticket importado');
+  await expect(page.locator('#toast-message')).toHaveText('El total no coincide. Vuelve a confirmar para aceptarlo.');
+  await page.locator('#confirm-receipt').click();
+  await expect(page.locator('#toast-message')).toHaveText('Ticket confirmado');
   await expect(page.locator('#capture-list li')).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
   expect(failures).toEqual([]);
@@ -495,7 +495,7 @@ test('automatic local OCR failure preserves captures and supports per-image retr
 
   await details.getByRole('button', { name: 'Reintentar imagen', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada');
-  await expect(page.locator('#receipt-state')).toContainText('Todas las imágenes están combinadas');
+  await expect(page.locator('#receipt-state')).toContainText('Ticket preparado');
   await expect(page.locator('.receipt-item')).toHaveCount(1);
   await expect(page.locator('#capture-list li')).toHaveCount(1);
   expect(failures).toEqual([]);
