@@ -45,10 +45,6 @@ async function openReview(page, items, statuses) {
       },
     });
   }, { currentItems: items, currentStatuses: statuses });
-  const panel = page.locator('#receipt-review-panel');
-  if (!(await panel.evaluate(element => element.open))) {
-    await panel.locator(':scope > summary').click();
-  }
 }
 
 async function makeReviewConfirmable(page, storageKey = 'file_receipt_validation_1') {
@@ -70,9 +66,23 @@ async function makeReviewConfirmable(page, storageKey = 'file_receipt_validation
 
 async function openLineEditor(page, index = 0) {
   const editor = page.locator('#receipt-line-dialog');
-  if (!(await editor.isVisible())) await page.locator('.receipt-line-compact').nth(index).click();
+  if (!(await editor.isVisible())) {
+    await page.locator('#receipt-detected-list .receipt-detected-item').nth(index).click();
+  }
   await expect(editor).toBeVisible();
   return editor;
+}
+
+
+async function validateLine(page, index = 0) {
+  const editor = page.locator('#receipt-line-dialog');
+  if (await editor.isVisible()) {
+    await editor.getByRole('button', { name: 'Cancelar', exact: true }).click();
+    await expect(editor).toBeHidden();
+  }
+  await page.locator('#receipt-detected-list .receipt-detected-item').nth(index).click();
+  await expect(editor).toBeVisible();
+  await editor.getByRole('button', { name: 'Validar línea', exact: true }).click();
 }
 
 async function setup(page) {
@@ -92,13 +102,12 @@ test('a review-required receipt line can be validated explicitly without editing
   await setup(page);
   await openReview(page, [item('PAN', 150), item('LECHE', 120)], ['confirmed', 'needs-review']);
 
-  await expect(page.getByRole('button', { name: 'Validar línea 2', exact: true })).toBeVisible();
+  await expect(page.locator('#receipt-detected-list .receipt-detected-item')).toHaveCount(2);
   await expect(page.locator('.receipt-item').nth(1)).toContainText('Revisar');
 
-  await page.getByRole('button', { name: 'Validar línea 2', exact: true }).click();
+  await validateLine(page, 1);
 
   await expect(page.locator('.receipt-item').nth(1)).toContainText('Validada');
-  await expect(page.getByRole('button', { name: 'Validar línea 2', exact: true })).toHaveCount(0);
   await expect(page.locator('#receipt-state')).toHaveText('Línea 2 validada.');
   expect(validationPayloads).toHaveLength(1);
   expect(validationPayloads[0].items[0].description).toBe('PAN');
@@ -115,9 +124,9 @@ test('a legacy amount discount stays visible, editable and becomes the typed can
   const row = page.locator('.receipt-item').first();
   await expect(row.locator('[data-field="discountType"]')).toHaveValue('amount');
   await expect(row.locator('[data-field="discountValue"]')).toHaveValue('0.25');
-  await expect(page.locator('.receipt-line-compact').first()).toContainText('Dto. 0,25 €');
+  await expect(page.locator('#receipt-detected-list .receipt-detected-item__discount').first()).toContainText('0,25 €');
 
-  await page.getByRole('button', { name: 'Validar línea 1', exact: true }).click();
+  await validateLine(page);
   await expect(page.locator('#receipt-state')).toContainText('Línea 1');
   await expect(page.locator('#receipt-state')).toContainText('1,50 €');
   await expect(page.locator('#receipt-state')).toContainText('1,75 €');
@@ -134,7 +143,7 @@ test('a legacy amount discount stays visible, editable and becomes the typed can
   await openLineEditor(page);
   await editor.locator('[data-field="discountType"]').selectOption('none');
   await editor.getByRole('button', { name: 'Guardar línea', exact: true }).click();
-  await page.getByRole('button', { name: 'Validar línea 1', exact: true }).click();
+  await validateLine(page);
 
   await expect(page.locator('.receipt-item').first()).toContainText('Validada');
   await expect(page.locator('#receipt-state')).toHaveText('Línea 1 validada.');
@@ -159,9 +168,9 @@ test('a missing receipt discount can be added, validated and confirmed as a tagg
   const row = page.locator('.receipt-item').first();
   await expect(row.locator('[data-field="discountType"]')).toHaveValue('none');
   await expect(row.locator('[data-field="discountValue"]')).toBeHidden();
-  await expect(page.locator('.receipt-line-compact').first()).not.toContainText('Dto.');
+  await expect(page.locator('#receipt-detected-list .receipt-detected-item__discount')).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Validar línea 1', exact: true }).click();
+  await validateLine(page);
   expect(validationPayloads.at(-1).items[0]).not.toHaveProperty('discount');
   await expect(page.locator('#receipt-state')).toContainText('1,75 €');
   await expect(page.locator('#receipt-state')).toContainText('1,50 €');
@@ -170,15 +179,18 @@ test('a missing receipt discount can be added, validated and confirmed as a tagg
   await editor.locator('[data-field="discountType"]').selectOption('amount');
   await editor.locator('[data-field="discountValue"]').fill('0.25');
   await editor.getByRole('button', { name: 'Guardar línea', exact: true }).click();
-  await expect(page.locator('.receipt-line-compact').first()).toContainText('Dto. 0,25 €');
+  await expect(page.locator('#receipt-detected-list .receipt-detected-item__discount').first()).toContainText('0,25 €');
 
-  await page.getByRole('button', { name: 'Validar línea 1', exact: true }).click();
+  await validateLine(page);
   await expect(page.locator('.receipt-item').first()).toContainText('Validada');
   await expect(page.locator('#receipt-state')).toHaveText('Línea 1 validada.');
   expect(validationPayloads.at(-1).items[0].discount).toEqual({ type: 'amount', amountMinor: 25 });
 
   await makeReviewConfirmable(page, 'file_receipt_discount_manual');
-  await page.getByRole('button', { name: 'Confirmar e importar', exact: true }).click();
+  await page.locator('#confirm-receipt').click();
+  // A derived-total mismatch is acknowledged once before the import is accepted.
+  await expect(page.locator('#receipt-state')).toHaveText('');
+  await page.locator('#confirm-receipt').click();
 
   await expect(page.locator('#receipt-state')).toHaveText('Ticket importado: receipt_discount_manual');
   expect(confirmationPayload.items[0].discount).toEqual({ type: 'amount', amountMinor: 25 });
@@ -204,10 +216,10 @@ test('final confirmation stops before import when canonical validation still rej
   await openReview(page, [item('BEBIDA COCO', 175, { unitPriceMinor: 175, discountMinor: 25 })], ['arithmetic-mismatch']);
   await makeReviewConfirmable(page);
 
-  await page.getByRole('button', { name: 'Confirmar e importar', exact: true }).click();
+  await page.locator('#confirm-receipt').click();
 
   await expect(page.locator('#receipt-state')).toContainText('Línea 1');
   await expect(page.locator('#receipt-state')).toContainText('antes de importar');
-  await expect(page.getByRole('button', { name: 'Validar línea 1', exact: true })).toBeFocused();
+  await expect(page.locator('#receipt-detected-list .receipt-detected-item').first()).toBeFocused();
   expect(confirmCalls).toBe(0);
 });

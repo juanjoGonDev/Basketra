@@ -26,7 +26,10 @@ class AppDialog extends HTMLElement {
     this.#dialog.addEventListener('click', event => {
       if (event.target === this.#dialog && this.dismissible) this.close();
     });
-    this.#dialog.addEventListener('close', () => this.dispatchEvent(new Event('close')));
+    this.#dialog.addEventListener('close', () => {
+      this.#syncOpenState();
+      this.dispatchEvent(new Event('close'));
+    });
     this.#dialog.addEventListener('cancel', event => {
       const hostEvent = new Event('cancel', { bubbles: true, cancelable: true });
       if (!this.dispatchEvent(hostEvent)) event.preventDefault();
@@ -39,6 +42,7 @@ class AppDialog extends HTMLElement {
     if (label) this.#dialog.setAttribute('aria-label', label);
     if (labelledBy) this.#dialog.setAttribute('aria-labelledby', labelledBy);
     this.#syncRegions();
+    this.#syncOpenState();
   }
 
   #syncRegions() {
@@ -46,11 +50,31 @@ class AppDialog extends HTMLElement {
     this.#footer.hidden = !this.#footer.querySelector('slot').assignedNodes({ flatten: true }).length;
   }
 
+  /**
+   * The host mirrors the wrapped dialog so callers keep the native contract:
+   * `open` is observable as an attribute and the host only renders while open.
+   */
+  #syncOpenState() {
+    if (this.#dialog.open) this.setAttribute('open', '');
+    else this.removeAttribute('open');
+  }
+
   get dismissible() { return this.getAttribute('dismissible') !== 'false'; }
   get open() { return this.#dialog.open; }
-  showModal() { if (!this.#dialog.open) this.#dialog.showModal(); }
-  close(value) { if (this.#dialog.open) this.#dialog.close(value); }
-  focus() { this.#dialog.querySelector('[autofocus], input, select, button')?.focus(); }
+  showModal() {
+    if (!this.#dialog.open) this.#dialog.showModal();
+    this.#syncOpenState();
+  }
+
+  close(value) {
+    if (this.#dialog.open) this.#dialog.close(value);
+    this.#syncOpenState();
+  }
+
+  focus() {
+    const target = this.querySelector('[autofocus], input, select, textarea, button');
+    target?.focus();
+  }
 }
 
 customElements.define('app-dialog', AppDialog);

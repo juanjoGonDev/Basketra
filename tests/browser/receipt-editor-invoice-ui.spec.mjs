@@ -62,10 +62,6 @@ async function setup(page, width, height) {
       },
     });
   });
-  const reviewPanel = page.locator('#receipt-review-panel');
-  if (!(await reviewPanel.evaluate(element => element.open))) {
-    await reviewPanel.locator(':scope > summary').click();
-  }
 }
 
 async function openEditor(page) {

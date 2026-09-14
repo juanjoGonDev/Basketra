@@ -862,9 +862,12 @@ function firstInvalidLine(validation) {
 
 function focusInvalidLine(index) {
   const focus = () => {
-    const action = $(`[data-receipt-action="validate"][data-receipt-index="${index}"]`);
-    action?.scrollIntoView({ block: 'center', behavior: 'auto' });
-    action?.focus();
+    // The focused validation workspace exposes detected lines, so the operator
+    // is taken to the visible row; the mounted editor action stays as fallback.
+    const target = $(`#receipt-detected-list .receipt-detected-item[data-receipt-index="${index}"]`)
+      || $(`[data-receipt-action="validate"][data-receipt-index="${index}"]`);
+    target?.scrollIntoView({ block: 'center', behavior: 'auto' });
+    target?.focus();
   };
   requestAnimationFrame(focus);
 }
