@@ -26,6 +26,7 @@ function publicRuntime(overrides = {}) {
     overpassBaseUrl: 'https://overpass-api.de/api/',
     maxBodyBytes: 32 * MEBIBYTE,
     idleHibernateAfterMs: 5 * MINUTE_MS,
+    listenPort: 3000,
     updatedAt: '2026-09-02T19:00:00.000Z',
     ...overrides,
   };
@@ -67,6 +68,7 @@ function nextRuntime(current, patch) {
     overpassBaseUrl: patch.overpassBaseUrl,
     maxBodyBytes: patch.maxBodyBytes,
     idleHibernateAfterMs: patch.idleHibernateAfterMs,
+    listenPort: patch.listenPort,
     updatedAt: '2026-09-02T19:01:00.000Z',
   };
 }
@@ -132,7 +134,9 @@ test('runtime settings persist without restart and preserve, replace, then clear
   await page.locator('#runtime-overpass-base-url').fill('https://overpass.kumi.systems/api/');
   await page.locator('#runtime-max-body-mib').fill('64');
   await page.locator('#runtime-idle-minutes').fill('10');
+  await page.locator('#runtime-listen-port').fill('8123');
   expect(await page.locator('#runtime-max-body-mib').evaluate(input => input.checkValidity())).toBe(true);
+  expect(await page.locator('#runtime-listen-port').evaluate(input => input.checkValidity())).toBe(true);
   await page.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
 
   await expect.poll(() => writes.length).toBe(1);
@@ -145,6 +149,7 @@ test('runtime settings persist without restart and preserve, replace, then clear
     overpassBaseUrl: 'https://overpass.kumi.systems/api/',
     maxBodyBytes: 64 * MEBIBYTE,
     idleHibernateAfterMs: 10 * MINUTE_MS,
+    listenPort: 8123,
   });
   await expect(page.locator('#runtime-settings-save-state')).toContainText('Configuración guardada en SQLite');
   await expect(page.locator('#runtime-ai-token-help')).toContainText('••••safe');
@@ -200,6 +205,7 @@ test('runtime editor keeps defensive defaults and does not overwrite dirty field
       overpassBaseUrl: patch.overpassBaseUrl,
       maxBodyBytes: patch.maxBodyBytes,
       idleHibernateAfterMs: patch.idleHibernateAfterMs,
+      listenPort: patch.listenPort,
       updatedAt: '2026-09-02T19:01:00.000Z',
     };
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ settings: runtime }) });
@@ -223,11 +229,13 @@ test('runtime editor keeps defensive defaults and does not overwrite dirty field
 
   await page.getByText('Red y recursos locales', { exact: true }).click();
   await expect(page.locator('#runtime-overpass-base-url')).toHaveValue('');
+  await expect(page.locator('#runtime-listen-port')).toHaveValue('3000');
   await page.locator('#runtime-overpass-base-url').fill('https://overpass.kumi.systems/api/');
   await page.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
   await expect.poll(() => writes.length).toBe(1);
   expect(writes[0].aiBaseUrl).toBeNull();
   expect(writes[0].aiModel).toBeNull();
+  expect(writes[0].listenPort).toBe(3000);
   await expect(page.locator('#runtime-ai-token-help')).toContainText('Token guardado');
 
   await page.locator('#runtime-ai-base-url').fill('http://draft.local:3001/v1/');

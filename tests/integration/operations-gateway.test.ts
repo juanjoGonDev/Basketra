@@ -4,9 +4,10 @@ import { randomUUID } from 'node:crypto';
 import { rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { AppConfig } from '../../src/infrastructure/config.ts';
+import { DEFAULT_LISTEN_PORT, type AppConfig } from '../../src/infrastructure/config.ts';
 import { BasketraDatabase } from '../../src/infrastructure/database.ts';
 import { OperationsGateway } from '../../src/operations/gateway.ts';
+import { RuntimeSettingsStore } from '../../src/infrastructure/runtime-settings.ts';
 import { applyPendingRestore } from '../../src/operations/restore.ts';
 import { readJpegDimensions } from '../helpers/jpeg.ts';
 
@@ -363,5 +364,99 @@ test('restore is streamed, validated, staged with a pre-backup and applied only 
   }finally{
     restored.close();
     rmSync(directory,{recursive:true,force:true});
+  }
+});
+
+async function reserveFreePort():Promise<number>{
+  const probe=createServer();
+  await new Promise<void>(resolve=>probe.listen(0,'127.0.0.1',resolve));
+  const port=(probe.address() as AddressInfo).port;
+  await new Promise<void>(resolve=>probe.close(()=>resolve()));
+  return port;
+}
+
+function persistListenPort(dataDir:string,listenPort:number):void{
+  const database=new BasketraDatabase(`${dataDir}/basketra.db`);
+  database.close();
+  const store=new RuntimeSettingsStore(`${dataDir}/basketra.db`);
+  try{
+    store.update({listenPort});
+  }finally{
+    store.close();
+  }
+}
+
+test('persisted listen port owns the socket unless the operator pinned another bootstrap port',async()=>{
+  const persistedDirectory=`.test-tmp/gateway-listen-port-${randomUUID()}`;
+  const persistedPort=await reserveFreePort();
+  persistListenPort(persistedDirectory,persistedPort);
+  const persistedGateway=new OperationsGateway(config(persistedDirectory,{port:DEFAULT_LISTEN_PORT}));
+  try{
+    await persistedGateway.listen();
+    assert.equal(persistedGateway.requestedListenPort(),persistedPort);
+    assert.equal(persistedGateway.address().port,persistedPort);
+    const readiness=await fetch(`http://127.0.0.1:${persistedPort}/readiness`);
+    assert.equal(readiness.status,200);
+  }finally{
+    await persistedGateway.close();
+    rmSync(persistedDirectory,{recursive:true,force:true});
+  }
+
+  const pinnedDirectory=`.test-tmp/gateway-pinned-port-${randomUUID()}`;
+  const pinnedPort=await reserveFreePort();
+  persistListenPort(pinnedDirectory,await reserveFreePort());
+  const pinnedGateway=new OperationsGateway(config(pinnedDirectory,{port:pinnedPort}));
+  try{
+    await pinnedGateway.listen();
+    assert.equal(pinnedGateway.requestedListenPort(),pinnedPort);
+    assert.equal(pinnedGateway.address().port,pinnedPort);
+  }finally{
+    await pinnedGateway.close();
+    rmSync(pinnedDirectory,{recursive:true,force:true});
+  }
+});
+
+test('an occupied persisted listen port falls back to the default port instead of failing startup',async()=>{
+  const directory=`.test-tmp/gateway-port-fallback-${randomUUID()}`;
+  const defaultPort=await reserveFreePort();
+  const occupiedPort=await reserveFreePort();
+  persistListenPort(directory,occupiedPort);
+  const blocker=createServer();
+  await new Promise<void>(resolve=>blocker.listen(occupiedPort,'127.0.0.1',resolve));
+  const gateway=new OperationsGateway(config(directory,{port:defaultPort}),{defaultListenPort:defaultPort});
+  try{
+    await gateway.listen();
+    assert.equal(gateway.requestedListenPort(),occupiedPort);
+    assert.equal(gateway.address().port,defaultPort);
+    const readiness=await fetch(`http://127.0.0.1:${defaultPort}/readiness`);
+    assert.equal(readiness.status,200);
+  }finally{
+    await gateway.close();
+    await new Promise<void>(resolve=>blocker.close(()=>resolve()));
+    rmSync(directory,{recursive:true,force:true});
+  }
+});
+
+test('an unrecoverable listen failure surfaces instead of hiding behind the fallback port',async()=>{
+  const occupiedDirectory=`.test-tmp/gateway-port-occupied-${randomUUID()}`;
+  const occupiedPort=await reserveFreePort();
+  persistListenPort(occupiedDirectory,occupiedPort);
+  const blocker=createServer();
+  await new Promise<void>(resolve=>blocker.listen(occupiedPort,'127.0.0.1',resolve));
+  const occupiedGateway=new OperationsGateway(config(occupiedDirectory,{port:occupiedPort}),{defaultListenPort:occupiedPort});
+  try{
+    await assert.rejects(()=>occupiedGateway.listen(),/EADDRINUSE/);
+  }finally{
+    await new Promise<void>(resolve=>blocker.close(()=>resolve()));
+    rmSync(occupiedDirectory,{recursive:true,force:true});
+  }
+
+  const rejectedDirectory=`.test-tmp/gateway-port-rejected-${randomUUID()}`;
+  persistListenPort(rejectedDirectory,await reserveFreePort());
+  const rejectedGateway=new OperationsGateway(config(rejectedDirectory,{port:-1}));
+  try{
+    await assert.rejects(()=>rejectedGateway.listen(),/ERR_SOCKET_BAD_PORT/);
+  }finally{
+    rmSync(rejectedDirectory,{recursive:true,force:true});
   }
 });

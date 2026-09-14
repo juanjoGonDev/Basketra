@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { validateOverpassBaseUrl, validateProviderBaseUrl } from './config.ts';
+import { DEFAULT_LISTEN_PORT, validateOverpassBaseUrl, validateProviderBaseUrl } from './config.ts';
 
 export const DEFAULT_RUNTIME_SETTINGS = Object.freeze({
   aiMaxRetries: 1,
@@ -7,6 +7,7 @@ export const DEFAULT_RUNTIME_SETTINGS = Object.freeze({
   overpassBaseUrl: 'https://overpass-api.de/api/',
   maxBodyBytes: 32 * 1024 * 1024,
   idleHibernateAfterMs: 300_000,
+  listenPort: DEFAULT_LISTEN_PORT,
 });
 
 export const RUNTIME_BODY_BYTES_MIN = 1024;
@@ -14,6 +15,8 @@ export const RUNTIME_BODY_BYTES_MAX = 512 * 1024 * 1024;
 export const RUNTIME_IDLE_HIBERNATE_MAX_MS = 24 * 60 * 60 * 1000;
 export const RUNTIME_AI_MAX_RETRIES = 10;
 export const RUNTIME_AI_RECEIPT_VALIDATION_CONCURRENCY_MAX = 8;
+export const RUNTIME_LISTEN_PORT_MIN = 1;
+export const RUNTIME_LISTEN_PORT_MAX = 65535;
 
 export type RuntimeSettings = Readonly<{
   aiBaseUrl?: string;
@@ -24,6 +27,7 @@ export type RuntimeSettings = Readonly<{
   overpassBaseUrl: string;
   maxBodyBytes: number;
   idleHibernateAfterMs: number;
+  listenPort: number;
   updatedAt: string;
 }>;
 
@@ -40,6 +44,7 @@ export type PublicRuntimeSettings = Readonly<{
   overpassBaseUrl: string;
   maxBodyBytes: number;
   idleHibernateAfterMs: number;
+  listenPort: number;
   updatedAt: string;
 }>;
 
@@ -52,6 +57,7 @@ export type RuntimeSettingsUpdate = Readonly<{
   overpassBaseUrl?: string;
   maxBodyBytes?: number;
   idleHibernateAfterMs?: number;
+  listenPort?: number;
 }>;
 
 type RuntimeSettingsRow = Readonly<{
@@ -63,6 +69,7 @@ type RuntimeSettingsRow = Readonly<{
   overpassBaseUrl: string;
   maxBodyBytes: number;
   idleHibernateAfterMs: number;
+  listenPort: number;
   updatedAt: string;
 }>;
 
@@ -85,6 +92,7 @@ export class RuntimeSettingsStore {
         overpass_base_url AS overpassBaseUrl,
         max_body_bytes AS maxBodyBytes,
         idle_hibernate_after_ms AS idleHibernateAfterMs,
+        listen_port AS listenPort,
         updated_at AS updatedAt
       FROM runtime_settings
       WHERE id = 'instance'
@@ -109,6 +117,7 @@ export class RuntimeSettingsStore {
         overpass_base_url = ?,
         max_body_bytes = ?,
         idle_hibernate_after_ms = ?,
+        listen_port = ?,
         updated_at = ?
       WHERE id = 'instance'
     `).run(
@@ -120,6 +129,7 @@ export class RuntimeSettingsStore {
       next.overpassBaseUrl,
       next.maxBodyBytes,
       next.idleHibernateAfterMs,
+      next.listenPort,
       updatedAt,
     );
     return { ...next, updatedAt };
@@ -144,6 +154,7 @@ export function toPublicRuntimeSettings(settings: RuntimeSettings): PublicRuntim
     overpassBaseUrl: settings.overpassBaseUrl,
     maxBodyBytes: settings.maxBodyBytes,
     idleHibernateAfterMs: settings.idleHibernateAfterMs,
+    listenPort: settings.listenPort,
     updatedAt: settings.updatedAt,
   };
 }
@@ -159,6 +170,7 @@ export function parseRuntimeSettingsUpdate(value: unknown): RuntimeSettingsUpdat
     'overpassBaseUrl',
     'maxBodyBytes',
     'idleHibernateAfterMs',
+    'listenPort',
   ]);
   for (const key of Object.keys(value)) {
     if (!allowed.has(key)) throw new TypeError(`Unknown runtime setting: ${key}`);
@@ -173,6 +185,7 @@ export function parseRuntimeSettingsUpdate(value: unknown): RuntimeSettingsUpdat
     overpassBaseUrl?: string;
     maxBodyBytes?: number;
     idleHibernateAfterMs?: number;
+    listenPort?: number;
   } = {};
   if (Object.hasOwn(value, 'aiBaseUrl')) patch.aiBaseUrl = optionalUrl(value['aiBaseUrl'], 'AI provider');
   if (Object.hasOwn(value, 'aiApiKey')) patch.aiApiKey = optionalSecret(value['aiApiKey']);
@@ -209,6 +222,14 @@ export function parseRuntimeSettingsUpdate(value: unknown): RuntimeSettingsUpdat
       RUNTIME_IDLE_HIBERNATE_MAX_MS,
     );
   }
+  if (Object.hasOwn(value, 'listenPort')) {
+    patch.listenPort = boundedInteger(
+      value['listenPort'],
+      'Listen port',
+      RUNTIME_LISTEN_PORT_MIN,
+      RUNTIME_LISTEN_PORT_MAX,
+    );
+  }
   return patch;
 }
 
@@ -239,6 +260,12 @@ function runtimeSettingsFromRow(row: RuntimeSettingsRow): RuntimeSettings {
       0,
       RUNTIME_IDLE_HIBERNATE_MAX_MS,
     ),
+    listenPort: boundedInteger(
+      row.listenPort,
+      'Listen port',
+      RUNTIME_LISTEN_PORT_MIN,
+      RUNTIME_LISTEN_PORT_MAX,
+    ),
     updatedAt: row.updatedAt,
   };
 }
@@ -259,6 +286,7 @@ function mergeRuntimeSettings(
     overpassBaseUrl: patch.overpassBaseUrl ?? current.overpassBaseUrl,
     maxBodyBytes: patch.maxBodyBytes ?? current.maxBodyBytes,
     idleHibernateAfterMs: patch.idleHibernateAfterMs ?? current.idleHibernateAfterMs,
+    listenPort: patch.listenPort ?? current.listenPort,
     updatedAt: current.updatedAt,
   };
 }

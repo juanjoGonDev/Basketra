@@ -7,7 +7,7 @@ import { OpenAiCompatibleProvider } from '../ai/provider.ts';
 import { fetchAiRuntimeCapabilities } from '../ai/runtime-capabilities.ts';
 import { mapError } from '../api/errors.ts';
 import { BasketraServer } from '../api/server.ts';
-import type { AppConfig } from '../infrastructure/config.ts';
+import { DEFAULT_LISTEN_PORT, type AppConfig } from '../infrastructure/config.ts';
 import { DEFAULT_DATABASE_STORAGE_LIMITS } from '../infrastructure/database.ts';
 import type { RuntimeSettings } from '../infrastructure/runtime-settings.ts';
 import type { RuntimeTempStorageMode } from '../infrastructure/runtime-temp.ts';
@@ -23,11 +23,14 @@ const BACKUP_CONTENT_TYPES = new Set(['application/vnd.sqlite3', 'application/oc
 const MAX_CLIENT_LOG_BATCH = 20;
 const MAX_CLIENT_LOGS_PER_MINUTE = 120;
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+const ADDRESS_UNAVAILABLE_CODES = new Set(['EADDRINUSE', 'EACCES']);
 
 export type OperationsGatewayOptions = Readonly<{
   requestRestart?: () => void;
   clock?: () => Date;
   tempStorageMode?: RuntimeTempStorageMode;
+  /** Bootstrap port treated as "unset"; the persisted setting owns the socket unless another port is pinned. */
+  defaultListenPort?: number;
 }>;
 
 type ProviderProbeOutcome =
@@ -119,6 +122,7 @@ export class OperationsGateway {
   readonly #requestRestart: (() => void) | undefined;
   readonly #clock: () => Date;
   readonly #tempStorageMode: RuntimeTempStorageMode | 'unverified';
+  readonly #defaultListenPort: number;
   #innerPort = 0;
   #clientLogWindowStarted = 0;
   #clientLogCount = 0;
@@ -131,6 +135,7 @@ export class OperationsGateway {
     this.#startedAt = this.#clock().toISOString();
     this.#requestRestart = options.requestRestart;
     this.#tempStorageMode = options.tempStorageMode ?? 'unverified';
+    this.#defaultListenPort = options.defaultListenPort ?? DEFAULT_LISTEN_PORT;
     this.#inner = new BasketraServer({ ...config, host: '127.0.0.1', port: 0 });
     this.#logStore = new ApplicationLogStore(config.dataDir, { clock: this.#clock });
     this.#logger = new ApplicationLogger(this.#logStore, { clock: this.#clock });
@@ -143,17 +148,25 @@ export class OperationsGateway {
     return this.#inner.runtimeSettings();
   }
 
+  /** Bootstrap port wins when the operator pinned a non-default one; otherwise the persisted setting owns it. */
+  requestedListenPort(): number {
+    return this.config.port === this.#defaultListenPort ? this.runtimeSettings().listenPort : this.config.port;
+  }
+
   async listen(): Promise<void> {
     await this.#inner.listen();
     this.#innerPort = this.#inner.address().port;
-    await new Promise<void>((resolvePromise, reject) => {
-      const onError = (error: Error) => reject(error);
-      this.#server.once('error', onError);
-      this.#server.listen(this.config.port, this.config.host, () => {
-        this.#server.off('error', onError);
-        resolvePromise();
-      });
-    });
+    const requestedPort = this.requestedListenPort();
+    try {
+      await this.listenOnPort(requestedPort);
+    } catch (error) {
+      if (requestedPort === this.#defaultListenPort || !isAddressUnavailable(error)) {
+        await this.#inner.close();
+        throw error;
+      }
+      this.#logger.child('Gateway').warn('server.listen_port_unavailable', { code: 'LISTEN_PORT_UNAVAILABLE' });
+      await this.listenOnPort(this.#defaultListenPort);
+    }
     const runtime = resolveRuntimeVersion();
     this.#logger.child('Gateway').success('server.started', { code: runtime.version.replaceAll('.', '_').replaceAll('-', '_').toUpperCase() });
     this.#logger.child('Gateway')[this.#tempStorageMode === 'data-fallback' ? 'warn' : 'info']('server.temp_storage', { code: this.#tempStorageMode === 'data-fallback' ? 'DATA_FALLBACK' : this.#tempStorageMode === 'primary' ? 'PRIMARY' : 'UNVERIFIED' });
@@ -176,6 +189,17 @@ export class OperationsGateway {
   address(): Readonly<{ host: string; port: number }> {
     const address = this.#server.address();
     return { host: (address as { address: string }).address, port: (address as { port: number }).port };
+  }
+
+  private listenOnPort(port: number): Promise<void> {
+    return new Promise<void>((resolvePromise, reject) => {
+      const onError = (error: Error) => reject(error);
+      this.#server.once('error', onError);
+      this.#server.listen(port, this.config.host, () => {
+        this.#server.off('error', onError);
+        resolvePromise();
+      });
+    });
   }
 
   async close(): Promise<void> {
@@ -662,4 +686,8 @@ export class OperationsGateway {
       default: return 'La operación no pudo completarse';
     }
   }
+}
+
+function isAddressUnavailable(error: unknown): boolean {
+  return ADDRESS_UNAVAILABLE_CODES.has(String((error as { code?: unknown }).code));
 }

@@ -91,6 +91,7 @@ test('store projection migration repairs receipt-derived prices that predate sto
       ALTER TABLE shopping_list_items DROP COLUMN store_override_id;
       ALTER TABLE shopping_lists DROP COLUMN reference_store_id;
       ALTER TABLE runtime_settings DROP COLUMN ai_receipt_validation_concurrency;
+      ALTER TABLE runtime_settings DROP COLUMN listen_port;
     `);
     legacy.prepare('DELETE FROM schema_migrations WHERE version >= 13').run();
     const before = legacy.prepare(`
@@ -122,8 +123,8 @@ test('store projection migration repairs receipt-derived prices that predate sto
       JOIN price_observations ON price_observations.id = 'price_receipt_' || receipt_items.id
       WHERE receipts.id = ?
     `).get(receiptId) as { receiptStoreId: string | null; priceStoreId: string | null };
-    assert.equal(CURRENT_SCHEMA_VERSION, 16);
-    assert.equal(Number(schema.version), 16);
+    assert.equal(CURRENT_SCHEMA_VERSION, 17);
+    assert.equal(Number(schema.version), 17);
     assert.equal(projection.receiptStoreId, store.id);
     assert.equal(projection.priceStoreId, store.id);
     const storeProductCount = repaired.prepare(`
@@ -428,6 +429,7 @@ test('historical Store backfill changes only observations proven by receipt-item
       ALTER TABLE shopping_list_items DROP COLUMN store_override_id;
       ALTER TABLE shopping_lists DROP COLUMN reference_store_id;
       ALTER TABLE runtime_settings DROP COLUMN ai_receipt_validation_concurrency;
+      ALTER TABLE runtime_settings DROP COLUMN listen_port;
     `);
     legacy.prepare('DELETE FROM schema_migrations WHERE version >= 13').run();
   } finally {
