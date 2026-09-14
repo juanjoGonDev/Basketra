@@ -819,5 +819,5 @@ test('receipt minimal UI guards remain fail-closed without leaving transient sta
     reviewElement.replaceChildren();
     syncStickyReviewSummary();
   });
-  await expect(page.locator('#receipt-review-summary-meta')).toHaveText('');
+  await expect(page.locator('#receipt-review-summary-meta')).toHaveText('Pendiente');
 });

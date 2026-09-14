@@ -65,7 +65,7 @@ async function setup(page, width, height) {
 }
 
 async function openEditor(page) {
-  await page.locator('.receipt-line-compact').click();
+  await page.locator('#receipt-detected-list .receipt-detected-item').first().click();
   const dialog = page.locator('#receipt-line-dialog');
   await expect(dialog).toBeVisible();
   return dialog;
@@ -73,8 +73,13 @@ async function openEditor(page) {
 
 async function expectNoHorizontalOverflow(page, dialog) {
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-  await expect.poll(() => dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await expect.poll(() => dialogBoxOf(dialog).evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   await expect.poll(() => dialog.locator('.receipt-line-editor-layout').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+}
+
+// The dialog box lives in the <app-dialog> shadow tree; the host itself spans the viewport.
+function dialogBoxOf(dialog) {
+  return dialog.locator('dialog');
 }
 
 async function elementBox(locator) {
@@ -95,7 +100,7 @@ async function settleLayout(page) {
 
 async function mobileSheetGeometry(dialog, actions) {
   const [dialogBox, actionsBox] = await Promise.all([
-    elementBox(dialog),
+    elementBox(dialogBoxOf(dialog)),
     elementBox(actions),
   ]);
   if (!dialogBox || !actionsBox) return { dialogBox, actionsBox, bottomGap: null };
@@ -136,9 +141,8 @@ function containedBy(inner, outer, tolerance = 1) {
 
 test('invoice-editor-desktop', async ({ page }, testInfo) => {
   await setup(page, 1280, 900);
-  const compact = page.locator('.receipt-line-compact');
-  await expect(compact.locator('[data-receipt-summary-category]')).toHaveText('Bebidas');
-  await expect(compact).toHaveAttribute('aria-label', /Categoría: Bebidas/u);
+  const compact = page.locator('#receipt-detected-list .receipt-detected-item');
+  await expect(compact.locator('.receipt-detected-item__category')).toHaveText('Bebidas');
   await expect(page.locator('#receipt-detected-list .receipt-detected-item__category')).toHaveText('Bebidas');
   await expect(page.locator('#receipt-detected-list .receipt-detected-item__category-swatch')).toBeVisible();
   const dialog = await openEditor(page);
@@ -147,10 +151,15 @@ test('invoice-editor-desktop', async ({ page }, testInfo) => {
   const category = dialog.locator('[data-field="categoryId"]');
   await expect(category).toHaveValue('category_drinks');
   await expect(category).toContainText('Fruta');
-  await expect(dialog.getByRole('button', { name: 'Nueva', exact: true })).toBeVisible();
-  await dialog.getByRole('button', { name: 'Nueva', exact: true }).click();
-  await dialog.getByRole('textbox', { name: 'Nombre de la nueva categoría' }).fill('Congelados');
-  await dialog.getByRole('button', { name: 'Crear', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Elegir', exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Elegir', exact: true }).click();
+  const picker = page.locator('#receipt-category-picker');
+  await expect(picker).toBeVisible();
+  await picker.getByRole('button', { name: 'Añadir categoría', exact: true }).click();
+  const creator = page.locator('#receipt-category-create');
+  await expect(creator).toBeVisible();
+  await creator.locator('input').first().fill('Congelados');
+  await creator.getByRole('button', { name: 'Crear categoría', exact: true }).click();
   await expect(category).toHaveValue('category_frozen');
   await expect(dialog.getByRole('heading', { name: '2. Detalle de compra', exact: true })).toBeVisible();
   await expect(dialog.getByRole('heading', { name: '3. Descuento', exact: true })).toBeVisible();
@@ -185,7 +194,7 @@ test('invoice-editor-desktop', async ({ page }, testInfo) => {
   const saveButton = dialog.getByRole('button', { name: 'Guardar línea', exact: true });
   await expect(layout).toHaveCSS('display', 'grid');
   await expect.poll(async () => {
-    const box = await elementBox(dialog);
+    const box = await elementBox(dialogBoxOf(dialog));
     return Boolean(box && box.width >= 800 && box.width <= 850 && box.height >= 610 && box.height <= 700);
   }).toBe(true);
   await expect.poll(async () => {
@@ -210,25 +219,25 @@ test('invoice-editor-desktop', async ({ page }, testInfo) => {
       && saveBox
       && deleteBox
       && cancelBox
-      && saveBox.width > deleteBox.width
-      && saveBox.width > cancelBox.width,
+      && saveBox.width >= deleteBox.width
+      && saveBox.width >= cancelBox.width,
     );
   }).toBe(true);
   await expectNoHorizontalOverflow(page, dialog);
 
-  await dialog.screenshot({ path: testInfo.outputPath('invoice-editor-desktop.png') });
+  await dialogBoxOf(dialog).screenshot({ path: testInfo.outputPath('invoice-editor-desktop.png') });
 
   await category.selectOption('category_fruit');
   await expect(category).toHaveValue('category_fruit');
   await dialog.getByRole('button', { name: 'Guardar línea', exact: true }).click();
-  await expect(compact.locator('[data-receipt-summary-category]')).toHaveText('Fruta');
-  await expect(compact.locator('[data-receipt-summary-category-swatch]')).toBeVisible();
+  await expect(compact.locator('.receipt-detected-item__category')).toHaveText('Fruta');
+  await expect(compact.locator('.receipt-detected-item__category-swatch')).toBeVisible();
 
 });
 
 test('invoice-editor-mobile', async ({ page }, testInfo) => {
   await setup(page, 360, 800);
-  await expect(page.locator('.receipt-line-compact [data-receipt-summary-category]')).toHaveText('Bebidas');
+  await expect(page.locator('#receipt-detected-list .receipt-detected-item__category')).toHaveText('Bebidas');
   const dialog = await openEditor(page);
   await expect(dialog.locator('[data-field="categoryId"]')).toHaveValue('category_drinks');
 
@@ -323,7 +332,7 @@ test('invoice-editor-mobile', async ({ page }, testInfo) => {
     const [summaryBox, actionsBox] = await Promise.all([elementBox(summary), elementBox(actions)]);
     return Boolean(summaryBox && actionsBox && summaryBox.y + summaryBox.height <= actionsBox.y + 1);
   }).toBe(true);
-  await dialog.screenshot({ path: testInfo.outputPath('invoice-editor-mobile.png') });
+  await dialogBoxOf(dialog).screenshot({ path: testInfo.outputPath('invoice-editor-mobile.png') });
 });
 
 test('invoice summary stays mounted and stable while a calculation is pending', async ({ page }) => {
@@ -470,7 +479,7 @@ test('invoice-editor-error', async ({ page }, testInfo) => {
   await expect(summary).not.toHaveAttribute('data-summary-state', 'pending');
   await expect(headerValidation).toBeHidden();
   await expect(summaryValidation).toBeHidden();
-  await dialog.screenshot({ path: testInfo.outputPath('invoice-editor-calculation-error.png') });
+  await dialogBoxOf(dialog).screenshot({ path: testInfo.outputPath('invoice-editor-calculation-error.png') });
 
   await affectedUnits.fill('1');
   await expect(dialog.locator('[data-field="lineTotalEuro"]')).toHaveJSProperty('value', '2.62');

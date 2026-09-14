@@ -13,6 +13,7 @@ import {
   createPageState,
   ensurePageStates,
   metadata,
+  openDialog,
   state,
   toast,
 } from './receipt-state.js';

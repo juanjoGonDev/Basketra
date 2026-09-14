@@ -237,20 +237,20 @@ html.is-swipe-pointer-active * ,
 .receipt-item__legend-actions .icon-button { width: 2.75rem; }
 .sticky-action { position: sticky; bottom: calc(var(--nav) + env(safe-area-inset-bottom) + .5rem); z-index: 20; box-shadow: 0 10px 30px rgba(0,0,0,.2); }
 
-.confirm-dialog, .preview-dialog, .sheet-dialog { padding: 0; border: 1px solid var(--border); background: var(--surface); color: var(--text); box-shadow: 0 24px 80px rgba(0,0,0,.32); }
-.confirm-dialog, .preview-dialog { width: min(calc(100% - 2rem), 34rem); border-radius: var(--radius-lg); }
-.confirm-dialog::backdrop, .preview-dialog::backdrop, .sheet-dialog::backdrop { background: rgba(0, 0, 0, .58); backdrop-filter: blur(2px); }
+app-dialog.confirm-dialog::part(native-dialog), app-dialog.preview-dialog::part(native-dialog), app-dialog.sheet-dialog::part(native-dialog) { padding: 0; border: 1px solid var(--border); background: var(--surface); color: var(--text); box-shadow: 0 24px 80px rgba(0,0,0,.32); }
+app-dialog.confirm-dialog::part(native-dialog), app-dialog.preview-dialog::part(native-dialog) { width: min(calc(100% - 2rem), 34rem); border-radius: var(--radius-lg); }
+app-dialog.confirm-dialog::part(native-dialog)::backdrop, app-dialog.preview-dialog::part(native-dialog)::backdrop, app-dialog.sheet-dialog::part(native-dialog)::backdrop { background: rgba(0, 0, 0, .58); backdrop-filter: blur(2px); }
 .dialog-content { display: grid; gap: 1rem; padding: 1.25rem; }
 .dialog-content h2, .dialog-content p { margin-bottom: 0; }
 .dialog-icon { background: color-mix(in srgb, var(--danger) 12%, var(--surface)); color: var(--danger); }
 .dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
 .dialog-header h2 { margin-bottom: 0; }
-.preview-dialog { max-height: calc(100dvh - 2rem); overflow: auto; }
+app-dialog.preview-dialog::part(native-dialog) { max-height: calc(100dvh - 2rem); overflow: auto; }
 .preview-dialog__header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .75rem; border-bottom: 1px solid var(--border); background: var(--surface); }
 .preview-dialog__header strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.preview-dialog > img { width: 100%; height: auto; max-height: calc(100dvh - 6rem); display: block; object-fit: contain; background: var(--surface-soft); }
-.sheet-dialog { width: min(100%, 42rem); max-width: none; max-height: min(90dvh, 52rem); margin: auto 0 0; border-radius: var(--radius-lg) var(--radius-lg) 0 0; overflow: auto; }
-.item-sheet { max-height: 92dvh; }
+app-dialog.preview-dialog > img { width: 100%; height: auto; max-height: calc(100dvh - 6rem); display: block; object-fit: contain; background: var(--surface-soft); }
+app-dialog.sheet-dialog::part(native-dialog) { width: min(100%, 42rem); max-width: none; max-height: min(90dvh, 52rem); margin: auto 0 0; border-radius: var(--radius-lg) var(--radius-lg) 0 0; overflow: auto; }
+app-dialog.item-sheet::part(native-dialog) { max-height: 92dvh; }
 
 .lists-screen { min-width: 0; display: grid; gap: 1.25rem; }
 .list-page-header { display: grid; gap: 1rem; }

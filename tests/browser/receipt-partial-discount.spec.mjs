@@ -64,7 +64,7 @@ test('partial-unit-discount-editor', async ({ page }, testInfo) => {
   await expect(row.locator('[data-receipt-discount-summary]')).toHaveText('Dto. 50% · 1 de 2 uds.');
 
   const editor = page.locator('#receipt-line-dialog');
-  await page.locator('.receipt-line-compact').click();
+  await page.locator('#receipt-detected-list .receipt-detected-item').first().click();
   await expect(editor).toBeVisible();
   const affectedUnits = editor.locator('[data-field="discountQuantity"]');
   await expect(affectedUnits).toBeVisible();

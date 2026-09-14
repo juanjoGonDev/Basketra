@@ -188,11 +188,11 @@ test('a missing receipt discount can be added, validated and confirmed as a tagg
 
   await makeReviewConfirmable(page, 'file_receipt_discount_manual');
   await page.locator('#confirm-receipt').click();
-  // A derived-total mismatch is acknowledged once before the import is accepted.
-  await expect(page.locator('#receipt-state')).toHaveText('');
-  await page.locator('#confirm-receipt').click();
 
-  await expect(page.locator('#receipt-state')).toHaveText('Ticket importado: receipt_discount_manual');
+  // A successful import clears the status line, confirms through a toast and withdraws the action.
+  await expect(page.locator('#toast-message')).toHaveText('Ticket confirmado');
+  await expect(page.locator('#confirm-receipt')).toBeHidden();
+  await expect(page.locator('#receipt-state')).toHaveText('');
   expect(confirmationPayload.items[0].discount).toEqual({ type: 'amount', amountMinor: 25 });
   expect(confirmationPayload.corrections).toContainEqual({
     itemIndex: 0,

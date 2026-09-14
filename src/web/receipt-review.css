@@ -1261,6 +1261,12 @@
 .receipt-product-matcher select { min-width: 0; flex: 1 1 auto; }
 .receipt-product-matcher .button { flex: 0 0 auto; min-height: 2.25rem; padding-inline: var(--space-2); font-size: .78rem; }
 
+@media (max-width: 41.99rem) {
+  .receipt-product-matcher { flex-wrap: wrap; }
+
+  .receipt-product-matcher select { flex: 1 1 100%; }
+}
+
 .receipt-detected-row .swipe-rail__action {
   width: 4.5rem;
 }

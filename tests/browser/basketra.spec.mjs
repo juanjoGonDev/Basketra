@@ -434,8 +434,8 @@ test('automatic local OCR creates editable euro rows with source context and imp
 
   await page.getByRole('button', { name: 'Añadir línea', exact: true }).click();
   await expect(page.locator('.receipt-item')).toHaveCount(2);
-  await expect(page.locator('.receipt-line-compact')).toHaveCount(2);
-  await page.locator('.receipt-line-compact').last().click();
+  await expect(page.locator('#receipt-detected-list .receipt-detected-item')).toHaveCount(2);
+  await page.locator('#receipt-detected-list .receipt-detected-item').last().click();
   await expect(editorDialog).toBeVisible();
   await editorDialog.locator('[data-field="description"]').fill('Bread');
   await editorDialog.locator('[data-field="quantity"]').fill('1');

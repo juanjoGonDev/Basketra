@@ -222,8 +222,9 @@ test('detected-store edit opens the shared source editor for its capture', async
   expect(actionLayout.map(action => action.height)).toEqual([actionLayout[0].height, actionLayout[0].height, actionLayout[0].height]);
   await dialog.locator('.app-search-select__trigger').click();
   await dialog.locator('#receipt-source-store-search').fill('Centro');
-  await expect(dialog.locator('#receipt-source-store option')).toHaveCount(2);
-  await expect(dialog.locator('#receipt-source-store option').nth(1)).toHaveText('Centro');
+  // The shared search-select filters its listbox; the select keeps every loaded store.
+  await expect(dialog.locator('#receipt-source-store option')).toHaveCount(3);
+  await expect(dialog.locator('.app-search-select__option')).toHaveText(['Centro']);
   await dialog.getByRole('option', { name: 'Centro', exact: true }).click();
   await expect(dialog.locator('#receipt-source-store')).toHaveValue('store_centro');
   await dialog.locator('#receipt-source-store-name').fill('Nueva tienda');

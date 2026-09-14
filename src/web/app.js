@@ -334,8 +334,10 @@ function openReceiptLineEditor(item) {
   const fields = ['description', 'categoryId', 'quantity', 'unitPriceEuro', 'lineTotalEuro'];
   const values = Object.fromEntries(fields.map(field => [field, receiptInput(item, field)?.value ?? '']));
   const returnFocus = item.querySelector('[data-receipt-editor]');
+  // The detected row is the visible trigger for this line; the inline editor row stays hidden.
+  const returnFocusSelector = `#receipt-detected-list .receipt-detected-item[data-receipt-index="${item.dataset.itemIndex || 0}"]`;
   const draftNew = item.dataset.receiptDraftNew === 'true';
-  receiptEditorSession = { item, marker, values, returnFocus, draftNew };
+  receiptEditorSession = { item, marker, values, returnFocus, returnFocusSelector, draftNew };
   resetReceiptSwipeShell(item);
   item.classList.add('receipt-item--editing');
   $('#receipt-line-editor-slot').append(item);
@@ -353,7 +355,7 @@ function openReceiptLineEditor(item) {
 function closeReceiptLineEditor({ revert = false, deleteLine = false, focus = true } = {}) {
   const session = receiptEditorSession;
   if (!session) return;
-  const { item, marker, values, returnFocus, draftNew } = session;
+  const { item, marker, values, returnFocus, returnFocusSelector, draftNew } = session;
   const discardDraft = revert && draftNew;
   if (revert) {
     for (const [field, value] of Object.entries(values)) {
@@ -390,7 +392,13 @@ function closeReceiptLineEditor({ revert = false, deleteLine = false, focus = tr
     deleteButton?.click();
     return;
   }
-  if (focus) requestAnimationFrame(() => returnFocus?.focus());
+  if (focus) {
+    requestAnimationFrame(() => {
+      // Resolve at focus time: the detected list re-renders while the editor closes.
+      const target = (returnFocusSelector ? document.querySelector(returnFocusSelector) : null) || returnFocus;
+      target?.focus();
+    });
+  }
 }
 
 function updateReceiptImportSummary() {

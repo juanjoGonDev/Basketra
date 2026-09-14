@@ -135,12 +135,18 @@
 .receipt-invoice-dialog .receipt-product-fields {
   min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: .45rem;
   margin-bottom: .7rem;
 }
 
 .receipt-invoice-dialog .receipt-product-fields > .field {
+  min-width: 0;
   margin: 0;
+}
+
+.receipt-invoice-dialog .receipt-product-fields :is(input, select, textarea) {
+  min-width: 0;
 }
 
 .receipt-invoice-dialog .receipt-category-field {
@@ -800,7 +806,20 @@
   }
 
   .receipt-invoice-dialog .receipt-editor-summary__stamp {
-    display: none;
+    position: relative;
+    align-self: end;
+    justify-self: center;
+    width: 82%;
+    min-height: 5.8rem;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--color-primary) 9%, var(--color-outline-variant));
+    border-radius: .22rem;
+    background:
+      radial-gradient(circle at 22% 34%, color-mix(in srgb, var(--color-primary) 10%, transparent) 0 1.5px, transparent 2px),
+      radial-gradient(circle at 78% 66%, color-mix(in srgb, var(--color-primary) 10%, transparent) 0 1.5px, transparent 2px),
+      var(--color-surface);
   }
 
   .receipt-invoice-dialog .receipt-editor-summary__stamp::before,
