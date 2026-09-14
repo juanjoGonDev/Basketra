@@ -828,6 +828,11 @@
   border-top: 0;
 }
 
+.receipt-source-queue .capture-card__details[open] {
+  position: relative;
+  z-index: 2;
+}
+
 .receipt-source-queue .capture-card__summary {
   min-height: var(--touch);
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -886,7 +891,7 @@
 .receipt-source-queue .capture-card__action-row {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   flex-wrap: nowrap;
   min-width: 0;
   overflow-x: auto;
@@ -897,9 +902,9 @@
 
 .receipt-source-queue .capture-card__action-row .capture-card__action,
 .receipt-source-queue .capture-card__action-row .capture-card__actions button {
-  width: 2rem;
+  width: 1.625rem;
   min-height: 2rem;
-  flex: 0 0 2rem;
+  flex: 0 0 1.625rem;
   padding: 0;
 }
 
@@ -917,7 +922,8 @@
 }
 
 .receipt-source-queue .capture-card__action {
-  flex: 0 0 var(--touch);
+  min-width: 1.625rem;
+  flex: 0 0 1.625rem;
 }
 
 .receipt-source-queue .capture-card__secondary-actions {

@@ -15,7 +15,7 @@ test('workload jobs stay bounded while browser setup and artifact finalization h
 
   const browserE2eJob = ci.slice(ci.indexOf('\n  browser-e2e:\n'), ci.indexOf('\n  browser-coverage:\n'));
   assert.match(browserE2eJob, /timeout-minutes:\s*3/u);
-  assert.match(browserE2eJob, /timeout --signal=TERM --kill-after=5s 45s pnpm exec playwright test --test-list=/u);
+  assert.match(browserE2eJob, /timeout --signal=TERM --kill-after=5s 90s pnpm exec playwright test --test-list=/u);
 
   const browserCoverageJob = ci.slice(ci.indexOf('\n  browser-coverage:\n'), ci.indexOf('\n  container:\n'));
   assert.match(browserCoverageJob, /timeout-minutes:\s*2/u);

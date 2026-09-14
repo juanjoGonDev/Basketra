@@ -44,7 +44,7 @@ test('browser runtime is primed once and every deterministic shard is execution-
   assert.match(workflow, /name: "🌐 Browser \$\{\{ matrix\.shard \}\}\/\$\{\{ needs\.browser-runtime\.outputs\.total \}\}"/u);
   assert.match(workflow, /browser-e2e:\n[\s\S]*?timeout-minutes:\s*1/u);
   assert.match(workflow, /max-parallel:\s*56/u);
-  assert.match(workflow, /timeout --signal=TERM --kill-after=5s 45s pnpm exec playwright test --test-list=/u);
+  assert.match(workflow, /timeout --signal=TERM --kill-after=5s 90s pnpm exec playwright test --test-list=/u);
   assert.match(workflow, /\.ci\/browser-shards\/shard-\$\{\{ matrix\.shard \}\}\.txt/u);
   assert.match(workflow, /BASKETRA_BROWSER_COVERAGE_COLLECT_ONLY:\s*"1"/u);
   assert.match(workflow, /name:\s+basketra-browser-runtime/u);

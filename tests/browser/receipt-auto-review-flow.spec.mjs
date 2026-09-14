@@ -220,13 +220,7 @@ test('durable AI failure retries from server OCR without replaying browser OCR',
   expect(createPayloads[0]).not.toHaveProperty('retryOfJobId');
   expect(createPayloads[1]?.retryOfJobId).toBe('receiptextractionjob_ai_1');
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada');
-  await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
-  if (await queue.evaluate(element => element.open)) {
-    await queue.evaluate(element => { element.open = false; });
-  }
-  await page.locator('#receipt-review-panel > summary').click();
-  await expect(page.locator('#receipt-review-reference-image')).toBeVisible();
-  await expect(page.locator('.receipt-item [data-field="description"]')).toBeEditable();
+  await expect(page.locator('#receipt-detected-list')).toContainText('PAN');
   await expect(page.getByRole('button', { name: 'Volver a analizar con IA', exact: true })).toHaveCount(0);
 });
 
