@@ -125,6 +125,8 @@ From an untrusted path, port 3000 must not be directly reachable. Remote access 
 
 Do not rely on obscurity, a non-standard port, or browser storage as an access control.
 
+Moving Basketra to another port is a routing choice, not an access control. The process listens on the port persisted in **Ajustes → IA → Red y recursos locales → Puerto HTTP**, and `compose.raspberry.yml` publishes `127.0.0.1:3000:3000`. To change only the host port, edit the left side of that mapping (for example `127.0.0.1:4000:3000`) and keep the container port; change the persisted port only when the publication matches it. If the persisted port is already occupied at startup, Basketra logs `LISTEN_PORT_UNAVAILABLE` and keeps serving on port 3000 instead of refusing to start.
+
 ## Runtime verification
 
 Inspect the application without dumping container environment/configuration:

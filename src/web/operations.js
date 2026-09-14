@@ -275,6 +275,7 @@ function renderRuntimeSettings(settings, force = false) {
   $('#runtime-overpass-base-url').value = settings.overpassBaseUrl || '';
   $('#runtime-max-body-mib').value = String(settings.maxBodyBytes / MEBIBYTE);
   $('#runtime-idle-minutes').value = String(settings.idleHibernateAfterMs / MINUTE_MS);
+  $('#runtime-listen-port').value = String(settings.listenPort ?? 3000);
   state.runtimeSettingsDirty = false;
 }
 
@@ -290,6 +291,7 @@ function runtimeSettingsPayload() {
     overpassBaseUrl: $('#runtime-overpass-base-url').value.trim(),
     maxBodyBytes: Math.round(Number($('#runtime-max-body-mib').value) * MEBIBYTE),
     idleHibernateAfterMs: Math.round(Number($('#runtime-idle-minutes').value) * MINUTE_MS),
+    listenPort: Number($('#runtime-listen-port').value),
   };
 }
 
@@ -680,6 +682,7 @@ function installOperationsUi() {
             <label class="field runtime-settings-wide"><span>URL de Overpass</span><input id="runtime-overpass-base-url" type="url" maxlength="2048" autocomplete="url" required></label>
             <label class="field"><span>Límite local por solicitud (MiB)</span><input id="runtime-max-body-mib" type="number" min="0.0009765625" max="512" step="any" inputmode="decimal" required><small>No sustituye los límites de adjuntos de WebAPI.</small></label>
             <label class="field"><span>Hibernar tras inactividad (min)</span><input id="runtime-idle-minutes" type="number" min="0" max="1440" step="0.5" inputmode="decimal" required><small>0 desactiva la hibernación interna.</small></label>
+            <label class="field"><span>Puerto HTTP</span><input id="runtime-listen-port" type="number" min="1" max="65535" step="1" inputmode="numeric" required><small>Se escucha al reiniciar Basketra. Si el puerto está ocupado se mantiene el 3000. En Docker publica el mismo puerto en <code>compose.yml</code>.</small></label>
           </div>
         </details>
         <button id="save-runtime-settings" class="button primary full" type="submit">${icon('checkCircle')}<span>Guardar cambios</span></button>
