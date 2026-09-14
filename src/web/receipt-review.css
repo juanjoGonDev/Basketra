@@ -1005,6 +1005,12 @@
   background: color-mix(in srgb, var(--color-primary-container) 42%, var(--color-surface));
 }
 
+/* The detected-store edit action shares the row with text but stays touch-safe. */
+#receipt-edit-detected-store {
+  min-width: var(--touch);
+  min-height: var(--touch);
+}
+
 .receipt-live-retailer {
   min-width: 0;
   display: flex;
