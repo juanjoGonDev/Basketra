@@ -8,16 +8,18 @@ export type AppConfig = Readonly<{
   tempDir: string;
 }>;
 
+export const DEFAULT_LISTEN_PORT = 3000;
+
 const CONTAINER_BOOTSTRAP = Object.freeze({
   host: '0.0.0.0',
-  port: 3000,
+  port: DEFAULT_LISTEN_PORT,
   dataDir: '/data',
   tempDir: '/tmp/basketra',
 });
 
 const LOCAL_BOOTSTRAP = Object.freeze({
   host: '127.0.0.1',
-  port: 3000,
+  port: DEFAULT_LISTEN_PORT,
   dataDir: './data',
   tempDir: './tmp',
 });

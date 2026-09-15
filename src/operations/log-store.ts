@@ -2,19 +2,21 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writ
 import { join } from 'node:path';
 
 export type LogSource = 'server' | 'client';
-export type LogLevel = 'info' | 'warn' | 'error';
+export type LogLevel = 'trace' | 'debug' | 'info' | 'success' | 'warn' | 'error' | 'tool';
 
 export type ApplicationLogEvent = Readonly<{
   timestamp: string;
   level: LogLevel;
   source: LogSource;
   event: string;
+  context?: string;
   requestId?: string;
   method?: string;
   path?: string;
   status?: number;
   durationMs?: number;
   code?: string;
+  suppressedDuplicates?: number;
 }>;
 
 export type LogStoreOptions = Readonly<{
@@ -32,6 +34,7 @@ const EVENT_PATTERN = /^[a-z][a-z0-9_.-]{0,79}$/;
 const CODE_PATTERN = /^[A-Z0-9_.-]{1,80}$/;
 const REQUEST_ID_PATTERN = /^[a-f0-9-]{8,80}$/i;
 const METHOD_PATTERN = /^[A-Z]{3,10}$/;
+const CONTEXT_PATTERN = /^[A-Za-z][A-Za-z0-9 _.-]{0,63}$/;
 
 function positiveInteger(value: number, name: string): number {
   if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`${name} must be a positive safe integer`);
@@ -63,11 +66,32 @@ function parseLogLine(line: string): ApplicationLogEvent | undefined {
     if (typeof value !== 'object' || value === null) return undefined;
     const record = value as Record<string, unknown>;
     if (record['source'] !== 'server' && record['source'] !== 'client') return undefined;
-    if (record['level'] !== 'info' && record['level'] !== 'warn' && record['level'] !== 'error') return undefined;
+    if (!['trace', 'debug', 'info', 'success', 'warn', 'error', 'tool'].includes(String(record['level']))) return undefined;
     const event = safeString(record['event'], EVENT_PATTERN);
+    const context = safeString(record['context'], CONTEXT_PATTERN);
     const timestamp = typeof record['timestamp'] === 'string' ? record['timestamp'] : undefined;
     if (!event || !timestamp) return undefined;
-    return value as ApplicationLogEvent;
+    const requestId = safeString(record['requestId'], REQUEST_ID_PATTERN);
+    const method = safeString(record['method'], METHOD_PATTERN);
+    const path = safePath(record['path']);
+    const status = boundedInteger(record['status'], 100, 599);
+    const durationMs = boundedInteger(record['durationMs'], 0, 300_000);
+    const code = safeString(record['code'], CODE_PATTERN);
+    const suppressedDuplicates = boundedInteger(record['suppressedDuplicates'], 1, 1_000_000);
+    return {
+      timestamp,
+      level: record['level'] as LogLevel,
+      source: record['source'] as LogSource,
+      event,
+      ...(context ? { context } : {}),
+      ...(requestId ? { requestId } : {}),
+      ...(method ? { method } : {}),
+      ...(path ? { path } : {}),
+      ...(status === undefined ? {} : { status }),
+      ...(durationMs === undefined ? {} : { durationMs }),
+      ...(code ? { code } : {}),
+      ...(suppressedDuplicates === undefined ? {} : { suppressedDuplicates }),
+    };
   } catch {
     return undefined;
   }

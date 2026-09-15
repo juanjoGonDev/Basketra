@@ -4,8 +4,9 @@ import type {
   ReceiptDurableJobState,
   ReceiptDurablePageState,
 } from './durable-job-store.ts';
+import { RECEIPT_SCHEMA, type AiReceiptInterpretation } from './extraction.ts';
 
-export const RECEIPT_JOB_PROGRESS_STAGES = ['ocr', 'ai', 'completed', 'error'] as const;
+export const RECEIPT_JOB_PROGRESS_STAGES = ['queued', 'ocr', 'ai', 'completed', 'error'] as const;
 export type ReceiptJobProgressStage = typeof RECEIPT_JOB_PROGRESS_STAGES[number];
 
 export type ReceiptJobProgressOcr = Readonly<Pick<
@@ -17,6 +18,7 @@ export type ReceiptJobPageProgress = Readonly<{
   position: number;
   stage: ReceiptJobProgressStage;
   ocr?: ReceiptJobProgressOcr;
+  interpretation?: AiReceiptInterpretation;
 }>;
 
 export type ReceiptJobProgress = Readonly<{
@@ -31,8 +33,21 @@ export function buildReceiptJobProgress(state: ReceiptDurableJobState): ReceiptJ
       position: page.position,
       stage: pageProgressStage(page),
       ...(page.ocr ? { ocr: publicOcrEvidence(page.ocr) } : {}),
+      ...(publicRemoteInterpretation(page.remoteStatus, page.remoteResult)),
     })),
   };
+}
+
+function publicRemoteInterpretation(
+  status: ReceiptDurablePageState['remoteStatus'],
+  value: unknown,
+): Readonly<{ interpretation: AiReceiptInterpretation }> | Record<string, never> {
+  if (status !== 'completed' || value === undefined) return {};
+  try {
+    return { interpretation: RECEIPT_SCHEMA.parse(value) };
+  } catch {
+    return {};
+  }
 }
 
 function pageProgressStage(page: ReceiptDurablePageState): ReceiptJobProgressStage {
@@ -47,10 +62,14 @@ function pageProgressStage(page: ReceiptDurablePageState): ReceiptJobProgressSta
     case 'in_progress':
       return 'ai';
     case undefined:
-      return page.ocr ? 'ai' : 'ocr';
+      return isDirectPdfAwaitingValidation(page) ? 'queued' : (page.ocr ? 'ai' : 'ocr');
     default:
       return assertNever(page.remoteStatus);
   }
+}
+
+function isDirectPdfAwaitingValidation(page: ReceiptDurablePageState): boolean {
+  return page.ocr?.source === 'provider' && page.ocr.text === '';
 }
 
 function assertNever(value: never): never {

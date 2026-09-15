@@ -3,6 +3,7 @@ const STORAGE_KEYS = Object.freeze({
   itemDraft: 'basketra.itemDraft',
   captures: 'basketra.captures',
   receiptExtractionJobId: 'basketra.receiptExtractionJobId',
+  receiptExtractionJobCaptureKeys: 'basketra.receiptExtractionJobCaptureKeys',
   aiMode: 'basketra.aiMode',
 });
 
@@ -79,6 +80,28 @@ export function saveReceiptExtractionJobId(id) {
   } else {
     localStorage.removeItem(STORAGE_KEYS.receiptExtractionJobId);
   }
+}
+
+export function loadReceiptExtractionJobCaptureKeys() {
+  const keys = readJson(STORAGE_KEYS.receiptExtractionJobCaptureKeys, []);
+  if (!Array.isArray(keys) || keys.length > 100 || keys.some(key => typeof key !== 'string' || !/^[a-f0-9]{64}\.(?:jpg|png|pdf)$/.test(key))) {
+    localStorage.removeItem(STORAGE_KEYS.receiptExtractionJobCaptureKeys);
+    return [];
+  }
+  return [...new Set(keys)];
+}
+
+export function saveReceiptExtractionJobCaptureKeys(keys) {
+  if (!Array.isArray(keys) || keys.length === 0) {
+    localStorage.removeItem(STORAGE_KEYS.receiptExtractionJobCaptureKeys);
+    return;
+  }
+  const validKeys = [...new Set(keys)].filter(key => typeof key === 'string' && /^[a-f0-9]{64}\.(?:jpg|png|pdf)$/.test(key));
+  if (validKeys.length !== keys.length || validKeys.length > 100) {
+    localStorage.removeItem(STORAGE_KEYS.receiptExtractionJobCaptureKeys);
+    return;
+  }
+  localStorage.setItem(STORAGE_KEYS.receiptExtractionJobCaptureKeys, JSON.stringify(validKeys));
 }
 
 export function loadAiMode() {

@@ -15,17 +15,6 @@ const [
   import('./operations/restore.ts'),
 ]);
 const restore = await applyPendingRestore(config.dataDir);
-if (restore.status === 'applied') {
-  console.log(JSON.stringify({ level: 'info', event: 'restore_applied', importedName: restore.importedName }));
-}
-if (restore.status === 'failed') {
-  process.stderr.write(`${JSON.stringify({
-    level: 'error',
-    event: 'restore_failed',
-    errorCode: restore.errorCode,
-    ...(restore.importedName ? { importedName: restore.importedName } : {}),
-  })}\n`);
-}
 
 let shuttingDown = false;
 let gateway: InstanceType<typeof OperationsGateway>;
@@ -71,5 +60,3 @@ process.once('SIGTERM', () => void shutdown('SIGTERM'));
 process.once('SIGINT', () => void shutdown('SIGINT'));
 
 await gateway.listen();
-const address = gateway.address();
-console.log(JSON.stringify({ level: 'info', event: 'server_started', host: address.host, port: address.port }));

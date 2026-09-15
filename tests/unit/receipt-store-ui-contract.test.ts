@@ -19,3 +19,13 @@ test('receipt review requires one Store and keeps receipt-level ownership in the
   assert.match(review, /storeName/u);
   assert.match(review, /Elige o escribe una tienda antes de confirmar el ticket/u);
 });
+
+test('completed captures remain independently selectable drafts and do not leak source ownership to the API', () => {
+  assert.match(review, /export function applyCaptureDrafts/u);
+  assert.match(review, /captureKeys: \[key\]/u);
+  assert.match(review, /export function selectReceiptDraft/u);
+  assert.match(review, /function receiptApiItems/u);
+  assert.match(review, /sourceCaptureKey: _sourceCaptureKey/u);
+  assert.match(review, /draftCaptures\.map\(capture =>/u);
+  assert.match(view, /selectReceiptDraft\(event\.target\.value\)/u);
+});

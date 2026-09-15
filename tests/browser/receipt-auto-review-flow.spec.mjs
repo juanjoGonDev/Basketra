@@ -121,18 +121,15 @@ test('receipt upload starts the two-slot OCR pool without exposing a second proc
   await expect(page.locator('#receipt-progress')).toBeHidden();
   await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
   await expect(page.locator('#receipt-detected-list')).toContainText('PAN');
-  await page.locator('#receipt-review-panel > summary').click();
-  await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
-  const compactLine = page.locator('.receipt-line-compact').first();
-  await compactLine.click();
+  // The detected row is the only line surface; the review panel stays withdrawn.
+  const detectedLine = page.locator('#receipt-detected-list .receipt-detected-item').first();
+  await detectedLine.click();
   const editor = page.locator('#receipt-line-dialog');
   await expect(editor).toBeVisible();
   await editor.locator('[data-field="description"]').fill('PAN EDITADO');
   await editor.getByRole('button', { name: 'Guardar línea', exact: true }).click();
-  await expect(compactLine).toContainText('PAN EDITADO');
-  await page.locator('#receipt-review-capture').selectOption({ label: 'Imagen 2: auto-2.png' });
-  await expect(page.locator('#receipt-review-reference-image')).toHaveAttribute('alt', /auto-2\.png/u);
-  await expect(compactLine).toContainText('PAN EDITADO');
+  await expect(page.locator('#receipt-detected-list')).toContainText('PAN EDITADO');
+  await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
 });
 
 test('durable AI failure retries from server OCR without replaying browser OCR', async ({ page }) => {
@@ -220,17 +217,11 @@ test('durable AI failure retries from server OCR without replaying browser OCR',
   expect(createPayloads[0]).not.toHaveProperty('retryOfJobId');
   expect(createPayloads[1]?.retryOfJobId).toBe('receiptextractionjob_ai_1');
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Completada');
-  await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
-  if (await queue.evaluate(element => element.open)) {
-    await queue.evaluate(element => { element.open = false; });
-  }
-  await page.locator('#receipt-review-panel > summary').click();
-  await expect(page.locator('#receipt-review-reference-image')).toBeVisible();
-  await expect(page.locator('.receipt-item [data-field="description"]')).toBeEditable();
+  await expect(page.locator('#receipt-detected-list')).toContainText('PAN');
   await expect(page.getByRole('button', { name: 'Volver a analizar con IA', exact: true })).toHaveCount(0);
 });
 
-test('mobile review keeps preview, calculated amount and final action in one sticky row', async ({ page }) => {
+test('mobile review groups evidence, calculated amount and final action in the summary', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
     status: 200,
@@ -248,78 +239,47 @@ test('mobile review keeps preview, calculated amount and final action in one sti
   await navigate(page, 'Tickets');
   await upload(page, ['sticky-mobile-1.png', 'sticky-mobile-2.png']);
   await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
-  await page.locator('#receipt-review-panel > summary').click();
 
-  const stickySummary = page.locator('#receipt-review-sticky-summary');
-  const preview = page.getByRole('button', { name: 'Ampliar captura sticky-mobile-1.png', exact: true });
-  const amount = stickySummary.locator('.review-total strong');
-  const finalize = stickySummary.getByRole('button', { name: 'Validar', exact: true });
+  // The calculated-total summary owns evidence, validation and confirmation.
+  const summary = page.locator('#receipt-live-summary');
+  const evidence = page.locator('#receipt-show-evidence');
+  const validate = page.locator('#validate-receipt-ticket');
+  const finalize = page.locator('#confirm-receipt');
+  await expect(summary).toBeVisible();
+  await expect(summary.locator('#receipt-summary-total')).toContainText(/\u20ac|euros?/u);
+  for (const action of [evidence, validate, finalize]) await expect(action).toBeVisible();
 
-  await expect(page.locator('.receipt-review-evidence__compact')).toBeHidden();
-  await expect(preview).toBeVisible();
-  await expect(preview).toHaveText('');
-  await expect(preview.locator('.icon')).toBeVisible();
-  await expect(page.locator('.receipt-review-reference')).toBeVisible();
-  await expect(stickySummary.getByText('Total calculado', { exact: true })).toBeHidden();
-  await expect(stickySummary.locator('.status-pill')).toBeHidden();
-  await expect(amount).toContainText(/€|euros?/u);
-  await expect(finalize).toBeVisible();
-
-  await page.locator('#receipt-review-capture').selectOption({ label: 'Imagen 2: sticky-mobile-2.png' });
-  await expect(page.getByRole('button', { name: 'Ampliar captura sticky-mobile-2.png', exact: true })).toBeVisible();
-
-  const compactLine = page.locator('.receipt-line-compact').first();
-  await compactLine.click();
+  const detectedLine = page.locator('#receipt-detected-list .receipt-detected-item').first();
+  await detectedLine.click();
   const editor = page.locator('#receipt-line-dialog');
+  await expect(editor).toBeVisible();
   await editor.locator('[data-field="description"]').fill('PRODUCTO EDITADO');
-  await editor.getByRole('button', { name: 'Guardar línea', exact: true }).click();
-  await page.locator('#receipt-review-capture').selectOption({ label: 'Imagen 1: sticky-mobile-1.png' });
-  await expect(compactLine).toContainText('PRODUCTO EDITADO');
-  await expect(page.getByRole('button', { name: 'Ampliar captura sticky-mobile-1.png', exact: true })).toBeVisible();
+  await editor.getByRole('button', { name: 'Guardar l\u00ednea', exact: true }).click();
+  await expect(page.locator('#receipt-detected-list')).toContainText('PRODUCTO EDITADO');
+  await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
 
-  await page.locator('.receipt-line-compact').last().scrollIntoViewIfNeeded();
+  const actions = page.locator('#receipt-live-summary-actions');
+  await actions.scrollIntoViewIfNeeded();
   const geometry = await page.evaluate(() => {
-    const summaryElement = document.querySelector('#receipt-review-sticky-summary');
-    const previewElement = document.querySelector('#receipt-review-expand');
-    const amountElement = summaryElement.querySelector('.review-total strong');
-    const finalizeElement = document.querySelector('#confirm-receipt');
-    const navElement = document.querySelector('.bottom-nav');
-    const summaryRect = summaryElement.getBoundingClientRect();
-    const navRect = navElement.getBoundingClientRect();
-    const centers = [previewElement, amountElement, finalizeElement].map(element => {
-      const rect = element.getBoundingClientRect();
-      return rect.top + rect.height / 2;
-    });
+    const owner = document.querySelector('#receipt-live-summary-actions');
+    const boxes = ['#receipt-show-evidence', '#validate-receipt-ticket', '#confirm-receipt']
+      .map(selector => document.querySelector(selector));
     return {
-      summaryPosition: getComputedStyle(summaryElement).position,
-      summaryTop: getComputedStyle(summaryElement).top,
-      summaryBottom: getComputedStyle(summaryElement).bottom,
-      summaryHeight: summaryRect.height,
-      summaryBottomEdge: summaryRect.bottom,
-      navTop: navRect.top,
-      centerSpread: Math.max(...centers) - Math.min(...centers),
+      grouped: boxes.every(element => owner.contains(element)),
+      minHeight: Math.min(...boxes.map(element => element.getBoundingClientRect().height)),
+      insideViewport: boxes.every(element => {
+        const rect = element.getBoundingClientRect();
+        return rect.top >= 0 && rect.bottom <= window.innerHeight;
+      }),
     };
   });
-  expect(geometry.summaryPosition).toBe('sticky');
-  expect(geometry.summaryTop).not.toBe('auto');
-  expect(geometry.summaryBottom).toBe('auto');
-  expect(geometry.summaryHeight).toBeLessThanOrEqual(72);
-  expect(geometry.centerSpread).toBeLessThanOrEqual(8);
-  expect(geometry.summaryBottomEdge).toBeLessThan(geometry.navTop);
+  expect(geometry.grouped, `the summary must own every review action: ${JSON.stringify(geometry)}`).toBe(true);
+  expect(geometry.minHeight, `summary actions must stay touch-safe: ${JSON.stringify(geometry)}`).toBeGreaterThanOrEqual(44);
+  expect(geometry.insideViewport, `summary actions must be reachable on mobile: ${JSON.stringify(geometry)}`).toBe(true);
 
-  await page.locator('.manual-entry > summary').click();
-  const totalInput = page.locator('#receipt-total');
-  await totalInput.focus();
-  await expect.poll(() => page.evaluate(() => {
-    const input = document.querySelector('#receipt-total').getBoundingClientRect();
-    const summary = document.querySelector('#receipt-review-sticky-summary').getBoundingClientRect();
-    const nav = document.querySelector('.bottom-nav').getBoundingClientRect();
-    return input.top >= summary.bottom && input.bottom <= nav.top;
-  })).toBe(true);
-
-  await preview.click();
-  await expect(page.locator('#capture-preview-dialog')).toBeVisible();
-  await expect(page.locator('#capture-preview-name')).toContainText('sticky-mobile-1.png');
+  await evidence.click();
+  await expect(page.locator('#receipt-evidence-dialog')).toBeVisible();
+  await expect(page.locator('#receipt-evidence-dialog')).toContainText('sticky-mobile-1.png');
 });
 
 test('desktop review keeps evidence and total summary sticky and preserves confirmation', async ({ page }) => {
@@ -366,39 +326,27 @@ test('desktop review keeps evidence and total summary sticky and preserves confi
   await navigate(page, 'Tickets');
   await upload(page, ['sticky-desktop.png']);
   await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
-  await page.locator('#receipt-review-panel > summary').click();
-  await expect(page.locator('.receipt-review-reference')).toBeVisible();
-  await expect(page.locator('#receipt-review-reference-image')).toBeVisible();
-  await expect(page.locator('#receipt-review-sticky-summary')).toContainText('Total calculado');
-  await expect(page.locator('#receipt-review-sticky-summary .status-pill')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Confirmar e importar', exact: true })).toBeVisible();
+
+  // Evidence and the calculated total live in the summary that owns confirmation.
+  const summary = page.locator('#receipt-live-summary');
+  await expect(summary).toBeVisible();
+  await expect(summary.locator('#receipt-summary-total-label')).toContainText('Total');
+  await expect(page.locator('#receipt-show-evidence')).toBeVisible();
+  await expect(page.locator('#confirm-receipt')).toBeVisible();
   await expect(page.getByRole('button', { name: /Ampliar captura/u })).toBeHidden();
 
-  await page.locator('.receipt-line-compact').last().scrollIntoViewIfNeeded();
-  const geometry = await page.evaluate(() => {
-    const body = document.querySelector('.receipt-review-panel__body');
-    const evidence = document.querySelector('.receipt-review-evidence');
-    const summary = document.querySelector('#receipt-review-sticky-summary');
-    const evidenceRect = evidence.getBoundingClientRect();
-    const summaryRect = summary.getBoundingClientRect();
-    const bodyStyle = getComputedStyle(body);
-    return {
-      columns: bodyStyle.gridTemplateColumns,
-      evidencePosition: getComputedStyle(evidence).position,
-      summaryPosition: getComputedStyle(summary).position,
-      evidenceTop: evidenceRect.top,
-      summaryTop: summaryRect.top,
-    };
-  });
-  expect(geometry.columns.split(' ').length).toBeGreaterThanOrEqual(2);
-  expect(geometry.evidencePosition).toBe('sticky');
-  expect(geometry.summaryPosition).toBe('sticky');
-  expect(geometry.evidenceTop).toBeGreaterThanOrEqual(0);
-  expect(geometry.summaryTop).toBeGreaterThanOrEqual(0);
+  await page.locator('#receipt-show-evidence').click();
+  const evidenceDialog = page.locator('#receipt-evidence-dialog');
+  await expect(evidenceDialog).toBeVisible();
+  await expect(evidenceDialog.locator('img').first()).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(evidenceDialog).toBeHidden();
+
+  await page.locator('#receipt-detected-list .receipt-detected-item').last().scrollIntoViewIfNeeded();
   await fillRequiredReceiptStore(page);
 
-  await page.getByRole('button', { name: 'Confirmar e importar', exact: true }).click();
-  await expect(page.locator('#receipt-state')).toContainText('Ticket importado: sticky-desktop');
+  await page.locator('#confirm-receipt').click();
+  await expect(page.locator('#toast-message')).toHaveText('Ticket confirmado');
 });
 
 
@@ -419,14 +367,11 @@ test('receipt review requires an editable Store before confirmation', async ({ p
     applyExtraction(currentExtraction);
   }, extraction());
   await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
-  await page.locator('#receipt-review-panel > summary').click();
 
-  const retailer = page.locator('#receipt-retailer');
-  const store = page.locator('#receipt-store');
-  await expect(retailer).toHaveAttribute('required', '');
-  await expect(store).toBeVisible();
-  await expect(store).toHaveAttribute('required', '');
-  await expect(store).toBeEditable();
-  await expect(page.getByText('Tienda detectada (opcional)', { exact: true })).toHaveCount(0);
-  await expect(page.locator('#receipt-store-help')).toContainText('obligatoria');
+  // The Store stays a required review-model field, edited through the shared source
+  // editor (covered by components-gallery), and confirmation is blocked without it.
+  await expect(page.locator('#receipt-retailer')).toHaveAttribute('required', '');
+  await expect(page.locator('#receipt-store')).toHaveAttribute('required', '');
+  await page.locator('#confirm-receipt').click();
+  await expect(page.locator('#receipt-state')).toContainText('antes de confirmar el ticket.');
 });

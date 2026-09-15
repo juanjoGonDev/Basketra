@@ -292,9 +292,7 @@ export class MultimodalAiOcrProvider implements OcrProvider {
   dispose(): void {}
 
   private buildContent(input: OcrInput, capabilities: Awaited<ReturnType<AiProvider['getCapabilities']>>): AiMessageContent {
-    if (input.mimeType !== 'image/jpeg'
-      && input.mimeType !== 'image/png'
-      && input.mimeType !== 'application/pdf') {
+    if (input.mimeType !== 'image/jpeg' && input.mimeType !== 'image/png') {
       throw new RangeError('Unsupported OCR input type');
     }
     const instruction = { type: 'text' as const, text: 'Transcribe this receipt capture. Return all visible receipt text and nothing from outside the receipt.' };
@@ -310,9 +308,6 @@ export class MultimodalAiOcrProvider implements OcrProvider {
     } catch (error) {
       if (error instanceof Error && error.message === 'AI_IMAGE_CAPABILITY_UNAVAILABLE') {
         throw new Error('OCR_IMAGE_CAPABILITY_UNAVAILABLE');
-      }
-      if (error instanceof Error && error.message === 'AI_PDF_CAPABILITY_UNAVAILABLE') {
-        throw new Error('OCR_PDF_CAPABILITY_UNAVAILABLE');
       }
       throw error;
     }
