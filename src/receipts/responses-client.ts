@@ -22,6 +22,7 @@ const RESPONSE_STATUSES = [
   'incomplete',
 ] as const;
 const DEFAULT_MAX_RESPONSE_BYTES = 1024 * 1024;
+const DEFAULT_MAX_CONCURRENT_RESPONSES = 1;
 const MAX_WAIT_SECONDS = 300;
 
 type ReceiptResponseStatus = typeof RESPONSE_STATUSES[number];
@@ -38,7 +39,15 @@ export type ReceiptResponsesClientOptions = Readonly<{
   apiKey?: string;
   model: string;
   maxResponseBytes?: number;
+  maxConcurrentResponses?: number;
   fetchImplementation?: typeof fetch;
+}>;
+
+type QueuedResponseSlot = Readonly<{
+  resolve: (release: () => void) => void;
+  reject: (reason?: unknown) => void;
+  signal?: AbortSignal;
+  onAbort?: () => void;
 }>;
 
 export type CreateReceiptResponseInput = Readonly<{
@@ -58,7 +67,9 @@ export class ReceiptResponsesClient {
   readonly #model: string;
   readonly #maxResponseBytes: number;
   readonly #fetch: typeof fetch;
-  #responseSlotTail: Promise<void> = Promise.resolve();
+  #maxConcurrentResponses: number;
+  #activeResponseSlots = 0;
+  readonly #waitingResponseSlots: QueuedResponseSlot[] = [];
   readonly #responseSlotReleases = new Map<string, () => void>();
 
   constructor(options: ReceiptResponsesClientOptions) {
@@ -69,7 +80,16 @@ export class ReceiptResponsesClient {
       options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
       'maxResponseBytes',
     );
+    this.#maxConcurrentResponses = requirePositiveInteger(
+      options.maxConcurrentResponses ?? DEFAULT_MAX_CONCURRENT_RESPONSES,
+      'maxConcurrentResponses',
+    );
     this.#fetch = options.fetchImplementation ?? fetch;
+  }
+
+  setMaxConcurrentResponses(value: number): void {
+    this.#maxConcurrentResponses = requirePositiveInteger(value, 'maxConcurrentResponses');
+    this.scheduleResponseSlots();
   }
 
   async create(input: CreateReceiptResponseInput): Promise<ReceiptRemoteResponse> {
@@ -80,7 +100,10 @@ export class ReceiptResponsesClient {
     if (!Number.isSafeInteger(input.pagePosition) || input.pagePosition < 0 || input.pagePosition >= input.pageCount) {
       throw new RangeError('pagePosition must identify a page in the receipt');
     }
-    const originalText = requireNonEmptyString(input.originalText, 'originalText', 500_000);
+    const originalText = requireBoundedString(input.originalText, 'originalText', 500_000);
+    if (!originalText && input.attachment.mimeType !== 'application/pdf') {
+      throw new RangeError('originalText must contain between 1 and 500000 characters for image attachments');
+    }
     const releaseSlot = await this.acquireResponseSlot(input.signal);
     const metadata = {
       model: this.#model,
@@ -90,6 +113,8 @@ export class ReceiptResponsesClient {
       instructions: buildReceiptVerificationInstructions({
         pageCount: input.pageCount,
         pagePosition: input.pagePosition,
+      }, {
+        directAttachment: input.attachment.mimeType === 'application/pdf' && !originalText,
       }),
       input: [
         {
@@ -98,8 +123,9 @@ export class ReceiptResponsesClient {
             {
               type: 'input_text',
               text: [
-                'Numbered OCR transcription for this same attachment:',
-                buildNumberedReceiptText(originalText),
+                originalText
+                  ? ['Numbered OCR transcription for this same attachment:', buildNumberedReceiptText(originalText)].join('\n')
+                  : 'Read the attached PDF receipt directly and return the complete structured result.',
                 buildReceiptCategoryContext(input.categoryInventory ?? []),
                 buildReceiptStoreContext(input.storeInventory ?? []),
               ].join('\n'),
@@ -176,18 +202,42 @@ export class ReceiptResponsesClient {
   }
 
   private async acquireResponseSlot(signal?: AbortSignal): Promise<() => void> {
-    const previous = this.#responseSlotTail;
-    let releaseCurrent = () => {};
-    const current = new Promise<void>((resolve) => {
-      releaseCurrent = once(resolve);
+    signal?.throwIfAborted();
+    return await new Promise<() => void>((resolve, reject) => {
+      const entry: QueuedResponseSlot = {
+        resolve,
+        reject,
+        ...(signal ? { signal } : {}),
+      };
+      if (signal) {
+        const onAbort = () => {
+          const index = this.#waitingResponseSlots.indexOf(entry);
+          if (index === -1) return;
+          this.#waitingResponseSlots.splice(index, 1);
+          reject(new DOMException('The receipt AI queue wait was aborted', 'AbortError'));
+        };
+        (entry as { onAbort?: () => void }).onAbort = onAbort;
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+      this.#waitingResponseSlots.push(entry);
+      this.scheduleResponseSlots();
     });
-    this.#responseSlotTail = current;
-    try {
-      await waitForTurn(previous, signal);
-      return releaseCurrent;
-    } catch (error) {
-      releaseCurrent();
-      throw error;
+  }
+
+  private scheduleResponseSlots(): void {
+    while (this.#activeResponseSlots < this.#maxConcurrentResponses && this.#waitingResponseSlots.length > 0) {
+      const entry = this.#waitingResponseSlots.shift();
+      if (!entry) return;
+      if (entry.onAbort) entry.signal?.removeEventListener('abort', entry.onAbort);
+      if (entry.signal?.aborted) {
+        entry.reject(new DOMException('The receipt AI queue wait was aborted', 'AbortError'));
+        continue;
+      }
+      this.#activeResponseSlots += 1;
+      entry.resolve(once(() => {
+        this.#activeResponseSlots -= 1;
+        this.scheduleResponseSlots();
+      }));
     }
   }
 
@@ -238,29 +288,6 @@ function once(callback: () => void): () => void {
     called = true;
     callback();
   };
-}
-
-async function waitForTurn(turn: Promise<void>, signal?: AbortSignal): Promise<void> {
-  signal?.throwIfAborted();
-  if (!signal) {
-    await turn;
-    return;
-  }
-  await new Promise<void>((resolve, reject) => {
-    let settled = false;
-    const settle = (callback: () => void) => {
-      if (settled) return;
-      settled = true;
-      signal.removeEventListener('abort', onAbort);
-      callback();
-    };
-    const onAbort = () => settle(() => reject(new DOMException('The receipt AI queue wait was aborted', 'AbortError')));
-    signal.addEventListener('abort', onAbort, { once: true });
-    void turn.then(
-      () => settle(resolve),
-      (error) => settle(() => reject(error)),
-    );
-  });
 }
 
 function isTerminalStatus(status: ReceiptResponseStatus): boolean {
@@ -382,6 +409,15 @@ function requireNonEmptyString(value: string, name: string, maxLength: number): 
   const normalized = value.trim();
   if (!normalized || normalized.length > maxLength) {
     throw new RangeError(`${name} must contain between 1 and ${String(maxLength)} characters`);
+  }
+  return normalized;
+}
+
+function requireBoundedString(value: string, name: string, maxLength: number): string {
+  if (typeof value !== 'string') throw new TypeError(`${name} must be a string`);
+  const normalized = value.trim();
+  if (normalized.length > maxLength) {
+    throw new RangeError(`${name} must contain at most ${String(maxLength)} characters`);
   }
   return normalized;
 }

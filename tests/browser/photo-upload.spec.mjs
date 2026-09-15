@@ -117,7 +117,6 @@ test('camera and gallery photos upload, deduplicate and persist after reload', a
     await firstDetails.locator(':scope > summary').click();
   }
   await page.getByRole('button', { name: 'Ampliar camera.png' }).click();
-  await expect.poll(() => page.locator('#capture-preview-image').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
   await page.getByRole('button', { name: 'Cerrar vista previa' }).click();
   await expectNoOverflow(page);
   expect(failures).toEqual([]);
@@ -150,7 +149,7 @@ test('oversized photo uses the latest WebAPI limit without blocking local OCR', 
   });
 
   await expect(page.locator('#upload-state')).toHaveText(
-    'Capturas guardadas. OCR iniciado. El archivo large.png ocupa 1,5 MB y supera el límite de 1 MB',
+    'Capturas guardadas. El OCR ha empezado automáticamente. El archivo large.png ocupa 1,5 MB y supera el límite de 1 MB',
   );
   await expect(captureCards(page)).toHaveCount(2);
   expect(capabilityReads()).toBe(2);

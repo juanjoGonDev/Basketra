@@ -8,7 +8,7 @@ import {
   resolveApplicationRoute,
   writeApplicationLocation,
 } from './routes.js';
-import { createReceiptInvoiceLineDialog } from './receipt-editor-invoice.js';
+import { createReceiptInvoiceLineDialog, refreshReceiptInvoiceEditor } from './receipt-editor-invoice.js';
 import {
   bindSwipeActions,
   hydrateIcons,
@@ -176,7 +176,7 @@ function syncReceiptCompactSummary(item) {
       <span class="receipt-line-compact__copy">
         <strong data-receipt-summary-description></strong>
         <small data-receipt-summary-meta></small>
-        <small class="receipt-line-compact__category" data-receipt-summary-category hidden></small>
+        <small class="receipt-line-compact__category" data-receipt-summary-category hidden><span class="receipt-line-compact__category-swatch" data-receipt-summary-category-swatch aria-hidden="true"></span><span data-receipt-summary-category-label></span></small>
       </span>
       <strong class="receipt-line-compact__total" data-receipt-summary-total></strong>`;
     item.querySelector('legend')?.insertAdjacentElement('afterend', summary);
@@ -191,7 +191,11 @@ function syncReceiptCompactSummary(item) {
   const quantityValue = quantity?.value || '0';
   const unitPriceValue = unitPrice?.value || '0.00';
   const totalValue = lineTotal?.value || '0.00';
-  const categoryName = item.querySelector('[data-receipt-category-label]')?.textContent?.trim() || '';
+  const categorySelect = item.querySelector('[data-field="categoryId"]');
+  const categoryName = categorySelect?.selectedOptions?.[0]?.value
+    ? categorySelect.selectedOptions[0].textContent.trim()
+    : '';
+  const categoryColor = categorySelect?.selectedOptions?.[0]?.dataset.categoryColor || '';
   const accessibleLabel = `Editar línea ${index + 1}: ${descriptionValue}${categoryName ? `. Categoría: ${categoryName}` : ''}`;
 
   if (summary.getAttribute('aria-label') !== accessibleLabel) summary.setAttribute('aria-label', accessibleLabel);
@@ -199,7 +203,12 @@ function syncReceiptCompactSummary(item) {
   setTextIfChanged(summary.querySelector('[data-receipt-summary-meta]'), `${quantityValue} × ${unitPriceValue} €`);
   const category = summary.querySelector('[data-receipt-summary-category]');
   if (category) {
-    setTextIfChanged(category, categoryName ? `Categoría · ${categoryName}` : '');
+    setTextIfChanged(category.querySelector('[data-receipt-summary-category-label]'), categoryName);
+    const swatch = category.querySelector('[data-receipt-summary-category-swatch]');
+    if (swatch) {
+      const color = /^#[\da-f]{6}$/iu.test(categoryColor) ? categoryColor : 'var(--color-primary)';
+      swatch.style.backgroundColor = color;
+    }
     category.hidden = !categoryName;
   }
   setTextIfChanged(summary.querySelector('[data-receipt-summary-total]'), `${totalValue} €`);
@@ -258,6 +267,7 @@ function installReceiptLineEditor() {
     actions: [
       { id: 'delete-receipt-line-editor', className: 'button danger-outline', label: 'Eliminar', icon: 'trash' },
       { id: 'cancel-receipt-line-editor', className: 'button secondary', label: 'Cancelar' },
+      { id: 'validate-receipt-line-editor', className: 'button secondary', label: 'Validar línea', icon: 'check', editorAction: 'validate' },
       { id: 'save-receipt-line-editor', className: 'button primary', label: 'Guardar línea', icon: 'check', editorAction: 'save' },
     ],
   });
@@ -283,6 +293,23 @@ function installReceiptLineEditor() {
     closeReceiptLineEditor();
     $('#receipt-review')?.dispatchEvent(new CustomEvent('basketra:receipt-line-saved', { bubbles: true }));
   });
+  $('#validate-receipt-line-editor').addEventListener('click', event => {
+    const item = receiptEditorSession?.item;
+    const index = Number(item?.dataset.itemIndex);
+    if (!item || !Number.isInteger(index) || index < 0) return;
+    const description = receiptInput(item, 'description');
+    if (!description?.value.trim()) {
+      description?.setAttribute('aria-invalid', 'true');
+      $('#receipt-line-editor-state').textContent = 'Indica el producto antes de validar esta línea.';
+      description?.focus();
+      return;
+    }
+    closeReceiptLineEditor();
+    $('#receipt-review')?.dispatchEvent(new CustomEvent('basketra:receipt-validate-line', {
+      bubbles: true,
+      detail: { index, button: event.currentTarget },
+    }));
+  });
   $('#delete-receipt-line-editor').addEventListener('click', () => closeReceiptLineEditor({ deleteLine: true }));
   dialog.addEventListener('input', event => {
     $('#receipt-line-editor-state').textContent = '';
@@ -304,11 +331,13 @@ function openReceiptLineEditor(item) {
   const parent = item.parentNode;
   if (!parent) return;
   parent.insertBefore(marker, item);
-  const fields = ['description', 'quantity', 'unitPriceEuro', 'lineTotalEuro'];
+  const fields = ['description', 'categoryId', 'quantity', 'unitPriceEuro', 'lineTotalEuro'];
   const values = Object.fromEntries(fields.map(field => [field, receiptInput(item, field)?.value ?? '']));
   const returnFocus = item.querySelector('[data-receipt-editor]');
+  // The detected row is the visible trigger for this line; the inline editor row stays hidden.
+  const returnFocusSelector = `#receipt-detected-list .receipt-detected-item[data-receipt-index="${item.dataset.itemIndex || 0}"]`;
   const draftNew = item.dataset.receiptDraftNew === 'true';
-  receiptEditorSession = { item, marker, values, returnFocus, draftNew };
+  receiptEditorSession = { item, marker, values, returnFocus, returnFocusSelector, draftNew };
   resetReceiptSwipeShell(item);
   item.classList.add('receipt-item--editing');
   $('#receipt-line-editor-slot').append(item);
@@ -319,13 +348,14 @@ function openReceiptLineEditor(item) {
   if (deleteButton) deleteButton.hidden = draftNew;
   if (typeof dialog.showModal === 'function') dialog.showModal();
   else dialog.setAttribute('open', '');
+  refreshReceiptInvoiceEditor(dialog);
   requestAnimationFrame(() => receiptInput(item, 'description')?.focus());
 }
 
 function closeReceiptLineEditor({ revert = false, deleteLine = false, focus = true } = {}) {
   const session = receiptEditorSession;
   if (!session) return;
-  const { item, marker, values, returnFocus, draftNew } = session;
+  const { item, marker, values, returnFocus, returnFocusSelector, draftNew } = session;
   const discardDraft = revert && draftNew;
   if (revert) {
     for (const [field, value] of Object.entries(values)) {
@@ -362,7 +392,13 @@ function closeReceiptLineEditor({ revert = false, deleteLine = false, focus = tr
     deleteButton?.click();
     return;
   }
-  if (focus) requestAnimationFrame(() => returnFocus?.focus());
+  if (focus) {
+    requestAnimationFrame(() => {
+      // Resolve at focus time: the detected list re-renders while the editor closes.
+      const target = (returnFocusSelector ? document.querySelector(returnFocusSelector) : null) || returnFocus;
+      target?.focus();
+    });
+  }
 }
 
 function updateReceiptImportSummary() {
@@ -484,6 +520,13 @@ function installReceiptReviewPresentation() {
     const item = event.target.closest('.receipt-item');
     if (item) syncReceiptCompactSummary(item);
     updateReceiptImportSummary();
+  });
+  review.addEventListener('change', event => {
+    if (event.target.matches('[data-field="categoryId"]')) {
+      resetFeedback();
+      const item = event.target.closest('.receipt-item');
+      if (item) syncReceiptCompactSummary(item);
+    }
   });
   review.addEventListener('click', event => {
     const editorTrigger = event.target.closest('[data-receipt-editor], [data-receipt-action="edit"]');
@@ -679,8 +722,8 @@ function setNavigationReady(ready) {
 
 function closeTransientOverlays() {
   closeReceiptLineEditor({ revert: true, focus: false });
-  document.querySelectorAll('dialog[open]').forEach(dialog => {
-    if (dialog instanceof HTMLDialogElement) dialog.close();
+  document.querySelectorAll('dialog[open], app-dialog').forEach(dialog => {
+    if (typeof dialog.close === 'function') dialog.close();
     else dialog.removeAttribute('open');
   });
 }

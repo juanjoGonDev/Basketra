@@ -1,23 +1,25 @@
-import { loadCaptures, loadReceiptExtractionJobId } from './state.js';
+import { loadCaptures, loadReceiptExtractionJobCaptureKeys, loadReceiptExtractionJobId } from './state.js';
+import {
+  ACTIVE_PAGE_STATUSES,
+  PAGE_LABELS,
+  PAGE_STATUS,
+  QUEUED_PAGE_STATUSES,
+  REVIEWABLE_PAGE_STATUSES,
+} from './receipt-page-state.js';
 
 export const PAGE_CONCURRENCY = 2;
-export const ACTIVE_PAGE_STATUSES = new Set(['preparing', 'ocr', 'ai']);
-export const REVIEWABLE_PAGE_STATUSES = new Set(['completed', 'manual']);
-export const PAGE_LABELS = {
-  ready: 'Lista',
-  pending: 'Pendiente',
-  preparing: 'Preparando imagen',
-  ocr: 'OCR local',
-  ai: 'Verificando con IA',
-  completed: 'Completada',
-  manual: 'Revisión manual',
-  error: 'Error',
-  cancelled: 'Cancelada',
+export {
+  ACTIVE_PAGE_STATUSES,
+  PAGE_LABELS,
+  PAGE_STATUS,
+  QUEUED_PAGE_STATUSES,
+  REVIEWABLE_PAGE_STATUSES,
 };
 
 export const state = {
   captures: loadCaptures(),
   extraction: null,
+  receiptCategories: [],
   items: [],
   originalItems: [],
   originalText: '',
@@ -44,10 +46,14 @@ export const state = {
   retailerManuallyEdited: false,
   settingRetailerValue: false,
   activeJobId: loadReceiptExtractionJobId(),
+  activeJobCaptureKeys: loadReceiptExtractionJobCaptureKeys(),
   failedBackgroundJobId: '',
   jobRealtime: null,
   expandedCaptureKey: '',
   selectedReviewCaptureKey: '',
+  receiptDrafts: [],
+  activeReceiptDraftKey: '',
+  totalMismatchApproved: false,
 };
 
 export let metadata;
@@ -82,7 +88,6 @@ export function captureByKey(key) {
 export function createPageState(previous = {}) {
   return {
     status: 'ready',
-    version: Number(previous.version || 0) + 1,
     startedAt: 0,
     elapsedMs: 0,
     rawText: '',
@@ -96,6 +101,7 @@ export function createPageState(previous = {}) {
     aiErrorCode: '',
     aiRecovery: null,
     ...previous,
+    version: Number(previous.version || 0) + 1,
     status: 'ready',
     startedAt: 0,
     elapsedMs: 0,

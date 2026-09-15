@@ -108,8 +108,10 @@ test('settings show live runtime, redacted copyable logs and downloadable import
   await selectSettingsTab(page, 'Diagnóstico');
   await expect(page.getByRole('button', { name: 'Copiar logs', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Actualizar logs', exact: true }).click();
-  await expect(page.locator('#application-logs')).toContainText('server.started');
+  // Every gateway request is logged (2026-09-13), so the bounded tail no longer reaches
+  // back to start-up; assert the server-side event this test produced plus the request feed.
   await expect(page.locator('#application-logs')).toContainText('backup.imported');
+  await expect(page.locator('#application-logs')).toContainText('http.request_completed');
   await expect(page.locator('#application-logs')).not.toContainText('basketra-import.db');
 
   const copyButton = page.getByRole('button', { name: 'Copiar logs', exact: true });

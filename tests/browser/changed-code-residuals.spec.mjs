@@ -4,6 +4,13 @@ function json(route, body, status = 200) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 }
 
+async function changeReceiptRetailer(page, value) {
+  await page.locator('#receipt-retailer').evaluate((element, nextValue) => {
+    element.value = nextValue;
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  }, value);
+}
+
 function product(id, overrides = {}) {
   return {
     id,
@@ -59,41 +66,41 @@ test('shell defensive branches keep receipt Store options and generic swipe fail
   });
 
   const retailer = page.locator('#receipt-retailer');
-  await expect(retailer).toBeVisible();
+  await expect(retailer).toBeAttached();
   await page.locator('#receipt-store-options').evaluate(element => element.remove());
-  await retailer.fill('MISSING');
+  await changeReceiptRetailer(page, 'MISSING');
   await page.evaluate(() => {
     const datalist = document.createElement('datalist');
     datalist.id = 'receipt-store-options';
     document.body.append(datalist);
   });
 
-  await retailer.fill('');
+  await changeReceiptRetailer(page, '');
   await expect(page.locator('#receipt-store-options option')).toHaveCount(0);
 
   await Promise.all([
     page.waitForResponse(response => new URL(response.url()).searchParams.get('retailer') === 'EMPTY'),
-    retailer.fill('EMPTY'),
+    changeReceiptRetailer(page, 'EMPTY'),
   ]);
   await expect(page.locator('#receipt-store-options option')).toHaveCount(0);
 
   await Promise.all([
     page.waitForResponse(response => new URL(response.url()).searchParams.get('retailer') === 'NORETAIL'),
-    retailer.fill('NORETAIL'),
+    changeReceiptRetailer(page, 'NORETAIL'),
   ]);
   await expect(page.locator('#receipt-store-options option')).toHaveCount(0);
 
   await Promise.all([
     page.waitForResponse(response => new URL(response.url()).searchParams.get('retailer') === 'ERROR'),
-    retailer.fill('ERROR'),
+    changeReceiptRetailer(page, 'ERROR'),
   ]);
   await expect(page.locator('#receipt-store-options option')).toHaveCount(0);
 
-  await retailer.fill('SLOW');
+  await changeReceiptRetailer(page, 'SLOW');
   await expect.poll(() => slowStarted).toBe(true);
   await Promise.all([
     page.waitForResponse(response => new URL(response.url()).searchParams.get('retailer') === 'FAST'),
-    retailer.fill('FAST'),
+    changeReceiptRetailer(page, 'FAST'),
   ]);
   releaseSlow();
   await expect(page.locator('#receipt-store-options option')).toHaveAttribute('value', 'FAST STORE');

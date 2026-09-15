@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { installControlledEventSource } from './helpers/controlled-event-source.mjs';
 
 test.use({ trace: 'on', screenshot: 'on', video: 'on' });
 
@@ -85,6 +86,7 @@ test('settings remain readable and unobscured across light and dark responsive l
 });
 
 test('automatic AI analysis uses one durable whole-ticket job and receipt Store autofill', async ({ page }, testInfo) => {
+  await installControlledEventSource(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.route('**/api/v1/settings/ai-provider', route => route.fulfill({
@@ -96,6 +98,7 @@ test('automatic AI analysis uses one durable whole-ticket job and receipt Store 
   let browserExtractionRequests = 0;
   let createdAiJobs = 0;
   const jobId = 'receiptextractionjob_alcampo';
+  let jobStatus = 'running';
   await page.route('**/api/v1/receipts/extract', route => {
     browserExtractionRequests += 1;
     return route.fulfill({
@@ -121,7 +124,9 @@ test('automatic AI analysis uses one durable whole-ticket job and receipt Store 
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        job: { id: jobId, status: 'completed', extraction: assembledExtraction() },
+        job: jobStatus === 'completed'
+          ? { id: jobId, status: 'completed', extraction: assembledExtraction() }
+          : { id: jobId, status: 'running' },
       }),
     });
   });
@@ -143,17 +148,23 @@ test('automatic AI analysis uses one durable whole-ticket job and receipt Store 
   expect(browserExtractionRequests).toBe(0);
   expect(createdAiJobs).toBe(1);
   await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.receiptExtractionJobId'))).toBe(jobId);
-  await expect(page.locator('#receipt-state')).toContainText('88 artículos');
+  jobStatus = 'completed';
+  await page.evaluate(id => window.__receiptEventSources.at(-1).emit('invalidate', JSON.stringify({
+    entityType: 'receipt-extraction-job',
+    entityId: id,
+  })), jobId);
+  await expect(page.locator('#receipt-state')).toContainText('Ticket preparado');
   await expect(page.locator('#receipt-retailer')).toHaveValue('ALCAMPO');
   await expect(page.locator('#receipt-store')).toHaveValue('ALCAMPO ALMERIA');
   await expect(page.locator('#receipt-store')).toHaveAttribute('required', '');
   await expect(page.locator('#receipt-total')).toHaveValue('202.26');
   await expect(page.locator('.receipt-item')).toHaveCount(4);
-  await expect(page.locator('#receipt-review-panel')).not.toHaveAttribute('open', '');
+  await expect(page.locator('#receipt-review-panel')).toBeHidden();
   await expect(page.locator('#receipt-detected-list')).toContainText('C.LADRON MANZAN');
-  await page.locator('#receipt-review-panel > summary').click();
-  await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
-  await expect(page.locator('#receipt-review-reference-image')).toBeVisible();
+  await page.getByRole('button', { name: 'Ver comprobante', exact: true }).click();
+  await expect(page.locator('#receipt-evidence-dialog')).toBeVisible();
+  await expect(page.locator('#receipt-evidence-content img')).toBeVisible();
+  await page.locator('#close-receipt-evidence').click();
   await expectNoHorizontalOverflow(page);
   await page.screenshot({ path: testInfo.outputPath('retailer-confirmed.png'), fullPage: true });
 

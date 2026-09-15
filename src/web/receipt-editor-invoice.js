@@ -1,4 +1,5 @@
 import { euroInputToMinor, formatEuroMinor, hydrateIcons } from './ui.js';
+import { createAppDialog, createAppDialogHeader } from './components.js';
 
 const DIALOG_ID = 'receipt-line-dialog';
 const EDITOR_CALCULATION_FIELD_SELECTOR = '[data-field="quantity"], [data-field="unitPriceEuro"], [data-field="discountType"], [data-field="discountValue"], [data-field="discountQuantity"]';
@@ -30,8 +31,7 @@ export function createReceiptInvoiceLineDialog({
   className = '',
   actions = [],
 }) {
-  const dialog = document.createElement('dialog');
-  dialog.id = id;
+  const dialog = createAppDialog({ id, label: title });
   dialog.className = ['sheet-dialog', 'receipt-line-dialog', className].filter(Boolean).join(' ');
   dialog.setAttribute('aria-labelledby', titleId);
 
@@ -39,27 +39,15 @@ export function createReceiptInvoiceLineDialog({
   content.className = 'dialog-content';
   if (contentId) content.id = contentId;
 
-  const header = document.createElement('div');
-  header.className = 'dialog-header';
-  const copy = document.createElement('div');
-  const eyebrow = document.createElement('p');
-  eyebrow.className = 'eyebrow';
-  eyebrow.textContent = 'Línea del ticket';
-  const heading = document.createElement('h2');
-  heading.id = titleId;
-  heading.textContent = title;
-  copy.append(eyebrow, heading);
-
-  const close = document.createElement('button');
+  const { header, close } = createAppDialogHeader({
+    title,
+    titleId,
+    eyebrow: 'Línea del ticket',
+    className: 'dialog-header',
+  });
   close.id = closeId;
-  close.className = 'icon-button';
-  close.type = 'button';
   close.dataset.editorAction = 'close';
   close.setAttribute('aria-label', 'Cerrar editor');
-  const closeIcon = document.createElement('span');
-  closeIcon.dataset.icon = 'close';
-  close.append(closeIcon);
-  header.append(copy, close);
 
   const slot = document.createElement('div');
   slot.id = slotId;
@@ -94,6 +82,7 @@ export function createReceiptInvoiceLineDialog({
   content.append(header, slot);
   if (state) content.append(state);
   content.append(actionBar);
+  content.slot = 'body';
   dialog.append(content);
   hydrateIcons(dialog);
   return dialog;
@@ -186,7 +175,7 @@ function createSummaryStatus() {
 }
 
 function createSummary(item) {
-  const summaryTitleId = `${item.closest('dialog')?.id || DIALOG_ID}-summary-title`;
+  const summaryTitleId = `${item.closest('app-dialog')?.id || DIALOG_ID}-summary-title`;
   const summary = document.createElement('aside');
   summary.className = 'receipt-line-editor-summary';
   summary.setAttribute('aria-labelledby', summaryTitleId);
@@ -217,7 +206,7 @@ function editorHeaderValidation(dialog) {
   status.dataset.editorValidation = 'true';
   status.setAttribute('role', 'status');
   const closeButton = editorAction(dialog, 'close');
-  if (closeButton) header.insertBefore(status, closeButton);
+  if (closeButton) header.insertBefore(status, closeButton.closest('app-button') || closeButton);
   else header.append(status);
   return status;
 }
@@ -416,7 +405,7 @@ function syncSummary(item) {
   const discount = summary.querySelector('[data-editor-summary-discount]');
   const total = summary.querySelector('[data-editor-summary-total]');
   const validation = summary.querySelector('[data-editor-summary-validation]');
-  const dialog = item.closest('dialog.receipt-invoice-dialog');
+  const dialog = item.closest('app-dialog.receipt-invoice-dialog, dialog.receipt-invoice-dialog');
   copyValidationState(item, validation, true);
   copyValidationState(item, editorHeaderValidation(dialog));
   syncPresentationControls(item);
@@ -506,10 +495,20 @@ function ensureItemLayout(item) {
     || !(discountType instanceof HTMLSelectElement)) return;
 
   const descriptionLabel = description.closest('label');
+  // The historical ticket editor names its category label differently; both are valid anchors.
+  const categoryLabel = item.querySelector('.receipt-category-field, .receipt-editor-category-field');
   const discountTypeLabel = discountType.closest('label');
-  if (!descriptionLabel || !discountTypeLabel) return;
+  if (!descriptionLabel || !categoryLabel || !discountTypeLabel) return;
 
-  descriptionLabel.before(sectionHeading(1, 'Producto', 'package'));
+  const productFields = document.createElement('div');
+  productFields.className = 'receipt-product-fields';
+  descriptionLabel.before(productFields);
+  productFields.append(descriptionLabel, categoryLabel);
+  const storeContext = item.querySelector('[data-receipt-store-context]');
+  const productMatcher = item.querySelector('[data-product-matcher]');
+  if (storeContext) productFields.append(storeContext);
+  if (productMatcher) productFields.append(productMatcher);
+  productFields.before(sectionHeading(1, 'Producto', 'package'));
   detailRow.insertBefore(sectionHeading(2, 'Detalle de compra', 'cart'), detailRow.firstChild);
   discountRow.insertBefore(sectionHeading(3, 'Descuento', 'tag'), discountTypeLabel);
   detailRow.insertAdjacentElement('afterend', createSummary(item));
@@ -540,7 +539,7 @@ export function refreshReceiptInvoiceEditor(dialog) {
 }
 
 export function enhanceReceiptInvoiceEditor(dialog) {
-  if (!(dialog instanceof HTMLDialogElement)) return;
+  if (!(dialog instanceof HTMLDialogElement) && dialog?.tagName !== 'APP-DIALOG') return;
   if (dialog.dataset.invoiceEditorUi === 'true') {
     refreshReceiptInvoiceEditor(dialog);
     return;

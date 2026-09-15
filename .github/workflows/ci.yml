@@ -221,7 +221,8 @@ jobs:
         env:
           BASKETRA_BROWSER_COVERAGE_COLLECT_ONLY: "1"
           BASKETRA_BROWSER_PREBUILT: "1"
-        run: timeout --signal=TERM --kill-after=5s 45s pnpm exec playwright test --test-list=".ci/browser-shards/shard-${{ matrix.shard }}.txt"
+        # Browser shards include visual evidence and can legitimately take longer than 45 seconds on hosted runners.
+        run: timeout --signal=TERM --kill-after=5s 90s pnpm exec playwright test --test-list=".ci/browser-shards/shard-${{ matrix.shard }}.txt"
       - name: Upload shard coverage
         if: success()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

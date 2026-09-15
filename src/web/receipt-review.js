@@ -1,5 +1,5 @@
 import { api, setBusy } from './api.js';
-import { euroInputToMinor, formatEuroMinor, minorToEuroInput, receiptReview } from './ui.js';
+import { euroInputToMinor, formatEuroMinor, icon, minorToEuroInput, receiptReview } from './ui.js';
 import {
   REVIEWABLE_PAGE_STATUSES,
   $,
@@ -11,6 +11,7 @@ import {
 } from './receipt-state.js';
 import { persistAndRenderCaptures, renderProgressiveDetectedItems } from './receipt-capture.js';
 import { abortPageWork, clearReceiptExtractionJob } from './receipt-lifecycle.js';
+import { openReceiptCategoryPicker, openReceiptProductPicker } from './receipt-line-pickers.js';
 
 let receiptLineEnhancementsInstalled = false;
 
@@ -26,7 +27,142 @@ function ensureReceiptReviewStylesheet() {
 ensureReceiptReviewStylesheet();
 
 export function selectedReviewCapture() {
-  return captureByKey(state.selectedReviewCaptureKey) || state.captures[0] || null;
+  const draft = state.receiptDrafts.find(candidate => candidate.key === state.activeReceiptDraftKey);
+  const key = draft?.captureKeys?.[0] || state.selectedReviewCaptureKey;
+  return captureByKey(key) || state.captures[0] || null;
+}
+
+function activeDraftCaptures() {
+  const draft = state.receiptDrafts.find(candidate => candidate.key === state.activeReceiptDraftKey);
+  if (!draft) return state.captures;
+  return draft.captureKeys.map(key => captureByKey(key)).filter(Boolean);
+}
+
+function cloneItems(items) {
+  return Array.isArray(items) ? items.map(item => ({ ...item })) : [];
+}
+
+function reviewFor(items, declaredTotalMinor) {
+  const expectedMinor = items.reduce((sum, item) => sum + (Number.isSafeInteger(item?.lineTotalMinor) ? item.lineTotalMinor : 0), 0);
+  return {
+    lines: items.map(() => ({ status: 'needs-review' })),
+    total: declaredTotalMinor === undefined ? undefined : {
+      expectedMinor,
+      differenceMinor: declaredTotalMinor - expectedMinor,
+      valid: declaredTotalMinor === expectedMinor,
+    },
+  };
+}
+
+function extractionForCapture(capture) {
+  const page = state.pageStates.get(captureKey(capture));
+  const result = page?.result;
+  const final = result?.final;
+  if (!final || !Array.isArray(final.items)) return null;
+  const items = final.items.map(item => ({ ...item, sourceCaptureKey: captureKey(capture) }));
+  const declaredTotalMinor = Number.isSafeInteger(final.declaredTotalMinor)
+    ? final.declaredTotalMinor
+    : undefined;
+  return {
+    ...result,
+    resultVersion: page?.version || 0,
+    originalText: result.originalText || page?.rawText || '',
+    final: {
+      ...final,
+      items,
+      review: final.review || reviewFor(items, declaredTotalMinor),
+    },
+  };
+}
+
+function saveActiveDraft() {
+  const draft = state.receiptDrafts.find(candidate => candidate.key === state.activeReceiptDraftKey);
+  if (!draft) return;
+  try { draft.items = readReceiptItems(); } catch { draft.items = cloneItems(state.items); }
+  draft.originalItems = cloneItems(state.originalItems);
+  draft.originalText = state.originalText;
+  draft.totalMismatchApproved = state.totalMismatchApproved;
+  draft.retailerName = $('#receipt-retailer')?.value.trim() || draft.retailerName;
+  draft.storeName = $('#receipt-store')?.value.trim() || draft.storeName;
+}
+
+function activateReceiptDraft(key) {
+  const draft = state.receiptDrafts.find(candidate => candidate.key === key);
+  if (!draft) return false;
+  state.activeReceiptDraftKey = key;
+  state.selectedReviewCaptureKey = draft.captureKeys[0] || '';
+  state.extraction = draft.extraction;
+  state.items = cloneItems(draft.items);
+  state.originalItems = cloneItems(draft.originalItems);
+  state.originalText = draft.originalText;
+  state.totalMismatchApproved = draft.totalMismatchApproved === true;
+  const capture = selectedReviewCapture();
+  const retailerName = draft.retailerName || capture?.retailerName || draft.extraction.final.retailerName || '';
+  setRetailerValue(retailerName);
+  const storeName = draft.storeName || capture?.storeName || draft.extraction.final.storeName || '';
+  state.detectedStoreId = capture?.storeId || draft.extraction.final.storeId || '';
+  state.detectedStoreName = storeName;
+  state.detectedStoreRetailerName = retailerName;
+  const detectedStore = $('#receipt-detected-store');
+  if (detectedStore) detectedStore.hidden = !storeName;
+  const storeField = $('#receipt-store');
+  if (storeField) storeField.value = storeName;
+  if (Number.isSafeInteger(draft.extraction.final.declaredTotalMinor)) {
+    const totalField = $('#receipt-total');
+    if (totalField) totalField.value = minorToEuroInput(draft.extraction.final.declaredTotalMinor);
+  }
+  renderReview(draft.extraction.final.review?.lines || [], draft.extraction.final.review?.total);
+  return true;
+}
+
+/** Projects every completed capture as an independently confirmable receipt draft. */
+export function applyCaptureDrafts() {
+  saveActiveDraft();
+  const previous = new Map(state.receiptDrafts.map(draft => [draft.key, draft]));
+  state.receiptDrafts = state.captures.flatMap(capture => {
+    const extraction = extractionForCapture(capture);
+    if (!extraction) return [];
+    const key = captureKey(capture);
+    const existing = previous.get(key);
+    return [{
+      key,
+      captureKeys: [key],
+      extraction,
+      resultVersion: extraction.resultVersion,
+      items: existing?.resultVersion === extraction.resultVersion
+        ? cloneItems(existing.items)
+        : cloneItems(extraction.final.items),
+      originalItems: existing?.resultVersion === extraction.resultVersion
+        ? cloneItems(existing.originalItems)
+        : cloneItems(extraction.final.items),
+      originalText: existing?.resultVersion === extraction.resultVersion
+        ? (existing.originalText || extraction.originalText || '')
+        : (extraction.originalText || ''),
+      retailerName: existing?.retailerName || capture.retailerName || extraction.final.retailerName || '',
+      storeName: existing?.storeName || capture.storeName || extraction.final.storeName || '',
+      totalMismatchApproved: existing?.totalMismatchApproved === true,
+    }];
+  });
+  const active = state.receiptDrafts.some(draft => draft.key === state.activeReceiptDraftKey)
+    ? state.activeReceiptDraftKey
+    : state.receiptDrafts[0]?.key || '';
+  if (active) activateReceiptDraft(active);
+  return state.receiptDrafts;
+}
+
+export function selectReceiptDraft(key) {
+  saveActiveDraft();
+  return activateReceiptDraft(key);
+}
+
+export function refreshReceiptDraftSource(key) {
+  const draft = state.receiptDrafts.find(candidate => candidate.key === key);
+  const capture = captureByKey(key);
+  if (!draft || !capture) return false;
+  draft.retailerName = capture.retailerName || draft.retailerName;
+  draft.storeName = capture.storeName || draft.storeName;
+  if (draft.key === state.activeReceiptDraftKey) activateReceiptDraft(draft.key);
+  return true;
 }
 
 export function renderReviewReference() {
@@ -48,10 +184,13 @@ export function renderReviewReference() {
   }
 
   selector.replaceChildren();
-  for (const [index, capture] of state.captures.entries()) {
+  const draftCaptures = state.receiptDrafts.length > 0
+    ? state.receiptDrafts.map(draft => captureByKey(draft.captureKeys[0])).filter(Boolean)
+    : activeDraftCaptures();
+  for (const [index, capture] of draftCaptures.entries()) {
     const option = document.createElement('option');
     option.value = captureKey(capture);
-    option.textContent = `Imagen ${index + 1}: ${capture.name}`;
+    option.textContent = `Ticket ${index + 1}: ${capture.name}`;
     selector.append(option);
   }
 
@@ -89,12 +228,7 @@ export function renderReviewReference() {
 export function showReviewPanelForCapture(index) {
   const capture = state.captures[index];
   if (capture) state.selectedReviewCaptureKey = captureKey(capture);
-  const panel = $('#receipt-review-panel');
-  if (!panel) return;
-  panel.hidden = false;
-  panel.open = true;
-  renderReviewReference();
-  panel.scrollIntoView({ block: 'start', behavior: 'auto' });
+  $('#receipt-detected-stream')?.scrollIntoView({ block: 'start', behavior: 'auto' });
 }
 
 function receiptItemAt(index) {
@@ -247,6 +381,30 @@ function addReceiptDiscountFields(fieldset, item) {
   }
   syncDiscountValueControl(fieldset);
   rememberDiscountEditorValue(fieldset);
+}
+
+function categoryCreator(fieldset) {
+  const field = fieldset.querySelector('.receipt-category-field');
+  if (!field || field.querySelector('[data-receipt-category-create]')) return;
+  const create = document.createElement('button');
+  create.type = 'button';
+  create.className = 'button secondary receipt-category-create';
+  create.dataset.receiptCategoryCreate = 'true';
+  create.textContent = 'Elegir';
+  create.addEventListener('click', () => {
+    const select = fieldset.querySelector('[data-field="categoryId"]');
+    if (!(select instanceof HTMLSelectElement)) return;
+    openReceiptCategoryPicker({
+      selectedId: select.value,
+      onSelect: category => {
+        state.receiptCategories = [...state.receiptCategories.filter(entry => entry.id !== category.id), category];
+        refreshReceiptCategoryControls();
+        select.value = category.id;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      },
+    });
+  });
+  field.append(create);
 }
 
 function lineQuantityFromFields(fieldset) {
@@ -419,6 +577,16 @@ function installReceiptLineEnhancements() {
     });
   });
   document.addEventListener('change', event => {
+    if (event.target?.dataset?.field === 'categoryId') {
+      const fieldset = event.target.closest('.receipt-item');
+      const index = Number(fieldset?.dataset.itemIndex);
+      const item = state.items[index];
+      if (!item || !Number.isInteger(index)) return;
+      if (event.target.value) item.categoryId = event.target.value;
+      else delete item.categoryId;
+      renderProgressiveDetectedItems();
+      return;
+    }
     if (event.target?.dataset?.field !== 'discountType') return;
     const fieldset = event.target.closest('.receipt-item');
     if (!fieldset) return;
@@ -470,6 +638,62 @@ function renderUnassignedDiscountNotice() {
   review.querySelector('.review-summary')?.insertAdjacentElement('afterend', notice);
 }
 
+function addProductMatcher(fieldset, item) {
+  if (fieldset.querySelector('[data-product-matcher]')) return;
+  const capture = captureByKey(item.sourceCaptureKey) || selectedReviewCapture();
+  const storeName = capture?.storeName
+    || capture?.result?.final?.storeName
+    || state.extraction?.final?.storeName
+    || 'Sin tienda asignada';
+  const store = document.createElement('p');
+  store.className = 'receipt-line-store-context';
+  store.dataset.receiptStoreContext = 'true';
+  store.textContent = `Tienda: ${storeName}`;
+  const matcher = document.createElement('div');
+  matcher.className = 'receipt-product-matcher';
+  matcher.dataset.productMatcher = 'true';
+  const select = document.createElement('select');
+  select.dataset.field = 'productVariantId';
+  select.setAttribute('aria-label', 'Producto guardado relacionado');
+  select.append(new Option('Sin producto guardado', ''));
+  const search = document.createElement('button');
+  search.type = 'button';
+  search.className = 'button secondary';
+  search.textContent = 'Relacionar producto';
+  search.addEventListener('click', () => {
+    const description = fieldset.querySelector('[data-field="description"]')?.value.trim();
+    if (!description) return;
+    const categoryId = fieldset.querySelector('[data-field="categoryId"]')?.value || '';
+    openReceiptProductPicker({
+      description,
+      selectedId: select.value,
+      categoryId,
+      onSelect: product => {
+        const name = product.variantName || product.canonicalName || product.name || 'Producto relacionado';
+        select.replaceChildren(new Option('Sin producto guardado', ''), new Option(name, product.id));
+        select.value = product.id;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        toast('Producto guardado relacionado');
+      },
+    });
+  });
+  if (item.productVariantId) select.append(new Option('Producto relacionado', item.productVariantId));
+  select.value = item.productVariantId || '';
+  const evidence = document.createElement('button');
+  evidence.type = 'button';
+  evidence.className = 'button secondary';
+  evidence.textContent = 'Ver comprobante';
+  evidence.addEventListener('click', () => {
+    document.dispatchEvent(new CustomEvent('basketra:show-receipt-evidence', {
+      detail: { captureKey: item.sourceCaptureKey || captureKey(capture || {}) },
+    }));
+  });
+  matcher.append(search, select, evidence);
+  const category = fieldset.querySelector('.receipt-category-field');
+  category?.insertAdjacentElement('afterend', store);
+  store.insertAdjacentElement('afterend', matcher);
+}
+
 function enhanceReceiptLines(lines) {
   installReceiptLineEnhancements();
   state.items.forEach((item, index) => {
@@ -477,6 +701,8 @@ function enhanceReceiptLines(lines) {
     if (!fieldset) return;
     upgradeReceiptTotal(fieldset);
     addReceiptDiscountFields(fieldset, item);
+    categoryCreator(fieldset);
+    addProductMatcher(fieldset, item);
     const validation = lines[index] || {};
     if (validation.status === 'confirmed') return;
     const status = fieldset.querySelector('.receipt-item__legend-actions .status-pill');
@@ -496,20 +722,51 @@ function enhanceReceiptLines(lines) {
   scheduleReceiptDiscountSummaries();
 }
 
+function receiptCategories() {
+  const fromExtraction = state.extraction?.final?.categories || [];
+  const categories = [...fromExtraction, ...state.receiptCategories];
+  return [...new Map(categories.map(category => [category.id, category])).values()]
+    .sort((left, right) => left.name.localeCompare(right.name, 'es', { sensitivity: 'base' }));
+}
+
+function refreshReceiptCategoryControls() {
+  const categories = receiptCategories();
+  for (const select of $$('[data-field="categoryId"]')) {
+    if (!(select instanceof HTMLSelectElement)) continue;
+    const selected = select.value;
+    select.replaceChildren(new Option('Sin categoría', ''));
+    for (const category of categories) {
+      const option = new Option(category.name, category.id);
+      option.dataset.categoryColor = category.color || '';
+      select.add(option);
+    }
+    select.value = selected;
+  }
+}
+
+async function loadReceiptCategories() {
+  try {
+    const result = await api('/api/v1/categories');
+    state.receiptCategories = Array.isArray(result.categories) ? result.categories : [];
+    refreshReceiptCategoryControls();
+  } catch {
+    // The extraction snapshot remains enough to preserve and edit its assigned category.
+  }
+}
+
 export function renderReview(lines = [], total) {
   const review = $('#receipt-review');
   const panel = $('#receipt-review-panel');
-  const keepPanelOpen = panel?.open === true;
   const hasReviewContent = state.items.length > 0 || state.captures.length > 0 || Boolean(state.extraction);
   review.hidden = !hasReviewContent;
   review.innerHTML = hasReviewContent
-    ? receiptReview(state.items, lines, total, state.extraction?.final?.categories ?? [])
+    ? receiptReview(state.items, lines, total, receiptCategories())
     : '';
   if (hasReviewContent) enhanceReceiptLines(lines);
   $('#confirm-receipt').hidden = state.items.length === 0;
   if (panel) {
-    panel.hidden = !hasReviewContent;
-    panel.open = hasReviewContent && keepPanelOpen;
+    panel.hidden = true;
+    panel.open = false;
   }
   renderReviewReference();
   renderProgressiveDetectedItems();
@@ -529,6 +786,7 @@ export function applyExtraction(extraction, originalText = extraction.originalTe
   applyRetailerCandidate(extraction.final.retailerName || extraction.ai?.interpretation?.retailerName);
   applyStoreCandidate(extraction.final);
   renderReview(extraction.final.review.lines, extraction.final.review.total);
+  void loadReceiptCategories();
 }
 
 export function addBlankLine({ focus = true } = {}) {
@@ -604,9 +862,12 @@ function firstInvalidLine(validation) {
 
 function focusInvalidLine(index) {
   const focus = () => {
-    const action = $(`[data-receipt-action="validate"][data-receipt-index="${index}"]`);
-    action?.scrollIntoView({ block: 'center', behavior: 'auto' });
-    action?.focus();
+    // The focused validation workspace exposes detected lines, so the operator
+    // is taken to the visible row; the mounted editor action stays as fallback.
+    const target = $(`#receipt-detected-list .receipt-detected-item[data-receipt-index="${index}"]`)
+      || $(`[data-receipt-action="validate"][data-receipt-index="${index}"]`);
+    target?.scrollIntoView({ block: 'center', behavior: 'auto' });
+    target?.focus();
   };
   requestAnimationFrame(focus);
 }
@@ -618,7 +879,7 @@ export async function validateReceiptLine(index, button) {
     const declaredTotalMinor = euroInputToMinor($('#receipt-total').value);
     const validation = await api('/api/v1/receipts/validate', {
       method: 'POST',
-      body: JSON.stringify({ declaredTotalMinor, items }),
+      body: JSON.stringify({ declaredTotalMinor, items: receiptApiItems(items) }),
     });
     state.items = items;
     state.manualReviewRequired = false;
@@ -660,13 +921,19 @@ export function readReceiptItems() {
       unitPriceMinor: euroInputToMinor(fieldset.querySelector('[data-field="unitPriceEuro"]').value),
       lineTotalMinor: euroInputToMinor(fieldset.querySelector('[data-field="lineTotalEuro"]').value),
       ...(discount ? { discount } : {}),
-      ...(previous.categoryId ? { categoryId: previous.categoryId } : {}),
+      ...(fieldset.querySelector('[data-field="categoryId"]')?.value ? { categoryId: fieldset.querySelector('[data-field="categoryId"]').value } : {}),
+      ...(fieldset.querySelector('[data-field="productVariantId"]')?.value ? { productVariantId: fieldset.querySelector('[data-field="productVariantId"]').value } : {}),
       ...(previous.taxCategory ? { taxCategory: previous.taxCategory } : {}),
       ...(previous.sourceLines ? { sourceLines: previous.sourceLines } : {}),
+      ...(previous.sourceCaptureKey ? { sourceCaptureKey: previous.sourceCaptureKey } : {}),
       confidence: 1,
       userConfirmed: true,
     };
   }).sort((left, right) => left.index - right.index).map(({ index, ...item }) => item);
+}
+
+function receiptApiItems(items) {
+  return items.map(({ sourceCaptureKey: _sourceCaptureKey, ...item }) => item);
 }
 
 function discountsEqual(left, right) {
@@ -741,7 +1008,7 @@ export async function validateRows() {
     const declaredTotalMinor = euroInputToMinor($('#receipt-total').value);
     const validation = await api('/api/v1/receipts/validate', {
       method: 'POST',
-      body: JSON.stringify({ declaredTotalMinor, items }),
+      body: JSON.stringify({ declaredTotalMinor, items: receiptApiItems(items) }),
     });
     state.items = items;
     state.manualReviewRequired = false;
@@ -896,7 +1163,11 @@ export function selectRetailerSuggestion(event) {
 }
 
 export function allCapturesCompleted() {
-  return state.captures.length > 0 && state.captures.every(capture => (
+  const draft = state.receiptDrafts.find(candidate => candidate.key === state.activeReceiptDraftKey);
+  const captures = draft
+    ? draft.captureKeys.map(key => captureByKey(key)).filter(Boolean)
+    : state.captures;
+  return captures.length > 0 && captures.every(capture => (
     REVIEWABLE_PAGE_STATUSES.has(state.pageStates.get(captureKey(capture))?.status)
   ));
 }
@@ -946,7 +1217,7 @@ export async function confirmReceipt() {
   try {
     const validation = await api('/api/v1/receipts/validate', {
       method: 'POST',
-      body: JSON.stringify({ declaredTotalMinor, items }),
+      body: JSON.stringify({ declaredTotalMinor, items: receiptApiItems(items) }),
     });
     state.items = items;
     state.manualReviewRequired = false;
@@ -957,13 +1228,22 @@ export async function confirmReceipt() {
       focusInvalidLine(invalid.index);
       return;
     }
-    if (!validation.total.valid) {
-      $('#receipt-state').textContent = 'El total no coincide. Corrige las líneas o el total antes de confirmar.';
+    if (!validation.total.valid && !state.totalMismatchApproved) {
+      $('#receipt-state').textContent = '';
+      state.totalMismatchApproved = true;
+      toast('El total no coincide. Vuelve a confirmar para aceptarlo.');
       return;
     }
 
     $('#receipt-state').textContent = 'Importando ticket…';
-    const aiPages = pageAiEvidence();
+    const draft = state.receiptDrafts.find(candidate => candidate.key === state.activeReceiptDraftKey);
+    const draftCaptures = draft
+      ? draft.captureKeys.map(key => captureByKey(key)).filter(Boolean)
+      : state.captures;
+    const aiPages = pageAiEvidence().filter(page => {
+      const source = state.captures[page.position];
+      return source && draftCaptures.some(capture => captureKey(capture) === captureKey(source));
+    });
     const result = await api('/api/v1/receipts/confirm', {
       method: 'POST',
       body: JSON.stringify({
@@ -974,24 +1254,35 @@ export async function confirmReceipt() {
         retailerName,
         ...(detectedStoreSelected ? { storeId: state.detectedStoreId } : {}),
         ...(storeName ? { storeName } : {}),
-        deterministic: state.extraction?.deterministic || { items },
+        ...(state.totalMismatchApproved ? { acceptTotalMismatch: true } : {}),
+        deterministic: state.extraction?.deterministic || { items: receiptApiItems(items) },
         ...(aiPages.length > 0 ? { ai: { pages: aiPages } } : {}),
-        captures: state.captures.map(capture => ({
+        captures: draftCaptures.map(capture => ({
           storageKey: capture.storageKey,
           contentHash: capture.contentHash,
           mimeType: capture.mimeType,
           originalName: capture.name,
         })),
-        items,
+        items: receiptApiItems(items),
         corrections: collectCorrections(items),
       }),
     });
-    $('#receipt-state').textContent = `Ticket importado: ${result.receiptId}`;
+    $('#receipt-state').textContent = '';
     toast('Ticket confirmado');
     abortPageWork();
-    state.captures = [];
+    const confirmedKeys = new Set(draftCaptures.map(captureKey));
+    state.captures = state.captures.filter(capture => !confirmedKeys.has(captureKey(capture)));
+    for (const key of confirmedKeys) state.pageStates.delete(key);
+    state.receiptDrafts = state.receiptDrafts.filter(candidate => candidate.key !== draft?.key);
+    state.totalMismatchApproved = false;
+    if (state.receiptDrafts.length > 0) {
+      state.activeReceiptDraftKey = state.receiptDrafts[0].key;
+      activateReceiptDraft(state.activeReceiptDraftKey);
+      persistAndRenderCaptures();
+      toast('Ticket importado. Continúa con el siguiente ticket.');
+      return;
+    }
     clearReceiptExtractionJob();
-    state.pageStates.clear();
     state.extraction = null;
     state.items = [];
     state.originalItems = [];
@@ -1007,6 +1298,7 @@ export async function confirmReceipt() {
     $('#receipt-review-panel').open = false;
     $('#receipt-total').value = '0.00';
     state.selectedReviewCaptureKey = '';
+    state.activeReceiptDraftKey = '';
     state.expandedCaptureKey = '';
     setRetailerValue('');
     state.retailerManuallyEdited = false;

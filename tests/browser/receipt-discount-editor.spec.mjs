@@ -46,24 +46,34 @@ async function openReview(page, currentItems, options = {}) {
       },
     });
   }, { items: currentItems, currentOptions: options });
-  const panel = page.locator('#receipt-review-panel');
-  if (!(await panel.evaluate(element => element.open))) {
-    await panel.locator(':scope > summary').click();
-  }
+  await expect(page.locator('#receipt-detected-list .receipt-detected-item')).toHaveCount(currentItems.length);
 }
 
 async function openEditor(page) {
   const dialog = page.locator('#receipt-line-dialog');
-  if (!(await dialog.isVisible())) await page.locator('.receipt-line-compact').first().click();
+  if (!(await dialog.isVisible())) {
+    await page.locator('#receipt-detected-list .receipt-detected-item').first().click();
+  }
   await expect(dialog).toBeVisible();
   return dialog;
 }
 
-async function openManualEntry(page) {
-  const manualEntry = page.locator('.manual-entry');
-  if (!(await manualEntry.evaluate(element => element.open))) await manualEntry.locator('summary').click();
-  await expect(manualEntry).toHaveJSProperty('open', true);
-  return manualEntry;
+/**
+ * The declared total and the ticket-wide validation action belong to the
+ * mounted editor model and the live ticket summary respectively; the focused
+ * validation workspace no longer exposes the expandable manual-entry surface.
+ */
+async function setDeclaredTotal(page, euro) {
+  await page.evaluate(value => {
+    const total = document.querySelector('#receipt-total');
+    total.value = value;
+    total.dispatchEvent(new Event('input', { bubbles: true }));
+    total.dispatchEvent(new Event('change', { bubbles: true }));
+  }, euro);
+}
+
+async function validateTicket(page) {
+  await page.locator('#validate-receipt-ticket').click();
 }
 
 async function makeConfirmable(page, storageKey = 'file_typed_discount') {
@@ -202,8 +212,7 @@ test('whole-ticket validation and confirmation wait for the latest derived calcu
 
   await setup(page);
   await openReview(page, [item()]);
-  const manualEntry = await openManualEntry(page);
-  await manualEntry.getByLabel('Total declarado (€)').fill('3.50');
+  await setDeclaredTotal(page, '3.50');
   await makeConfirmable(page);
   await page.evaluate(() => {
     const input = document.querySelector('.receipt-item [data-field="quantity"]');
@@ -212,7 +221,7 @@ test('whole-ticket validation and confirmation wait for the latest derived calcu
   });
   await expect.poll(() => typeof releaseCalculation).toBe('function');
 
-  await manualEntry.getByRole('button', { name: 'Validar líneas e importes', exact: true }).click();
+  await validateTicket(page);
   await page.locator('#confirm-receipt').click();
   expect(validationCalls).toBe(0);
   expect(confirmationCalls).toBe(0);
@@ -242,7 +251,7 @@ test('genuinely ambiguous discounts stay unassigned and visible for manual revie
   await expect(page.locator('.receipt-item [data-field="discountType"]')).toHaveCount(2);
   await expect(page.locator('.receipt-item [data-field="discountType"]').nth(0)).toHaveValue('none');
   await expect(page.locator('.receipt-item [data-field="discountType"]').nth(1)).toHaveValue('none');
-  await page.locator('#receipt-review').screenshot({ path: testInfo.outputPath('ambiguous-discount.png') });
+  await page.locator('#receipt-detected-list').screenshot({ path: testInfo.outputPath('ambiguous-discount.png') });
 });
 
 test('typed discount editor has no horizontal overflow on mobile or desktop', async ({ page }, testInfo) => {
@@ -274,8 +283,7 @@ test('percentage corrections retain user intent while confirmation sends the typ
     discount: { type: 'percentage', basisPoints: 5_000 },
   })]);
   await makeConfirmable(page);
-  const manualEntry = await openManualEntry(page);
-  await manualEntry.getByLabel('Total declarado (€)').fill('1.31');
+  await setDeclaredTotal(page, '1.31');
   const editor = await openEditor(page);
   await editor.locator('[data-field="discountValue"]').fill('25');
   await expect(editor.locator('[data-field="lineTotalEuro"]')).toHaveJSProperty('value', '1.31');

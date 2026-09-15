@@ -1,11 +1,15 @@
 import { api } from './api.js';
 import { saveCaptures } from './state.js';
 import { captureItem, formatEuroMinor, icon, swipeActionRail } from './ui.js';
+import { createAppButton, createAppDialog, createAppDialogDescription, createAppDialogHeader, createAppField } from './components.js';
+import { createAppSearchSelect } from './search-select.js';
 import {
   ACTIVE_PAGE_STATUSES,
+  QUEUED_PAGE_STATUSES,
   REVIEWABLE_PAGE_STATUSES,
   PAGE_LABELS,
   $,
+  captureByKey,
   captureKey,
   createPageState,
   ensurePageStates,
@@ -16,8 +20,6 @@ import {
 } from './receipt-state.js';
 import {
   clearReceiptExtractionJob,
-  currentElapsed,
-  formatElapsed,
   rebuildCombinedReview,
   startAutomaticCaptureProcessing,
   updateGlobalProgress,
@@ -45,7 +47,7 @@ export function renderReceiptQueueStatus() {
   const pages = state.captures.map(capture => state.pageStates.get(captureKey(capture)) ?? createPageState());
   const total = pages.length;
   const active = pages.filter(page => ACTIVE_PAGE_STATUSES.has(page.status)).length;
-  const pending = pages.filter(page => page.status === 'pending' || page.status === 'preparing').length;
+  const pending = pages.filter(page => QUEUED_PAGE_STATUSES.has(page.status)).length;
   const completed = pages.filter(page => REVIEWABLE_PAGE_STATUSES.has(page.status)).length;
   const failed = pages.filter(page => page.status === 'error').length;
   const cancelled = pages.filter(page => page.status === 'cancelled').length;
@@ -65,9 +67,7 @@ export function renderReceiptQueueStatus() {
   summary.textContent = String(total);
   const summaryLabel = [pluralFiles(total), suffix].filter(Boolean).join(' · ');
   queue.querySelector(':scope > summary')?.setAttribute('aria-label', `Archivos del análisis: ${summaryLabel}`);
-  detail.textContent = total === 0
-    ? 'Añade imágenes o PDF con el botón +'
-    : `${completed} de ${total} ${total === 1 ? 'página procesada' : 'páginas procesadas'}`;
+  detail.textContent = total === 0 ? '' : suffix;
 
   queue.dataset.state = failed
     ? 'error'
@@ -148,6 +148,10 @@ function receiptDiscountEntries(items) {
 }
 
 function currentRetailerLabel(snapshot) {
+  const activeDraft = state.receiptDrafts.find(draft => draft.key === state.activeReceiptDraftKey);
+  if (typeof activeDraft?.retailerName === 'string' && activeDraft.retailerName.trim()) {
+    return activeDraft.retailerName.trim();
+  }
   const candidates = [...state.retailerCandidates.values()].filter(Boolean);
   if (candidates.length === 1) return candidates[0];
   if (candidates.length > 1) return 'Varios comercios detectados';
@@ -164,7 +168,7 @@ function receiptProgressSnapshot() {
   const total = pages.length;
   const completed = pages.filter(page => REVIEWABLE_PAGE_STATUSES.has(page.status)).length;
   const active = pages.filter(page => ACTIVE_PAGE_STATUSES.has(page.status)).length;
-  const pending = pages.filter(page => page.status === 'pending' || page.status === 'preparing').length;
+  const pending = pages.filter(page => QUEUED_PAGE_STATUSES.has(page.status)).length;
   const failed = pages.filter(page => page.status === 'error').length;
   const done = total > 0 && completed === total && active === 0 && pending === 0 && !state.finalizing;
   const stage = failed
@@ -199,6 +203,18 @@ function renderReceiptAnalysisSummary(snapshot) {
 
   const retailer = $('#receipt-live-retailer-name');
   if (retailer) retailer.textContent = currentRetailerLabel(snapshot);
+
+  const draftField = $('#receipt-draft-selector-field');
+  const draftSelector = $('#receipt-draft-selector');
+  if (draftField && draftSelector) {
+    const drafts = state.receiptDrafts;
+    draftField.hidden = drafts.length < 2;
+    draftSelector.replaceChildren(...drafts.map((draft, index) => {
+      const capture = captureByKey(draft.captureKeys[0]);
+      return new Option(`Ticket ${index + 1} · ${capture?.name || 'sin archivo'}`, draft.key);
+    }));
+    draftSelector.value = state.activeReceiptDraftKey;
+  }
 
   const progress = receiptProgressSnapshot();
   const stage = $('#receipt-live-stage');
@@ -266,6 +282,23 @@ function detectedItemMeta(item, provisional) {
   return parts.join(' · ');
 }
 
+function detectedItemCategory(item) {
+  if (typeof item?.categoryId !== 'string' || !item.categoryId) return null;
+  const categories = [
+    ...(state.extraction?.final?.categories || []),
+    ...state.receiptCategories,
+  ];
+  const category = categories.find(candidate => candidate?.id === item.categoryId);
+  if (!category?.name) return null;
+  return category;
+}
+
+function categoryColor(value) {
+  return typeof value === 'string' && /^#[\da-f]{6}$/iu.test(value)
+    ? value
+    : 'var(--color-primary)';
+}
+
 export function renderProgressiveDetectedItems() {
   const list = $('#receipt-detected-list');
   const count = $('#receipt-detected-count');
@@ -300,6 +333,11 @@ export function renderProgressiveDetectedItems() {
     if (editable) {
       surface.classList.add('swipe-content');
       surface.dataset.swipeContent = '';
+      surface.dataset.receiptAction = 'edit';
+      surface.dataset.receiptIndex = String(index);
+      surface.tabIndex = 0;
+      surface.setAttribute('role', 'button');
+      surface.setAttribute('aria-label', `Editar producto ${index + 1}: ${item.description || 'sin descripción'}`);
     }
 
     const copy = document.createElement('span');
@@ -311,6 +349,20 @@ export function renderProgressiveDetectedItems() {
     const meta = document.createElement('small');
     meta.textContent = detectedItemMeta(item, snapshot.provisional);
     copy.append(description, meta);
+
+    const category = detectedItemCategory(item);
+    if (category) {
+      const categoryMeta = document.createElement('small');
+      categoryMeta.className = 'receipt-detected-item__category';
+      const swatch = document.createElement('span');
+      swatch.className = 'receipt-detected-item__category-swatch';
+      swatch.setAttribute('aria-hidden', 'true');
+      swatch.style.backgroundColor = categoryColor(category.color);
+      const name = document.createElement('span');
+      name.textContent = category.name;
+      categoryMeta.append(swatch, name);
+      copy.append(categoryMeta);
+    }
 
     const discount = detectedDiscount(item);
     if (discount) {
@@ -328,16 +380,6 @@ export function renderProgressiveDetectedItems() {
       : '—';
 
     surface.append(copy, amount);
-    if (editable) {
-      const actions = document.createElement('button');
-      actions.type = 'button';
-      actions.className = 'icon-button receipt-detected-item__menu';
-      actions.dataset.swipeToggle = '';
-      actions.setAttribute('aria-expanded', 'false');
-      actions.setAttribute('aria-label', `Mostrar acciones del producto ${index + 1}`);
-      actions.innerHTML = icon('more');
-      surface.append(actions);
-    }
 
     row.append(surface);
     list.append(row);
@@ -348,7 +390,7 @@ export function renderProgressiveDetectedItems() {
   help.hidden = snapshot.items.length === 0;
   help.textContent = snapshot.provisional
     ? 'Las líneas son provisionales hasta completar la revisión conjunta.'
-    : 'Resultado combinado listo. Abre la vista previa para validar y corregir.';
+    : 'Edita una línea si requiere revisión o valida el ticket cuando esté listo.';
   renderReceiptAnalysisSummary(snapshot);
 }
 
@@ -379,6 +421,132 @@ export function persistAndRenderCaptures() {
   renderProgressiveDetectedItems();
 }
 
+function captureRetailer(capture) {
+  const page = state.pageStates.get(captureKey(capture));
+  return capture.retailerName || page?.result?.final?.retailerName || '';
+}
+
+function captureStore(capture) {
+  const page = state.pageStates.get(captureKey(capture));
+  return capture.storeName || page?.result?.final?.storeName || '';
+}
+
+let sourceStoreSearchVersion = 0;
+
+async function populateSourceStoreOptions(retailer, selected = '') {
+  const select = $('#receipt-source-store');
+  if (!select) return;
+  const version = ++sourceStoreSearchVersion;
+  select.replaceChildren(new Option('Escribe o elige una tienda', ''));
+  if (!retailer) return;
+  try {
+    const params = new URLSearchParams({ retailer, sort: 'name', limit: '100', offset: '0' });
+    const result = await api(`/api/v1/inventory/stores?${params}`);
+    if (version !== sourceStoreSearchVersion) return;
+    for (const store of result.stores || []) select.append(new Option(store.name, store.id));
+    const matching = [...select.options].find(option => option.text === selected);
+    if (matching) select.value = matching.value;
+  } catch {
+    // The source can still be saved as a new store name.
+  }
+}
+
+function ensureSourceEditor() {
+  let dialog = $('#receipt-source-editor');
+  if (dialog) return dialog;
+  dialog = createAppDialog({ id: 'receipt-source-editor', label: 'Editar archivo del ticket' });
+  const { header } = createAppDialogHeader({
+    title: 'Editar archivo',
+    titleId: 'receipt-source-editor-title',
+    eyebrow: 'Archivo del ticket',
+  });
+  header.slot = 'header';
+
+  const body = document.createElement('app-stack');
+  body.slot = 'body';
+  const filename = createAppDialogDescription({ id: 'receipt-source-editor-file' });
+  body.append(filename);
+  const retailer = document.createElement('input');
+  retailer.id = 'receipt-source-retailer';
+  retailer.required = true;
+  retailer.maxLength = 120;
+  retailer.autocomplete = 'organization';
+  body.append(createAppField('Comercio', retailer));
+  const store = createAppSearchSelect({
+    id: 'receipt-source-store',
+    label: 'Tienda guardada',
+    searchLabel: 'Buscar tienda',
+    placeholder: 'Nombre de la tienda',
+  });
+  body.append(store.wrapper);
+  const newStore = document.createElement('input');
+  newStore.id = 'receipt-source-store-name';
+  newStore.maxLength = 160;
+  newStore.placeholder = 'Solo si no existe';
+  body.append(createAppField('Nueva tienda', newStore));
+
+  const footer = document.createElement('app-inline');
+  footer.slot = 'footer';
+  footer.className = 'app-dialog-actions';
+  const cancel = createAppButton({ label: 'Cancelar' });
+  cancel.button.dataset.componentDialogClose = 'true';
+  const save = createAppButton({ label: 'Guardar archivo', variant: 'primary' });
+  save.button.id = 'receipt-source-editor-save';
+  footer.append(cancel.component, save.component);
+  dialog.append(header, body, footer);
+  document.body.append(dialog);
+  $('#receipt-source-retailer').addEventListener('change', event => void populateSourceStoreOptions(event.target.value.trim()));
+  $('#receipt-source-editor-save').addEventListener('click', async () => {
+    const capture = captureByKey(dialog.dataset.captureKey || '');
+    const retailerName = $('#receipt-source-retailer').value.trim();
+    const selected = $('#receipt-source-store');
+    const newStoreName = $('#receipt-source-store-name').value.trim();
+    if (!capture || !retailerName) return;
+    const button = $('#receipt-source-editor-save');
+    button.disabled = true;
+    try {
+      let storeId = selected.value;
+      let storeName = selected.selectedOptions[0]?.text || '';
+      if (newStoreName) {
+        const result = await api('/api/v1/stores', { method: 'POST', body: JSON.stringify({ retailerName, name: newStoreName }) });
+        storeId = result.store.id;
+        storeName = result.store.name;
+      }
+      capture.retailerName = retailerName;
+      capture.storeId = storeId;
+      capture.storeName = storeName;
+      persistAndRenderCaptures();
+      document.dispatchEvent(new CustomEvent('basketra:receipt-capture-source-changed', {
+        detail: { captureKey: captureKey(capture) },
+      }));
+      dialog.close();
+      toast('Archivo actualizado');
+    } catch {
+      toast('No se pudo guardar el archivo');
+    } finally {
+      button.disabled = false;
+    }
+  });
+  return dialog;
+}
+
+export async function showCaptureSourceEditor(index) {
+  const capture = state.captures[index];
+  if (!capture) return;
+  const dialog = ensureSourceEditor();
+  dialog.dataset.captureKey = captureKey(capture);
+  $('#receipt-source-editor-title').textContent = 'Editar archivo';
+  $('#receipt-source-editor-file').textContent = capture.name;
+  const retailer = captureRetailer(capture);
+  const store = captureStore(capture);
+  $('#receipt-source-retailer').value = retailer;
+  $('#receipt-source-store-name').value = '';
+  $('#receipt-source-store-search').value = '';
+  await populateSourceStoreOptions(retailer, store);
+  dialog.showModal();
+  dialog.focus();
+}
+
 function pageDiagnostic(page) {
   if (page.aiStatus === 'error' && typeof page.aiRecovery?.diagnostic === 'string') {
     return page.aiRecovery.diagnostic;
@@ -390,6 +558,7 @@ function pageDiagnostic(page) {
 }
 
 function appendProgressiveOcrEvidence(section, page) {
+  if (page.directPdf) return;
   const evidence = page.ocrEvidence;
   if (!evidence || typeof evidence.text !== 'string' || !evidence.text) return;
 
@@ -433,11 +602,13 @@ function appendProgressiveOcrEvidence(section, page) {
 export function renderCaptureProgress(card, capture, index) {
   const key = captureKey(capture);
   const page = state.pageStates.get(key) ?? createPageState();
+  page.directPdf ||= capture.mimeType === 'application/pdf';
   const active = ACTIVE_PAGE_STATUSES.has(page.status);
   const details = document.createElement('details');
   details.className = 'capture-card__details';
   details.dataset.capturePageProgress = key;
-  details.open = state.expandedCaptureKey === key;
+  details.dataset.state = page.status;
+  details.open = false;
 
   const summary = document.createElement('summary');
   summary.className = 'capture-card__summary';
@@ -445,14 +616,14 @@ export function renderCaptureProgress(card, capture, index) {
   summaryCopy.className = 'capture-card__summary-copy';
   const position = document.createElement('strong');
   position.textContent = capture.name;
-  const stage = document.createElement('small');
-  stage.textContent = `Página ${index + 1} de ${state.captures.length} · ${pageStageDescription(page)}`;
-  summaryCopy.append(position, stage);
+  summaryCopy.append(position);
   const status = document.createElement('span');
   status.className = `status-pill ${pageStatusClass(page)}`;
   status.textContent = page.status === 'completed' && page.aiStatus === 'error'
-    ? 'OCR listo'
-    : (PAGE_LABELS[page.status] || PAGE_LABELS.pending);
+    ? (page.directPdf ? 'PDF conservado' : 'OCR listo')
+    : (page.directPdf && page.status === 'ai'
+      ? 'Analizando con IA'
+      : (PAGE_LABELS[page.status] || PAGE_LABELS.pending));
   summary.append(summaryCopy, status);
 
   const section = document.createElement('section');
@@ -463,10 +634,7 @@ export function renderCaptureProgress(card, capture, index) {
   meta.className = 'capture-card__progress-meta';
   const metaStage = document.createElement('span');
   metaStage.textContent = pageStageDescription(page);
-  const elapsed = document.createElement('span');
-  elapsed.dataset.captureElapsed = key;
-  elapsed.textContent = formatElapsed(currentElapsed(page));
-  meta.append(metaStage, elapsed);
+  meta.append(metaStage);
 
   const track = document.createElement('div');
   track.className = 'capture-card__stage-track';
@@ -489,6 +657,19 @@ export function renderCaptureProgress(card, capture, index) {
   }
   appendProgressiveOcrEvidence(section, page);
 
+  const editSource = document.createElement('button');
+  editSource.type = 'button';
+  editSource.className = 'icon-button capture-card__action';
+  editSource.dataset.captureIndex = String(index);
+  editSource.dataset.captureAction = 'edit-source';
+  editSource.setAttribute('aria-label', 'Editar comercio y tienda del archivo');
+  editSource.title = 'Editar comercio y tienda';
+  editSource.innerHTML = icon('edit');
+  const actionRow = document.createElement('div');
+  actionRow.className = 'capture-card__action-row';
+  actionRow.append(editSource);
+  section.append(actionRow);
+
   const showPrimaryAiRecovery = (page.status === 'error' || page.status === 'manual')
     && page.errorCode.startsWith('AI_')
     && state.aiConfigured;
@@ -498,25 +679,32 @@ export function renderCaptureProgress(card, capture, index) {
     || showPrimaryAiRecovery;
   const showAiRecovery = page.status === 'completed' && page.aiStatus === 'error';
   if (showPrimaryRecovery || showAiRecovery) {
-    const actions = document.createElement('div');
-    actions.className = 'capture-card__page-actions';
+    const actions = actionRow;
 
     if (showPrimaryRecovery) {
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = 'button secondary';
+      button.className = 'icon-button capture-card__action';
       button.dataset.captureIndex = String(index);
       if (active) {
         button.dataset.captureAction = 'cancel-processing';
-        button.textContent = page.status === 'ai' && (page.rawText || page.result)
+        const label = page.status === 'ai' && (page.rawText || page.result)
           ? 'Cancelar corrección con IA'
-          : 'Cancelar esta imagen';
+          : (page.directPdf ? 'Cancelar este PDF' : 'Cancelar esta imagen');
+        button.setAttribute('aria-label', label);
+        button.title = label;
+        button.innerHTML = icon('close');
       } else if (showPrimaryAiRecovery) {
         button.dataset.captureAction = 'retry-ai';
-        button.textContent = 'Volver a analizar con IA';
+        button.setAttribute('aria-label', 'Volver a analizar con IA');
+        button.title = 'Volver a analizar con IA';
+        button.innerHTML = icon('refresh');
       } else {
         button.dataset.captureAction = 'retry-processing';
-        button.textContent = page.recovery?.retryLabel || 'Reintentar imagen';
+        const label = page.recovery?.retryLabel || (page.directPdf ? 'Reintentar PDF' : 'Reintentar imagen');
+        button.setAttribute('aria-label', label);
+        button.title = label;
+        button.innerHTML = icon('refresh');
       }
       actions.append(button);
     }
@@ -524,40 +712,44 @@ export function renderCaptureProgress(card, capture, index) {
     if ((page.status === 'error' && page.recovery?.allowManualReview) || showAiRecovery) {
       const manualButton = document.createElement('button');
       manualButton.type = 'button';
-      manualButton.className = 'button secondary';
+      manualButton.className = 'icon-button capture-card__action';
       manualButton.dataset.captureIndex = String(index);
       manualButton.dataset.captureAction = 'manual-review';
-      manualButton.textContent = 'Revisar manualmente';
+      manualButton.setAttribute('aria-label', 'Revisar manualmente');
+      manualButton.title = 'Revisar manualmente';
+      manualButton.innerHTML = icon('edit');
       actions.append(manualButton);
     }
 
     if (showAiRecovery) {
       const aiButton = document.createElement('button');
       aiButton.type = 'button';
-      aiButton.className = 'button secondary';
+      aiButton.className = 'icon-button capture-card__action';
       aiButton.dataset.captureIndex = String(index);
       aiButton.dataset.captureAction = 'retry-ai';
-      aiButton.textContent = 'Volver a analizar con IA';
+      aiButton.setAttribute('aria-label', 'Volver a analizar con IA');
+      aiButton.title = 'Volver a analizar con IA';
+      aiButton.innerHTML = icon('refresh');
       actions.append(aiButton);
     }
 
     if (pageDiagnostic(page)) {
       const diagnosticButton = document.createElement('button');
       diagnosticButton.type = 'button';
-      diagnosticButton.className = 'button secondary';
+      diagnosticButton.className = 'icon-button capture-card__action';
       diagnosticButton.dataset.captureIndex = String(index);
       diagnosticButton.dataset.captureAction = 'copy-ai-diagnostic';
-      diagnosticButton.textContent = 'Copiar diagnóstico';
+      diagnosticButton.setAttribute('aria-label', 'Copiar diagnóstico');
+      diagnosticButton.title = 'Copiar diagnóstico';
+      diagnosticButton.innerHTML = icon('copy');
       actions.append(diagnosticButton);
     }
 
-    section.append(actions);
   }
 
   const secondaryActions = card.querySelector('.capture-card__actions');
   if (secondaryActions) {
-    secondaryActions.classList.add('capture-card__secondary-actions');
-    section.append(secondaryActions);
+    secondaryActions.querySelectorAll('button').forEach(button => actionRow.append(button));
   }
 
   details.append(summary, section);
@@ -582,8 +774,8 @@ export function pageStatusClass(page) {
 }
 
 export function pageStageValue(status) {
-  if (status === 'ready' || status === 'preparing' || status === 'pending' || status === 'cancelled' || status === 'error') return 0;
-  if (status === 'ocr') return 1;
+  if (status === 'ready' || status === 'pending' || status === 'queued' || status === 'cancelled' || status === 'error') return 0;
+  if (status === 'submitting' || status === 'preparing' || status === 'ocr') return 1;
   if (status === 'ai') return 2;
   if (status === 'completed' || status === 'manual') return 3;
   return 0;
@@ -591,38 +783,64 @@ export function pageStageValue(status) {
 
 export function pageStageDescription(page) {
   if (page.status === 'ready') return 'Lista para procesar';
-  if (page.status === 'pending') return 'En espera de un hueco del pool';
+  if (page.status === 'pending') return 'En espera de un hueco de procesamiento';
+  if (page.status === 'queued') return page.directPdf
+    ? 'Esperando turno en el proveedor de IA'
+    : 'Esperando turno para el análisis durable';
+  if (page.status === 'submitting') return page.directPdf
+    ? 'Enviando el PDF al análisis durable'
+    : 'Enviando la captura al análisis durable';
   if (page.status === 'preparing') return 'Preparando la captura almacenada';
-  if (page.status === 'ocr') return 'Reconociendo el texto localmente';
-  if (page.status === 'ai') return 'Corrigiendo el OCR con IA';
-  if (page.status === 'completed' && page.aiStatus === 'error') return 'OCR listo · IA sin corregir';
-  if (page.status === 'completed') return page.aiStatus === 'completed' ? 'OCR corregido con IA' : 'OCR listo para revisar';
-  if (page.status === 'manual') return 'OCR conservado; cantidades e importes requieren revisión manual';
+  if (page.status === 'ocr') return page.directPdf
+    ? 'Enviando el PDF directamente a la IA'
+    : 'Reconociendo el texto localmente';
+  if (page.status === 'ai') return page.directPdf
+    ? 'Analizando el PDF directamente con IA'
+    : 'Corrigiendo el OCR con IA';
+  if (page.status === 'completed' && page.aiStatus === 'error') {
+    return page.directPdf ? 'PDF conservado · IA sin completar' : 'OCR listo · IA sin corregir';
+  }
+  if (page.status === 'completed') return page.aiStatus === 'completed'
+    ? (page.directPdf ? 'PDF analizado con IA' : 'OCR corregido con IA')
+    : (page.directPdf ? 'PDF listo para revisar' : 'OCR listo para revisar');
+  if (page.status === 'manual') return page.directPdf
+    ? 'PDF conservado; cantidades e importes requieren revisión manual'
+    : 'OCR conservado; cantidades e importes requieren revisión manual';
   if (page.status === 'cancelled') return 'Esta imagen no se incluirá hasta reintentar';
-  if (page.status === 'error') return 'La captura y el OCR parcial se conservan';
+  if (page.status === 'error') return page.directPdf
+    ? 'El PDF se conserva para reintentar el análisis con IA'
+    : 'La captura y el OCR parcial se conservan';
   return '';
 }
 
 export function pagePartialText(page) {
-  if (page.status === 'error') return page.error || 'No se pudo procesar esta imagen.';
+  if (page.status === 'error') return page.error || (page.directPdf
+    ? 'No se pudo analizar este PDF.'
+    : 'No se pudo procesar esta imagen.');
   const itemCount = page.result?.final?.items?.length;
   const ocrItemCount = page.ocrEvidence?.deterministic?.items?.length;
+  if (page.directPdf && !Number.isSafeInteger(itemCount)) return '';
   const hasStructuredItems = Number.isSafeInteger(itemCount) && itemCount > 0;
   const hasOcrEvidence = (Number.isSafeInteger(ocrItemCount) && ocrItemCount > 0) || Boolean(page.rawText);
   if (page.status === 'manual' && !hasStructuredItems && !hasOcrEvidence) {
-    return 'Entrada manual pendiente; la captura original se conserva';
+    return page.directPdf
+      ? 'Revisión manual pendiente; el PDF original se conserva'
+      : 'Entrada manual pendiente; la captura original se conserva';
   }
-  if (page.aiStatus === 'error') return page.aiError || 'La IA no pudo corregir esta imagen; el OCR local sigue disponible.';
+  if (page.aiStatus === 'error') return page.aiError || (page.directPdf
+    ? 'La IA no pudo analizar este PDF; el archivo original sigue disponible.'
+    : 'La IA no pudo corregir esta imagen; el OCR local sigue disponible.');
   if (page.status === 'manual' && Number.isSafeInteger(itemCount)) {
-    return `${itemCount} ${itemCount === 1 ? 'línea OCR pendiente' : 'líneas OCR pendientes'} de revisión manual`;
+    const subject = page.directPdf ? 'línea del PDF' : 'línea OCR';
+    return `${itemCount} ${itemCount === 1 ? subject : `${subject}s`} pendientes de revisión manual`;
   }
   if (Number.isSafeInteger(itemCount)) {
     return `${itemCount} ${itemCount === 1 ? 'línea estructurada' : 'líneas estructuradas'}`;
   }
-  if (Number.isSafeInteger(ocrItemCount)) {
+  if (Number.isSafeInteger(ocrItemCount) && !page.directPdf) {
     return `${ocrItemCount} ${ocrItemCount === 1 ? 'producto OCR detectado' : 'productos OCR detectados'} · ${page.status === 'ai' ? 'IA verificando' : 'OCR conservado'}`;
   }
-  if (page.rawText) {
+  if (page.rawText && !page.directPdf) {
     const lines = page.rawText.split(/\r?\n/u).filter(line => line.trim()).length;
     return `${lines} ${lines === 1 ? 'línea OCR conservada' : 'líneas OCR conservadas'}`;
   }
@@ -722,7 +940,7 @@ export async function uploadFiles(fileList) {
   const files = [...fileList];
   if (files.length === 0) return;
   const addedCaptures = [];
-  const hadBackgroundJob = Boolean(state.activeJobId);
+  const hadBackgroundJob = Boolean(state.activeJobId || (state.verifyWithAi && state.processing));
   try {
     files.forEach(file => validateFile(file));
     const aiSizeWarning = state.aiConfigured
@@ -749,10 +967,14 @@ export async function uploadFiles(fileList) {
     if (hadBackgroundJob) clearReceiptExtractionJob({ cancel: true });
     ensurePageStates();
     persistAndRenderCaptures();
+    const onlyPdf = addedCaptures.every(capture => capture.mimeType === 'application/pdf');
+    const processingLabel = onlyPdf
+      ? 'Los PDF se enviarán directamente a la IA.'
+      : 'El OCR ha empezado automáticamente.';
     $('#upload-state').textContent = aiSizeWarning
-      ? `Capturas guardadas. OCR iniciado. ${aiSizeWarning}`
-      : 'Capturas guardadas. El OCR ha empezado automáticamente.';
-    toast(aiSizeWarning ? `Capturas guardadas · ${aiSizeWarning}` : 'Capturas guardadas · OCR iniciado');
+      ? `Capturas guardadas. ${processingLabel} ${aiSizeWarning}`
+      : `Capturas guardadas. ${processingLabel}`;
+    toast(aiSizeWarning ? `Capturas guardadas · ${aiSizeWarning}` : `Capturas guardadas · ${processingLabel}`);
     startAutomaticCaptureProcessing(hadBackgroundJob ? state.captures : addedCaptures, {
       resetAll: hadBackgroundJob,
     });
@@ -820,6 +1042,7 @@ export function handleCaptureAction(event) {
   const index = Number(button.dataset.captureIndex);
   const action = button.dataset.captureAction;
   if (action === 'preview') showPreview(index);
+  if (action === 'edit-source') void showCaptureSourceEditor(index);
   if (action === 'up') moveCapture(index, -1);
   if (action === 'down') moveCapture(index, 1);
   if (action === 'delete') deleteCapture(index);

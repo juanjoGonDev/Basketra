@@ -1,0 +1,88 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+
+const webRoot = 'src/web';
+const read = (path: string) => readFileSync(path, 'utf8');
+
+test('shared native web components own the dialog and form primitives', () => {
+  const components = read(`${webRoot}/components.js`);
+  const css = read(`${webRoot}/components.css`);
+  for (const name of ['app-dialog', 'app-field', 'app-button', 'app-stack', 'app-inline', 'app-select']) {
+    assert.match(components, new RegExp(name));
+    assert.match(css, new RegExp(name));
+  }
+  assert.match(components, /createAppDialog/);
+  assert.match(components, /createAppDialogHeader/);
+  assert.match(components, /showModal/);
+});
+
+test('features cannot construct native dialogs outside the shared component module', () => {
+  const featureSources = readdirSync(webRoot)
+    .filter(file => file.endsWith('.js') && file !== 'components.js')
+    .map(file => [file, read(`${webRoot}/${file}`)] as const);
+  for (const [file, source] of featureSources) {
+    assert.doesNotMatch(source, /createElement\(['"]dialog['"]\)/u, file);
+    assert.doesNotMatch(source, /<dialog\b/u, file);
+  }
+  assert.doesNotMatch(read(`${webRoot}/index.html`), /<dialog\b/u);
+  const receiptCapture = read(`${webRoot}/receipt-capture.js`);
+  assert.match(receiptCapture, /createAppDialog/);
+  assert.match(receiptCapture, /createAppDialogHeader/);
+  assert.doesNotMatch(receiptCapture, /receipt-source-editor__|document\.createElement\(['"]dialog['"]\)/u);
+});
+
+test('component runtime stays local and lightweight', () => {
+  const components = read(`${webRoot}/components.js`);
+  assert.doesNotMatch(components, /https?:\/\//u);
+  assert.ok(statSync(`${webRoot}/components.js`).size < 8_000, 'component module must stay below 8 KB');
+  assert.ok(statSync(`${webRoot}/components.css`).size < 4_000, 'component stylesheet must stay below 4 KB');
+});
+
+test('receipt presentation keeps amounts inset and invoice actions in one desktop row', () => {
+  const review = read(`${webRoot}/receipt-review.css`);
+  const invoice = read(`${webRoot}/receipt-editor-invoice.css`);
+  assert.match(review, /\.receipt-detected-item\s*\{[\s\S]*?padding: var\(--space-2\) var\(--space-3\);/u);
+  assert.match(invoice, /\.receipt-invoice-dialog \.receipt-invoice-dialog__actions\s*\{[\s\S]*?grid-template-columns: repeat\(4, minmax\(0, 1fr\)\);/u);
+  assert.match(invoice, /\.receipt-editor-summary__stamp\s*\{\s*display: none;/u);
+});
+
+test('receipt line pickers use shared dialogs and the invoice refresh supports their host', () => {
+  const pickers = read(`${webRoot}/receipt-line-pickers.js`);
+  const invoice = read(`${webRoot}/receipt-editor-invoice.js`);
+  const app = read(`${webRoot}/app.js`);
+  const worker = read(`${webRoot}/sw.js`);
+  const assets = read('src/api/static-assets.ts');
+  assert.match(pickers, /createAppDialog/u);
+  assert.match(pickers, /createAppDialogHeader/u);
+  assert.match(pickers, /createAppField/u);
+  assert.match(pickers, /PAGE_SIZE = 6/u);
+  assert.match(pickers, /\/api\/v1\/categories/u);
+  assert.match(pickers, /\/api\/v1\/catalog\?q=/u);
+  assert.match(pickers, /\/api\/v1\/products/u);
+  assert.match(invoice, /item\.closest\('app-dialog\.receipt-invoice-dialog, dialog\.receipt-invoice-dialog'\)/u);
+  assert.match(invoice, /createAppDialogHeader/u);
+  assert.match(app, /refreshReceiptInvoiceEditor\(dialog\)/u);
+  assert.match(worker, /'\/receipt-line-pickers\.js'/u);
+  assert.match(assets, /'receipt-line-pickers\.js'/u);
+});
+
+test('the component gallery and its local assets are included in the offline shell', () => {
+  const html = read(`${webRoot}/index.html`);
+  const worker = read(`${webRoot}/sw.js`);
+  const assets = read('src/api/static-assets.ts');
+  assert.match(html, /data-view="components"/);
+  assert.match(html, /src="\/components\.js"/);
+  assert.match(html, /href="\/components\.css"/);
+  assert.match(html, /href="\/search-select\.css"/);
+  assert.match(worker, /'\/components\.js'/);
+  assert.match(worker, /'\/components\.css'/);
+  assert.match(worker, /'\/search-select\.js'/);
+  assert.match(worker, /'\/search-normalize\.js'/);
+  assert.match(worker, /'\/search-select\.css'/);
+  assert.match(assets, /'components\.js'/);
+  assert.match(assets, /'components\.css'/);
+  assert.match(assets, /'search-select\.js'/);
+  assert.match(assets, /'search-normalize\.js'/);
+  assert.match(assets, /'search-select\.css'/);
+});
