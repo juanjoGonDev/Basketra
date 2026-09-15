@@ -25,7 +25,7 @@ import {
   watchReceiptExtractionJob,
 } from './receipt-lifecycle.js';
 import { cancelReceiptExtraction } from './receipt-processing.js';
-import { saveReceiptExtractionJobId } from './state.js';
+import { saveReceiptExtractionJobCaptureKeys, saveReceiptExtractionJobId } from './state.js';
 import { icon } from './ui.js';
 import { createAppButton, createAppDialog, createAppDialogHeader, createAppField, createAppSelect } from './components.js';
 import {
@@ -787,9 +787,11 @@ async function recoverPersistedReceiptDraft() {
   }
 
   state.activeJobId = job.id;
+  state.activeJobCaptureKeys = state.captures.map(captureKey);
   state.failedBackgroundJobId = '';
   state.verifyWithAi = true;
   saveReceiptExtractionJobId(job.id);
+  saveReceiptExtractionJobCaptureKeys(state.activeJobCaptureKeys);
   watchReceiptExtractionJob();
   try {
     await refreshReceiptExtractionJob();
@@ -806,6 +808,10 @@ export function initReceipts(options) {
   ensurePageStates();
   persistAndRenderCaptures();
   if (state.activeJobId) {
+    if (state.activeJobCaptureKeys.length === 0) {
+      state.activeJobCaptureKeys = state.captures.map(captureKey);
+      saveReceiptExtractionJobCaptureKeys(state.activeJobCaptureKeys);
+    }
     watchReceiptExtractionJob();
     void refreshReceiptExtractionJob().catch(() => {
       $('#receipt-state').textContent = 'No se pudo recuperar el análisis anterior. Las capturas se conservan y el job conocido no se reemplaza automáticamente.';
