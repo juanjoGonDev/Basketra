@@ -4,6 +4,7 @@ import { capturesByKeys } from './receipt-job-scope.js';
 import { saveReceiptExtractionJobCaptureKeys, saveReceiptExtractionJobId } from './state.js';
 import {
   ACTIVE_PAGE_STATUSES,
+  QUEUED_PAGE_STATUSES,
   REVIEWABLE_PAGE_STATUSES,
   $,
   $$,
@@ -12,6 +13,11 @@ import {
   ensurePageStates,
   state,
 } from './receipt-state.js';
+import {
+  canApplyDurableUpdate,
+  durableJobStatusToPageStatus,
+  durableProgressStageToPageStatus,
+} from './receipt-page-state.js';
 import { persistAndRenderCaptures } from './receipt-capture.js';
 import { applyCaptureDrafts } from './receipt-review.js';
 import {
@@ -25,7 +31,17 @@ const DURABLE_PROGRESS_STAGES = new Set(['queued', 'ocr', 'ai', 'completed', 'er
 const MAX_PROGRESSIVE_OCR_TEXT_CHARS = 500_000;
 const MAX_PROGRESSIVE_OCR_ITEMS = 500;
 let durableRetryPending = false;
-let durableInitialJobPending = false;
+let durableInitialJobRequestId = 0;
+let durableInitialJobPendingScope = '';
+
+export function hasPendingDurableInitialJob() {
+  return durableInitialJobPendingScope !== '';
+}
+
+function invalidateDurableInitialJob() {
+  durableInitialJobRequestId += 1;
+  durableInitialJobPendingScope = '';
+}
 
 function abortError() {
   return new DOMException('Receipt AI correction was cancelled', 'AbortError');
@@ -161,7 +177,7 @@ export function abortPageWork({ markCancelled = false } = {}) {
   for (const task of obsoleteTasks) task.controller.abort();
   if (markCancelled) {
     for (const page of state.pageStates.values()) {
-      if (page.status !== 'pending' && !ACTIVE_PAGE_STATUSES.has(page.status)) continue;
+      if (!QUEUED_PAGE_STATUSES.has(page.status) && !ACTIVE_PAGE_STATUSES.has(page.status)) continue;
       page.version += 1;
       page.elapsedMs = page.startedAt ? Date.now() - page.startedAt : page.elapsedMs;
       page.error = '';
@@ -242,6 +258,10 @@ function activeJobCaptures() {
   return capturesByKeys(state.captures, state.activeJobCaptureKeys);
 }
 
+function durableCaptureScope(captures) {
+  return captures.map(captureKey).join('|');
+}
+
 export function applyReceiptJobProgress(progress, captures = activeJobCaptures()) {
   if (!progress || typeof progress !== 'object' || !Array.isArray(progress.pages)) return false;
   ensurePageStates();
@@ -266,7 +286,7 @@ export function applyReceiptJobProgress(progress, captures = activeJobCaptures()
 
     seen.add(position);
     const page = capture ? state.pageStates.get(captureKey(capture)) : null;
-    if (!page) continue;
+    if (!page || !canApplyDurableUpdate(page.status)) continue;
     page.directPdf = directPdf;
     page.startedAt ||= Date.now();
     page.error = '';
@@ -280,21 +300,13 @@ export function applyReceiptJobProgress(progress, captures = activeJobCaptures()
       page.result = { final: interpretation };
     }
 
-    if (candidate.stage === 'queued') {
-      page.status = 'pending';
-      page.aiStatus = 'idle';
-    } else if (candidate.stage === 'ocr') {
-      page.status = directPdf ? 'pending' : 'ocr';
-      page.aiStatus = 'idle';
-    } else if (candidate.stage === 'ai') {
-      page.status = 'ai';
+    page.status = durableProgressStageToPageStatus(candidate.stage, { directPdf });
+    if (candidate.stage === 'queued' || candidate.stage === 'ocr' || candidate.stage === 'ai') {
       page.aiStatus = 'idle';
     } else if (candidate.stage === 'completed') {
-      page.status = 'completed';
       page.aiStatus = 'completed';
       page.elapsedMs = Date.now() - page.startedAt;
     } else {
-      page.status = 'error';
       page.aiStatus = 'error';
       page.error = directPdf
         ? 'La verificación remota de este PDF terminó con error; el archivo original se conserva.'
@@ -308,13 +320,17 @@ export function applyReceiptJobProgress(progress, captures = activeJobCaptures()
 }
 
 async function startDurableAutomaticCaptureProcessing(captures) {
-  if (durableInitialJobPending || captures.length === 0) return;
-  durableInitialJobPending = true;
+  if (captures.length === 0) return;
+  const scope = durableCaptureScope(captures);
+  if (durableInitialJobPendingScope === scope) return;
+  const requestId = durableInitialJobRequestId + 1;
+  durableInitialJobRequestId = requestId;
+  durableInitialJobPendingScope = scope;
   const token = state.runToken;
   ensurePageStates();
   state.verifyWithAi = true;
   state.processing = true;
-  setPagesForBackgroundJob('queued', captures);
+  setPagesForBackgroundJob('submitting', captures);
   if (!state.progressTimer) startReceiptProgress();
   persistAndRenderCaptures();
   const pdfOnly = captures.every(capture => capture.mimeType === 'application/pdf');
@@ -337,13 +353,15 @@ async function startDurableAutomaticCaptureProcessing(captures) {
     if (typeof jobId !== 'string' || !jobId) {
       throw jobError(undefined, 'AI_EXTRACTION_JOB_INVALID');
     }
-    if (token !== state.runToken) {
+    if (token !== state.runToken || requestId !== durableInitialJobRequestId) {
       try {
         await api(`/api/v1/receipts/extraction-jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
       } catch {
-        state.activeJobId = jobId;
-        saveReceiptExtractionJobId(jobId);
-        $('#receipt-state').textContent = 'La cancelación no pudo confirmarse. El job durable se conserva para recuperarlo sin duplicar OCR ni IA.';
+        if (token !== state.runToken) {
+          state.activeJobId = jobId;
+          saveReceiptExtractionJobId(jobId);
+          $('#receipt-state').textContent = 'La cancelación no pudo confirmarse. El job durable se conserva para recuperarlo sin duplicar OCR ni IA.';
+        }
       }
       return;
     }
@@ -360,7 +378,7 @@ async function startDurableAutomaticCaptureProcessing(captures) {
     watchReceiptExtractionJob();
     await refreshReceiptExtractionJob();
   } catch (error) {
-    if (!state.activeJobId && token === state.runToken) {
+    if (!state.activeJobId && token === state.runToken && requestId === durableInitialJobRequestId) {
       state.processing = false;
       stopReceiptProgress();
       for (const capture of captures) {
@@ -374,7 +392,7 @@ async function startDurableAutomaticCaptureProcessing(captures) {
       $('#receipt-state').textContent = 'No se pudo crear el job durable. Las capturas se conservan sin relanzar OCR ni IA.';
     }
   } finally {
-    durableInitialJobPending = false;
+    if (durableInitialJobRequestId === requestId) durableInitialJobPendingScope = '';
   }
 }
 
@@ -501,6 +519,7 @@ export async function retryFailedReceiptExtractionJob() {
 }
 
 export function clearReceiptExtractionJob({ cancel = false } = {}) {
+  if (cancel) invalidateDurableInitialJob();
   const jobId = state.activeJobId;
   state.jobRealtime?.close();
   state.jobRealtime = null;
@@ -514,12 +533,14 @@ export function clearReceiptExtractionJob({ cancel = false } = {}) {
 
 export function setPagesForBackgroundJob(status, captures = activeJobCaptures()) {
   state.failedBackgroundJobId = '';
-  const nextStatus = status === 'running' ? (state.verifyWithAi ? 'ai' : 'ocr') : 'preparing';
   for (const capture of captures) {
     const page = state.pageStates.get(captureKey(capture));
-    if (!page) continue;
+    if (!page || !canApplyDurableUpdate(page.status)) continue;
     page.directPdf = capture.mimeType === 'application/pdf';
-    page.status = page.directPdf && state.verifyWithAi ? 'pending' : nextStatus;
+    page.status = durableJobStatusToPageStatus(status, {
+      verifyWithAi: state.verifyWithAi,
+      directPdf: page.directPdf,
+    });
     page.startedAt ||= Date.now();
     page.error = '';
     page.errorCode = '';
@@ -708,13 +729,15 @@ export function updateElapsedLabels() {
 
 export function updateGlobalProgress() {
   const progress = $('#receipt-progress');
-  if (!progress || !state.progressVisible) return;
-  progress.hidden = false;
+  if (!progress) return;
+  // Keep the counts in sync even while the bar is withdrawn: pages that settle after a
+  // cancel must not leave a stale summary behind the capture cards.
+  progress.hidden = !state.progressVisible;
   const pages = state.captures.map(capture => state.pageStates.get(captureKey(capture)) ?? createPageState());
   const total = pages.length;
   const completed = pages.filter(page => REVIEWABLE_PAGE_STATUSES.has(page.status)).length;
   const active = pages.filter(page => ACTIVE_PAGE_STATUSES.has(page.status)).length;
-  const pending = pages.filter(page => page.status === 'pending').length;
+  const pending = pages.filter(page => QUEUED_PAGE_STATUSES.has(page.status)).length;
   const failed = pages.filter(page => page.status === 'error').length;
   const cancelled = pages.filter(page => page.status === 'cancelled').length;
   const manual = pages.filter(page => page.status === 'manual').length;

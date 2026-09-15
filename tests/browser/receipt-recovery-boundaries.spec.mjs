@@ -128,8 +128,9 @@ test('a durable PDF provider failure permits blank manual entry without hiding r
   await expect(details.getByRole('button', { name: 'Volver a analizar con IA', exact: true })).toBeVisible();
   await expect(page.locator('.capture-card')).toHaveCount(1);
   await expect(page.getByText('private provider PDF detail')).toHaveCount(0);
-  await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
-  await expect(page.locator('#receipt-review-reference')).toContainText('ticket-without-ocr.pdf');
+  await expect(page.locator('#receipt-review-panel')).toBeHidden();
+  await expect(page.locator('#receipt-detected-stream')).toBeVisible();
+  await expect(page.locator('.capture-card').first()).toContainText('ticket-without-ocr.pdf');
 });
 
 test('unknown page states and stale delegated actions fail closed without mutating captures', async ({ page }) => {

@@ -23,6 +23,7 @@ import {
 } from './receipt-lifecycle.js';
 import {
   applyCaptureDrafts,
+  applyExtraction,
   applyRetailerCandidate,
   renderReviewReference,
   showReviewPanelForCapture,
@@ -425,13 +426,30 @@ export async function finishCurrentRunWhenIdle() {
 export async function assembleCompletedPages(token) {
   if (token !== state.runToken || state.finalizing) return;
   state.finalizing = true;
+  const controller = new AbortController();
+  state.assemblyController = controller;
   updateGlobalProgress();
   try {
     if (token !== state.runToken) return;
-    const drafts = applyCaptureDrafts();
-    $('#receipt-state').textContent = drafts.length === 1
-      ? 'Ticket preparado. Revisa las líneas, cantidades y total antes de confirmar.'
-      : `${drafts.length} tickets preparados. Revisa y confirma cada uno por separado.`;
+    if (state.verifyWithAi) {
+      const drafts = applyCaptureDrafts();
+      $('#receipt-state').textContent = drafts.length === 1
+        ? 'Ticket preparado. Revisa las líneas, cantidades y total antes de confirmar.'
+        : `${drafts.length} tickets preparados. Revisa y confirma cada uno por separado.`;
+      return;
+    }
+
+    const combined = await requestExtraction(
+      state.captures.map(capture => captureRequest(
+        capture,
+        canonicalPageText(state.pageStates.get(captureKey(capture))),
+      )),
+      false,
+      controller.signal,
+    );
+    if (token !== state.runToken || controller.signal.aborted) return;
+    applyExtraction(combined.extraction);
+    $('#receipt-state').textContent = 'Ticket preparado. Revisa las líneas, cantidades y total antes de confirmar.';
   } catch (error) {
     if (error.name !== 'AbortError' && token === state.runToken) {
       $('#receipt-state').textContent = `${error.message}. Las páginas completadas se conservan; vuelve a procesar para combinar.`;
@@ -440,7 +458,7 @@ export async function assembleCompletedPages(token) {
     if (token === state.runToken) {
       state.processing = false;
       state.finalizing = false;
-      state.assemblyController = null;
+      if (state.assemblyController === controller) state.assemblyController = null;
       stopReceiptProgress({ hide: true });
       updateGlobalProgress();
       persistAndRenderCaptures();

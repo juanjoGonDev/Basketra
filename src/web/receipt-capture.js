@@ -5,6 +5,7 @@ import { createAppButton, createAppDialog, createAppDialogDescription, createApp
 import { createAppSearchSelect } from './search-select.js';
 import {
   ACTIVE_PAGE_STATUSES,
+  QUEUED_PAGE_STATUSES,
   REVIEWABLE_PAGE_STATUSES,
   PAGE_LABELS,
   $,
@@ -13,6 +14,7 @@ import {
   createPageState,
   ensurePageStates,
   metadata,
+  openDialog,
   state,
   toast,
 } from './receipt-state.js';
@@ -45,7 +47,7 @@ export function renderReceiptQueueStatus() {
   const pages = state.captures.map(capture => state.pageStates.get(captureKey(capture)) ?? createPageState());
   const total = pages.length;
   const active = pages.filter(page => ACTIVE_PAGE_STATUSES.has(page.status)).length;
-  const pending = pages.filter(page => page.status === 'pending' || page.status === 'preparing').length;
+  const pending = pages.filter(page => QUEUED_PAGE_STATUSES.has(page.status)).length;
   const completed = pages.filter(page => REVIEWABLE_PAGE_STATUSES.has(page.status)).length;
   const failed = pages.filter(page => page.status === 'error').length;
   const cancelled = pages.filter(page => page.status === 'cancelled').length;
@@ -166,7 +168,7 @@ function receiptProgressSnapshot() {
   const total = pages.length;
   const completed = pages.filter(page => REVIEWABLE_PAGE_STATUSES.has(page.status)).length;
   const active = pages.filter(page => ACTIVE_PAGE_STATUSES.has(page.status)).length;
-  const pending = pages.filter(page => page.status === 'pending' || page.status === 'preparing').length;
+  const pending = pages.filter(page => QUEUED_PAGE_STATUSES.has(page.status)).length;
   const failed = pages.filter(page => page.status === 'error').length;
   const done = total > 0 && completed === total && active === 0 && pending === 0 && !state.finalizing;
   const stage = failed
@@ -618,12 +620,10 @@ export function renderCaptureProgress(card, capture, index) {
   const status = document.createElement('span');
   status.className = `status-pill ${pageStatusClass(page)}`;
   status.textContent = page.status === 'completed' && page.aiStatus === 'error'
-    ? 'OCR listo'
-    : (page.directPdf && page.status === 'pending'
-      ? 'En cola IA'
-      : (page.directPdf && (page.status === 'ocr' || page.status === 'ai')
+    ? (page.directPdf ? 'PDF conservado' : 'OCR listo')
+    : (page.directPdf && page.status === 'ai'
       ? 'Analizando con IA'
-      : (PAGE_LABELS[page.status] || PAGE_LABELS.pending)));
+      : (PAGE_LABELS[page.status] || PAGE_LABELS.pending));
   summary.append(summaryCopy, status);
 
   const section = document.createElement('section');
@@ -774,8 +774,8 @@ export function pageStatusClass(page) {
 }
 
 export function pageStageValue(status) {
-  if (status === 'ready' || status === 'preparing' || status === 'pending' || status === 'cancelled' || status === 'error') return 0;
-  if (status === 'ocr') return 1;
+  if (status === 'ready' || status === 'pending' || status === 'queued' || status === 'cancelled' || status === 'error') return 0;
+  if (status === 'submitting' || status === 'preparing' || status === 'ocr') return 1;
   if (status === 'ai') return 2;
   if (status === 'completed' || status === 'manual') return 3;
   return 0;
@@ -783,9 +783,13 @@ export function pageStageValue(status) {
 
 export function pageStageDescription(page) {
   if (page.status === 'ready') return 'Lista para procesar';
-  if (page.status === 'pending') return page.directPdf
-    ? 'En cola para validación IA'
-    : 'En espera de un hueco de procesamiento';
+  if (page.status === 'pending') return 'En espera de un hueco de procesamiento';
+  if (page.status === 'queued') return page.directPdf
+    ? 'Esperando turno en el proveedor de IA'
+    : 'Esperando turno para el análisis durable';
+  if (page.status === 'submitting') return page.directPdf
+    ? 'Enviando el PDF al análisis durable'
+    : 'Enviando la captura al análisis durable';
   if (page.status === 'preparing') return 'Preparando la captura almacenada';
   if (page.status === 'ocr') return page.directPdf
     ? 'Enviando el PDF directamente a la IA'
@@ -936,7 +940,7 @@ export async function uploadFiles(fileList) {
   const files = [...fileList];
   if (files.length === 0) return;
   const addedCaptures = [];
-  const hadBackgroundJob = Boolean(state.activeJobId);
+  const hadBackgroundJob = Boolean(state.activeJobId || (state.verifyWithAi && state.processing));
   try {
     files.forEach(file => validateFile(file));
     const aiSizeWarning = state.aiConfigured

@@ -495,7 +495,8 @@ function ensureItemLayout(item) {
     || !(discountType instanceof HTMLSelectElement)) return;
 
   const descriptionLabel = description.closest('label');
-  const categoryLabel = item.querySelector('.receipt-category-field');
+  // The historical ticket editor names its category label differently; both are valid anchors.
+  const categoryLabel = item.querySelector('.receipt-category-field, .receipt-editor-category-field');
   const discountTypeLabel = discountType.closest('label');
   if (!descriptionLabel || !categoryLabel || !discountTypeLabel) return;
 

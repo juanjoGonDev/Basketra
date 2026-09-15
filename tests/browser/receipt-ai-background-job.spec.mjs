@@ -348,6 +348,148 @@ test('failed durable AI job exposes a copyable redacted diagnostic', async ({ pa
   expect(diagnostic).not.toContain(secretFilename);
 });
 
+test('durable PDF queue labels distinguish submitted, queued and provider-running work', async ({ page }) => {
+  await installControlledEventSource(page);
+  const pdf = Buffer.from('%PDF-1.4\nfixture');
+  const jobId = 'receiptextractionjob_labelsync';
+  let releaseCreate = () => {};
+  let releaseRead = () => {};
+  const createGate = new Promise(resolve => { releaseCreate = resolve; });
+  const readGate = new Promise(resolve => { releaseRead = resolve; });
+  let jobReads = 0;
+
+  await page.route('**/api/v1/receipts/extraction-jobs', async route => {
+    await createGate;
+    return route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ job: { id: jobId, status: 'queued' } }),
+    });
+  });
+  await page.route(`**/api/v1/receipts/extraction-jobs/${jobId}`, async route => {
+    jobReads += 1;
+    await readGate;
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ job: { id: jobId, status: 'running' } }),
+    });
+  });
+
+  await prepareReceipt(page, 'label-sync.pdf', 'application/pdf', pdf);
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Enviando a IA');
+  releaseCreate();
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('En cola IA');
+  await expect.poll(() => jobReads).toBe(1);
+  releaseRead();
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Analizando con IA');
+});
+
+test('a new upload during durable job submission restarts the current batch and retires the stale job', async ({ page }) => {
+  await installControlledEventSource(page);
+  const submittedJobs = [];
+  const jobDeletes = [];
+  let releaseFirstCreate = () => {};
+  let releaseSecondCreate = () => {};
+  const firstCreateGate = new Promise(resolve => { releaseFirstCreate = resolve; });
+  const secondCreateGate = new Promise(resolve => { releaseSecondCreate = resolve; });
+
+  await page.route('**/api/v1/receipts/extraction-jobs', async route => {
+    const index = submittedJobs.length + 1;
+    submittedJobs.push(route.request().postDataJSON());
+    await (index === 1 ? firstCreateGate : secondCreateGate);
+    return route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ job: { id: `receiptextractionjob_restart_${index}`, status: 'running' } }),
+    });
+  });
+  await page.route(/\/api\/v1\/receipts\/extraction-jobs\/receiptextractionjob_restart_\d+$/, route => {
+    const jobId = route.request().url().split('/').at(-1);
+    if (route.request().method() === 'DELETE') {
+      jobDeletes.push(jobId);
+      return route.fulfill({ status: 204, body: '' });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ job: { id: jobId, status: 'running' } }),
+    });
+  });
+
+  await prepareReceipt(page, 'first-pending.png');
+  await expect.poll(() => submittedJobs.length).toBe(1);
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Enviando a IA');
+
+  await page.locator('#receipt-files').setInputFiles({
+    name: 'second-current.png',
+    mimeType: 'image/png',
+    buffer: Buffer.concat([validPng, Buffer.from([2])]),
+  });
+  await expect.poll(() => submittedJobs.length).toBe(2);
+  expect(submittedJobs[1].captures.map(capture => capture.originalName)).toEqual(['first-pending.png', 'second-current.png']);
+
+  releaseSecondCreate();
+  await expect(page.locator('.capture-card .status-pill')).toHaveText(['Verificando con IA', 'Verificando con IA']);
+  releaseFirstCreate();
+  await expect.poll(() => jobDeletes).toEqual(['receiptextractionjob_restart_1']);
+  await expect(page.locator('.capture-card .status-pill')).toHaveText(['Verificando con IA', 'Verificando con IA']);
+});
+
+test('a cancelled durable submission cannot revive old captures after a later upload', async ({ page }) => {
+  await installControlledEventSource(page);
+  const submittedJobs = [];
+  const jobDeletes = [];
+  let releaseFirstCreate = () => {};
+  let releaseSecondCreate = () => {};
+  const firstCreateGate = new Promise(resolve => { releaseFirstCreate = resolve; });
+  const secondCreateGate = new Promise(resolve => { releaseSecondCreate = resolve; });
+
+  await page.route('**/api/v1/receipts/extraction-jobs', async route => {
+    const index = submittedJobs.length + 1;
+    submittedJobs.push(route.request().postDataJSON());
+    await (index === 1 ? firstCreateGate : secondCreateGate);
+    return route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ job: { id: `receiptextractionjob_cancel_restart_${index}`, status: 'running' } }),
+    });
+  });
+  await page.route(/\/api\/v1\/receipts\/extraction-jobs\/receiptextractionjob_cancel_restart_\d+$/, route => {
+    const jobId = route.request().url().split('/').at(-1);
+    if (route.request().method() === 'DELETE') {
+      jobDeletes.push(jobId);
+      return route.fulfill({ status: 204, body: '' });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ job: { id: jobId, status: 'running' } }),
+    });
+  });
+
+  await prepareReceipt(page, 'cancelled-before-id.png');
+  await expect.poll(() => submittedJobs.length).toBe(1);
+  const queue = page.locator('#receipt-source-queue');
+  if (!(await queue.evaluate(element => element.open))) await queue.locator(':scope > summary').click();
+  await page.getByRole('button', { name: 'Cancelar todo el análisis', exact: true }).click();
+  await expect(page.locator('.capture-card .status-pill')).toHaveText('Cancelada');
+
+  await page.locator('#receipt-files').setInputFiles({
+    name: 'after-cancel.png',
+    mimeType: 'image/png',
+    buffer: Buffer.concat([validPng, Buffer.from([3])]),
+  });
+  await expect.poll(() => submittedJobs.length).toBe(2);
+  expect(submittedJobs[1].captures.map(capture => capture.originalName)).toEqual(['after-cancel.png']);
+
+  releaseSecondCreate();
+  await expect(page.locator('.capture-card .status-pill')).toHaveText(['Cancelada', 'Verificando con IA']);
+  releaseFirstCreate();
+  await expect.poll(() => jobDeletes).toEqual(['receiptextractionjob_cancel_restart_1']);
+  await expect(page.locator('.capture-card .status-pill')).toHaveText(['Cancelada', 'Verificando con IA']);
+});
+
 function completedExtraction(description, lineTotalMinor) {
   const result = localExtraction(`${description} ${lineTotalMinor / 100}\nTOTAL ${lineTotalMinor / 100}`);
   const item = {
@@ -451,7 +593,7 @@ test('retrying a cancelled PDF starts another durable AI job without local OCR',
   });
 
   await prepareReceipt(page, 'cancelled.pdf', 'application/pdf', Buffer.from('%PDF-1.4\nfixture'));
-  await expect(page.locator('.capture-card .status-pill')).toHaveText(/En cola IA|Verificando con IA/u);
+  await expect(page.locator('.capture-card .status-pill')).toHaveText(/En cola IA|Analizando con IA/u);
   const queue = page.locator('#receipt-source-queue');
   if (!(await queue.evaluate(element => element.open))) await queue.locator(':scope > summary').click();
   await page.getByRole('button', { name: 'Cancelar todo el análisis', exact: true }).click();
