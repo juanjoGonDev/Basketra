@@ -667,7 +667,8 @@ test('manual floating action uses a cancellable modal without fake capture previ
   await dialog.getByRole('button', { name: 'Guardar línea', exact: true }).click();
   await expect(dialog).toBeHidden();
   await expect(page.locator('#receipt-detected-list')).toContainText('PAN MANUAL');
-  await expect(reviewPanel).toBeVisible();
+  // The review panel stays withdrawn; the detected workspace owns the review.
+  await expect(reviewPanel).toBeHidden();
   await expect(reviewPanel).not.toHaveAttribute('open', '');
   await expect(page.locator('.receipt-review-evidence')).toBeHidden();
   await expectNoHorizontalOverflow(page);
