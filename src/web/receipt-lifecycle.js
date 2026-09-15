@@ -708,8 +708,10 @@ export function updateElapsedLabels() {
 
 export function updateGlobalProgress() {
   const progress = $('#receipt-progress');
-  if (!progress || !state.progressVisible) return;
-  progress.hidden = false;
+  if (!progress) return;
+  // Keep the counts in sync even while the bar is withdrawn: pages that settle after a
+  // cancel must not leave a stale summary behind the capture cards.
+  progress.hidden = !state.progressVisible;
   const pages = state.captures.map(capture => state.pageStates.get(captureKey(capture)) ?? createPageState());
   const total = pages.length;
   const completed = pages.filter(page => REVIEWABLE_PAGE_STATUSES.has(page.status)).length;
