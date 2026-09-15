@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test('desktop sticky receipt review keeps canonical validation icons and full action labels', async ({ page }) => {
+test('desktop receipt summary keeps canonical action icons and full labels', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/');
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
@@ -30,6 +30,7 @@ test('desktop sticky receipt review keeps canonical validation icons and full ac
     state.selectedReviewCaptureKey = captureKey(capture);
     state.items = [item];
     state.originalItems = [{ ...item }];
+    state.extraction = { final: { items: [item], declaredTotalMinor: 150 } };
 
     renderReview([
       {
@@ -42,23 +43,27 @@ test('desktop sticky receipt review keeps canonical validation icons and full ac
       differenceMinor: 0,
       valid: true,
     });
-    document.querySelector('#receipt-review-panel').open = true;
     syncCompactReviewEvidence();
     syncStickyReviewSummary();
   });
 
+  const summary = page.locator('#receipt-live-summary');
+  const actions = page.locator('#receipt-live-summary-actions');
   const expand = page.getByRole('button', { name: 'Ampliar captura icon-review.png', exact: true });
-  const validation = page.locator('#receipt-review-sticky-summary .status-pill');
-  const confirm = page.getByRole('button', { name: 'Confirmar e importar', exact: true });
+  const confirm = page.locator('#confirm-receipt');
 
+  // The withdrawn panel's compact evidence toggle must not resurface.
   await expect(expand).toBeHidden();
-  await expect(validation).toBeVisible();
-  await expect(validation).toContainText('Total validado');
-  await expect(validation).toHaveClass(/success/u);
-  await expect(validation.locator('.icon')).toBeVisible();
+  await expect(page.locator('#receipt-review-panel')).toBeHidden();
 
+  await expect(summary).toBeVisible();
+  await expect(summary.locator('#receipt-summary-total')).toContainText(/1,50.*\u20ac/u);
+  await expect(actions).toBeVisible();
+  await expect(actions.locator('#receipt-show-evidence')).toBeVisible();
+  await expect(actions.locator('#validate-receipt-ticket')).toBeVisible();
   await expect(confirm).toBeVisible();
   await expect(confirm.locator('.icon')).toBeVisible();
+  await expect(confirm).toContainText('Confirmar e importar');
 
   await page.evaluate(async () => {
     const { renderReview } = await import('/receipt-review.js');
@@ -77,7 +82,8 @@ test('desktop sticky receipt review keeps canonical validation icons and full ac
     syncStickyReviewSummary();
   });
 
-  await expect(validation).toContainText('Revisar total');
-  await expect(validation).toHaveClass(/warning/u);
-  await expect(validation.locator('.icon')).toBeVisible();
+  // A mismatching total keeps the same actions available; the import asks for approval.
+  await expect(summary).toBeVisible();
+  await expect(confirm).toBeVisible();
+  await expect(page.locator('#receipt-review-sticky-summary')).toBeHidden();
 });

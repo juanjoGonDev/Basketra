@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test('mobile receipt review collapses evidence, amount and final action into one sticky row', async ({ page }) => {
+test('mobile receipt review groups evidence, amount and final action in the summary', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
@@ -29,6 +29,7 @@ test('mobile receipt review collapses evidence, amount and final action into one
     state.captures = [capture];
     state.selectedReviewCaptureKey = captureKey(capture);
     state.items = [item];
+    state.extraction = { final: { items: [item], declaredTotalMinor: 150 } };
     state.originalItems = [{ ...item }];
 
     renderReview([
@@ -42,53 +43,46 @@ test('mobile receipt review collapses evidence, amount and final action into one
       differenceMinor: 0,
       valid: true,
     });
-    document.querySelector('#receipt-review-panel').open = true;
     syncCompactReviewEvidence();
     syncStickyReviewSummary();
   });
 
-  const toolbar = page.locator('#receipt-review-sticky-summary');
-  const preview = page.getByRole('button', { name: 'Ampliar captura compact-toolbar.png', exact: true });
-  const amount = toolbar.locator('.review-total strong');
-  const finalize = toolbar.getByRole('button', { name: 'Validar', exact: true });
+  const summary = page.locator('#receipt-live-summary');
+  const actions = page.locator('#receipt-live-summary-actions');
+  const evidence = page.locator('#receipt-show-evidence');
+  const validate = page.locator('#validate-receipt-ticket');
+  const finalize = page.locator('#confirm-receipt');
 
-  await expect(toolbar).toBeVisible();
+  await expect(summary).toBeVisible();
+  // The compact evidence chrome of the withdrawn panel must not come back.
   await expect(page.locator('.receipt-review-evidence__compact')).toBeHidden();
   await expect(page.locator('#receipt-review-evidence-thumbnail')).toHaveCount(0);
   await expect(page.locator('#receipt-review-evidence-title')).toHaveCount(0);
   await expect(page.locator('#receipt-review-evidence-name')).toHaveCount(0);
 
-  await expect(preview).toBeVisible();
-  await expect(preview.locator('.icon')).toBeVisible();
-  await expect(preview).toHaveText('');
-  await expect(amount).toContainText(/1,50.*€/u);
-  await expect(toolbar.getByText('Total calculado', { exact: true })).toBeHidden();
-  await expect(toolbar.locator('.status-pill')).toBeHidden();
-  await expect(finalize).toBeVisible();
-  await expect(finalize.locator('.icon')).toBeVisible();
+  await expect(summary.locator('#receipt-summary-total')).toContainText(/1,50.*\u20ac/u);
+  for (const action of [evidence, validate, finalize]) await expect(action).toBeVisible();
 
+  await actions.scrollIntoViewIfNeeded();
   const geometry = await page.evaluate(() => {
-    const toolbarElement = document.querySelector('#receipt-review-sticky-summary');
-    const previewElement = document.querySelector('#receipt-review-expand');
-    const amountElement = toolbarElement.querySelector('.review-total strong');
-    const finalizeElement = document.querySelector('#confirm-receipt');
-    const toolbarRect = toolbarElement.getBoundingClientRect();
-    const centers = [previewElement, amountElement, finalizeElement].map(element => {
-      const rect = element.getBoundingClientRect();
-      return rect.top + rect.height / 2;
-    });
+    const owner = document.querySelector('#receipt-live-summary-actions');
+    const elements = ['#receipt-show-evidence', '#validate-receipt-ticket', '#confirm-receipt']
+      .map(selector => document.querySelector(selector));
     return {
-      position: getComputedStyle(toolbarElement).position,
-      height: toolbarRect.height,
-      centerSpread: Math.max(...centers) - Math.min(...centers),
+      grouped: elements.every(element => owner.contains(element)),
+      minHeight: Math.min(...elements.map(element => element.getBoundingClientRect().height)),
+      insideViewport: elements.every(element => {
+        const rect = element.getBoundingClientRect();
+        return rect.top >= 0 && rect.bottom <= window.innerHeight;
+      }),
     };
   });
 
-  expect(geometry.position).toBe('sticky');
-  expect(geometry.height).toBeLessThanOrEqual(72);
-  expect(geometry.centerSpread).toBeLessThanOrEqual(8);
+  expect(geometry.grouped, `the summary must own every review action: ${JSON.stringify(geometry)}`).toBe(true);
+  expect(geometry.minHeight, `review actions must stay touch-safe: ${JSON.stringify(geometry)}`).toBeGreaterThanOrEqual(44);
+  expect(geometry.insideViewport, `review actions must be reachable: ${JSON.stringify(geometry)}`).toBe(true);
 
-  await preview.click();
-  await expect(page.locator('#capture-preview-dialog')).toBeVisible();
-  await expect(page.locator('#capture-preview-name')).toContainText('compact-toolbar.png');
+  await evidence.click();
+  await expect(page.locator('#receipt-evidence-dialog')).toBeVisible();
+  await expect(page.locator('#receipt-evidence-dialog')).toContainText('compact-toolbar.png');
 });
