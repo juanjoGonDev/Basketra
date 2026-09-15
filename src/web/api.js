@@ -2,6 +2,7 @@ export const DEFAULT_REQUEST_THROTTLE_MS = 1000;
 
 const PARALLEL_POST_PATHS = new Set([
   '/api/v1/receipts/extract',
+  '/api/v1/receipts/extraction-jobs',
   '/api/v1/receipts/calculate-line',
 ]);
 const UNTHROTTLED_PATHS = new Set([

@@ -1,18 +1,19 @@
 import { loadCaptures, loadReceiptExtractionJobCaptureKeys, loadReceiptExtractionJobId } from './state.js';
+import {
+  ACTIVE_PAGE_STATUSES,
+  PAGE_LABELS,
+  PAGE_STATUS,
+  QUEUED_PAGE_STATUSES,
+  REVIEWABLE_PAGE_STATUSES,
+} from './receipt-page-state.js';
 
 export const PAGE_CONCURRENCY = 2;
-export const ACTIVE_PAGE_STATUSES = new Set(['preparing', 'ocr', 'ai']);
-export const REVIEWABLE_PAGE_STATUSES = new Set(['completed', 'manual']);
-export const PAGE_LABELS = {
-  ready: 'Lista',
-  pending: 'Pendiente',
-  preparing: 'Preparando imagen',
-  ocr: 'OCR local',
-  ai: 'Verificando con IA',
-  completed: 'Completada',
-  manual: 'Revisión manual',
-  error: 'Error',
-  cancelled: 'Cancelada',
+export {
+  ACTIVE_PAGE_STATUSES,
+  PAGE_LABELS,
+  PAGE_STATUS,
+  QUEUED_PAGE_STATUSES,
+  REVIEWABLE_PAGE_STATUSES,
 };
 
 export const state = {
