@@ -15,7 +15,12 @@ jobs:
   coverage-gate:
     name: "Reproduce aggregate browser coverage gate"
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 15
+    env:
+      BASKETRA_BROWSER_COVERAGE_COLLECT_ONLY: "1"
+      BASKETRA_BROWSER_PREBUILT: "1"
+      BASKETRA_COVERAGE_BASE: c260374224b5b575280ee4942ae11caa4f147fe5
+      PLAYWRIGHT_JSON_OUTPUT_NAME: ".ci/spec-report.json"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -26,40 +31,47 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22.23.1
-      - name: Download shard coverage from the Pull Request Quality run
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: basketra-browser-coverage-*
-          path: downloaded-coverage
-          run-id: 35080943278
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Merge shard coverage
-        shell: bash
+      - name: Pin pnpm and TypeScript
         run: |
-          set -euo pipefail
-          mkdir -p .coverage/browser
-          while IFS= read -r file; do
-            artifact=$(printf '%s' "$file" | sed 's#^downloaded-coverage/##; s#/.*##')
-            cp "$file" ".coverage/browser/$artifact-$(basename "$file")"
-          done < <(find downloaded-coverage -type f -name '*.json' -print | sort)
-          {
-            echo "merged files: $(find .coverage/browser -type f -name '*.json' | wc -l)"
-            echo "merged bytes: $(du -sb .coverage/browser | cut -f1)"
-            echo "first files: $(find .coverage/browser -type f -name '*.json' -print | sort | head -3 | tr '\n' ' ')"
-            echo "head: $(git rev-parse HEAD)"
-            echo "base: c260374224b5b575280ee4942ae11caa4f147fe5"
-          } > .ci/coverage-summary.txt
-          cat .ci/coverage-summary.txt
-      - name: Run the aggregate changed-code coverage gate
-        env:
-          BASKETRA_COVERAGE_BASE: c260374224b5b575280ee4942ae11caa4f147fe5
+          corepack enable
+          corepack prepare pnpm@10.15.0 --activate
+          npm install --global --ignore-scripts typescript@5.8.3
+      - name: Frozen install
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Restore exact Chromium cache
+        id: browser-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: basketra-diagnose-playwright-${{ runner.os }}-1.59.1
+          restore-keys: |
+            basketra-playwright-${{ runner.os }}-1.59.1-
+      - name: Install exact Chromium binary
+        if: steps.browser-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install chromium
+      - name: Build browser runtime
+        run: pnpm build
+      - name: Run the new and changed boundary specs
         run: |
           set -uo pipefail
-          node scripts/check-browser-diff-coverage.mjs > .ci/gate-output.txt 2>&1
+          pnpm exec playwright test \
+            tests/browser/receipt-editor-evidence-boundaries.spec.mjs \
+            tests/browser/ai-provider-diagnostics.spec.mjs \
+            --reporter=json --workers=1 || true
+          test -f .ci/spec-report.json
+      - name: Publish spec results as annotations
+        if: always()
+        run: node .ci/report-diagnose-failures.mjs .ci/spec-report.json "boundary specs"
+      - name: Run the changed-code coverage gate over the new coverage only
+        run: |
+          set -uo pipefail
+          {
+            echo "coverage files: $(find .coverage/browser -type f -name '*.json' | wc -l)"
+            echo "head: $(git rev-parse HEAD)"
+          } > .ci/gate-output.txt
+          node scripts/check-browser-diff-coverage.mjs >> .ci/gate-output.txt 2>&1
           echo "gate exit: $?" >> .ci/gate-output.txt
           cat .ci/gate-output.txt
-      - name: Publish gate output as annotations
+      - name: Publish the residual coverage list as an annotation
         if: always()
-        run: |
-          node .ci/report-gate-output.mjs .ci/coverage-summary.txt "coverage inputs"
-          node .ci/report-gate-output.mjs .ci/gate-output.txt "browser coverage gate"
+        run: node .ci/report-gate-output.mjs .ci/gate-output.txt "residual uncovered (new specs only)"
