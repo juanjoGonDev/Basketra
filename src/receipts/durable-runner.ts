@@ -97,27 +97,36 @@ export class ReceiptDurableExtractionRunner {
       );
       this.#durableStore.markPhase(job.id, 'ai_pending');
       const verified: ReceiptPageEvidence[] = [];
+      let firstPageError: unknown;
       for (const [position, page] of ocrPages.entries()) {
         operationSignal.throwIfAborted();
-        const interpretation = await this.ensureRemotePage(
-          job.id,
-          captures[position]!,
-          page,
-          position,
-          captures.length,
-          categoryInventory,
-          storeInventory,
-          deadlineAt,
-          operationSignal,
-        );
-        verified.push({
-          ...page,
-          ai: {
-            interpretation,
-            attempts: 1,
-          },
-        });
+        try {
+          const interpretation = await this.ensureRemotePage(
+            job.id,
+            captures[position]!,
+            page,
+            position,
+            captures.length,
+            categoryInventory,
+            storeInventory,
+            deadlineAt,
+            operationSignal,
+          );
+          verified.push({
+            ...page,
+            ai: {
+              interpretation,
+              attempts: 1,
+            },
+          });
+        } catch (error) {
+          if (isAbortFromCaller(error, signal)) throw error;
+          firstPageError ??= error;
+          this.recordPageFailure(job.id, position, error);
+          this.#onProgress(job.id);
+        }
       }
+      if (firstPageError) throw firstPageError;
       this.#durableStore.markPhase(job.id, 'completed');
       return assembleReceiptExtraction(verified, categoryInventory);
     } catch (error) {
@@ -170,25 +179,40 @@ export class ReceiptDurableExtractionRunner {
     this.#durableStore.markPhase(jobId, 'cancelled');
   }
 
+  private recordPageFailure(jobId: string, position: number, error: unknown): void {
+    const page = requirePage(requireState(this.#durableStore.get(jobId)), position);
+    if (page.remoteStatus === 'completed' || page.remoteStatus === 'failed' || page.remoteStatus === 'cancelled' || page.remoteStatus === 'incomplete') {
+      return;
+    }
+    this.#durableStore.saveRemoteFailure(jobId, position, {
+      status: 'failed',
+      errorCode: pageFailureCode(error),
+    });
+  }
+
   private async ensureOcrPages(
     jobId: string,
     captures: readonly ReceiptCaptureRequest[],
     deadlineAt: string,
     signal: AbortSignal,
   ): Promise<ReceiptPageEvidence[]> {
-    this.#durableStore.markPhase(jobId, 'ocr_running');
+    const requiresOcr = captures.some((capture) => (
+      this.#fileStore.read(capture.storageKey).mimeType !== 'application/pdf'
+    ));
+    this.#durableStore.markPhase(jobId, requiresOcr ? 'ocr_running' : 'ai_pending');
     const before = requireState(this.#durableStore.get(jobId));
     const pending = captures.map(async (capture, position) => {
       const persisted = before.pages[position]?.ocr;
       if (persisted) return persisted;
       const page = await this.runBeforeDeadline(
         deadlineAt,
-        async (deadlineSignal) =>
-          await this.#extractionService.extractOcrPage(
-            capture,
-            position,
-            deadlineSignal,
-          ),
+        async (deadlineSignal) => {
+          const stored = this.#fileStore.read(capture.storageKey);
+          if (stored.mimeType === 'application/pdf') {
+            return this.#extractionService.preparePdfForDirectVerification(capture, position, deadlineSignal);
+          }
+          return await this.#extractionService.extractOcrPage(capture, position, deadlineSignal);
+        },
         signal,
       );
       this.#durableStore.saveOcrPage(jobId, position, page);
@@ -281,15 +305,10 @@ export class ReceiptDurableExtractionRunner {
       signal.throwIfAborted();
       assertBeforeDeadline(deadlineAt, this.#now());
       try {
-        return await this.runBeforeDeadline(
-          deadlineAt,
-          async (deadlineSignal) =>
-            await this.#responses.create({
-              ...input,
-              signal: deadlineSignal,
-            }),
-          signal,
-        );
+        return await this.#responses.create({
+          ...input,
+          ...(signal ? { signal } : {}),
+        });
       } catch (error) {
         if (!isRetryableTransportError(error)) throw error;
         await this.waitBeforeRetry(deadlineAt, signal);
@@ -384,6 +403,12 @@ function remoteTerminalCode(status: 'failed' | 'cancelled' | 'incomplete'): stri
     case 'cancelled': return 'REMOTE_RESPONSE_CANCELLED';
     case 'incomplete': return 'REMOTE_RESPONSE_INCOMPLETE';
   }
+}
+
+function pageFailureCode(error: unknown): string {
+  if (error instanceof AiProviderError) return error.code;
+  if (error instanceof ReceiptAiVerificationTimeoutError) return error.code;
+  return 'AI_PROVIDER_FAILED';
 }
 
 async function waitForRetry(milliseconds: number, signal?: AbortSignal): Promise<void> {

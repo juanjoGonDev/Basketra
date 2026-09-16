@@ -65,6 +65,7 @@ export type ReceiptImportInput = Readonly<{
     lineTotalMinor: number;
     discountMinor?: number;
     categoryId?: string;
+    productVariantId?: string;
     status: string;
     confidence: number;
   }>[];
@@ -820,13 +821,14 @@ export class BasketraDatabase {
         const initialCategoryId = requestedCategory?.id ?? fallbackCategory.id;
         this.#database.prepare(`
           INSERT INTO receipt_items(
-            id, receipt_id, original_description, quantity, unit_price_minor, line_total_minor,
+            id, receipt_id, original_description, product_variant_id, quantity, unit_price_minor, line_total_minor,
             discount_minor, category_id, status, confidence, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           itemId,
           receiptId,
           item.description,
+          item.productVariantId ?? null,
           item.quantity,
           item.unitPriceMinor,
           item.lineTotalMinor,

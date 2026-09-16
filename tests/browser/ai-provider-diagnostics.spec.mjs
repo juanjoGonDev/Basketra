@@ -37,6 +37,7 @@ test('settings render remote, invalid, host, loopback and missing provider state
   await expect(page.locator('#ai-provider-request')).toHaveText('POST http://192.168.1.20:3001/v1/chat/completions');
   await expect(page.locator('#ai-provider-authorization')).toHaveText('Sin cabecera Authorization');
   await expect(page.locator('#ai-configuration-status')).toHaveText('Configuración activa');
+  await expect(page.locator('#ai-configuration-detail')).toContainText('1 validación de ticket a la vez');
 
   current = settings({ baseUrl: 'not a valid absolute URL', apiKeyMask: '••••safe' });
   await page.reload();
@@ -64,6 +65,11 @@ test('settings render remote, invalid, host, loopback and missing provider state
   await page.reload();
   await openAiSettings(page);
   await expect(page.locator('#ai-configuration-detail')).toContainText('token ••••safe');
+
+  current = settings({ receiptValidationConcurrency: 3 });
+  await page.reload();
+  await openAiSettings(page);
+  await expect(page.locator('#ai-configuration-detail')).toContainText('3 validaciones de ticket a la vez');
 
   current = settings({ configured: false, status: 'missing', missing: ['URL de WebAPI', 'Modelo'], baseUrl: undefined, model: undefined });
   await page.reload();

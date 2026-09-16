@@ -7,12 +7,13 @@ import { OpenAiCompatibleProvider } from '../ai/provider.ts';
 import { fetchAiRuntimeCapabilities } from '../ai/runtime-capabilities.ts';
 import { mapError } from '../api/errors.ts';
 import { BasketraServer } from '../api/server.ts';
-import type { AppConfig } from '../infrastructure/config.ts';
+import { DEFAULT_LISTEN_PORT, type AppConfig } from '../infrastructure/config.ts';
 import { DEFAULT_DATABASE_STORAGE_LIMITS } from '../infrastructure/database.ts';
 import type { RuntimeSettings } from '../infrastructure/runtime-settings.ts';
 import type { RuntimeTempStorageMode } from '../infrastructure/runtime-temp.ts';
 import { AiProviderProbeStore, type AiProviderProbeTrigger } from './ai-provider-probe-store.ts';
 import { ApplicationLogStore, sanitizeClientLog, type LogSource } from './log-store.ts';
+import { ApplicationLogger } from './logger.ts';
 import { importBackupStream, listImportedBackups, RESTORE_CONFIRMATION, stagePendingRestore } from './restore.ts';
 import { resolveRuntimeVersion } from './version.ts';
 
@@ -22,11 +23,14 @@ const BACKUP_CONTENT_TYPES = new Set(['application/vnd.sqlite3', 'application/oc
 const MAX_CLIENT_LOG_BATCH = 20;
 const MAX_CLIENT_LOGS_PER_MINUTE = 120;
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+const ADDRESS_UNAVAILABLE_CODES = new Set(['EADDRINUSE', 'EACCES']);
 
 export type OperationsGatewayOptions = Readonly<{
   requestRestart?: () => void;
   clock?: () => Date;
   tempStorageMode?: RuntimeTempStorageMode;
+  /** Bootstrap port treated as "unset"; the persisted setting owns the socket unless another port is pinned. */
+  defaultListenPort?: number;
 }>;
 
 type ProviderProbeOutcome =
@@ -70,6 +74,11 @@ function safeBackupName(value: string): string {
   return value;
 }
 
+
+function requestPath(value: string): string {
+  return new URL(value, 'http://basketra.local').pathname.slice(0, 240);
+}
+
 function headerValue(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? '' : value ?? '';
 }
@@ -106,12 +115,14 @@ export class OperationsGateway {
   readonly #inner: BasketraServer;
   readonly #server: Server;
   readonly #logStore: ApplicationLogStore;
+  readonly #logger: ApplicationLogger;
   readonly #probeStore: AiProviderProbeStore;
   readonly #startedAt: string;
   readonly #publicDir: string;
   readonly #requestRestart: (() => void) | undefined;
   readonly #clock: () => Date;
   readonly #tempStorageMode: RuntimeTempStorageMode | 'unverified';
+  readonly #defaultListenPort: number;
   #innerPort = 0;
   #clientLogWindowStarted = 0;
   #clientLogCount = 0;
@@ -124,45 +135,41 @@ export class OperationsGateway {
     this.#startedAt = this.#clock().toISOString();
     this.#requestRestart = options.requestRestart;
     this.#tempStorageMode = options.tempStorageMode ?? 'unverified';
+    this.#defaultListenPort = options.defaultListenPort ?? DEFAULT_LISTEN_PORT;
     this.#inner = new BasketraServer({ ...config, host: '127.0.0.1', port: 0 });
     this.#logStore = new ApplicationLogStore(config.dataDir, { clock: this.#clock });
+    this.#logger = new ApplicationLogger(this.#logStore, { clock: this.#clock });
     this.#probeStore = new AiProviderProbeStore(config.dataDir, this.#clock);
     this.#publicDir = resolve(dirname(fileURLToPath(import.meta.url)), '../web');
-    this.#server = createServer((request, response) => void this.handle(request, response));
+    this.#server = createServer((request, response) => void this.handleWithLogging(request, response));
   }
 
   runtimeSettings(): RuntimeSettings {
     return this.#inner.runtimeSettings();
   }
 
+  /** Bootstrap port wins when the operator pinned a non-default one; otherwise the persisted setting owns it. */
+  requestedListenPort(): number {
+    return this.config.port === this.#defaultListenPort ? this.runtimeSettings().listenPort : this.config.port;
+  }
+
   async listen(): Promise<void> {
     await this.#inner.listen();
     this.#innerPort = this.#inner.address().port;
-    await new Promise<void>((resolvePromise, reject) => {
-      const onError = (error: Error) => reject(error);
-      this.#server.once('error', onError);
-      this.#server.listen(this.config.port, this.config.host, () => {
-        this.#server.off('error', onError);
-        resolvePromise();
-      });
-    });
+    const requestedPort = this.requestedListenPort();
+    try {
+      await this.listenOnPort(requestedPort);
+    } catch (error) {
+      if (requestedPort === this.#defaultListenPort || !isAddressUnavailable(error)) {
+        await this.#inner.close();
+        throw error;
+      }
+      this.#logger.child('Gateway').warn('server.listen_port_unavailable', { code: 'LISTEN_PORT_UNAVAILABLE' });
+      await this.listenOnPort(this.#defaultListenPort);
+    }
     const runtime = resolveRuntimeVersion();
-    this.#logStore.append({
-      source: 'server',
-      level: 'info',
-      event: 'server.started',
-      code: runtime.version.replaceAll('.', '_').replaceAll('-', '_').toUpperCase(),
-    });
-    this.#logStore.append({
-      source: 'server',
-      level: this.#tempStorageMode === 'data-fallback' ? 'warn' : 'info',
-      event: 'server.temp_storage',
-      code: this.#tempStorageMode === 'data-fallback'
-        ? 'DATA_FALLBACK'
-        : this.#tempStorageMode === 'primary'
-          ? 'PRIMARY'
-          : 'UNVERIFIED',
-    });
+    this.#logger.child('Gateway').success('server.started', { code: runtime.version.replaceAll('.', '_').replaceAll('-', '_').toUpperCase() });
+    this.#logger.child('Gateway')[this.#tempStorageMode === 'data-fallback' ? 'warn' : 'info']('server.temp_storage', { code: this.#tempStorageMode === 'data-fallback' ? 'DATA_FALLBACK' : this.#tempStorageMode === 'primary' ? 'PRIMARY' : 'UNVERIFIED' });
     this.#startupProbeController = new AbortController();
     this.#startupProbePromise = this.runAiProviderProbe(
       'startup',
@@ -181,8 +188,18 @@ export class OperationsGateway {
 
   address(): Readonly<{ host: string; port: number }> {
     const address = this.#server.address();
-    if (!address || typeof address === 'string') return { host: this.config.host, port: this.config.port };
-    return { host: address.address, port: address.port };
+    return { host: (address as { address: string }).address, port: (address as { port: number }).port };
+  }
+
+  private listenOnPort(port: number): Promise<void> {
+    return new Promise<void>((resolvePromise, reject) => {
+      const onError = (error: Error) => reject(error);
+      this.#server.once('error', onError);
+      this.#server.listen(port, this.config.host, () => {
+        this.#server.off('error', onError);
+        resolvePromise();
+      });
+    });
   }
 
   async close(): Promise<void> {
@@ -193,9 +210,19 @@ export class OperationsGateway {
     await this.#inner.close();
   }
 
-  private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  private async handleWithLogging(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const requestId = randomUUID();
     const started = Date.now();
+    response.once('finish' as never, () => {
+      const status = (response as unknown as { statusCode: number }).statusCode;
+      this.#logger.child('HTTP')[status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info']('http.request_completed', {
+        requestId, method: (request as { method: string }).method, path: requestPath(request.url!), status, durationMs: Date.now() - started,
+      });
+    });
+    await this.handle(request, response, requestId, started);
+  }
+
+  private async handle(request: IncomingMessage, response: ServerResponse, requestId: string, started: number): Promise<void> {
     try {
       const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
       if (request.method === 'GET' && DIRECT_ASSETS.has(url.pathname.slice(1))) {
@@ -241,13 +268,10 @@ export class OperationsGateway {
       return this.proxy(request, response, requestId, started);
     } catch (error) {
       const code = error instanceof Error ? error.message : 'OPERATIONS_INTERNAL_ERROR';
-      this.#logStore.append({
-        source: 'server',
-        level: 'error',
-        event: 'operations.request_failed',
+      this.#logger.child('Gateway').error('operations.request_failed', {
         requestId,
         method: request.method ?? 'UNKNOWN',
-        path: (request.url ?? '/').split('?')[0]?.slice(0, 240) || '/',
+        path: requestPath(request.url!),
         code: /^[A-Z0-9_.-]+$/.test(code) ? code.slice(0, 80) : 'OPERATIONS_INTERNAL_ERROR',
         durationMs: Date.now() - started,
       });
@@ -350,6 +374,7 @@ export class OperationsGateway {
       ...(publicSettings.ai.model ? { model: publicSettings.ai.model } : {}),
       ...(publicSettings.ai.apiKeyMask ? { apiKeyMask: publicSettings.ai.apiKeyMask } : {}),
       maxRetries: publicSettings.ai.maxRetries,
+      receiptValidationConcurrency: publicSettings.ai.receiptValidationConcurrency,
       loopbackWarning,
       lastCheck: this.#probeStore.latest() ?? null,
       requiresContainerRecreate: false,
@@ -406,7 +431,7 @@ export class OperationsGateway {
     }
     if (isContainerRuntime() && LOOPBACK_HOSTS.has(new URL(settings.aiBaseUrl!).hostname)) {
       this.#probeStore.recordFailure(trigger, Date.now() - started, 'AI_LOOPBACK_CONTAINER');
-      this.#logStore.append({ source: 'server', level: 'warn', event: 'ai.loopback_rejected', requestId, code: 'AI_LOOPBACK_CONTAINER' });
+      this.#logger.child('AI').warn('ai.loopback_rejected', { requestId, code: 'AI_LOOPBACK_CONTAINER' });
       return {
         ok: false,
         status: 502,
@@ -433,10 +458,7 @@ export class OperationsGateway {
         imageStructuredOutput: connection.imageStructuredOutput!,
       };
       this.#probeStore.recordSuccess(trigger, Date.now() - started, successfulConnection);
-      this.#logStore.append({
-        source: 'server',
-        level: 'info',
-        event: 'ai.capability_probe_ok',
+      this.#logger.child('AI').success('ai.capability_probe_ok', {
         requestId,
         code: trigger === 'startup' ? 'STARTUP' : 'MANUAL',
       });
@@ -445,10 +467,7 @@ export class OperationsGateway {
       if (signal?.aborted) throw error;
       const mapped = mapError(error);
       this.#probeStore.recordFailure(trigger, Date.now() - started, mapped.code);
-      this.#logStore.append({
-        source: 'server',
-        level: 'warn',
-        event: 'ai.capability_probe_failed',
+      this.#logger.child('AI').warn('ai.capability_probe_failed', {
         requestId,
         status: mapped.status,
         code: mapped.code,
@@ -511,7 +530,7 @@ export class OperationsGateway {
       request,
       DEFAULT_DATABASE_STORAGE_LIMITS.maxDatabaseBytes,
     );
-    this.#logStore.append({ source: 'server', level: 'info', event: 'backup.imported', requestId, code: `SCHEMA_${backup.schemaVersion}` });
+    this.#logger.child('Backup').success('backup.imported', { requestId, code: `SCHEMA_${backup.schemaVersion}` });
     this.json(response, 201, { backup }, requestId);
   }
 
@@ -534,7 +553,7 @@ export class OperationsGateway {
       confirmation,
       now: this.#clock(),
     });
-    this.#logStore.append({ source: 'server', level: 'warn', event: 'restore.staged', requestId, code: 'RESTART_REQUIRED' });
+    this.#logger.child('Backup').warn('restore.staged', { requestId, code: 'RESTART_REQUIRED' });
     this.json(response, 202, { restore: { staged: true, pending, restartRequired: true } }, requestId);
     if (this.#requestRestart) {
       const timer = setTimeout(() => this.#requestRestart?.(), 250);
@@ -560,7 +579,7 @@ export class OperationsGateway {
       else response.end();
     });
     stream.pipe(response);
-    this.#logStore.append({ source: 'server', level: 'info', event: 'backup.downloaded', requestId });
+    this.#logger.child('Backup').info('backup.downloaded', { requestId });
   }
 
   private serveDirectAsset(response: ServerResponse, asset: string, requestId: string): void {
@@ -588,13 +607,10 @@ export class OperationsGateway {
         if (!upstreamResponse.destroyed) upstreamResponse.destroy();
       });
       if (status >= 400) {
-        this.#logStore.append({
-          source: 'server',
-          level: status >= 500 ? 'error' : 'warn',
-          event: 'http.request_failed',
+        this.#logger.child('HTTP')[status >= 500 ? 'error' : 'warn']('http.request_failed', {
           requestId: typeof headers['x-request-id'] === 'string' ? headers['x-request-id'] : requestId,
           method: request.method ?? 'UNKNOWN',
-          path: (request.url ?? '/').split('?')[0]?.slice(0, 240) || '/',
+          path: requestPath(request.url!),
           status,
           durationMs: Date.now() - started,
         });
@@ -670,4 +686,8 @@ export class OperationsGateway {
       default: return 'La operación no pudo completarse';
     }
   }
+}
+
+function isAddressUnavailable(error: unknown): boolean {
+  return ADDRESS_UNAVAILABLE_CODES.has(String((error as { code?: unknown }).code));
 }

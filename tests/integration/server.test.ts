@@ -181,6 +181,13 @@ test('HTTP API works without an application token and completes list and receipt
     assert.equal(uploadedPdf.status, 201);
     const pdfKey = (await json<{ file: { storageKey: string } }>(uploadedPdf)).file.storageKey;
     assert.equal((await request(baseUrl, `/api/v1/files/${pdfKey}`)).status, 400);
+    const document = await request(baseUrl, `/api/v1/files/${pdfKey}/document`);
+    assert.equal(document.status, 200);
+    assert.equal(document.headers.get('content-type'), 'application/pdf');
+    assert.match(document.headers.get('cache-control') ?? '', /no-store/);
+    assert.equal(document.headers.get('content-disposition'), 'inline');
+    assert.deepEqual(new Uint8Array(await document.arrayBuffer()), new Uint8Array(Buffer.from(pdfBase64, 'base64')));
+    assert.equal((await request(baseUrl, `/api/v1/files/${storageKey}/document`)).status, 400);
 
     const extracted = await request(baseUrl, '/api/v1/receipts/extract', { method: 'POST', body: JSON.stringify({ captures: [{ storageKey, originalName: 'receipt.png', embeddedText: 'Leche;1;120;120\nTOTAL 1,20' }], verifyWithAi: false }) });
     assert.equal(extracted.status, 200);
@@ -205,6 +212,8 @@ test('HTTP API works without an application token and completes list and receipt
     assert.equal((await json<{ total: { valid: boolean } }>(receipt)).total.valid, true);
     const mismatch = await request(baseUrl, '/api/v1/receipts/confirm', { method: 'POST', body: JSON.stringify({ importKey: 'receipt-0001', originalText: 'Leche', declaredTotalMinor: 100, items: [{ description: 'Leche', quantity: 1, unitPriceMinor: 120, lineTotalMinor: 120 }] }) });
     assert.equal(mismatch.status, 409);
+    const approvedMismatch = await request(baseUrl, '/api/v1/receipts/confirm', { method: 'POST', body: JSON.stringify({ importKey: 'receipt-mismatch-approved', originalText: 'Leche', declaredTotalMinor: 100, retailerName: 'Mercadona', storeName: 'Mercadona Centro', acceptTotalMismatch: true, items: [{ description: 'Leche', quantity: 1, unitPriceMinor: 120, lineTotalMinor: 120 }] }) });
+    assert.equal(approvedMismatch.status, 201);
     const confirmed = await request(baseUrl, '/api/v1/receipts/confirm', { method: 'POST', body: JSON.stringify({ importKey: 'receipt-0001', originalText: 'Leche', declaredTotalMinor: 120, retailerName: 'Mercadona', storeName: 'Mercadona Centro', captures: [{ storageKey, mimeType: 'image/png', originalName: 'receipt.png' }], items: [{ description: 'Leche', quantity: 1, unitPriceMinor: 120, lineTotalMinor: 120 }] }) });
     assert.equal(confirmed.status, 201);
 

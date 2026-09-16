@@ -2,6 +2,7 @@ export const DEFAULT_REQUEST_THROTTLE_MS = 1000;
 
 const PARALLEL_POST_PATHS = new Set([
   '/api/v1/receipts/extract',
+  '/api/v1/receipts/extraction-jobs',
   '/api/v1/receipts/calculate-line',
 ]);
 const UNTHROTTLED_PATHS = new Set([
@@ -10,7 +11,7 @@ const UNTHROTTLED_PATHS = new Set([
 const RECEIPT_CALCULATION_DELAY_MS = 120;
 const RECEIPT_CALCULATION_PATH = '/api/v1/receipts/calculate-line';
 const RECEIPT_CALCULATION_DRIVER_FIELDS = new Set(['quantity', 'unitPriceEuro', 'discountType', 'discountValue', 'discountQuantity']);
-const RECEIPT_CALCULATION_ACTION_SELECTOR = '#save-receipt-line-editor, [data-receipt-action="validate"], #review-receipt, #confirm-receipt';
+const RECEIPT_CALCULATION_ACTION_SELECTOR = '#save-receipt-line-editor, [data-receipt-action="validate"], #review-receipt, #validate-receipt-ticket, #confirm-receipt';
 const receiptCalculationState = new WeakMap();
 let receiptDerivedTotalsInitialized = false;
 
@@ -482,7 +483,8 @@ function restoredEditorRootFromClick(event) {
 
 function restoredEditorRootFromCancel(event) {
   const dialog = event.target;
-  if (!(dialog instanceof HTMLDialogElement) || dialog.id !== 'receipt-line-dialog') return undefined;
+  if (!(dialog instanceof HTMLDialogElement) && dialog?.tagName !== 'APP-DIALOG') return undefined;
+  if (dialog.id !== 'receipt-line-dialog') return undefined;
   return dialog.querySelector('.receipt-item, [data-receipt-line-editor]');
 }
 

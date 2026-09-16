@@ -1150,29 +1150,55 @@ summary {
   background: var(--color-surface-container-low);
 }
 
+/* The dialog box now lives in the shadow tree, so dialog classes on the <app-dialog> host must
+   never size it: while open the host is an invisible, viewport-sized hit box for the top layer. */
+app-dialog[open] {
+  position: fixed !important;
+  inset: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+  transform: none !important;
+}
+
+/* Dialog boxes include their own border: without border-box a full-height sheet overflows by 2px. */
+app-dialog::part(native-dialog) {
+  box-sizing: border-box;
+}
+
 /* Dialogs become compact bottom sheets on mobile. */
-.confirm-dialog,
-.preview-dialog,
-.sheet-dialog {
+app-dialog.confirm-dialog::part(native-dialog),
+app-dialog.preview-dialog::part(native-dialog),
+app-dialog.sheet-dialog::part(native-dialog) {
   border: 1px solid color-mix(in srgb, var(--color-on-surface) 12%, transparent);
   background: var(--color-surface);
   color: var(--color-on-surface);
   box-shadow: none;
 }
 
-.confirm-dialog::backdrop,
-.preview-dialog::backdrop,
-.sheet-dialog::backdrop {
+app-dialog.confirm-dialog::part(native-dialog)::backdrop,
+app-dialog.preview-dialog::part(native-dialog)::backdrop,
+app-dialog.sheet-dialog::part(native-dialog)::backdrop {
   background: var(--color-scrim);
   backdrop-filter: none;
 }
 
-.confirm-dialog,
-.preview-dialog {
+app-dialog.confirm-dialog::part(native-dialog),
+app-dialog.preview-dialog::part(native-dialog) {
   border-radius: var(--radius-sheet);
 }
 
-.sheet-dialog {
+app-dialog.sheet-dialog::part(native-dialog) {
   border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
 }
 
@@ -1191,7 +1217,7 @@ summary {
   background: var(--color-surface);
 }
 
-.preview-dialog > img {
+app-dialog.preview-dialog > img {
   background: var(--color-surface-container-low);
 }
 
@@ -1385,7 +1411,7 @@ summary {
     width: auto;
   }
 
-  .sheet-dialog {
+  app-dialog.sheet-dialog::part(native-dialog) {
     width: min(calc(100% - 2rem), 42rem);
     margin: auto;
     border-radius: var(--radius-sheet);
@@ -2065,7 +2091,7 @@ summary {
   flex: 1 1 12rem;
 }
 
-.product-sheet {
+app-dialog.product-sheet::part(native-dialog) {
   width: min(100%, 48rem);
 }
 
@@ -2260,7 +2286,7 @@ summary {
     padding-inline: var(--space-5);
   }
 
-  .product-sheet {
+  app-dialog.product-sheet::part(native-dialog) {
     width: min(calc(100% - 2rem), 48rem);
   }
 }

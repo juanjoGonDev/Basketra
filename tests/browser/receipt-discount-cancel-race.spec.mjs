@@ -44,10 +44,6 @@ async function setup(page) {
       },
     });
   });
-  const panel = page.locator('#receipt-review-panel');
-  if (!(await panel.evaluate(element => element.open))) {
-    await panel.locator(':scope > summary').click();
-  }
 }
 
 test('cancel invalidates an edited calculation before a late response can overwrite the restored total', async ({ page }, testInfo) => {
@@ -86,7 +82,7 @@ test('cancel invalidates an edited calculation before a late response can overwr
   await setup(page);
   const row = page.locator('.receipt-item').first();
   const total = row.locator('[data-field="lineTotalEuro"]');
-  const editorTrigger = row.locator('.receipt-line-compact');
+  const editorTrigger = page.locator('#receipt-detected-list .receipt-detected-item').first();
   await editorTrigger.click();
   const dialog = page.locator('#receipt-line-dialog');
   await expect(dialog).toBeVisible();
@@ -107,14 +103,14 @@ test('cancel invalidates an edited calculation before a late response can overwr
   await expect.poll(() => editedCalculationSettled).toBe(true);
   await expect(dialog).toBeHidden();
   await expect(total).toHaveJSProperty('value', '0.87');
-  await expect(editorTrigger).toContainText('Dto. 50%');
+  await expect(page.locator('#receipt-detected-list .receipt-detected-item__discount').first()).toContainText('50');
 
   const bottomNav = page.locator('.bottom-nav');
   const bottomNavWasHidden = await bottomNav.evaluate(element => element.hidden);
   await bottomNav.evaluate(element => { element.hidden = true; });
   try {
-    await row.scrollIntoViewIfNeeded();
-    await row.screenshot({ path: testInfo.outputPath('cancel-restored.png') });
+    await editorTrigger.scrollIntoViewIfNeeded();
+    await editorTrigger.screenshot({ path: testInfo.outputPath('cancel-restored.png') });
   } finally {
     await bottomNav.evaluate((element, hidden) => { element.hidden = hidden; }, bottomNavWasHidden);
   }

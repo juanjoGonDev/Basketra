@@ -41,6 +41,168 @@ class CountingOcrProvider implements OcrProvider {
   dispose(): void {}
 }
 
+test('PDF direct verification creates one structured remote request without a separate OCR request', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-durable-pdf-direct-'));
+  const dataDir = join(root, 'data');
+  const fileStore = new FileStore(join(dataDir, 'files'), join(root, 'tmp'), 1024 * 1024);
+  const stored = fileStore.storeBase64({
+    base64: Buffer.from('%PDF-1.4\nfixture').toString('base64'),
+    mimeType: 'application/pdf',
+    originalName: 'ticket.pdf',
+  });
+  const database = new BasketraDatabase(join(dataDir, 'basketra.db'));
+  const job = database.createReceiptExtractionJob({
+    captures: [{
+      storageKey: stored.storageKey,
+      originalName: 'ticket.pdf',
+      embeddedText: 'Legacy OCR text must not cause a PDF OCR request',
+    }],
+    verifyWithAi: true,
+  });
+  const durableStore = new ReceiptDurableJobStore(database.path);
+  const ocr = new CountingOcrProvider();
+  const extraction = new ReceiptExtractionService(fileStore, unusedAiProvider, 0, ocr);
+  let creates = 0;
+  const runner = new ReceiptDurableExtractionRunner({
+    durableStore,
+    extractionService: extraction,
+    fileStore,
+    responses: {
+      async create(input) {
+        creates += 1;
+        assert.equal(input.originalText, '');
+        assert.equal(input.attachment.mimeType, 'application/pdf');
+        return { id: 'resp_pdfdirect123', status: 'completed', interpretation };
+      },
+      async get() { throw new Error('GET_MUST_NOT_RUN'); },
+      async cancel() { throw new Error('CANCEL_MUST_NOT_RUN'); },
+    },
+  });
+
+  try {
+    const result = await runner.run(job);
+    assert.equal(creates, 1);
+    assert.equal(ocr.calls, 0);
+    assert.equal(result.final.retailerName, 'ALCAMPO');
+    assert.equal(result.pages[0]?.text, '');
+  } finally {
+    extraction.dispose();
+    durableStore.close();
+    database.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a failed PDF response does not prevent later queued PDF validation from reaching its terminal response', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-durable-pdf-isolation-'));
+  const dataDir = join(root, 'data');
+  const fileStore = new FileStore(join(dataDir, 'files'), join(root, 'tmp'), 1024 * 1024);
+  const first = fileStore.storeBase64({
+    base64: Buffer.from('%PDF-1.4\nfirst').toString('base64'),
+    mimeType: 'application/pdf',
+    originalName: 'first.pdf',
+  });
+  const second = fileStore.storeBase64({
+    base64: Buffer.from('%PDF-1.4\nsecond').toString('base64'),
+    mimeType: 'application/pdf',
+    originalName: 'second.pdf',
+  });
+  const database = new BasketraDatabase(join(dataDir, 'basketra.db'));
+  const job = database.createReceiptExtractionJob({
+    captures: [
+      { storageKey: first.storageKey, originalName: 'first.pdf' },
+      { storageKey: second.storageKey, originalName: 'second.pdf' },
+    ],
+    verifyWithAi: true,
+  });
+  const durableStore = new ReceiptDurableJobStore(database.path);
+  const extraction = new ReceiptExtractionService(fileStore, unusedAiProvider, 0, new CountingOcrProvider());
+  const attempted: number[] = [];
+  const runner = new ReceiptDurableExtractionRunner({
+    durableStore,
+    extractionService: extraction,
+    fileStore,
+    responses: {
+      async create(input): Promise<ReceiptRemoteResponse> {
+        attempted.push(input.pagePosition);
+        if (input.pagePosition === 0) {
+          return { id: 'resp_pdferror123', status: 'failed', errorCode: 'provider_failed' };
+        }
+        return { id: 'resp_pdfsuccess123', status: 'completed', interpretation };
+      },
+      async get() { throw new Error('GET_MUST_NOT_RUN'); },
+      async cancel() { throw new Error('CANCEL_MUST_NOT_RUN'); },
+    },
+  });
+
+  try {
+    await assert.rejects(runner.run(job), AiProviderError);
+    assert.deepEqual(attempted, [0, 1]);
+    const pages = durableStore.get(job.id)?.pages;
+    assert.equal(pages?.[0]?.remoteStatus, 'failed');
+    assert.equal(pages?.[1]?.remoteStatus, 'completed');
+  } finally {
+    extraction.dispose();
+    durableStore.close();
+    database.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a PDF waits for its queued AI turn instead of expiring before the provider creates a response', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'basketra-durable-pdf-queue-wait-'));
+  const dataDir = join(root, 'data');
+  const fileStore = new FileStore(join(dataDir, 'files'), join(root, 'tmp'), 1024 * 1024);
+  const stored = fileStore.storeBase64({
+    base64: Buffer.from('%PDF-1.4\nqueue').toString('base64'),
+    mimeType: 'application/pdf',
+    originalName: 'queued.pdf',
+  });
+  const createdAt = '2026-09-01T00:00:00.000Z';
+  const database = new BasketraDatabase(join(dataDir, 'basketra.db'), {
+    clock: () => new Date(createdAt),
+  });
+  const job = database.createReceiptExtractionJob({
+    captures: [{ storageKey: stored.storageKey, originalName: 'queued.pdf' }],
+    verifyWithAi: true,
+  });
+  const durableStore = new ReceiptDurableJobStore(database.path, {
+    clock: () => new Date('2026-09-01T00:04:59.999Z'),
+  });
+  const extraction = new ReceiptExtractionService(fileStore, unusedAiProvider, 0, new CountingOcrProvider());
+  const runner = new ReceiptDurableExtractionRunner({
+    durableStore,
+    extractionService: extraction,
+    fileStore,
+    now: () => new Date('2026-09-01T00:04:59.999Z'),
+    responses: {
+      async create(input): Promise<ReceiptRemoteResponse> {
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, 10);
+          input.signal?.addEventListener('abort', () => {
+            clearTimeout(timer);
+            reject(new DOMException('QUEUE_WAIT_ABORTED', 'AbortError'));
+          }, { once: true });
+        });
+        return { id: 'resp_queuewait123', status: 'completed', interpretation };
+      },
+      async get() { throw new Error('GET_MUST_NOT_RUN'); },
+      async cancel() { throw new Error('CANCEL_MUST_NOT_RUN'); },
+    },
+  });
+
+  try {
+    const result = await runner.run(job);
+    assert.equal(result.final.retailerName, 'ALCAMPO');
+    assert.equal(durableStore.get(job.id)?.pages[0]?.remoteStatus, 'completed');
+  } finally {
+    extraction.dispose();
+    durableStore.close();
+    database.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 const unusedAiProvider = (): AiProvider => ({
   async getCapabilities() {
     return { structuredOutput: true, jsonObject: true, image: true, pdf: true, internetSearch: false };

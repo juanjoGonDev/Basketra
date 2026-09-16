@@ -13,15 +13,16 @@ import { persistAndRenderCaptures } from './receipt-capture.js';
 import {
   abortPageWork,
   captureRequest,
-  clearCombinedReview,
   clearReceiptExtractionJob,
   requestExtraction,
   retryFailedReceiptExtractionJob,
+  startAutomaticCaptureProcessing,
   startReceiptProgress,
   stopReceiptProgress,
   updateGlobalProgress,
 } from './receipt-lifecycle.js';
 import {
+  applyCaptureDrafts,
   applyExtraction,
   applyRetailerCandidate,
   renderReviewReference,
@@ -297,9 +298,15 @@ export function retryCaptureProcessing(index) {
     if (task.key === key && task.token === state.runToken) task.controller.abort();
   }
   state.pageQueue = state.pageQueue.filter(entry => entry.key !== key);
-  clearCombinedReview();
   const page = createPageState(previous);
   state.pageStates.set(key, page);
+
+  if (capture.mimeType === 'application/pdf' && state.aiConfigured) {
+    persistAndRenderCaptures();
+    startAutomaticCaptureProcessing([capture]);
+    return;
+  }
+
   state.verifyWithAi = state.aiConfigured;
   state.processing = true;
   if (!state.progressTimer) startReceiptProgress();
@@ -338,7 +345,6 @@ export async function retryAiCorrection(index) {
     if (task.key === key && task.token === state.runToken) task.controller.abort();
   }
   state.pageQueue = state.pageQueue.filter(entry => entry.key !== key);
-  clearCombinedReview({ keepPanel: true });
   page.version += 1;
   page.status = 'ready';
   page.error = '';
@@ -391,6 +397,7 @@ export function cancelReceiptExtraction() {
   abortPageWork({ markCancelled: true });
   state.processing = false;
   state.finalizing = false;
+  stopReceiptProgress({ hide: true });
   persistAndRenderCaptures();
   $('#receipt-state').textContent = 'Análisis cancelado. Las capturas, los OCR parciales y las páginas completadas se conservan.';
 }
@@ -419,33 +426,32 @@ export async function finishCurrentRunWhenIdle() {
 export async function assembleCompletedPages(token) {
   if (token !== state.runToken || state.finalizing) return;
   state.finalizing = true;
-  updateGlobalProgress();
   const controller = new AbortController();
   state.assemblyController = controller;
+  updateGlobalProgress();
   try {
-    const requests = state.captures.map(capture => {
-      const page = state.pageStates.get(captureKey(capture));
-      return captureRequest(capture, canonicalPageText(page));
-    });
-    const result = await requestExtraction(requests, false, controller.signal);
-    if (token !== state.runToken || controller.signal.aborted) return;
-    const rawOriginalText = state.captures
-      .map(capture => state.pageStates.get(captureKey(capture))?.rawText || '')
-      .filter(Boolean)
-      .join('\n')
-      .trim();
-    applyExtraction(result.extraction, rawOriginalText || result.extraction.originalText || '');
-    const articleCount = result.extraction.final.articleCount;
-    const hasManualPages = state.captures.some(capture => (
-      state.pageStates.get(captureKey(capture))?.status === 'manual'
-    ));
-    if (hasManualPages) {
-      $('#receipt-state').textContent = 'Revisión manual preparada. Corrige cantidades e importes y pulsa “Validar líneas” antes de confirmar.';
-    } else {
-      $('#receipt-state').textContent = articleCount === undefined
-        ? 'Todas las imágenes están combinadas. Revisa las líneas, cantidades y total antes de confirmar.'
-        : `Todas las imágenes están combinadas. El ticket indica ${articleCount} artículos; revisa las líneas y el total.`;
+    if (token !== state.runToken) return;
+    // Unrelated uploads never share arithmetic validation: every completed capture owns its draft.
+    // A single capture still asks the server for the authoritative combined extraction.
+    if (state.verifyWithAi || state.captures.length > 1) {
+      const drafts = applyCaptureDrafts();
+      $('#receipt-state').textContent = drafts.length === 1
+        ? 'Ticket preparado. Revisa las líneas, cantidades y total antes de confirmar.'
+        : `${drafts.length} tickets preparados. Revisa y confirma cada uno por separado.`;
+      return;
     }
+
+    const combined = await requestExtraction(
+      state.captures.map(capture => captureRequest(
+        capture,
+        canonicalPageText(state.pageStates.get(captureKey(capture))),
+      )),
+      false,
+      controller.signal,
+    );
+    if (token !== state.runToken || controller.signal.aborted) return;
+    applyExtraction(combined.extraction);
+    $('#receipt-state').textContent = 'Ticket preparado. Revisa las líneas, cantidades y total antes de confirmar.';
   } catch (error) {
     if (error.name !== 'AbortError' && token === state.runToken) {
       $('#receipt-state').textContent = `${error.message}. Las páginas completadas se conservan; vuelve a procesar para combinar.`;
@@ -454,7 +460,7 @@ export async function assembleCompletedPages(token) {
     if (token === state.runToken) {
       state.processing = false;
       state.finalizing = false;
-      state.assemblyController = null;
+      if (state.assemblyController === controller) state.assemblyController = null;
       stopReceiptProgress({ hide: true });
       updateGlobalProgress();
       persistAndRenderCaptures();

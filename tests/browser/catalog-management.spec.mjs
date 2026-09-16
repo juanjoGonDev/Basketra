@@ -182,13 +182,9 @@ test('receipt line total is read-only, backend-derived and ignores stale calcula
   await page.locator('.bottom-nav').getByRole('button', { name: 'Tickets', exact: true }).click();
   await page.evaluate(() => import('/receipt-review.js').then(({ addBlankLine }) => addBlankLine()));
   await expect(page.locator('.receipt-item')).toHaveCount(1);
-  const reviewPanel = page.locator('#receipt-review-panel');
-  if (!(await reviewPanel.evaluate(element => element.open))) {
-    await reviewPanel.locator(':scope > summary').click();
-  }
 
   const editor = page.locator('#receipt-line-dialog');
-  if (!(await editor.isVisible())) await page.locator('.receipt-line-compact').last().click();
+  if (!(await editor.isVisible())) await page.locator('#receipt-detected-list .receipt-detected-item').last().click();
   await expect(editor).toBeVisible();
   const quantity = editor.locator('[data-field="quantity"]');
   const unitPrice = editor.locator('[data-field="unitPriceEuro"]');

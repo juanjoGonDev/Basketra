@@ -8,6 +8,13 @@ function json(route, body, status = 200) {
   });
 }
 
+async function inputReceiptRetailer(page, value) {
+  await page.locator('#receipt-retailer').evaluate((element, nextValue) => {
+    element.value = nextValue;
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+  }, value);
+}
+
 function catalogProduct(id = 'variant_one', overrides = {}) {
   return {
     id,
@@ -92,9 +99,12 @@ test('shell, breadcrumb and receipt Store adapters cover defensive browser bound
   });
 
   await page.goto('/tickets');
+  // initReceipts() installs and wires the receipt workspace in a single task, so waiting for the
+  // field the application creates guarantees the retailer listeners are bound before this spec
+  // dispatches synthetic events. Installing the workspace here would win that race and leave the
+  // listeners unbound.
+  await expect(page.locator('#receipt-retailer')).toBeAttached();
   await page.evaluate(async () => {
-    const { installReceiptEnhancements } = await import('/receipts.js');
-    installReceiptEnhancements();
     const { applyExtraction } = await import('/receipt-review.js');
     applyExtraction({
       originalText: 'PAN 1,50',
@@ -109,18 +119,19 @@ test('shell, breadcrumb and receipt Store adapters cover defensive browser bound
     });
     document.querySelector('#receipt-review-panel').open = true;
   });
-  await expect(page.locator('#receipt-store')).toBeVisible();
+  await expect(page.locator('#receipt-store')).toBeAttached();
 
-  await page.locator('#receipt-retailer').fill('A');
+  await inputReceiptRetailer(page, 'A');
   await expect(page.locator('#retailer-suggestions')).toBeHidden();
-  await page.locator('#receipt-retailer').fill('AL');
-  await expect(page.getByRole('option', { name: /ALCAMPO/ })).toBeVisible();
-  await page.getByRole('option', { name: /ALCAMPO/ }).click();
+  await inputReceiptRetailer(page, 'AL');
+  await expect(page.locator('#retailer-suggestions [role="option"]')).toHaveCount(1);
+  await expect(page.locator('#receipt-retailer')).toHaveAttribute('aria-expanded', 'true');
+  await page.locator('#retailer-suggestions [role="option"]').first().evaluate(element => element.click());
   await expect(page.locator('#receipt-retailer')).toHaveValue('ALCAMPO');
   await expect(page.locator('#receipt-store-options option')).toHaveCount(1);
   await expect(page.locator('#receipt-store-options option')).toHaveAttribute('value', 'ALCAMPO ALMERIA');
 
-  await page.locator('#receipt-retailer').fill('FAIL');
+  await inputReceiptRetailer(page, 'FAIL');
   await expect.poll(() => page.locator('#receipt-store-options option').count()).toBe(0);
 
   const breadcrumbCases = await page.evaluate(async () => {

@@ -124,12 +124,15 @@ test('a durable PDF provider failure permits blank manual entry without hiding r
   releaseLateRefresh();
   await expect.poll(() => lateRefreshCompleted).toBe(true);
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Revisión manual');
-  await expect(page.getByText('Entrada manual pendiente; la captura original se conserva', { exact: true })).toBeVisible();
+  // A direct PDF page never invents OCR recovery copy: the manual stage pill and the preserved file
+  // name carry the state. The image-only manual notice is covered by the page copy contract test.
+  await expect(page.getByText('Entrada manual pendiente; la captura original se conserva', { exact: true })).toHaveCount(0);
   await expect(details.getByRole('button', { name: 'Volver a analizar con IA', exact: true })).toBeVisible();
   await expect(page.locator('.capture-card')).toHaveCount(1);
   await expect(page.getByText('private provider PDF detail')).toHaveCount(0);
-  await expect(page.locator('#receipt-review-panel')).toHaveAttribute('open', '');
-  await expect(page.locator('#receipt-review-reference')).toContainText('ticket-without-ocr.pdf');
+  await expect(page.locator('#receipt-review-panel')).toBeHidden();
+  await expect(page.locator('#receipt-detected-stream')).toBeVisible();
+  await expect(page.locator('.capture-card').first()).toContainText('ticket-without-ocr.pdf');
 });
 
 test('unknown page states and stale delegated actions fail closed without mutating captures', async ({ page }) => {
