@@ -26,12 +26,18 @@ function walk(suite, parentTitle) {
 
 for (const suite of report.suites || []) walk(suite, suite.file || '');
 
-const summary = failures.length === 0
-  ? `${label}: every selected test passed (${report.stats?.expected ?? 0} expected)`
-  : `${label}: ${failures.length} failure(s)\n\n${failures.join('\n\n---\n\n')}`;
-const slice = summary.slice(0, 6000)
-  .replaceAll('%', '%25')
-  .replaceAll('\r', '%0D')
-  .replaceAll('\n', '%0A');
-const level = failures.length === 0 ? 'notice' : 'error';
-process.stdout.write(`::${level} title=${label}::${slice}\n`);
+function encode(message) {
+  return message.slice(0, 5500)
+    .replaceAll('%', '%25')
+    .replaceAll('\r', '%0D')
+    .replaceAll('\n', '%0A');
+}
+
+if (failures.length === 0) {
+  process.stdout.write(`::notice title=${label}::${encode(`${label}: every selected test passed (${report.stats?.expected ?? 0} expected)`)}\n`);
+} else {
+  // One annotation per failure: a single message would be truncated before the last error.
+  failures.forEach((failure, index) => {
+    process.stdout.write(`::error title=${label} ${index + 1}/${failures.length}::${encode(failure)}\n`);
+  });
+}

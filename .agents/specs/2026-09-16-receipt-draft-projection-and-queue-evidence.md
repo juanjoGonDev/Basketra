@@ -200,6 +200,12 @@ relaxing the gate.
 - `app.js:398` also carried an unreachable branch: the editor session always stores a return-focus
   selector, so `returnFocusSelector ? document.querySelector(returnFocusSelector) : null` could never
   take the `null` side and no test could ever cover it.
+- Driving the plural concurrency copy exposed a product bug: `operations.js` built the plural by
+  appending `es` to the accented singular, so any concurrency above one rendered
+  `3 validaciónes de ticket a la vez`.
+- The legacy sticky branch also needs `#confirm-receipt` in the document: the compact summary adopts
+  that button, so removing `#receipt-live-summary-actions` without moving the button back makes
+  `syncStickyReviewSummary()` stop at its `!confirm` guard instead of reaching the legacy branch.
 
 ## Scope
 
@@ -210,6 +216,8 @@ relaxing the gate.
   for three parallel ticket validations.
 - `src/web/app.js`: the focus fallback drops the unreachable ternary; the trigger element stays the
   only fallback and the invariant is documented at the call site.
+- `src/web/operations.js`: the provider summary chooses between `validación` and `validaciones`
+  instead of appending `es` to the accented singular.
 - No API, schema, dependency or server change.
 
 ## Decisions
@@ -220,6 +228,8 @@ relaxing the gate.
     cannot produce; the surrounding invariant is documented where the selector is consumed.
 11. Boundary tests wait for the application-created workspace before driving events, reusing the boot
     barrier from the second round so they cannot pass for the wrong reason.
+12. A boundary test that drives a user-visible string also pins it: the plural concurrency copy is now
+    asserted in both directions, which is what caught the misspelling.
 
 ## Acceptance
 
@@ -228,11 +238,13 @@ relaxing the gate.
   keeps focus, restores the line on cancel, falls back to the first line and to the trigger focus,
   refreshes the compact category summary in both directions, renders evidence with and without
   captures, and leaves the review model untouched when a guard stops an event.
-- The provider summary reports `3 validaciones de ticket a la vez`.
+- The provider summary reports `1 validación de ticket a la vez` and
+  `3 validaciones de ticket a la vez`.
 - `pnpm quality` passes locally.
 
 ## Rollback
 
-Revert the new boundary spec, the plural-copy assertion and the focus-fallback simplification. The
+Revert the new boundary spec, the plural-copy assertions, the concurrency noun fix and the
+focus-fallback simplification. The
 aggregate browser coverage gate reports the same 43 uncovered changed lines, branches and functions,
 and `🌐 Browser coverage` fails again as soon as every shard passes.

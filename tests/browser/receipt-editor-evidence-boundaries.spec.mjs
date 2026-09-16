@@ -139,7 +139,7 @@ test('a category change in the review refreshes the compact line summary', async
   expect(ignored).toBe('Fruta');
 });
 
-test('receipt evidence and the sticky summary keep their defensive boundaries', async ({ page }) => {
+test('receipt evidence falls back safely without captures, content or a previous selection', async ({ page }) => {
   await openReviewedTicket(page);
 
   const reads = await page.evaluate(async () => {
@@ -171,27 +171,58 @@ test('receipt evidence and the sticky summary keep their defensive boundaries', 
     document.querySelector('#receipt-evidence-content').remove();
     receipts.renderReceiptEvidence();
     output.contentStillMissing = document.querySelector('#receipt-evidence-content') === null;
-
-    // The sticky summary stays hidden while the compact actions exist; only the legacy branch
-    // restores it once they are gone.
-    state.items = [];
-    receipts.syncStickyReviewSummary();
-    output.stickyHiddenWithActions = document.querySelector('#receipt-review-sticky-summary').hidden;
-    document.querySelector('#receipt-live-summary-actions').remove();
-    receipts.syncStickyReviewSummary();
-    output.stickyHiddenWithoutActions = document.querySelector('#receipt-review-sticky-summary').hidden;
     return output;
   });
 
-  expect(reads.emptySelectorValue).toBe('');
-  expect(reads.emptyContent).toBe(0);
-  expect(reads.emptyDialogOpen).toBe(false);
-  expect(reads.optionCount).toBe(2);
-  expect(reads.restoredValue).toBe('key_b');
-  expect(reads.pdfTitle).toBe('Comprobante PDF: ticket-b.pdf');
-  expect(reads.contentStillMissing).toBe(true);
-  expect(reads.stickyHiddenWithActions).toBe(true);
-  expect(reads.stickyHiddenWithoutActions).toBe(false);
+  expect(reads).toEqual({
+    emptySelectorValue: '',
+    emptyContent: 0,
+    emptyDialogOpen: false,
+    optionCount: 2,
+    restoredValue: 'key_b',
+    pdfTitle: 'Comprobante PDF: ticket-b.pdf',
+    contentStillMissing: true,
+  });
+});
+
+test('the sticky summary only returns when the compact actions are gone', async ({ page }) => {
+  await openReviewedTicket(page);
+
+  const reads = await page.evaluate(async () => {
+    const [{ state }, receipts] = await Promise.all([import('/receipt-state.js'), import('/receipts.js')]);
+    const sticky = document.querySelector('#receipt-review-sticky-summary');
+    const output = {
+      actionsBefore: document.querySelectorAll('#receipt-live-summary-actions').length,
+      confirmParentBefore: document.querySelector('#confirm-receipt')?.parentElement?.id ?? '',
+    };
+
+    // The compact summary owns the confirm button and keeps the legacy sticky hidden.
+    state.items = [];
+    receipts.syncStickyReviewSummary();
+    output.hiddenWithActions = sticky.hidden;
+
+    // The legacy branch needs the confirm button in the document, so move it out before removing the
+    // compact actions that adopted it.
+    document.querySelector('#receipt-review-panel').append(document.querySelector('#confirm-receipt'));
+    document.querySelector('#receipt-live-summary-actions').remove();
+    output.actionsAfter = document.querySelectorAll('#receipt-live-summary-actions').length;
+    receipts.syncStickyReviewSummary();
+    output.hiddenWithoutActions = sticky.hidden;
+    output.summaryMeta = document.querySelector('#receipt-review-summary-meta')?.textContent ?? '';
+    output.stickyChildren = [...sticky.children].length;
+    return output;
+  });
+
+  expect(reads).toEqual({
+    actionsBefore: 1,
+    confirmParentBefore: expect.any(String),
+    hiddenWithActions: true,
+    actionsAfter: 0,
+    hiddenWithoutActions: false,
+    summaryMeta: expect.any(String),
+    stickyChildren: expect.any(Number),
+  });
+  expect(reads.stickyChildren).toBeGreaterThan(1);
 });
 
 test('receipt review events stop at their guards before touching the ticket', async ({ page }) => {
