@@ -254,7 +254,8 @@ function renderAiSettings(settings) {
   }
   status.textContent = 'Configuración activa';
   status.dataset.state = 'ok';
-  detail.textContent = `${settings.model} · ${settings.baseUrl}${settings.apiKeyMask ? ` · token ${settings.apiKeyMask}` : ''} · ${settings.maxRetries ?? 1} reintentos máx. · ${settings.receiptValidationConcurrency ?? 1} validación${(settings.receiptValidationConcurrency ?? 1) === 1 ? '' : 'es'} de ticket a la vez.`;
+  const concurrency = settings.receiptValidationConcurrency ?? 1;
+  detail.textContent = `${settings.model} · ${settings.baseUrl}${settings.apiKeyMask ? ` · token ${settings.apiKeyMask}` : ''} · ${settings.maxRetries ?? 1} reintentos máx. · ${concurrency} ${concurrency === 1 ? 'validación' : 'validaciones'} de ticket a la vez.`;
 }
 
 function renderRuntimeSettings(settings, force = false) {

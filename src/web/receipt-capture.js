@@ -608,7 +608,8 @@ export function renderCaptureProgress(card, capture, index) {
   details.className = 'capture-card__details';
   details.dataset.capturePageProgress = key;
   details.dataset.state = page.status;
-  details.open = false;
+  // Rows stay collapsed by default; an operator-expanded or failure-expanded row survives a re-render.
+  details.open = state.expandedCaptureKey === key;
 
   const summary = document.createElement('summary');
   summary.className = 'capture-card__summary';

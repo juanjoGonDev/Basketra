@@ -394,8 +394,9 @@ function closeReceiptLineEditor({ revert = false, deleteLine = false, focus = tr
   }
   if (focus) {
     requestAnimationFrame(() => {
-      // Resolve at focus time: the detected list re-renders while the editor closes.
-      const target = (returnFocusSelector ? document.querySelector(returnFocusSelector) : null) || returnFocus;
+      // Resolve at focus time: the detected list re-renders while the editor closes. The session
+      // always carries a selector, so the trigger element is the only fallback.
+      const target = document.querySelector(returnFocusSelector) || returnFocus;
       target?.focus();
     });
   }

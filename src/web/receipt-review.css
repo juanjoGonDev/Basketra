@@ -868,7 +868,7 @@
 }
 
 .receipt-source-queue .capture-card__ocr-preview {
-  display: none;
+  min-width: 0;
 }
 
 .receipt-source-queue .capture-card__partial,
