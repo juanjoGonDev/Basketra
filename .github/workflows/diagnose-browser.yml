@@ -1,0 +1,59 @@
+name: Diagnose Browser failures
+
+on:
+  push:
+    branches:
+      - arena/01a0a6e0-basketra
+
+permissions: read-all
+
+concurrency:
+  group: diagnose-browser-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    name: "Diagnose candidate Browser tests"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BASKETRA_BROWSER_COVERAGE_COLLECT_ONLY: "1"
+      BASKETRA_BROWSER_PREBUILT: "1"
+      PLAYWRIGHT_JSON_OUTPUT_NAME: ".ci/diagnose-report.json"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.23.1
+      - name: Pin pnpm and TypeScript
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.0 --activate
+          npm install --global --ignore-scripts typescript@5.8.3
+      - name: Frozen install
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Restore exact Chromium cache
+        id: browser-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: basketra-diagnose-playwright-${{ runner.os }}-1.59.1
+          restore-keys: |
+            basketra-playwright-${{ runner.os }}-1.59.1-
+      - name: Install exact Chromium binary
+        if: steps.browser-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install chromium
+      - name: Build browser runtime
+        run: pnpm build
+      - name: Run candidate Browser tests
+        run: |
+          set -uo pipefail
+          pnpm exec playwright test --test-list=.ci/diagnose-tests.txt --reporter=json --workers=1 || true
+          test -f .ci/diagnose-report.json
+      - name: Publish failures as annotations
+        if: always()
+        run: node .ci/report-diagnose-failures.mjs

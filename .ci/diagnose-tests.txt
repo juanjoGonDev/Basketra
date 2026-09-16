@@ -1,0 +1,29 @@
+changed-code-boundaries.spec.mjs:424:1 › inventory Store CRUD, filters, validation and statistics exercise alternate states
+receipt-recovery-boundaries.spec.mjs:55:1 › a durable PDF provider failure permits blank manual entry without hiding retry recovery
+basketra.spec.mjs:390:1 › automatic local OCR creates editable euro rows with source context and imports without AI
+receipt-ai-background-job.spec.mjs:56:1 › completed PDF progress renders structured category lines without any OCR UI
+receipt-processing-boundaries.spec.mjs:99:1 › an AbortError marks automatic OCR cancelled without converting it into an AI or OCR failure
+basketra.spec.mjs:504:1 › AI unavailability is recoverable and does not overwrite list input
+components-gallery.spec.mjs:122:1 › receipt invoice summary projects price, discount and validation in a shared dialog
+receipt-auto-review-flow.spec.mjs:135:1 › durable AI failure retries from server OCR without replaying browser OCR
+shared-controls-visual.spec.mjs:66:3 › ticket metadata controls align with a wrapped store explanation at 768px
+basketra.spec.mjs:370:1 › local suggestions ignore stale responses and never require AI
+inventory-layout-regressions.spec.mjs:65:1 › statistics keep every desktop table column inside its visible surface
+receipt-auto-review-flow.spec.mjs:73:1 › receipt upload starts the two-slot OCR pool without exposing a second processing step
+shopping-ticket.spec.mjs:444:1 › product creation can reuse an existing canonical parent from the shopping item editor
+catalog-management.spec.mjs:56:1 › inventory products use a separate paginated list and editable detail on mobile
+mobile-settings-receipts.spec.mjs:88:1 › automatic AI analysis uses one durable whole-ticket job and receipt Store autofill
+receipt-discount-editor.spec.mjs:195:1 › whole-ticket validation and confirmation wait for the latest derived calculation
+ticket-history-routing.spec.mjs:61:1 › ticket history supports direct deep links and browser back to capture
+category-query-race.spec.mjs:67:1 › category save completion does not reopen detail after the user returns to the list
+operations.spec.mjs:136:1 › settings verify the managed-token image and strict JSON capability
+receipt-durable-reload.spec.mjs:142:1 › reload keeps progressive OCR visible without replaying OCR or AI creation
+ui-design.spec.mjs:205:1 › category rows keep their detail action separate from their name at 320px
+changed-code-boundaries.spec.mjs:82:1 › shell, breadcrumb and receipt Store adapters cover defensive browser boundaries
+paged-selection.spec.mjs:87:1 › product selection survives pagination and bulk delete sends only explicit ids
+receipt-editor-invoice-ui.spec.mjs:384:1 › invoice summary contains extreme localized values without overlap or overflow
+ui-design.spec.mjs:153:1 › keyboard focus stays visibly exposed on primary and visually hidden controls
+changed-code-residuals.spec.mjs:30:1 › shell defensive branches keep receipt Store options and generic swipe fail-closed
+product-list-visual.spec.mjs:86:1 › product list opens a full-page product detail with accessible price history
+receipt-line-validation.spec.mjs:118:1 › a legacy amount discount stays visible, editable and becomes the typed canonical validation contract
+webapi-image-limits.spec.mjs:87:1 › product photo upload fails closed when current WebAPI limits cannot be read
