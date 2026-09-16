@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 
-const REPORT = '.ci/diagnose-report.json';
+const REPORT = process.argv[2] || '.ci/diagnose-report.json';
+const LABEL = process.argv[3] || 'diagnostic';
 
 function strip(value) {
   return String(value ?? '').replace(/\u001b\[[0-9;]*m/gu, '').replace(/\r/gu, '');
@@ -15,7 +16,7 @@ function encodeTitle(value) {
 }
 
 if (!existsSync(REPORT)) {
-  console.log('::error title=diagnostic report missing::Playwright produced no JSON report; the run failed before reporting.');
+  console.log(`::error title=${encodeTitle(`${LABEL} report missing`)}::Playwright produced no JSON report; the run failed before reporting.`);
   process.exit(0);
 }
 
@@ -48,15 +49,15 @@ function walk(suite, parents) {
 for (const suite of report.suites ?? []) walk(suite, []);
 
 const stats = report.stats ?? {};
-console.log(`Diagnosed ${failures.length} non-passing results (unexpected ${stats.unexpected ?? 0}, expected ${stats.expected ?? 0}).`);
+console.log(`[${LABEL}] Diagnosed ${failures.length} non-passing results (unexpected ${stats.unexpected ?? 0}, expected ${stats.expected ?? 0}).`);
 
 for (const error of report.errors ?? []) {
-  console.log(`::error title=${encodeTitle('global Playwright error')}::${encodeMessage(strip(error.message ?? '').slice(0, 3000))}`);
+  console.log(`::error title=${encodeTitle(`global Playwright error (${LABEL})`)}::${encodeMessage(strip(error.message ?? '').slice(0, 6000))}`);
 }
 
 for (const failure of failures.slice(0, 40)) {
-  const title = `${failure.status} after ${failure.duration}ms - ${failure.title}`;
-  console.log(`::error title=${encodeTitle(title)},file=${failure.file},line=${failure.line}::${encodeMessage(failure.message.slice(0, 3000))}`);
+  const title = `[${LABEL}] ${failure.status} after ${failure.duration}ms - ${failure.title}`;
+  console.log(`::error title=${encodeTitle(title)},file=${failure.file},line=${failure.line}::${encodeMessage(failure.message.slice(0, 6000))}`);
 }
 
-if (failures.length === 0) console.log('No failures were recorded in the diagnostic report.');
+if (failures.length === 0) console.log(`No failures were recorded in the ${LABEL} report.`);

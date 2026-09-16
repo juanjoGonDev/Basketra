@@ -49,6 +49,16 @@ jobs:
         run: pnpm exec playwright install chromium
       - name: Build browser runtime
         run: pnpm build
+      - name: Run receipt wiring probe
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: ".ci/probe-report.json"
+        run: |
+          set -uo pipefail
+          pnpm exec playwright test --config=playwright.diagnose.config.mjs --reporter=json || true
+          test -f .ci/probe-report.json
+      - name: Publish probe facts as annotations
+        if: always()
+        run: node .ci/report-diagnose-failures.mjs .ci/probe-report.json probe
       - name: Run candidate Browser tests
         run: |
           set -uo pipefail
@@ -56,4 +66,4 @@ jobs:
           test -f .ci/diagnose-report.json
       - name: Publish failures as annotations
         if: always()
-        run: node .ci/report-diagnose-failures.mjs
+        run: node .ci/report-diagnose-failures.mjs .ci/diagnose-report.json candidates
