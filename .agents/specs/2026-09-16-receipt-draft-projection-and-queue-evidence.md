@@ -124,6 +124,15 @@ migrate the specs whose expectations or timing the current contract replaced.
   spec-installed field satisfied `toBeAttached()` before `bindEvents()` ran. On `main` the equivalent
   `toBeVisible()` wait implicitly synchronised with boot; migrating it to `toBeAttached()` (required
   because `#receipt-review-panel` is now `display: none`) removed that synchronisation.
+- The first `Pull Request Quality` run for this branch (`35079435382`) was cancelled by the
+  pre-existing one-minute job budget of `✅ Changed coverage` in `ci.yml`, which is identical on
+  `main` and was not modified here. `scripts/check-diff-coverage.mjs` only takes its heavy path when
+  one of the five pinned production files changed against the pull request base, which this branch
+  inherits from the durable ticket review work (`src/receipts/service.ts`, `src/operations/gateway.ts`).
+  That path re-runs the unit, integration and end-to-end suites serially under coverage and measured
+  34 s locally, so the job sits close to its budget and runner variance decides the outcome. The
+  fifteen browser shards that ran before the cancellation all passed, including the shard that owns
+  the previously failing retailer and receipt specs.
 
 ## Scope
 
