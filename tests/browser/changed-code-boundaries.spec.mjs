@@ -99,9 +99,12 @@ test('shell, breadcrumb and receipt Store adapters cover defensive browser bound
   });
 
   await page.goto('/tickets');
+  // initReceipts() installs and wires the receipt workspace in a single task, so waiting for the
+  // field the application creates guarantees the retailer listeners are bound before this spec
+  // dispatches synthetic events. Installing the workspace here would win that race and leave the
+  // listeners unbound.
+  await expect(page.locator('#receipt-retailer')).toBeAttached();
   await page.evaluate(async () => {
-    const { installReceiptEnhancements } = await import('/receipts.js');
-    installReceiptEnhancements();
     const { applyExtraction } = await import('/receipt-review.js');
     applyExtraction({
       originalText: 'PAN 1,50',

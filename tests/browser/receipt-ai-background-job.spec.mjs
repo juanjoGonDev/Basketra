@@ -598,7 +598,10 @@ test('retrying a cancelled PDF starts another durable AI job without local OCR',
   if (!(await queue.evaluate(element => element.open))) await queue.locator(':scope > summary').click();
   await page.getByRole('button', { name: 'Cancelar todo el análisis', exact: true }).click();
   await expect(page.locator('.capture-card .status-pill')).toHaveText('Cancelada');
-  await page.locator('.capture-card__details > summary').click();
+  const cancelledDetails = page.locator('.capture-card__details').first();
+  if (!(await cancelledDetails.evaluate(element => element.open))) {
+    await cancelledDetails.locator(':scope > summary').click();
+  }
 
   await page.getByRole('button', { name: 'Reintentar PDF', exact: true }).click();
   await expect.poll(() => submittedJobs.length).toBe(2);

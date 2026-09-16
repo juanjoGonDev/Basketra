@@ -90,3 +90,78 @@ Revert the assembly capture-count condition, `applyJobDraft`, the `completeBackg
 the queue OCR rule and the migrated spec assertions. Local multi-capture runs combine into one ticket
 again, a terminal durable job projects empty per-page drafts, and the queue hides the progressive OCR
 disclosure.
+
+# Second round: queue expansion, confirm feedback and boot-synchronised specs
+
+## Request
+
+After the first round, a diagnostic workflow re-ran the seven originally failing tests plus the
+shard-27 candidates: five passed and four still failed. Repair the remaining product regression and
+migrate the specs whose expectations or timing the current contract replaced.
+
+## Evidence
+
+- Diagnose run `35076301097` published the four remaining failures through check-run annotations, and
+  a temporary probe spec reproduced the retailer wiring in isolation.
+- `mobile-settings-receipts.spec.mjs:181` expected `#receipt-state` to contain `Ticket importado`.
+  `confirmReceipt()` clears the analysis status and reports the import through the toast
+  (`Ticket confirmado`, or `Ticket importado. Continúa con el siguiente ticket.` when drafts remain),
+  which is what every other confirm spec asserts. Everything upstream of that line passed: three
+  in-flight pills, retailer `ALCAMPO`, store `ALCAMPO ALMERIA`, declared total `20226`, four items and
+  a confirm payload keeping `ai.pages` with three entries.
+- `receipt-recovery-boundaries.spec.mjs:130` could not find `Volver a analizar con IA` after
+  `useManualReview`. `renderCaptureProgress` hardcoded `details.open = false`, so the re-render caused
+  by the manual transition collapsed the row and hid its recovery actions, even though
+  `state.expandedCaptureKey` is still written by the disclosure toggle, set by `failBackgroundJob` and
+  `recordAiFailure`, and cleared when the AI retry succeeds.
+  `.agents/specs/2026-08-19-receipt-auto-review-flow.md` keeps processing/recovery details collapsed by
+  default *except* for active or failed work that needs user attention.
+- `changed-code-boundaries.spec.mjs:124` and `changed-code-residuals.spec.mjs:82` dispatched synthetic
+  `input`/`change` events immediately after `page.goto('/tickets')`. The probe measured both orders:
+  installing the workspace from the spec produced zero suggestion options, `aria-expanded="false"` and
+  no store request, while waiting for the application-created `#receipt-retailer` produced the
+  suggestion option and the store request. `initReceipts()` installs and binds in one task, so the
+  spec-installed field satisfied `toBeAttached()` before `bindEvents()` ran. On `main` the equivalent
+  `toBeVisible()` wait implicitly synchronised with boot; migrating it to `toBeAttached()` (required
+  because `#receipt-review-panel` is now `display: none`) removed that synchronisation.
+
+## Scope
+
+- `src/web/receipt-capture.js`: `renderCaptureProgress` restores `details.open = state.expandedCaptureKey === key`.
+- `tests/browser/mobile-settings-receipts.spec.mjs`: the whole-ticket import asserts the cleared
+  analysis status and the `Ticket confirmado` toast.
+- `tests/browser/changed-code-boundaries.spec.mjs` and `tests/browser/changed-code-residuals.spec.mjs`:
+  wait for the application-created retailer field instead of installing the receipt workspace.
+- `tests/browser/receipt-ai-background-job.spec.mjs`: the cancelled row uses the tolerant disclosure
+  pattern the other receipt specs already share, so a row that is legitimately open is not collapsed
+  by the click.
+- No API, schema, dependency or server change.
+
+## Decisions
+
+6. Queue rows stay collapsed by default; only an explicit operator expansion or a failure that needs
+   attention keeps a row open across re-renders. Hardcoding the collapsed state turned
+   `state.expandedCaptureKey` into dead state and hid recovery actions right after the transition that
+   makes them relevant.
+7. A spec that drives synthetic events must wait for the application to wire the workspace. Observing
+   the application-created field is a reliable boot barrier because installation and binding happen in
+   the same task; installing the workspace from the spec wins that race and leaves the listeners
+   unbound without any observable error.
+8. Confirm feedback lives in the toast, so import specs assert `#toast-message` instead of the
+   analysis status, which the confirm flow clears by contract.
+
+## Acceptance
+
+- A PDF page in manual review keeps its expanded row and exposes `Volver a analizar con IA`.
+- A completed or cancelled queue without a failure that needs attention keeps every row collapsed, as
+  `receipt-ai-background-job.spec.mjs` and `mobile-settings-receipts.spec.mjs` still assert.
+- The three-capture whole-ticket import clears `#receipt-state` and toasts `Ticket confirmado`.
+- The retailer specs render one suggestion for `AL`, fill `ALCAMPO` and one store option after
+  selecting it, and issue the `retailer=EMPTY` store request.
+- `pnpm quality` passes, including the browser changed-code coverage gate.
+
+## Rollback
+
+Revert the `details.open` expression, the toast assertion, the boot barriers and the tolerant
+disclosure click. Rows collapse on every re-render and hide recovery after any transition, the import
+spec expects status copy that no longer exists, and the two retailer specs race `initReceipts()` again.

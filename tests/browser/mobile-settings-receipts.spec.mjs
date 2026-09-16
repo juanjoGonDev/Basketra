@@ -178,7 +178,9 @@ test('automatic AI analysis uses one durable whole-ticket job and receipt Store 
   expect(payload.declaredTotalMinor).toBe(20_226);
   expect(payload.ai.pages).toHaveLength(3);
   expect(payload.originalText).toContain('ALCAMPO ALMERIA');
-  await expect(page.locator('#receipt-state')).toContainText('Ticket importado');
+  // A confirmed import clears the analysis status and reports through the toast.
+  await expect(page.locator('#receipt-state')).toHaveText('');
+  await expect(page.locator('#toast-message')).toHaveText('Ticket confirmado');
 });
 
 test('receipt cancellation stops queued automatic work and preserves every capture', async ({ page }, testInfo) => {
