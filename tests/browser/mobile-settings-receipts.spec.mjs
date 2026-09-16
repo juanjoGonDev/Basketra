@@ -144,7 +144,8 @@ test('automatic AI analysis uses one durable whole-ticket job and receipt Store 
   })));
 
   await expect(page.locator('.capture-card')).toHaveCount(3);
-  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Completada' })).toHaveCount(3);
+  // The durable job owns the whole analysis: every page waits on it until the terminal extraction lands.
+  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Verificando con IA' })).toHaveCount(3);
   expect(browserExtractionRequests).toBe(0);
   expect(createdAiJobs).toBe(1);
   await expect.poll(() => page.evaluate(() => localStorage.getItem('basketra.receiptExtractionJobId'))).toBe(jobId);
@@ -153,6 +154,7 @@ test('automatic AI analysis uses one durable whole-ticket job and receipt Store 
     entityType: 'receipt-extraction-job',
     entityId: id,
   })), jobId);
+  await expect(page.locator('.capture-card .status-pill').filter({ hasText: 'Completada' })).toHaveCount(3);
   await expect(page.locator('#receipt-state')).toContainText('Ticket preparado');
   await expect(page.locator('#receipt-retailer')).toHaveValue('ALCAMPO');
   await expect(page.locator('#receipt-store')).toHaveValue('ALCAMPO ALMERIA');

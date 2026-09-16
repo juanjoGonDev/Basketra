@@ -150,6 +150,41 @@ export function applyCaptureDrafts() {
   return state.receiptDrafts;
 }
 
+/**
+ * Projects one terminal durable extraction as a single draft group covering every capture of the job.
+ * A durable analysis is one bounded session for one physical receipt, so its pages never become
+ * independent drafts; the combined extraction stays the import authority.
+ */
+export function applyJobDraft(extraction, captures) {
+  saveActiveDraft();
+  const captureKeys = captures.map(capture => captureKey(capture)).filter(Boolean);
+  if (captureKeys.length === 0) {
+    state.receiptDrafts = [];
+    state.activeReceiptDraftKey = '';
+    return state.receiptDrafts;
+  }
+  const key = captureKeys[0];
+  const resultVersion = Number.isSafeInteger(extraction.resultVersion) ? extraction.resultVersion : 0;
+  const existing = state.receiptDrafts.find(draft => draft.key === key);
+  const reuse = Boolean(existing) && existing.resultVersion === resultVersion && existing.items.length > 0;
+  state.receiptDrafts = [{
+    key,
+    captureKeys,
+    extraction,
+    resultVersion,
+    items: cloneItems(reuse ? existing.items : extraction.final.items),
+    originalItems: cloneItems(reuse ? existing.originalItems : extraction.final.items),
+    originalText: reuse
+      ? (existing.originalText || extraction.originalText || '')
+      : (extraction.originalText || ''),
+    retailerName: existing?.retailerName || extraction.final.retailerName || '',
+    storeName: existing?.storeName || extraction.final.storeName || '',
+    totalMismatchApproved: existing?.totalMismatchApproved === true,
+  }];
+  activateReceiptDraft(key);
+  return state.receiptDrafts;
+}
+
 export function selectReceiptDraft(key) {
   saveActiveDraft();
   return activateReceiptDraft(key);

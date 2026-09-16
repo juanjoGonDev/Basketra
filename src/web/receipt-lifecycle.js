@@ -19,7 +19,7 @@ import {
   durableProgressStageToPageStatus,
 } from './receipt-page-state.js';
 import { persistAndRenderCaptures } from './receipt-capture.js';
-import { applyCaptureDrafts } from './receipt-review.js';
+import { applyJobDraft } from './receipt-review.js';
 import {
   cancelReceiptExtraction,
   enqueueCapture,
@@ -556,29 +556,23 @@ export function completeBackgroundJob(extraction, captures = activeJobCaptures()
     const result = pages.find(candidate => candidate?.position === index);
     page.status = 'completed';
     page.rawText = typeof result?.text === 'string' ? result.text : '';
-    const interpretation = extraction.ai?.pages?.find(candidate => candidate.position === index)?.interpretation;
-    page.result = interpretation
-      ? {
-        final: interpretation,
-        ai: { interpretation },
-        originalText: typeof result?.text === 'string' ? result.text : '',
-      }
-      : extraction;
+    // The terminal combined extraction is the import authority; per-page interpretations only drive
+    // progressive previews while the job is still running.
+    page.result = extraction;
     page.aiStatus = extraction.ai ? 'completed' : 'idle';
     page.aiError = '';
     page.aiErrorCode = '';
     page.aiRecovery = null;
     page.elapsedMs = Date.now() - page.startedAt;
   }
-  applyCaptureDrafts();
+  applyJobDraft(extraction, captures);
   state.processing = false;
   state.finalizing = false;
   clearReceiptExtractionJob();
   stopReceiptProgress({ hide: true });
   persistAndRenderCaptures();
-  $('#receipt-state').textContent = state.receiptDrafts.length === 1
-    ? 'Ticket preparado. Revisa las líneas, cantidades y total antes de confirmar.'
-    : `${state.receiptDrafts.length} tickets preparados. Revisa y confirma cada uno por separado.`;
+  // One durable job is one bounded session over one physical receipt, so it prepares a single ticket.
+  $('#receipt-state').textContent = 'Ticket preparado. Revisa las líneas, cantidades y total antes de confirmar.';
 }
 
 export function failBackgroundJob(errorCode = 'RECEIPT_EXTRACTION_FAILED', job, captures = activeJobCaptures()) {

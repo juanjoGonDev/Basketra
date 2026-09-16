@@ -164,6 +164,25 @@ test('direct PDF status copy never falls back to OCR terminology', async ({ page
   });
   expect(messages.join(' ')).toMatch(/PDF/u);
   expect(messages.join(' ')).not.toMatch(/OCR/u);
+
+  // The manual-entry notice belongs to image captures only; a PDF row without a schema-validated
+  // interpretation stays silent instead of borrowing OCR wording.
+  const manualCopy = await page.evaluate(async () => {
+    const { pagePartialText } = await import('/receipt-capture.js');
+    return {
+      image: pagePartialText({ status: 'manual', aiStatus: 'pending' }),
+      pdfWithoutInterpretation: pagePartialText({ directPdf: true, status: 'manual', aiStatus: 'pending' }),
+      pdfWithEmptyInterpretation: pagePartialText({
+        directPdf: true,
+        status: 'manual',
+        aiStatus: 'pending',
+        result: { final: { items: [] } },
+      }),
+    };
+  });
+  expect(manualCopy.image).toBe('Entrada manual pendiente; la captura original se conserva');
+  expect(manualCopy.pdfWithoutInterpretation).toBe('');
+  expect(manualCopy.pdfWithEmptyInterpretation).toBe('Revisión manual pendiente; el PDF original se conserva');
 });
 
 test('detected-store edit opens the shared source editor for its capture', async ({ page }) => {

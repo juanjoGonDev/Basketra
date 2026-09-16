@@ -431,7 +431,9 @@ export async function assembleCompletedPages(token) {
   updateGlobalProgress();
   try {
     if (token !== state.runToken) return;
-    if (state.verifyWithAi) {
+    // Unrelated uploads never share arithmetic validation: every completed capture owns its draft.
+    // A single capture still asks the server for the authoritative combined extraction.
+    if (state.verifyWithAi || state.captures.length > 1) {
       const drafts = applyCaptureDrafts();
       $('#receipt-state').textContent = drafts.length === 1
         ? 'Ticket preparado. Revisa las líneas, cantidades y total antes de confirmar.'
