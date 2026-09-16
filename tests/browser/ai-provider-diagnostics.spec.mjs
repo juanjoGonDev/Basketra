@@ -65,6 +65,11 @@ test('settings render remote, invalid, host, loopback and missing provider state
   await openAiSettings(page);
   await expect(page.locator('#ai-configuration-detail')).toContainText('token ••••safe');
 
+  current = settings({ receiptValidationConcurrency: 3 });
+  await page.reload();
+  await openAiSettings(page);
+  await expect(page.locator('#ai-configuration-detail')).toContainText('3 validaciones de ticket a la vez');
+
   current = settings({ configured: false, status: 'missing', missing: ['URL de WebAPI', 'Modelo'], baseUrl: undefined, model: undefined });
   await page.reload();
   await openAiSettings(page);

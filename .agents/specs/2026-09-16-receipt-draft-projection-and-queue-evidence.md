@@ -174,3 +174,65 @@ migrate the specs whose expectations or timing the current contract replaced.
 Revert the `details.open` expression, the toast assertion, the boot barriers and the tolerant
 disclosure click. Rows collapse on every re-render and hide recovery after any transition, the import
 spec expects status copy that no longer exists, and the two retailer specs race `initReceipts()` again.
+
+# Third round: aggregate browser coverage of the migrated review
+
+## Request
+
+With every browser shard green for the first time, `Pull Request Quality` reached the aggregate
+changed-code browser coverage gate (`🌐 Browser coverage`), which had been skipped while shards
+failed. It reported 43 uncovered changed lines, branches and functions. Repair the gap without
+relaxing the gate.
+
+## Evidence
+
+- A temporary workflow downloaded the 184 shard coverage payloads (109 MB) from run `35080943278`,
+  merged them exactly like the `browser-coverage` job and republished the gate output as a check-run
+  annotation, because job logs and artifacts cannot be downloaded from the diagnosis environment.
+- The uncovered set is the defensive surface of the migrated review: the line editor's
+  empty-description rejection and its session guard (`app.js:299,301-306`), the missing
+  `data-item-index` fallback (`app.js:338`), the focus fallback when no detected row remains
+  (`app.js:398`), the review `change` listener that refreshes the compact category summary
+  (`app.js:524-530`), the plural AI validation copy (`operations.js:257`), the legacy sticky-summary
+  branch (`receipts.js:107`), the evidence selector fallbacks
+  (`receipts.js:156,162,178,179,183,198`) and the review, keyboard and evidence event guards
+  (`receipts.js:670,689,691,699-703,713,715-719`).
+- `app.js:398` also carried an unreachable branch: the editor session always stores a return-focus
+  selector, so `returnFocusSelector ? document.querySelector(returnFocusSelector) : null` could never
+  take the `null` side and no test could ever cover it.
+
+## Scope
+
+- `tests/browser/receipt-editor-evidence-boundaries.spec.mjs` (new): five boundary tests that drive
+  the editor guards, the category change listener, the evidence renderer fallbacks, the legacy sticky
+  branch and the review/keyboard/evidence event guards through the listeners a user reaches.
+- `tests/browser/ai-provider-diagnostics.spec.mjs`: the provider summary also renders the plural copy
+  for three parallel ticket validations.
+- `src/web/app.js`: the focus fallback drops the unreachable ternary; the trigger element stays the
+  only fallback and the invariant is documented at the call site.
+- No API, schema, dependency or server change.
+
+## Decisions
+
+9. Changed UI code is exercised instead of excused: every uncovered path keeps its behavior and gains
+   a boundary test, so the aggregate gate keeps measuring real coverage rather than being relaxed.
+10. An unreachable defensive branch is removed instead of being preserved behind a state the product
+    cannot produce; the surrounding invariant is documented where the selector is consumed.
+11. Boundary tests wait for the application-created workspace before driving events, reusing the boot
+    barrier from the second round so they cannot pass for the wrong reason.
+
+## Acceptance
+
+- `🌐 Browser coverage` passes over the aggregate of every shard.
+- The five new boundary tests pass in the compact viewport: the editor rejects an empty description,
+  keeps focus, restores the line on cancel, falls back to the first line and to the trigger focus,
+  refreshes the compact category summary in both directions, renders evidence with and without
+  captures, and leaves the review model untouched when a guard stops an event.
+- The provider summary reports `3 validaciones de ticket a la vez`.
+- `pnpm quality` passes locally.
+
+## Rollback
+
+Revert the new boundary spec, the plural-copy assertion and the focus-fallback simplification. The
+aggregate browser coverage gate reports the same 43 uncovered changed lines, branches and functions,
+and `🌐 Browser coverage` fails again as soon as every shard passes.
